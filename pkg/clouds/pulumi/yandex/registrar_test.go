@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"gopkg.in/yaml.v3"
+
 	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -105,6 +107,101 @@ func TestProxySpecForwardsEverything(t *testing.T) {
 	// `http` rather than `serverless_containers`: the registrar is handed a hostname,
 	// not a container id, and the http integration is what forwards the target's Host.
 	Expect(spec).To(ContainSubstring("type: http"))
+}
+
+// TestProxySpecIsValidYamlAndForwardsHeadersAndQuery is the regression test for a gateway
+// that answered 200 while forwarding nothing. An API Gateway passes no query string and no
+// header but User-Agent unless the spec says otherwise, so the absence of these keys is a
+// silent defect: presigned URLs lose their signature, cookie sessions 401, and a
+// host-routing service serves its default site under every domain.
+//
+// The spec is assembled by string formatting, so it is parsed here rather than grepped —
+// one wrong indent produces a document YC rejects minutes into a deploy with a generic
+// "failed to create API gateway".
+func TestProxySpecIsValidYamlAndForwardsHeadersAndQuery(t *testing.T) {
+	RegisterTestingT(t)
+
+	const target = "bba8nrirdcjgkiereo9c.containers.yandexcloud.net"
+	var doc struct {
+		Paths map[string]struct {
+			AnyMethod struct {
+				Parameters []struct {
+					Name string `yaml:"name"`
+					In   string `yaml:"in"`
+				} `yaml:"parameters"`
+				Integration struct {
+					Type                     string            `yaml:"type"`
+					URL                      string            `yaml:"url"`
+					Query                    map[string]string `yaml:"query"`
+					Headers                  map[string]string `yaml:"headers"`
+					OmitEmptyHeaders         bool              `yaml:"omitEmptyHeaders"`
+					OmitEmptyQueryParameters bool              `yaml:"omitEmptyQueryParameters"`
+				} `yaml:"x-yc-apigateway-integration"`
+			} `yaml:"x-yc-apigateway-any-method"`
+		} `yaml:"paths"`
+	}
+	Expect(yaml.Unmarshal([]byte(proxySpecFor("ycdemo-apigw", target)), &doc)).To(Succeed())
+	Expect(doc.Paths).To(HaveLen(2))
+
+	for path, expectedURL := range map[string]string{
+		"/":        "https://" + target + "/",
+		"/{path+}": "https://" + target + "/{path}",
+	} {
+		p, ok := doc.Paths[path]
+		Expect(ok).To(BeTrue(), "path %q missing from the spec", path)
+		in := p.AnyMethod.Integration
+
+		Expect(in.Type).To(Equal("http"))
+		Expect(in.URL).To(Equal(expectedURL))
+		// Everything through, both directions of the request line.
+		Expect(in.Query).To(HaveKeyWithValue("*", "*"))
+		Expect(in.Headers).To(HaveKeyWithValue("*", "*"))
+		// Host pinned to the target: the upstream is reached over TLS by that name, so
+		// relaying the visitor's Host would send an SNI its certificate does not cover.
+		Expect(in.Headers).To(HaveKeyWithValue("Host", target))
+		// ...and the visitor's hostname travels under the name host-routing services read.
+		Expect(in.Headers).To(HaveKeyWithValue("X-Forwarded-Host", "{Host}"))
+		// Authorization is suppressed, not relayed: a Serverless Container's ingress reads
+		// `Authorization: Bearer …` as an IAM token and 403s before the container runs, so
+		// relaying it makes every bearer-token caller unreachable. Empty + omitEmptyHeaders
+		// drops it; the credential travels under X-Forwarded-Authorization instead.
+		Expect(in.Headers).To(HaveKeyWithValue("Authorization", ""))
+		Expect(in.Headers).To(HaveKeyWithValue("X-Forwarded-Authorization", "{Authorization}"))
+		Expect(in.OmitEmptyHeaders).To(BeTrue())
+		Expect(in.OmitEmptyQueryParameters).To(BeTrue())
+
+		// `{Host}` only interpolates if Host is declared as a parameter; undeclared, it
+		// arrives at the service as the literal string "{Host}".
+		names := map[string]string{}
+		for _, prm := range p.AnyMethod.Parameters {
+			names[prm.Name] = prm.In
+		}
+		Expect(names).To(HaveKeyWithValue("Host", "header"))
+		Expect(names).To(HaveKeyWithValue("Authorization", "header"))
+		if path == "/{path+}" {
+			Expect(names).To(HaveKeyWithValue("path", "path"))
+		}
+	}
+}
+
+// TestHostnameRecordTypeUsesAnameAtApex pins the apex rule. A CNAME at a zone apex is
+// illegal and YC has no ALIAS, so a service whose `domain:` IS the zone — the normal shape
+// for a product's own front door — cannot be published with a CNAME at all. YC's answer is
+// ANAME, resolved server-side and answered as an A.
+func TestHostnameRecordTypeUsesAnameAtApex(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect(hostnameRecordType("atriumdev.ru", "atriumdev.ru")).To(Equal("ANAME"))
+	// Trailing dots and case are how the same name arrives from a zone lookup vs a
+	// client stack's `domain:`, and they must not decide the record type.
+	Expect(hostnameRecordType("atriumdev.ru.", "atriumdev.ru")).To(Equal("ANAME"))
+	Expect(hostnameRecordType("AtriumDev.ru", "atriumdev.ru.")).To(Equal("ANAME"))
+
+	Expect(hostnameRecordType("www.atriumdev.ru", "atriumdev.ru")).To(Equal("CNAME"))
+	Expect(hostnameRecordType("a.b.atriumdev.ru", "atriumdev.ru")).To(Equal("CNAME"))
+	// Not in the zone at all: the caller rejects that earlier, and a bad match here must
+	// not silently become an apex record.
+	Expect(hostnameRecordType("notatriumdev.ru", "atriumdev.ru")).To(Equal("CNAME"))
 }
 
 // TestZoneIDOf covers the field the lookup actually fills. `DnsZoneId` echoes the

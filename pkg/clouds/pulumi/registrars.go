@@ -19,9 +19,10 @@ import (
 // registrarDelegate is one configured registrar, not yet constructed. Zones come from
 // config, so a domain can be routed without authenticating against any provider.
 type registrarDelegate struct {
-	name  string
-	desc  api.RegistrarDescriptor
-	zones []string
+	name      string
+	desc      api.RegistrarDescriptor
+	zones     []string
+	isDefault bool
 }
 
 // multiRegistrar routes each DNS operation to whichever configured registrar is
@@ -52,9 +53,10 @@ func newMultiRegistrar(stackName string, registrars map[string]api.RegistrarDesc
 	}
 	for name, desc := range registrars {
 		m.delegates = append(m.delegates, registrarDelegate{
-			name:  name,
-			desc:  desc,
-			zones: declaredZones(desc),
+			name:      name,
+			desc:      desc,
+			zones:     declaredZones(desc),
+			isDefault: desc.Default,
 		})
 	}
 	// map iteration order is random, and which registrar wins a tie must not be
@@ -76,9 +78,14 @@ func domainInZone(domain, zone string) bool {
 }
 
 // forDomain picks the registrar authoritative for a domain: the longest declared zone
-// that contains it, falling back to whichever registrar declares the preferred base
-// zone. The fallback matters because a stack may legitimately declare a zone its
-// services do not sit under and redirect them there via baseDnsZone.
+// that contains it, then whichever registrar declares the preferred base zone, then the
+// one marked `default: true`.
+//
+// The base-zone fallback matters because a stack may legitimately declare a zone its
+// services do not sit under and redirect them there via baseDnsZone. The default
+// fallback matters because a declared zone is narrower than what a registrar can serve
+// — see api.RegistrarDescriptor.Default — and without it the fleet's own registrar,
+// which declares one zone and publishes services in another, would match nothing.
 func (m *multiRegistrar) forDomain(domain string) (*registrarDelegate, error) {
 	best, bestLen := -1, -1
 	for i := range m.delegates {
@@ -99,12 +106,20 @@ func (m *multiRegistrar) forDomain(domain string) (*registrarDelegate, error) {
 		}
 	}
 	if best < 0 {
+		for i := range m.delegates {
+			if m.delegates[i].isDefault {
+				best = i
+				break
+			}
+		}
+	}
+	if best < 0 {
 		var declared []string
 		for i := range m.delegates {
 			declared = append(declared, m.delegates[i].name+" ("+strings.Join(m.delegates[i].zones, ", ")+")")
 		}
-		return nil, errors.Errorf("no registrar of stack %q handles domain %q, declared registrars: %s",
-			m.stackName, domain, strings.Join(declared, "; "))
+		return nil, errors.Errorf("no registrar of stack %q handles domain %q and none is marked `default: true`, "+
+			"declared registrars: %s", m.stackName, domain, strings.Join(declared, "; "))
 	}
 	return &m.delegates[best], nil
 }
@@ -138,10 +153,16 @@ func (m *multiRegistrar) registrarFor(ctx *sdk.Context, domain string) (pApi.Reg
 
 // MainDomain answers from config rather than from a delegate, since it takes no context
 // to construct one with. The preferred base zone wins, matching what a registrar bound
-// to that zone would report.
+// to that zone would report; then the default registrar's zone, which is the stack's
+// own front door; only then the first declared zone.
 func (m *multiRegistrar) MainDomain() string {
 	if m.pref != nil && m.pref.BaseZone != "" {
 		return m.pref.BaseZone
+	}
+	for i := range m.delegates {
+		if m.delegates[i].isDefault && len(m.delegates[i].zones) > 0 {
+			return m.delegates[i].zones[0]
+		}
 	}
 	for i := range m.delegates {
 		if len(m.delegates[i].zones) > 0 {

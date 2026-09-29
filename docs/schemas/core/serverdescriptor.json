@@ -79,6 +79,9 @@
                 ],
                 "type": "object"
               },
+              "default": {
+                "type": "boolean"
+              },
               "type": {
                 "type": "string"
               }
@@ -105,6 +108,9 @@
                     "inherit"
                   ],
                   "type": "object"
+                },
+                "default": {
+                  "type": "boolean"
                 },
                 "type": {
                   "type": "string"

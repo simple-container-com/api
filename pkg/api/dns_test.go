@@ -243,3 +243,58 @@ registrar:
 	Expect(err).NotTo(HaveOccurred())
 	Expect(string(out)).NotTo(ContainSubstring("registrars"))
 }
+
+// TestIsZoneApex separates the apex from everything under it. The two differ only in
+// which record type may point them at a hostname — a CNAME is legal below the apex and
+// illegal at it — so a name that arrives with a trailing dot or in another case must not
+// change the answer.
+func TestIsZoneApex(t *testing.T) {
+	RegisterTestingT(t)
+
+	tests := []struct {
+		domain, zone string
+		want         bool
+	}{
+		{"atriumdev.ru", "atriumdev.ru", true},
+		{"atriumdev.ru.", "atriumdev.ru", true},
+		{"atriumdev.ru", "atriumdev.ru.", true},
+		{"AtriumDev.RU", "atriumdev.ru", true},
+		{"www.atriumdev.ru", "atriumdev.ru", false},
+		{"a.b.atriumdev.ru", "atriumdev.ru", false},
+		// In the zone by suffix but not the apex, and not in the zone at all: neither is.
+		{"notatriumdev.ru", "atriumdev.ru", false},
+		{"atriumdev.ru", "", false},
+		{"", "atriumdev.ru", false},
+	}
+	for _, tt := range tests {
+		Expect(IsZoneApex(tt.domain, tt.zone)).To(Equal(tt.want),
+			"IsZoneApex(%q, %q)", tt.domain, tt.zone)
+	}
+}
+
+// TestAllRegistrarsRefusesTwoDefaults keeps the marker unambiguous. Two defaults would
+// resolve by map iteration order, so the same server.yaml would publish a domain through
+// a different provider on different runs.
+func TestAllRegistrarsRefusesTwoDefaults(t *testing.T) {
+	RegisterTestingT(t)
+
+	_, err := PerStackResourcesDescriptor{
+		Registrars: map[string]RegistrarDescriptor{
+			"cloudflare": {Type: "cloudflare", Default: true},
+			"yandex":     {Type: "yc-dns", Default: true},
+		},
+	}.AllRegistrars()
+	Expect(err).To(MatchError(ContainSubstring("at most one registrar may set `default: true`")))
+	// Both are named, in a stable order, so the operator knows which to drop.
+	Expect(err.Error()).To(ContainSubstring("cloudflare and yandex"))
+
+	one, err := PerStackResourcesDescriptor{
+		Registrars: map[string]RegistrarDescriptor{
+			"cloudflare": {Type: "cloudflare", Default: true},
+			"yandex":     {Type: "yc-dns"},
+		},
+	}.AllRegistrars()
+	Expect(err).ToNot(HaveOccurred())
+	Expect(one["cloudflare"].Default).To(BeTrue())
+	Expect(one["yandex"].Default).To(BeFalse())
+}

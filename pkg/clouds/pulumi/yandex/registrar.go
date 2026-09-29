@@ -224,13 +224,32 @@ func (r *registrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack
 		return nil, errors.Wrapf(err, "failed to create API gateway %q for domain %q", gatewayName, endpoint.Domain)
 	}
 
-	// The gateway's service domain is a bare hostname; YC DNS wants CNAME data absolute.
+	// The gateway's service domain is a bare hostname; YC DNS wants the data absolute.
 	target := gateway.Domain.ApplyT(fqdn).(sdk.StringOutput)
 	return r.NewRecord(ctx, api.DnsRecord{
 		Name:     endpoint.Domain,
-		Type:     "CNAME",
+		Type:     hostnameRecordType(endpoint.Domain, r.config.ZoneName),
 		ValueOut: target,
 	})
+}
+
+// hostnameRecordType picks the record type that can point a name at the gateway's
+// hostname. Away from the apex that is a plain CNAME; AT the apex a CNAME is illegal
+// (api.IsZoneApex explains why) and Yandex Cloud has no ALIAS. Its answer is ANAME — a
+// CNAME-shaped record the nameserver resolves server-side and answers as an A, so the
+// apex keeps its SOA and NS. The trade-off is a single server-side resolution with no
+// geographic spread, which the `landing` repo weighed and accepted for simple-forge.ru's
+// apex; it is the only way to serve a bare domain on YC DNS at all.
+//
+// Serving the apex is not an edge case for this registrar: a service that declares
+// `domain: <zone>` — the normal shape for a product's own front door — hits it on the
+// first deploy, and YC rejects the CNAME with a message about the record type rather
+// than about the apex.
+func hostnameRecordType(domain, zoneName string) string {
+	if api.IsZoneApex(domain, zoneName) {
+		return "ANAME"
+	}
+	return "CNAME"
 }
 
 func proxySpec(title string, targetHost sdk.StringInput) sdk.StringOutput {
@@ -242,8 +261,39 @@ func proxySpec(title string, targetHost sdk.StringInput) sdk.StringOutput {
 // proxySpecFor is an OpenAPI document that forwards every method and every path to the
 // endpoint. `/` and `/{path+}` are both needed: the greedy parameter does not match the
 // empty path. The integration is `http` rather than `serverless_containers` so that the
-// gateway works for any endpoint the registrar is handed, and so that the Host header it
-// forwards is the target's own — which is what replaces Cloudflare's rewriting worker.
+// gateway works for any endpoint the registrar is handed.
+//
+// The forwarding rules below are not optional decoration. An API Gateway passes NOTHING
+// through by default — "headers other than User-Agent and query parameters of the
+// original request are not provided" — so a spec without `headers` and `query` reaches
+// the service as a bare request:
+//
+//   - no query string, which silently breaks every presigned URL, pagination cursor and
+//     OAuth callback (`?code=…`) the service serves;
+//   - no Cookie, so any session-cookie authentication answers 401;
+//   - no visitor Host, so a service that routes by hostname serves its default site to
+//     every domain — with a 200, which reads like success.
+//
+// `'*': '*'` relays everything the spec does not override. `Host` IS overridden, to the
+// target's own hostname: the upstream is reached over TLS by that name, and relaying the
+// visitor's Host would send an SNI the target's certificate does not cover. The visitor's
+// hostname travels as `X-Forwarded-Host` instead, which is the header the Cloudflare-side
+// services already read — so a service moved onto YC needs no change to resolve by host.
+// With omitEmptyHeaders the substitution simply disappears when a header is absent,
+// rather than arriving as an empty value that a receiver has to special-case.
+//
+// `Authorization` is the one header that must NOT be relayed, and the reason is not
+// hygiene — it is that the request would stop arriving at all. A Serverless Container's
+// own ingress reads `Authorization: Bearer …` as an IAM token and answers
+// `403 {"errorCode":403,"errorMessage":"Forbidden: Not authorized"}` BEFORE the container
+// runs, even when its invoker binding is `system:allUsers`. Measured live 2026-09-29: the
+// capital-B `Bearer` scheme is a reserved word at that ingress (`Basic`, `Token` and
+// lowercase `bearer` pass and are then dropped), so relaying it turns every bearer-token
+// caller into a 403 that no service code can see or explain. Overriding it to the empty
+// string makes omitEmptyHeaders drop it, and the credential travels as
+// `X-Forwarded-Authorization` instead — measured on the same run: 403 became 200 with the
+// token intact. A service that authenticates bearer tokens behind this gateway reads that
+// header (or has its SDK normalise it) — the alternative is that it cannot be reached.
 func proxySpecFor(title, targetHost string) string {
 	return fmt.Sprintf(`openapi: 3.0.0
 info:
@@ -252,9 +302,10 @@ info:
 paths:
   /:
     x-yc-apigateway-any-method:
+      parameters:
+%s
       x-yc-apigateway-integration:
-        type: http
-        url: https://%s/
+%s
   /{path+}:
     x-yc-apigateway-any-method:
       parameters:
@@ -263,10 +314,41 @@ paths:
           required: true
           schema:
             type: string
+%s
       x-yc-apigateway-integration:
-        type: http
-        url: https://%s/{path}
-`, title, targetHost, targetHost)
+%s
+`, title,
+		headerParams("        "), forwardingIntegration("        ", targetHost, "/"),
+		headerParams("        "), forwardingIntegration("        ", targetHost, "/{path}"))
+}
+
+// forwardedHeaders are the request headers the spec reads by name so it can re-send them
+// under a name of its own. They have to be declared as parameters for `{Name}` to
+// interpolate — an undeclared parameter renders as the literal braces.
+var forwardedHeaders = []string{"Host", "Authorization"}
+
+func headerParams(indent string) string {
+	var b strings.Builder
+	for _, h := range forwardedHeaders {
+		fmt.Fprintf(&b, "%s- name: %s\n%s  in: header\n%s  required: false\n%s  schema:\n%s    type: string\n",
+			indent, h, indent, indent, indent, indent)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func forwardingIntegration(indent, targetHost, path string) string {
+	return fmt.Sprintf(`%[1]stype: http
+%[1]surl: https://%[2]s%[3]s
+%[1]squery:
+%[1]s  '*': '*'
+%[1]sheaders:
+%[1]s  '*': '*'
+%[1]s  Host: %[2]s
+%[1]s  X-Forwarded-Host: '{Host}'
+%[1]s  X-Forwarded-Authorization: '{Authorization}'
+%[1]s  Authorization: ''
+%[1]somitEmptyHeaders: true
+%[1]somitEmptyQueryParameters: true`, indent, targetHost, path)
 }
 
 // apiGatewayName derives the gateway's name from the endpoint's. The suffix is what
