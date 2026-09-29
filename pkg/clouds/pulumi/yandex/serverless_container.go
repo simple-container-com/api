@@ -12,13 +12,14 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
-	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
+
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/yandex"
+	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
 )
 
 const (
@@ -249,7 +250,7 @@ func ServerlessContainer(ctx *sdk.Context, stack api.Stack, input api.ResourceIn
 	}
 
 	if stackConfig.Domain != "" {
-		if _, err := provisionDNSForContainer(ctx, stack, params, containerName, stackConfig.Domain, container.Url); err != nil {
+		if _, err := provisionDNSForContainer(ctx, stack, params, containerName, stackConfig.Domain, container.Url, extras.WebSocket); err != nil {
 			return nil, errors.Wrapf(err, "failed to provision DNS for serverless container %q", containerName)
 		}
 	}
@@ -397,6 +398,7 @@ func provisionContainerSecrets(
 // decides, not this function.
 func provisionDNSForContainer(
 	ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, containerName, domain string, endpointUrl sdk.StringOutput,
+	websocket bool,
 ) (*api.ResourceOutput, error) {
 	// the container's invoke URL is a full URL, the registrar wants a bare hostname
 	endpointHost := endpointUrl.ApplyT(func(epUrl string) (string, error) {
@@ -411,6 +413,7 @@ func provisionDNSForContainer(
 		Name:       containerName,
 		Domain:     domain,
 		TargetHost: endpointHost,
+		WebSocket:  websocket,
 	})
 }
 

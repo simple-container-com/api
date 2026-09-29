@@ -36,6 +36,17 @@ type DomainEndpoint struct {
 	// TargetHost is the hostname of the cloud endpoint, without scheme or path. It is
 	// usually an Output, since the endpoint is typically created in the same deploy.
 	TargetHost sdk.StringInput
+	// WebSocket asks the registrar's edge to terminate WebSocket connections for
+	// this domain in addition to HTTP, when its provider has such an edge.
+	//
+	// A registrar whose edge is transparent (Cloudflare: a proxied record plus a
+	// header-rewriting Worker) ignores this — a socket there already passes
+	// through to the origin. It matters for a provider whose edge is a real
+	// resource that has to be told: on Yandex Cloud an API Gateway only relays
+	// frames for paths that declare the `x-yc-apigateway-websocket-*` operations,
+	// and a socket is the only way a service behind a Serverless Container can
+	// stream at all (see yandex.CloudExtras.WebSocket).
+	WebSocket bool
 }
 
 type RegistrarWithWorkerScripts interface {

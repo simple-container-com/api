@@ -212,7 +212,7 @@ func (r *registrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack
 	gateway, err := sdkYandex.NewApiGateway(ctx, gatewayName, &sdkYandex.ApiGatewayArgs{
 		Name:     sdk.String(gatewayName),
 		FolderId: sdk.StringPtr(r.config.FolderID),
-		Spec:     proxySpec(gatewayName, endpoint.TargetHost),
+		Spec:     proxySpec(gatewayName, endpoint.TargetHost, endpoint.WebSocket),
 		CustomDomains: sdkYandex.ApiGatewayCustomDomainArray{
 			sdkYandex.ApiGatewayCustomDomainArgs{
 				Fqdn:          sdk.String(strings.TrimSuffix(endpoint.Domain, ".")),
@@ -252,9 +252,9 @@ func hostnameRecordType(domain, zoneName string) string {
 	return "CNAME"
 }
 
-func proxySpec(title string, targetHost sdk.StringInput) sdk.StringOutput {
+func proxySpec(title string, targetHost sdk.StringInput, websocket bool) sdk.StringOutput {
 	return targetHost.ToStringOutput().ApplyT(func(host string) string {
-		return proxySpecFor(title, host)
+		return proxySpecFor(title, host, websocket)
 	}).(sdk.StringOutput)
 }
 
@@ -294,7 +294,25 @@ func proxySpec(title string, targetHost sdk.StringInput) sdk.StringOutput {
 // `X-Forwarded-Authorization` instead — measured on the same run: 403 became 200 with the
 // token intact. A service that authenticates bearer tokens behind this gateway reads that
 // header (or has its SDK normalise it) — the alternative is that it cannot be reached.
-func proxySpecFor(title, targetHost string) string {
+//
+// When websocket is set, each path carries three more operations so the gateway also
+// terminates WebSocket connections (see webSocketOperations). That is opt-in because the
+// feature is Preview and a service with no socket handler should not be given one; see
+// yandex.CloudExtras.WebSocket for the whole rationale.
+func proxySpecFor(title, targetHost string, websocket bool) string {
+	rootParams := headerParams("        ")
+	rootIntegration := forwardingIntegration("        ", targetHost, "/")
+	// The greedy path needs its segment declared as well, or `{path}` in the
+	// integration URL renders as literal braces.
+	greedyParams := pathParam("        ") + "\n" + headerParams("        ")
+	greedyIntegration := forwardingIntegration("        ", targetHost, "/{path}")
+
+	var rootSockets, greedySockets string
+	if websocket {
+		rootSockets = webSocketOperations("    ", rootParams, rootIntegration)
+		greedySockets = webSocketOperations("    ", greedyParams, greedyIntegration)
+	}
+
 	return fmt.Sprintf(`openapi: 3.0.0
 info:
   title: %s
@@ -305,21 +323,61 @@ paths:
       parameters:
 %s
       x-yc-apigateway-integration:
-%s
+%s%s
   /{path+}:
     x-yc-apigateway-any-method:
       parameters:
-        - name: path
-          in: path
-          required: true
-          schema:
-            type: string
 %s
       x-yc-apigateway-integration:
-%s
+%s%s
 `, title,
-		headerParams("        "), forwardingIntegration("        ", targetHost, "/"),
-		headerParams("        "), forwardingIntegration("        ", targetHost, "/{path}"))
+		rootParams, rootIntegration, rootSockets,
+		greedyParams, greedyIntegration, greedySockets)
+}
+
+// webSocketOps are the three API Gateway operations that make one path relay a
+// WebSocket. All three are emitted together on purpose:
+//
+//   - CONNECT is what makes the upgrade legal at all. A path carrying only
+//     x-yc-apigateway-any-method answers an upgrade request with an immediate 405.
+//   - MESSAGE receives each client frame as an ordinary HTTP POST to the integration,
+//     and its own response body is delivered back to the client as a message.
+//   - DISCONNECT is the only notification the service gets that the client went away.
+//     Without it a handler streaming into a closed socket learns nothing until its
+//     pushes start failing.
+//
+// The service pushes out of band — the gateway does not relay the integration's response
+// body incrementally either. It POSTs to
+// apigateway-connections.api.cloud.yandex.net/…/connections/{id}:send, authenticated with
+// an IAM token from the instance metadata service, and finds {id} in the
+// X-Yc-Apigateway-Websocket-Connection-Id header that arrives on every one of these three
+// events. Because the id is already on the MESSAGE event, a handler that runs a whole turn
+// inside that invocation needs no connection registry.
+//
+// Two operational limits are the caller's to respect: a socket lives at most 60 minutes
+// (10 idle), and the MESSAGE invocation is bounded by the container's own timeout — SC's
+// default is 10 s, which cuts a streaming turn off mid-answer.
+var webSocketOps = []string{
+	"x-yc-apigateway-websocket-connect",
+	"x-yc-apigateway-websocket-message",
+	"x-yc-apigateway-websocket-disconnect",
+}
+
+// webSocketOperations renders the three socket operations as siblings of
+// x-yc-apigateway-any-method, each re-using the same parameters and the same forwarding
+// integration as the HTTP path. Sharing the integration is what makes a cookie session
+// work over the socket: `headers: {'*': '*'}` relays Cookie verbatim on CONNECT and on
+// MESSAGE, so the handshake authenticates exactly the way a request does and no second
+// mechanism is needed.
+func webSocketOperations(indent, params, integration string) string {
+	var b strings.Builder
+	for _, op := range webSocketOps {
+		// The leading newline is what keeps the no-websocket spec byte-identical: the
+		// caller appends this right after the HTTP integration with nothing between.
+		fmt.Fprintf(&b, "\n%s%s:\n%s  parameters:\n%s\n%s  x-yc-apigateway-integration:\n%s",
+			indent, op, indent, params, indent, integration)
+	}
+	return b.String()
 }
 
 // forwardedHeaders are the request headers the spec reads by name so it can re-send them
@@ -334,6 +392,13 @@ func headerParams(indent string) string {
 			indent, h, indent, indent, indent, indent)
 	}
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// pathParam declares the greedy `/{path+}` segment. Like the headers above it has to be a
+// declared parameter for `{path}` to interpolate in the integration URL.
+func pathParam(indent string) string {
+	return fmt.Sprintf("%[1]s- name: path\n%[1]s  in: path\n%[1]s  required: true\n%[1]s  schema:\n%[1]s    type: string",
+		indent)
 }
 
 func forwardingIntegration(indent, targetHost, path string) string {

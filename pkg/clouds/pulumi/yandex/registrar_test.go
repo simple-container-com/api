@@ -97,11 +97,15 @@ func TestApiGatewayName(t *testing.T) {
 func TestProxySpecForwardsEverything(t *testing.T) {
 	RegisterTestingT(t)
 
-	spec := proxySpecFor("ycdemo-apigw", "bba8nrirdcjgkiereo9c.containers.yandexcloud.net")
+	spec := proxySpecFor("ycdemo-apigw", "bba8nrirdcjgkiereo9c.containers.yandexcloud.net", false)
 
 	Expect(spec).To(ContainSubstring("\n  /:\n"))
 	Expect(spec).To(ContainSubstring("\n  /{path+}:\n"))
 	Expect(strings.Count(spec, "x-yc-apigateway-any-method")).To(Equal(2))
+	// Sockets are opt-in: a service that did not ask for one must get a spec with no
+	// WebSocket operation at all, so no client can hold a 60-minute connection against a
+	// handler that would answer a frame with its 404 body.
+	Expect(spec).ToNot(ContainSubstring("x-yc-apigateway-websocket"))
 	Expect(spec).To(ContainSubstring("url: https://bba8nrirdcjgkiereo9c.containers.yandexcloud.net/"))
 	Expect(spec).To(ContainSubstring("url: https://bba8nrirdcjgkiereo9c.containers.yandexcloud.net/{path}"))
 	// `http` rather than `serverless_containers`: the registrar is handed a hostname,
@@ -140,7 +144,7 @@ func TestProxySpecIsValidYamlAndForwardsHeadersAndQuery(t *testing.T) {
 			} `yaml:"x-yc-apigateway-any-method"`
 		} `yaml:"paths"`
 	}
-	Expect(yaml.Unmarshal([]byte(proxySpecFor("ycdemo-apigw", target)), &doc)).To(Succeed())
+	Expect(yaml.Unmarshal([]byte(proxySpecFor("ycdemo-apigw", target, false)), &doc)).To(Succeed())
 	Expect(doc.Paths).To(HaveLen(2))
 
 	for path, expectedURL := range map[string]string{
@@ -181,6 +185,93 @@ func TestProxySpecIsValidYamlAndForwardsHeadersAndQuery(t *testing.T) {
 		if path == "/{path+}" {
 			Expect(names).To(HaveKeyWithValue("path", "path"))
 		}
+	}
+}
+
+// TestProxySpecWebSocketOperations covers the only way a service behind a YC Serverless
+// Container can stream. Its HTTP path cannot: the runtime rejects a response carrying
+// Transfer-Encoding, so it buffers the whole body and sends a Content-Length — measured
+// 2026-09-29 as 8.33 s of nothing followed by 8 s worth of SSE events at once, at the
+// container URL as well as through a gateway, with `X-Accel-Buffering: no` ignored. Over a
+// socket the gateway terminates, the service pushes each delta out of band and the client
+// renders it immediately.
+//
+// All three operations are asserted on BOTH paths: a path with only
+// x-yc-apigateway-any-method rejects an upgrade with an instant 405, so a spec that
+// declares the socket on `/` alone leaves every real endpoint unable to stream.
+func TestProxySpecWebSocketOperations(t *testing.T) {
+	RegisterTestingT(t)
+
+	const target = "bba8nrirdcjgkiereo9c.containers.yandexcloud.net"
+
+	type operation struct {
+		Parameters []struct {
+			Name string `yaml:"name"`
+			In   string `yaml:"in"`
+		} `yaml:"parameters"`
+		Integration struct {
+			Type             string            `yaml:"type"`
+			URL              string            `yaml:"url"`
+			Query            map[string]string `yaml:"query"`
+			Headers          map[string]string `yaml:"headers"`
+			OmitEmptyHeaders bool              `yaml:"omitEmptyHeaders"`
+		} `yaml:"x-yc-apigateway-integration"`
+	}
+	var doc struct {
+		Paths map[string]struct {
+			AnyMethod  operation `yaml:"x-yc-apigateway-any-method"`
+			Connect    operation `yaml:"x-yc-apigateway-websocket-connect"`
+			Message    operation `yaml:"x-yc-apigateway-websocket-message"`
+			Disconnect operation `yaml:"x-yc-apigateway-websocket-disconnect"`
+		} `yaml:"paths"`
+	}
+	spec := proxySpecFor("ycdemo-apigw", target, true)
+	Expect(yaml.Unmarshal([]byte(spec), &doc)).To(Succeed())
+	Expect(doc.Paths).To(HaveLen(2))
+
+	for path, expectedURL := range map[string]string{
+		"/":        "https://" + target + "/",
+		"/{path+}": "https://" + target + "/{path}",
+	} {
+		p, ok := doc.Paths[path]
+		Expect(ok).To(BeTrue(), "path %q missing from the spec", path)
+		// The HTTP operation stays — the same host serves ordinary requests and sockets.
+		Expect(p.AnyMethod.Integration.URL).To(Equal(expectedURL))
+
+		for name, op := range map[string]operation{"connect": p.Connect, "message": p.Message, "disconnect": p.Disconnect} {
+			in := op.Integration
+			Expect(in.Type).To(Equal("http"), "%s on %q", name, path)
+			Expect(in.URL).To(Equal(expectedURL), "%s on %q", name, path)
+			// Relaying every header is what makes a cookie session work over the socket:
+			// Cookie arrives verbatim on CONNECT and on MESSAGE, so the handshake
+			// authenticates the same way a request does and needs no second mechanism.
+			Expect(in.Headers).To(HaveKeyWithValue("*", "*"), "%s on %q", name, path)
+			Expect(in.Headers).To(HaveKeyWithValue("Host", target), "%s on %q", name, path)
+			Expect(in.Headers).To(HaveKeyWithValue("X-Forwarded-Host", "{Host}"), "%s on %q", name, path)
+			Expect(in.OmitEmptyHeaders).To(BeTrue(), "%s on %q", name, path)
+
+			// Same rule as the HTTP path: an undeclared parameter renders as literal
+			// braces, which on the greedy path means requesting the URL "/{path}".
+			names := map[string]string{}
+			for _, prm := range op.Parameters {
+				names[prm.Name] = prm.In
+			}
+			Expect(names).To(HaveKeyWithValue("Host", "header"), "%s on %q", name, path)
+			if path == "/{path+}" {
+				Expect(names).To(HaveKeyWithValue("path", "path"), "%s on %q", name, path)
+			}
+		}
+	}
+
+	// Turning the flag on may only ADD. Every line of the plain spec must still be present,
+	// in order — an indent or ordering slip on the HTTP half would otherwise reach a deploy,
+	// where YC reports it minutes in as a generic "failed to create API gateway".
+	plain := strings.Split(proxySpecFor("ycdemo-apigw", target, false), "\n")
+	rest := spec
+	for _, line := range plain {
+		idx := strings.Index(rest, line+"\n")
+		Expect(idx).To(BeNumerically(">=", 0), "websocket spec dropped or reordered line %q", line)
+		rest = rest[idx+len(line)+1:]
 	}
 }
 
