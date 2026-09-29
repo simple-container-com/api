@@ -14,6 +14,7 @@ import (
 	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
@@ -51,12 +52,24 @@ func caddyHSTSEnv(cfg *k8s.CaddyConfig) map[string]string {
 	return map[string]string{"HSTS_VALUE": *v}
 }
 
-// caddyAnnotations merges user annotations under the ones SC relies on, so a user
-// value cannot drop pulumi.com/patchForce.
-func caddyAnnotations(cfg *k8s.CaddyConfig) map[string]string {
-	return lo.Assign(lo.FromPtr(cfg).Annotations, map[string]string{
-		"pulumi.com/patchForce": "true",
-	})
+var reservedAnnotationPrefixes = []string{"simple-container.com/", "pulumi.com/"}
+
+// caddyPodAnnotations validates user pod annotations. SC-owned keys are rejected
+// rather than silently overridden: simple-container.com/caddyfile-entry, for one,
+// is read back by the Caddy init container as a route source.
+func caddyPodAnnotations(cfg *k8s.CaddyConfig) (map[string]string, error) {
+	annotations := lo.FromPtr(cfg).PodAnnotations
+	for key := range annotations {
+		if errs := validation.IsQualifiedName(key); len(errs) > 0 {
+			return nil, errors.Errorf("caddy.podAnnotations: invalid key %q: %s", key, strings.Join(errs, "; "))
+		}
+		for _, prefix := range reservedAnnotationPrefixes {
+			if strings.HasPrefix(key, prefix) {
+				return nil, errors.Errorf("caddy.podAnnotations: key %q uses the reserved prefix %q", key, prefix)
+			}
+		}
+	}
+	return annotations, nil
 }
 
 func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
@@ -85,6 +98,10 @@ func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 
 func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.ResourceInput, params pApi.ProvisionParams, kubeconfig sdk.StringOutput) (*SimpleContainer, error) {
 	params.Log.Info(ctx.Context(), "Configure Caddy deployment for cluster %q in %q", input.Descriptor.Name, input.StackParams.Environment)
+	podAnnotations, err := caddyPodAnnotations(caddy.CaddyConfig)
+	if err != nil {
+		return nil, err
+	}
 	kubeProvider, err := sdkK8s.NewProvider(ctx, fmt.Sprintf("%s-caddy-kubeprovider", input.ToResName(input.Descriptor.Name)), &sdkK8s.ProviderArgs{
 		Kubeconfig: kubeconfig,
 	})
@@ -331,7 +348,8 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		Scale: &k8s.Scale{
 			Replicas: lo.If(caddy.Replicas != nil, lo.FromPtr(caddy.Replicas)).Else(1),
 		},
-		TextVolumes: caddyVolumes,
+		TextVolumes:               caddyVolumes,
+		TopologySpreadConstraints: lo.FromPtr(caddy.CaddyConfig).TopologySpreadConstraints,
 	}
 
 	for k, v := range caddyHSTSEnv(caddy.CaddyConfig) {
@@ -376,7 +394,10 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		InitContainers:         []corev1.ContainerArgs{initContainer},
 		KubeProvider:           kubeProvider,
 		GenerateCaddyfileEntry: false,
-		Annotations:            caddyAnnotations(caddy.CaddyConfig),
+		Annotations: map[string]string{
+			"pulumi.com/patchForce": "true",
+		},
+		PodAnnotations: podAnnotations,
 	}, addOpts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision simple container for caddy in GKE cluster %q in %q",

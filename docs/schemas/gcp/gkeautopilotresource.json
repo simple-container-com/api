@@ -37,12 +37,6 @@
       "caddy": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
-          "annotations": {
-            "additionalProperties": {
-              "type": "string"
-            },
-            "type": "object"
-          },
           "caddyfile": {
             "type": "string"
           },
@@ -66,6 +60,12 @@
           },
           "namespace": {
             "type": "string"
+          },
+          "podAnnotations": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
           },
           "preStopSleepSeconds": {
             "type": "integer"
@@ -107,6 +107,76 @@
           },
           "terminationGracePeriodSeconds": {
             "type": "integer"
+          },
+          "topologySpreadConstraints": {
+            "items": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "labelSelector": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "matchExpressions": {
+                      "items": {
+                        "$schema": "https://json-schema.org/draft/2020-12/schema",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "operator": {
+                            "type": "string"
+                          },
+                          "values": {
+                            "items": {
+                              "type": "string"
+                            },
+                            "type": "array"
+                          }
+                        },
+                        "required": [
+                          "key",
+                          "operator",
+                          "values"
+                        ],
+                        "type": "object"
+                      },
+                      "type": "array"
+                    },
+                    "matchLabels": {
+                      "additionalProperties": {
+                        "type": "string"
+                      },
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "matchExpressions",
+                    "matchLabels"
+                  ],
+                  "type": "object"
+                },
+                "maxSkew": {
+                  "type": "integer"
+                },
+                "minDomains": {
+                  "type": "integer"
+                },
+                "topologyKey": {
+                  "type": "string"
+                },
+                "whenUnsatisfiable": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "labelSelector",
+                "maxSkew",
+                "minDomains",
+                "topologyKey",
+                "whenUnsatisfiable"
+              ],
+              "type": "object"
+            },
+            "type": "array"
           },
           "trustedProxies": {
             "items": {
