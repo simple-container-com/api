@@ -55,6 +55,31 @@ type CloudExtras struct {
 	Concurrency *int `json:"concurrency,omitempty" yaml:"concurrency,omitempty"`
 	// ProvisionedInstances keeps N instances warm, the cold-start escape hatch.
 	ProvisionedInstances *int `json:"provisionedInstances,omitempty" yaml:"provisionedInstances,omitempty"`
+	// WebSocket makes the API Gateway in front of this container terminate
+	// WebSocket connections as well as HTTP, which is the ONLY way a YC-hosted
+	// service can stream: a Serverless Container's HTTPS path buffers the whole
+	// response body regardless of content type, chunk size or
+	// `X-Accel-Buffering` (measured 2026-09-29 — 8.33 s ttfb for 8.0 s of SSE
+	// events, at the container URL as well as through a gateway). Over a socket
+	// the gateway terminates, the service pushes each delta out of band via
+	// `Connection.Send` and the client renders it immediately.
+	//
+	// Opt-in, and deliberately so. Turning it on for every gateway would change
+	// the generated spec of every existing YC stack, would let any client hold a
+	// 60-minute socket against a service that has no WebSocket handler (which
+	// would answer a frame with its 404 body), and would enrol the whole fleet
+	// in a feature YC still labels Preview. A service that wants to stream says
+	// so.
+	//
+	// Two things this flag does NOT do, both of which the service still owns:
+	//   - the IAM binding. Pushing needs `api-gateway.websocketWriter` on the
+	//     container's service account; add it to Roles above. (No `api` change
+	//     is needed for that — Roles is already appended to
+	//     DefaultContainerRoles.)
+	//   - the timeout. A MESSAGE invocation runs the whole turn, and the default
+	//     is 10 s (api.DefaultTimeoutSeconds); raise `timeout` in client.yaml or
+	//     a streaming turn is cut off mid-answer.
+	WebSocket bool `json:"websocket,omitempty" yaml:"websocket,omitempty"`
 }
 
 // ContainerSchedule is one Yandex Serverless Timer Trigger.
