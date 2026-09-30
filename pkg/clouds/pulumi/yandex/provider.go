@@ -8,18 +8,17 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-
-	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/api/logger"
-	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-	"github.com/simple-container-com/api/pkg/clouds/yandex"
 	// The Yandex provider SDK is our own bridge fork, so gci files it under the
 	// simple-container-com prefix rather than the pulumi one where every other
 	// provider SDK sits. That is correct output from .golangci.yml — longest
 	// prefix wins. Don't "fix" it by re-sectioning the lint config.
 	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
+
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/clouds/yandex"
 )
 
 // InitStateStore points the SigV4 credential chain at Yandex Object Storage.
@@ -103,8 +102,12 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	// always have the document (SC resolves `${auth:...}` to the value, never to a
 	// path). Left empty when unset so the provider's own chain can fall back to
 	// YC_TOKEN / an instance service account — the local-dev and inside-VM cases.
+	//
+	// secretStringPtr, never sdk.StringPtr: the document holds the private key, and
+	// an unmarked provider property is printed verbatim in Pulumi's summary. See
+	// credentials.go.
 	if pcfg.ServiceAccountKey != "" {
-		args.ServiceAccountKeyFile = sdk.StringPtr(pcfg.ServiceAccountKey)
+		args.ServiceAccountKeyFile = secretStringPtr(pcfg.ServiceAccountKey)
 	}
 
 	// The static pair is a *separate* credential from the service-account key (see
@@ -113,9 +116,9 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	// don't each have to carry their own keys.
 	if pcfg.AccessKey != "" {
 		args.StorageAccessKey = sdk.StringPtr(pcfg.AccessKey)
-		args.StorageSecretKey = sdk.StringPtr(pcfg.SecretAccessKey)
+		args.StorageSecretKey = secretStringPtr(pcfg.SecretAccessKey)
 		args.YmqAccessKey = sdk.StringPtr(pcfg.AccessKey)
-		args.YmqSecretKey = sdk.StringPtr(pcfg.SecretAccessKey)
+		args.YmqSecretKey = secretStringPtr(pcfg.SecretAccessKey)
 	}
 
 	provider, err := sdkYandex.NewProvider(ctx, input.ToResName(input.Descriptor.Name), args)
