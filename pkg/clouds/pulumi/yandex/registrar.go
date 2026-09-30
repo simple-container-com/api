@@ -8,15 +8,14 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
+	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/yandex"
-	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
 )
 
 type registrar struct {
@@ -59,8 +58,10 @@ func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.Pro
 		RegionId: sdk.StringPtr(cfg.EffectiveRegion()),
 		Zone:     sdk.StringPtr(cfg.EffectiveZone()),
 	}
+	// secretStringPtr, never sdk.StringPtr — see credentials.go. The registrar builds
+	// its own provider, so it leaks independently of the one in provider.go.
 	if cfg.ServiceAccountKey != "" {
-		providerArgs.ServiceAccountKeyFile = sdk.StringPtr(cfg.ServiceAccountKey)
+		providerArgs.ServiceAccountKeyFile = secretStringPtr(cfg.ServiceAccountKey)
 	}
 	provider, err := sdkYandex.NewProvider(ctx, providerName, providerArgs)
 	if err != nil {
