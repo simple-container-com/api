@@ -77,6 +77,15 @@ type CaddyConfig struct {
 	// aggregator serves; there is no per-stack override. Unset or empty
 	// uses the snippet's default (`max-age=31536000; includeSubDomains; preload`).
 	HSTSValue *string `json:"hstsValue,omitempty" yaml:"hstsValue,omitempty"`
+	// PodAnnotations are added to the Caddy pod template only (not the Deployment,
+	// Service or Namespace). e.g. cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+	// keeps GKE Autopilot scale-down from evicting the ingress pod. Keys under
+	// simple-container.com/ and pulumi.com/ are reserved and rejected.
+	PodAnnotations map[string]string `json:"podAnnotations,omitempty" yaml:"podAnnotations,omitempty"`
+	// TopologySpreadConstraints spread Caddy replicas, e.g. across nodes with
+	// topologyKey kubernetes.io/hostname. Without it the scheduler may put every
+	// replica on one node. labelSelector defaults to the Caddy pod labels.
+	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty" yaml:"topologySpreadConstraints,omitempty"`
 }
 
 type DisruptionBudget struct {
