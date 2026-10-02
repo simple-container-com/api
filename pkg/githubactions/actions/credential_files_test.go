@@ -6,11 +6,13 @@ package actions
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestRemapWorkspaceCredentialFiles(t *testing.T) {
 	workspace := t.TempDir()
+	t.Setenv("TMPDIR", t.TempDir())
 	existing := filepath.Join(t.TempDir(), "adc.json")
 	if err := os.WriteFile(existing, []byte("{}"), 0o600); err != nil {
 		t.Fatal(err)
@@ -28,8 +30,20 @@ func TestRemapWorkspaceCredentialFiles(t *testing.T) {
 
 	changed := remapWorkspaceCredentialFiles()
 
-	if got := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); got != filepath.Join(workspace, "gha-creds-1.json") {
-		t.Errorf("GOOGLE_APPLICATION_CREDENTIALS = %q; want the workspace copy", got)
+	got := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if filepath.Base(got) != "gha-creds-1.json" || strings.HasPrefix(got, workspace) {
+		t.Errorf("GOOGLE_APPLICATION_CREDENTIALS = %q; want a copy outside the workspace", got)
+	}
+	// The action may replace the workspace's contents after this; the identity
+	// must survive that.
+	if err := os.RemoveAll(workspace); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(got); err != nil || string(data) != "{}" {
+		t.Errorf("credentials lost with the workspace: %q, %v", data, err)
+	}
+	if st, err := os.Stat(got); err == nil && st.Mode().Perm() != 0o600 {
+		t.Errorf("copy mode = %v; want 0600", st.Mode().Perm())
 	}
 	if got := os.Getenv("CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE"); got != existing {
 		t.Errorf("a path that exists must be left alone, got %q", got)
