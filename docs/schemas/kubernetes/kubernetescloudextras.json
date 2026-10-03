@@ -543,6 +543,9 @@
         },
         "type": "array"
       },
+      "externalTrafficPolicy": {
+        "type": "string"
+      },
       "livenessProbe": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -711,6 +714,9 @@
           "maxUnavailable"
         ],
         "type": "object"
+      },
+      "serviceType": {
+        "type": "string"
       },
       "startupProbe": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

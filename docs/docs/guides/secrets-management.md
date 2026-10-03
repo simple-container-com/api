@@ -656,6 +656,39 @@ values:
 
 Simple Container automatically decrypts and injects secrets during deployment by reading from the parent stack's secrets.yaml file.
 
+## Runtime secrets on Yandex Cloud — Lockbox references
+
+On YC-based deploys, `${secret:…}` and `secrets:` on a client stack behave
+differently from a plain env-var injection. Simple Container packages every
+runtime secret into a **Yandex Cloud Lockbox** secret and hands the container
+revision **references** to that secret rather than the plaintext values.
+
+Two consequences worth remembering:
+
+- **`secrets.yaml` is config-time, Lockbox is runtime.** `${secret:MY_TOKEN}`
+  on a client stack resolves *at deploy time* — SC reads the plaintext from
+  the encrypted `.sc/stacks/<parent>/secrets.yaml`, then writes it into a
+  new **`LockboxSecretVersion`** entry. The container revision receives a
+  reference `{secret: <id>, key: <name>}` per entry, and YC injects the
+  plaintext into the container's environment at cold start. The container
+  process itself never sees a `${secret:…}` placeholder.
+
+- **A zero-entry secret is rejected by YC.** If a stack declares no
+  `secrets:` entries at all, SC creates no Lockbox resource — a
+  `LockboxSecretVersion` with no `entries` fails at apply time. Add a
+  runtime secret to trigger the whole chain.
+
+There is no `${lockbox:…}` interpolation and won't be — Lockbox is the
+delivery mechanism for what `${secret:…}` already refers to, not a separate
+addressing scheme.
+
+**On destroy.** The Lockbox secret enters YC's usual `PENDING_DELETE` state
+(default 7-day window, though a zero-entry stack may hard-delete). This is
+YC platform behaviour, not an SC bug.
+
+For a working example of a client stack pushing runtime secrets into
+Lockbox, see [Yandex Cloud](parent-yandex-cloud.md).
+
 ## Troubleshooting
 
 ### Common Issues

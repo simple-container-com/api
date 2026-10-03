@@ -243,11 +243,29 @@ func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string
 }
 
 func (p *pulumi) initRegistrar(ctx *sdk.Context, stack api.Stack, dnsPreference *pApi.DnsPreference) error {
-	registrarType := stack.Server.Resources.Registrar.Type
-	p.logger.Info(ctx.Context(), "configure registrar of type %q for stack %q...", registrarType, stack.Name)
-	if registrarInit, ok := pApi.RegistrarFuncByType[registrarType]; !ok {
-		return errors.Errorf("unsupported registrar type %q for stack %q", registrarType, stack.Name)
-	} else if reg, err := registrarInit(ctx, stack.Server.Resources.Registrar, pApi.ProvisionParams{
+	registrars, err := stack.Server.Resources.AllRegistrars()
+	if err != nil {
+		return errors.Wrapf(err, "invalid registrar configuration of stack %q", stack.Name)
+	}
+
+	if len(registrars) > 1 {
+		p.logger.Info(ctx.Context(), "configure %d registrars for stack %q...", len(registrars), stack.Name)
+		p.registrar = newMultiRegistrar(stack.Name, registrars, dnsPreference, p.logger)
+		return nil
+	}
+
+	// With one registrar — or none, which resolves to the not-configured null object —
+	// assign it directly rather than wrapping it. That keeps every stack written before
+	// `registrars:` byte-identical, including callers that type-assert on the concrete
+	// registrar (notably *notConfigured in provisionProgram).
+	registrar := stack.Server.Resources.Registrar
+	for _, desc := range registrars {
+		registrar = desc
+	}
+	p.logger.Info(ctx.Context(), "configure registrar of type %q for stack %q...", registrar.Type, stack.Name)
+	if registrarInit, ok := pApi.RegistrarFuncByType[registrar.Type]; !ok {
+		return errors.Errorf("unsupported registrar type %q for stack %q", registrar.Type, stack.Name)
+	} else if reg, err := registrarInit(ctx, registrar, pApi.ProvisionParams{
 		Log:           p.logger,
 		DnsPreference: dnsPreference,
 	}); err != nil {

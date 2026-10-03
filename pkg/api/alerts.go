@@ -16,6 +16,12 @@ type (
 		StackEnv          string
 		CloudHelperType   string
 		StackVersion      string
+		// CloudProvider names the cloud a service was deployed to. It exists
+		// because Yandex does not identify itself at runtime — its Serverless
+		// Containers runtime defines exactly PORT and REQUEST_PATH, neither of
+		// which names the cloud — so go-aws-lambda-sdk reads this to decide
+		// whether to serve HTTP or start the Lambda runtime loop.
+		CloudProvider string
 		// CloudTrail enrichment: when all three are set on the alert Lambda,
 		// the handler looks up matching CloudTrail events in the alarm's time
 		// window and includes a short summary (who/what/when) in the Slack/
@@ -37,6 +43,7 @@ var ComputeEnv = ComputeEnvVariables{
 	StackName:         "SIMPLE_CONTAINER_STACK",
 	StackEnv:          "SIMPLE_CONTAINER_ENV",
 	StackVersion:      "SIMPLE_CONTAINER_VERSION",
+	CloudProvider:     "SIMPLE_CONTAINER_CLOUD",
 	CtLogGroupName:    "SIMPLE_CONTAINER_CT_LOG_GROUP_NAME",
 	CtLogGroupRegion:  "SIMPLE_CONTAINER_CT_LOG_GROUP_REGION",
 	CtFilterPattern:   "SIMPLE_CONTAINER_CT_FILTER_PATTERN",

@@ -25,6 +25,7 @@ type Args struct {
 	Namespace              string
 	DeploymentName         string
 	Annotations            map[string]string
+	PodAnnotations         map[string]string // pod template only; SC's own annotations win on conflict
 	NodeSelector           map[string]string
 	Affinity               *k8s.AffinityRules
 	Tolerations            []k8s.Toleration
@@ -285,6 +286,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		InitContainers:            args.InitContainers,
 		GenerateCaddyfileEntry:    args.GenerateCaddyfileEntry,
 		Annotations:               args.Annotations,
+		PodAnnotations:            args.PodAnnotations,
 		NodeSelector:              args.NodeSelector,
 		Affinity:                  args.Affinity,
 		TopologySpreadConstraints: args.Deployment.TopologySpreadConstraints,

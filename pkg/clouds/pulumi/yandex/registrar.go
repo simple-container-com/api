@@ -1,0 +1,474 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
+package yandex
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/pkg/errors"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
+	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
+
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	"github.com/simple-container-com/api/pkg/clouds/yandex"
+)
+
+type registrar struct {
+	provider *sdkYandex.Provider
+	config   *yandex.RegistrarConfig
+	zone     *sdkYandex.LookupDnsZoneResult
+	// zoneID is the id every recordset is written against. It is kept separate
+	// from zone because the lookup does not always put it in the same field.
+	zoneID string
+	log    logger.Logger
+}
+
+// Registrar resolves a Yandex Cloud DNS zone into something records can be written
+// to. The zone is looked up and never created — see yandex.RegistrarConfig.
+//
+// Unlike the Cloudflare registrar, this one does NOT honour
+// DnsPreference.BaseZone as a zone override. There it is a way to point a whole
+// stack at a different zone of the same account; here a stack with more than one
+// registrar uses the preference to choose *between* registrars (see
+// pulumi.multiRegistrar), and letting it also rewrite the chosen registrar's zone
+// would mean the registrar picked for a zone then serves a different one.
+func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.ProvisionParams) (pApi.Registrar, error) {
+	cfg, ok := config.Config.Config.(*yandex.RegistrarConfig)
+	if !ok {
+		return nil, errors.Errorf("invalid config type %T is not *yandex.RegistrarConfig", config.Config.Config)
+	}
+	// `${auth:yc}` resolves to the opaque credentials blob only, so the ids live
+	// inside it and have to be unpacked before anything below can use them.
+	if err := api.ConvertAuth(cfg, &cfg.AccountConfig); err != nil {
+		return nil, errors.Wrapf(err, "failed to convert auth config to yandex.AccountConfig")
+	}
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
+	providerName := fmt.Sprintf("%s-dns", cfg.EffectiveZoneResourceName())
+	providerArgs := &sdkYandex.ProviderArgs{
+		CloudId:  sdk.StringPtr(cfg.CloudID),
+		FolderId: sdk.StringPtr(cfg.FolderID),
+		RegionId: sdk.StringPtr(cfg.EffectiveRegion()),
+		Zone:     sdk.StringPtr(cfg.EffectiveZone()),
+	}
+	// secretStringPtr, never sdk.StringPtr — see credentials.go. The registrar builds
+	// its own provider, so it leaks independently of the one in provider.go.
+	if cfg.ServiceAccountKey != "" {
+		providerArgs.ServiceAccountKeyFile = secretStringPtr(cfg.ServiceAccountKey)
+	}
+	provider, err := sdkYandex.NewProvider(ctx, providerName, providerArgs)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to init yandex provider for DNS zone %q", cfg.ZoneName)
+	}
+
+	zone, err := lookupZone(ctx, cfg, provider)
+	if err != nil {
+		return nil, err
+	}
+	zoneID, err := zoneIDOf(zone, cfg)
+	if err != nil {
+		return nil, err
+	}
+	params.Log.Info(ctx.Context(), "resolved yandex DNS zone %q (%s) for %q", zone.Name, zoneID, cfg.ZoneName)
+
+	return &registrar{
+		provider: provider,
+		config:   cfg,
+		zone:     zone,
+		zoneID:   zoneID,
+		log:      params.Log,
+	}, nil
+}
+
+// zoneIDOf reads the zone's id out of a lookup result. `DnsZoneId` echoes the
+// argument, so it is empty on a lookup by name — the id then lives in `Id`, the
+// provider-assigned one. Looking only at `DnsZoneId` yields an empty ZoneId that YC
+// rejects with a generic message several minutes into a deploy (live-caught
+// 2026-09-26).
+func zoneIDOf(zone *sdkYandex.LookupDnsZoneResult, cfg *yandex.RegistrarConfig) (string, error) {
+	for _, candidate := range []string{zone.DnsZoneId, zone.Id} {
+		if candidate != "" {
+			return candidate, nil
+		}
+	}
+	return "", errors.Errorf("yandex DNS zone %q for %q resolved without an id", zone.Name, cfg.ZoneName)
+}
+
+// lookupZone finds the zone by id when one is configured and by resource name
+// otherwise, then checks that what came back actually serves the configured DNS
+// zone. That check is the point: YC's lookup-by-name takes the *resource* name, so
+// a folder holding two zones is one typo away from writing every record into the
+// wrong one, and a recordset in the wrong zone is silently inert rather than an
+// error.
+func lookupZone(ctx *sdk.Context, cfg *yandex.RegistrarConfig, provider *sdkYandex.Provider) (*sdkYandex.LookupDnsZoneResult, error) {
+	args := &sdkYandex.LookupDnsZoneArgs{FolderId: lo.ToPtr(cfg.FolderID)}
+	if cfg.ZoneID != "" {
+		args.DnsZoneId = lo.ToPtr(cfg.ZoneID)
+	} else {
+		args.Name = lo.ToPtr(cfg.EffectiveZoneResourceName())
+	}
+
+	zone, err := sdkYandex.LookupDnsZone(ctx, args, sdk.Provider(provider))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to look up yandex DNS zone for %q (searched folder %q by %s). "+
+			"Note the name searched is the YC RESOURCE name, not the DNS zone — `yc dns zone list --folder-id %s` "+
+			"prints both; set `zoneId` or `zoneResourceName` if they differ",
+			cfg.ZoneName, cfg.FolderID, lo.If(cfg.ZoneID != "", "id "+cfg.ZoneID).Else("name "+cfg.EffectiveZoneResourceName()), cfg.FolderID)
+	}
+	if served := strings.TrimSuffix(zone.Zone, "."); !strings.EqualFold(served, strings.TrimSuffix(cfg.ZoneName, ".")) {
+		return nil, errors.Errorf("yandex DNS zone %q (%s) serves %q, not the configured zoneName %q",
+			zone.Name, lo.If(zone.DnsZoneId != "", zone.DnsZoneId).Else(zone.Id), served, cfg.ZoneName)
+	}
+	return zone, nil
+}
+
+func (r *registrar) MainDomain() string {
+	return strings.TrimSuffix(r.zone.Zone, ".")
+}
+
+func (r *registrar) ProvisionRecords(ctx *sdk.Context, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	var last *api.ResourceOutput
+	for _, record := range r.config.Records {
+		out, err := r.NewRecord(ctx, record)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to provision record %q", record.Name)
+		}
+		last = out
+	}
+	return last, nil
+}
+
+func (r *registrar) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.ResourceOutput, error) {
+	if err := guardZoneInfrastructureRecord(dnsRecord); err != nil {
+		return nil, err
+	}
+	r.log.Info(ctx.Context(), "configure yandex DNS recordset %q with type %q in zone %q",
+		dnsRecord.Name, dnsRecord.Type, r.config.ZoneName)
+
+	value := dnsRecord.ValueOut
+	if dnsRecord.Value != "" {
+		value = sdk.String(dnsRecord.Value).ToStringOutput()
+	}
+	// Proxied has no meaning here. Cloudflare's proxy is what supplies TLS for a
+	// record pointed at a bare cloud endpoint; on YC that job belongs to the edge
+	// ProvisionDomainForEndpoint creates, so a record is only ever a record.
+
+	recordset, err := sdkYandex.NewDnsRecordset(ctx, fmt.Sprintf("%s-recordset", dnsRecord.Name), &sdkYandex.DnsRecordsetArgs{
+		ZoneId: sdk.String(r.zoneID),
+		Name:   sdk.String(fqdn(dnsRecord.Name)),
+		Type:   sdk.String(dnsRecord.Type),
+		// One recordset holds every value for a name+type, so a multi-valued
+		// record is one resource here where Cloudflare needs N.
+		Datas: sdk.StringArray{value},
+		// Mandatory: there is no "automatic" sentinel to pass through.
+		Ttl: sdk.Int(r.config.EffectiveRecordTtl()),
+	}, sdk.Provider(r.provider))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create recordset %q", dnsRecord.Name)
+	}
+	return &api.ResourceOutput{Ref: recordset.ID()}, nil
+}
+
+// ProvisionDomainForEndpoint publishes an endpoint under a custom domain through an
+// API Gateway, which is what supplies the two things Cloudflare gives for free on a
+// proxied record: a TLS certificate at the edge, and a Host header the endpoint
+// recognises (the gateway proxies to the target URL, so the Host it sends is the
+// target's own).
+//
+// Order matters and is the opposite of Cloudflare's. The gateway has to exist before
+// the CNAME can point anywhere, because its service domain is generated at creation.
+// That is safe: the only DNS record YC requires *before* anything else is the ACME
+// challenge that issued the certificate, and a certificate is adopted here rather than
+// issued (see yandex.RegistrarConfig.CertificateID). The domain-binding record may be
+// created before or after the domain is attached.
+//
+// The gateway is created in the registrar's own folder, with the registrar's
+// credentials — not the service's. In a single-folder setup those are the same; they
+// would have to be split if a zone were ever shared across folders.
+func (r *registrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack, endpoint pApi.DomainEndpoint) (*api.ResourceOutput, error) {
+	if r.config.CertificateID == "" {
+		return nil, errors.Errorf("cannot publish %q: the %s registrar for zone %q needs `certificateId` — "+
+			"the id of a Certificate Manager certificate covering that domain, which the API Gateway terminates TLS with. "+
+			"A wildcard certificate for the zone covers every service; adopt it rather than issuing a second one, "+
+			"since a managed certificate validates at a single `_acme-challenge.%s` CNAME",
+			endpoint.Domain, yandex.RegistrarTypeYandexDns, r.config.ZoneName, r.config.ZoneName)
+	}
+	if !api.DomainInZone(endpoint.Domain, r.config.ZoneName) {
+		return nil, errors.Errorf("cannot publish %q: the %s registrar serves zone %q",
+			endpoint.Domain, yandex.RegistrarTypeYandexDns, r.config.ZoneName)
+	}
+	gatewayName, err := apiGatewayName(endpoint.Name)
+	if err != nil {
+		return nil, err
+	}
+
+	r.log.Info(ctx.Context(), "configure yandex API gateway %q for domain %q of stack %q...", gatewayName, endpoint.Domain, stack.Name)
+	gateway, err := sdkYandex.NewApiGateway(ctx, gatewayName, &sdkYandex.ApiGatewayArgs{
+		Name:     sdk.String(gatewayName),
+		FolderId: sdk.StringPtr(r.config.FolderID),
+		Spec:     proxySpec(gatewayName, endpoint.TargetHost, endpoint.WebSocket),
+		CustomDomains: sdkYandex.ApiGatewayCustomDomainArray{
+			sdkYandex.ApiGatewayCustomDomainArgs{
+				Fqdn:          sdk.String(strings.TrimSuffix(endpoint.Domain, ".")),
+				CertificateId: sdk.String(r.config.CertificateID),
+			},
+		},
+	}, sdk.Provider(r.provider))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to create API gateway %q for domain %q", gatewayName, endpoint.Domain)
+	}
+
+	// The gateway's service domain is a bare hostname; YC DNS wants the data absolute.
+	target := gateway.Domain.ApplyT(fqdn).(sdk.StringOutput)
+	return r.NewRecord(ctx, api.DnsRecord{
+		Name:     endpoint.Domain,
+		Type:     hostnameRecordType(endpoint.Domain, r.config.ZoneName),
+		ValueOut: target,
+	})
+}
+
+// hostnameRecordType picks the record type that can point a name at the gateway's
+// hostname. Away from the apex that is a plain CNAME; AT the apex a CNAME is illegal
+// (api.IsZoneApex explains why) and Yandex Cloud has no ALIAS. Its answer is ANAME — a
+// CNAME-shaped record the nameserver resolves server-side and answers as an A, so the
+// apex keeps its SOA and NS. The trade-off is a single server-side resolution with no
+// geographic spread, which the `landing` repo weighed and accepted for simple-forge.ru's
+// apex; it is the only way to serve a bare domain on YC DNS at all.
+//
+// Serving the apex is not an edge case for this registrar: a service that declares
+// `domain: <zone>` — the normal shape for a product's own front door — hits it on the
+// first deploy, and YC rejects the CNAME with a message about the record type rather
+// than about the apex.
+func hostnameRecordType(domain, zoneName string) string {
+	if api.IsZoneApex(domain, zoneName) {
+		return "ANAME"
+	}
+	return "CNAME"
+}
+
+func proxySpec(title string, targetHost sdk.StringInput, websocket bool) sdk.StringOutput {
+	return targetHost.ToStringOutput().ApplyT(func(host string) string {
+		return proxySpecFor(title, host, websocket)
+	}).(sdk.StringOutput)
+}
+
+// proxySpecFor is an OpenAPI document that forwards every method and every path to the
+// endpoint. `/` and `/{path+}` are both needed: the greedy parameter does not match the
+// empty path. The integration is `http` rather than `serverless_containers` so that the
+// gateway works for any endpoint the registrar is handed.
+//
+// The forwarding rules below are not optional decoration. An API Gateway passes NOTHING
+// through by default — "headers other than User-Agent and query parameters of the
+// original request are not provided" — so a spec without `headers` and `query` reaches
+// the service as a bare request:
+//
+//   - no query string, which silently breaks every presigned URL, pagination cursor and
+//     OAuth callback (`?code=…`) the service serves;
+//   - no Cookie, so any session-cookie authentication answers 401;
+//   - no visitor Host, so a service that routes by hostname serves its default site to
+//     every domain — with a 200, which reads like success.
+//
+// `'*': '*'` relays everything the spec does not override. `Host` IS overridden, to the
+// target's own hostname: the upstream is reached over TLS by that name, and relaying the
+// visitor's Host would send an SNI the target's certificate does not cover. The visitor's
+// hostname travels as `X-Forwarded-Host` instead, which is the header the Cloudflare-side
+// services already read — so a service moved onto YC needs no change to resolve by host.
+// With omitEmptyHeaders the substitution simply disappears when a header is absent,
+// rather than arriving as an empty value that a receiver has to special-case.
+//
+// `Authorization` is the one header that must NOT be relayed, and the reason is not
+// hygiene — it is that the request would stop arriving at all. A Serverless Container's
+// own ingress reads `Authorization: Bearer …` as an IAM token and answers
+// `403 {"errorCode":403,"errorMessage":"Forbidden: Not authorized"}` BEFORE the container
+// runs, even when its invoker binding is `system:allUsers`. Measured live 2026-09-29: the
+// capital-B `Bearer` scheme is a reserved word at that ingress (`Basic`, `Token` and
+// lowercase `bearer` pass and are then dropped), so relaying it turns every bearer-token
+// caller into a 403 that no service code can see or explain. Overriding it to the empty
+// string makes omitEmptyHeaders drop it, and the credential travels as
+// `X-Forwarded-Authorization` instead — measured on the same run: 403 became 200 with the
+// token intact. A service that authenticates bearer tokens behind this gateway reads that
+// header (or has its SDK normalise it) — the alternative is that it cannot be reached.
+//
+// When websocket is set, each path carries three more operations so the gateway also
+// terminates WebSocket connections (see webSocketOperations). That is opt-in because the
+// feature is Preview and a service with no socket handler should not be given one; see
+// yandex.CloudExtras.WebSocket for the whole rationale.
+func proxySpecFor(title, targetHost string, websocket bool) string {
+	rootParams := headerParams("        ")
+	rootIntegration := forwardingIntegration("        ", targetHost, "/")
+	// The greedy path needs its segment declared as well, or `{path}` in the
+	// integration URL renders as literal braces.
+	greedyParams := pathParam("        ") + "\n" + headerParams("        ")
+	greedyIntegration := forwardingIntegration("        ", targetHost, "/{path}")
+
+	var rootSockets, greedySockets string
+	if websocket {
+		rootSockets = webSocketOperations("    ", rootParams, rootIntegration)
+		greedySockets = webSocketOperations("    ", greedyParams, greedyIntegration)
+	}
+
+	return fmt.Sprintf(`openapi: 3.0.0
+info:
+  title: %s
+  version: 1.0.0
+paths:
+  /:
+    x-yc-apigateway-any-method:
+      parameters:
+%s
+      x-yc-apigateway-integration:
+%s%s
+  /{path+}:
+    x-yc-apigateway-any-method:
+      parameters:
+%s
+      x-yc-apigateway-integration:
+%s%s
+`, title,
+		rootParams, rootIntegration, rootSockets,
+		greedyParams, greedyIntegration, greedySockets)
+}
+
+// webSocketOps are the three API Gateway operations that make one path relay a
+// WebSocket. All three are emitted together on purpose:
+//
+//   - CONNECT is what makes the upgrade legal at all. A path carrying only
+//     x-yc-apigateway-any-method answers an upgrade request with an immediate 405.
+//   - MESSAGE receives each client frame as an ordinary HTTP POST to the integration,
+//     and its own response body is delivered back to the client as a message.
+//   - DISCONNECT is the only notification the service gets that the client went away.
+//     Without it a handler streaming into a closed socket learns nothing until its
+//     pushes start failing.
+//
+// The service pushes out of band — the gateway does not relay the integration's response
+// body incrementally either. It POSTs to
+// apigateway-connections.api.cloud.yandex.net/…/connections/{id}:send, authenticated with
+// an IAM token from the instance metadata service, and finds {id} in the
+// X-Yc-Apigateway-Websocket-Connection-Id header that arrives on every one of these three
+// events. Because the id is already on the MESSAGE event, a handler that runs a whole turn
+// inside that invocation needs no connection registry.
+//
+// Two operational limits are the caller's to respect: a socket lives at most 60 minutes
+// (10 idle), and the MESSAGE invocation is bounded by the container's own timeout — SC's
+// default is 10 s, which cuts a streaming turn off mid-answer.
+var webSocketOps = []string{
+	"x-yc-apigateway-websocket-connect",
+	"x-yc-apigateway-websocket-message",
+	"x-yc-apigateway-websocket-disconnect",
+}
+
+// webSocketOperations renders the three socket operations as siblings of
+// x-yc-apigateway-any-method, each re-using the same parameters and the same forwarding
+// integration as the HTTP path. Sharing the integration is what makes a cookie session
+// work over the socket: `headers: {'*': '*'}` relays Cookie verbatim on CONNECT and on
+// MESSAGE, so the handshake authenticates exactly the way a request does and no second
+// mechanism is needed.
+func webSocketOperations(indent, params, integration string) string {
+	var b strings.Builder
+	for _, op := range webSocketOps {
+		// The leading newline is what keeps the no-websocket spec byte-identical: the
+		// caller appends this right after the HTTP integration with nothing between.
+		fmt.Fprintf(&b, "\n%s%s:\n%s  parameters:\n%s\n%s  x-yc-apigateway-integration:\n%s",
+			indent, op, indent, params, indent, integration)
+	}
+	return b.String()
+}
+
+// forwardedHeaders are the request headers the spec reads by name so it can re-send them
+// under a name of its own. They have to be declared as parameters for `{Name}` to
+// interpolate — an undeclared parameter renders as the literal braces.
+var forwardedHeaders = []string{"Host", "Authorization"}
+
+func headerParams(indent string) string {
+	var b strings.Builder
+	for _, h := range forwardedHeaders {
+		fmt.Fprintf(&b, "%s- name: %s\n%s  in: header\n%s  required: false\n%s  schema:\n%s    type: string\n",
+			indent, h, indent, indent, indent, indent)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// pathParam declares the greedy `/{path+}` segment. Like the headers above it has to be a
+// declared parameter for `{path}` to interpolate in the integration URL.
+func pathParam(indent string) string {
+	return fmt.Sprintf("%[1]s- name: path\n%[1]s  in: path\n%[1]s  required: true\n%[1]s  schema:\n%[1]s    type: string",
+		indent)
+}
+
+func forwardingIntegration(indent, targetHost, path string) string {
+	return fmt.Sprintf(`%[1]stype: http
+%[1]surl: https://%[2]s%[3]s
+%[1]squery:
+%[1]s  '*': '*'
+%[1]sheaders:
+%[1]s  '*': '*'
+%[1]s  Host: %[2]s
+%[1]s  X-Forwarded-Host: '{Host}'
+%[1]s  X-Forwarded-Authorization: '{Authorization}'
+%[1]s  Authorization: ''
+%[1]somitEmptyHeaders: true
+%[1]somitEmptyQueryParameters: true`, indent, targetHost, path)
+}
+
+// apiGatewayName derives the gateway's name from the endpoint's. The suffix is what
+// keeps it from colliding with the endpoint resource itself, and the truncation is what
+// keeps it inside YC's 63-character limit for a long service name.
+func apiGatewayName(endpointName string) (string, error) {
+	const suffix = "-apigw"
+	name := strings.TrimSuffix(strings.ToLower(endpointName), "-")
+	if len(name)+len(suffix) > 63 {
+		name = strings.TrimRight(name[:63-len(suffix)], "-")
+	}
+	name += suffix
+	if err := validateYcResourceName(name); err != nil {
+		return "", errors.Wrapf(err, "cannot derive an API gateway name from %q", endpointName)
+	}
+	return name, nil
+}
+
+// NewOverrideHeaderRule has no Yandex Cloud analogue. Cloudflare implements it with
+// a Worker on the proxied record; YC's edge is a resource that routes by Host on
+// its own, so the way to publish a service under a custom name here is to declare
+// `domain:` on the client stack and let ProvisionDomainForEndpoint build it.
+func (r *registrar) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule pApi.OverrideHeaderRule) (*api.ResourceOutput, error) {
+	return nil, errors.Errorf("overriding the Host header from %q is not supported by the %s registrar: "+
+		"declare `domain:` on the service instead, which publishes it through an API Gateway that routes by Host",
+		rule.FromHost, yandex.RegistrarTypeYandexDns)
+}
+
+// fqdn returns the name Yandex Cloud DNS expects: absolute, with a trailing dot.
+func fqdn(name string) string {
+	if strings.HasSuffix(name, ".") {
+		return name
+	}
+	return name + "."
+}
+
+// zoneInfrastructureRecordTypes are records the zone owns and a deploy must not
+// write. NS and SOA are YC's delegation records; overwriting either takes the whole
+// zone off the air.
+var zoneInfrastructureRecordTypes = map[string]bool{"NS": true, "SOA": true}
+
+// acmeChallengePrefix is where a managed certificate proves control of the zone.
+// The CNAME there holds exactly one target and is maintained by Certificate
+// Manager, so a deploy writing it breaks renewal — up to 90 days later.
+const acmeChallengePrefix = "_acme-challenge."
+
+func guardZoneInfrastructureRecord(record api.DnsRecord) error {
+	if zoneInfrastructureRecordTypes[strings.ToUpper(record.Type)] {
+		return errors.Errorf("refusing to write a %s record for %q: NS and SOA belong to the zone itself",
+			strings.ToUpper(record.Type), record.Name)
+	}
+	if strings.HasPrefix(strings.ToLower(record.Name), acmeChallengePrefix) {
+		return errors.Errorf("refusing to write %q: Certificate Manager owns the ACME challenge record, "+
+			"and overwriting it breaks renewal of the certificate already issued for this zone", record.Name)
+	}
+	return nil
+}

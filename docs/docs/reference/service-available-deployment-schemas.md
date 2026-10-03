@@ -205,6 +205,47 @@ CMD ["node", "server.js"]
 sc deploy -s myservice -e staging
 ```
 
+### **Example `client.yaml` for a Yandex Cloud Serverless Container**
+
+The same `single-image` type maps to a **YC Serverless Container** when the
+parent stack declares a `yc-serverless-container` template. `cloudExtras.schedules`
+becomes one YC Timer Trigger per entry, routed to the container.
+
+```yaml
+---
+# File: "myproject/.sc/stacks/myservice/client.yaml"
+
+schemaVersion: 1.0
+
+stacks:
+  staging:
+    type: single-image
+    template: yc-container            # from server.yaml
+    parent: myproject/devops
+    config:
+      domain: myservice.example.ru    # routed to yc-dns registrar
+      image:
+        dockerfile: ${git:root}/Dockerfile
+      maxMemory: 128                  # multiple of 128, min 128 MB
+      timeout: 30                     # 30 s free tier, up to 3600 s paid
+      uses:
+        - blobs                       # picks up ${resource:blobs.*}
+      env:
+        LOG_LEVEL: info
+      secrets:
+        SOME_TOKEN: "${secret:MY_SERVICE_TOKEN}"
+      cloudExtras:
+        schedules:
+          - name: nightly
+            expression: "0 3 ? * * *"    # 6-field YC cron, UTC
+            request: '{"path":"/nightly"}'
+            retryAttempts: 2
+            retryInterval: 10s
+```
+
+See [Yandex Cloud](../guides/parent-yandex-cloud.md) for the parent-stack setup
+this client points at, and for the CloudExtras field reference.
+
 ---
 
 # **`static`: Deploying Static Websites**

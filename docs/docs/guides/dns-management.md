@@ -77,6 +77,70 @@ values:
   cloudflare-account-id: "your-cloudflare-account-id"
 ```
 
+### 3. Yandex Cloud DNS Registrar (`yc-dns`)
+
+For `.ru` and other zones hosted on Yandex Cloud DNS, use the `yc-dns` registrar.
+Two things are different from the Cloudflare shape:
+
+- **The edge is an API Gateway, not a CDN.** The Cloudflare registrar hangs a
+  proxied CNAME plus a `Host`-rewriting Worker in front of your service. The
+  `yc-dns` registrar instead creates a **YC API Gateway** resource that
+  terminates TLS from the adopted certificate and forwards the target's own
+  `Host` to the container URL. This is what makes TLS + a real edge work on a
+  `.ru` service domain without paying the CDN's per-resource flat fee — and
+  it dodges the wildcard-CDN limitation (one CDN resource per container is
+  required, since the container hostname *is* the identity, and YC CDN keys
+  the cache on URI alone so byte-identical responses on distinct hostnames
+  leak across services).
+
+- **Certificates are adopted, never issued.** `certificateId` is required on
+  every `yc-dns` registrar declaration and must reference a wildcard cert that
+  covers the zone. A managed DNS_CNAME certificate validates through the
+  single `_acme-challenge.<zone>` CNAME target, so a second managed cert for
+  the same domain contends with the first's renewal and fails as an expiry up
+  to 90 days later. Adopt one wildcard cert per zone and share it across
+  services.
+
+```yaml
+# server.yaml — declaring multiple registrars side-by-side is supported
+# via the `registrars:` (plural) map. SC routes each domain to the entry
+# whose zone is the longest declared suffix, on a label boundary.
+resources:
+  registrars:
+    cloudflare:
+      type: cloudflare
+      config:
+        credentials: "${auth:cloudflare}"
+        accountId: "${secret:cloudflare-account-id}"
+        zoneName: "mycompany.com"
+    yandex:
+      type: yc-dns
+      config:
+        credentials: "${auth:yc}"
+        # The YC *resource* name of the DNS zone, not the DNS name of it.
+        # `example.ru.` is served by a resource named `example-ru`. Set
+        # `zoneId:` directly to skip the lookup.
+        zoneName: example-ru
+        # Adopted wildcard certificate — one per zone.
+        certificateId: fpqu...
+```
+
+**Refused records.** `NS`, `SOA` and anything under `_acme-challenge.` are
+refused at conversion time — overwriting NS takes the zone off the air,
+overwriting `_acme-challenge.` breaks renewal up to 90 days later.
+
+**TTL.** Defaults to 300 seconds. YC does not treat `1` as the "automatic"
+sentinel that some other providers use.
+
+**Multi-valued records.** `Datas` is a list, so one recordset can hold N
+values; unlike Cloudflare where a multi-valued record is N separate resources.
+
+**`Proxied` is ignored.** The Cloudflare-only `proxied` flag has no meaning on
+`yc-dns` and is dropped.
+
+For the full YC parent-stack shape and destroy hazards, see
+[Yandex Cloud](parent-yandex-cloud.md).
+
 ## Application Domain Configuration
 
 ### 1. Basic Domain Assignment
