@@ -1009,9 +1009,15 @@ platform's.
    any parent value it needs (a DNS token for its domains, a notification token).
 3. Make the scope's recipients a break-glass SSH key and a `gcpkms://` key the client's CI
    identity can decrypt with.
-4. In the client workflow, federate to GCP before deploying. The deploy's
-   `SIMPLE_CONTAINER_CONFIG` carries only a key that can clone the parent repository
-   read-only and is not a recipient of its `secrets.yaml`.
+4. In the client workflow, federate to GCP before deploying (`google-github-actions/auth`;
+   a checkout step is not required). The deploy's `SIMPLE_CONTAINER_CONFIG` carries only a
+   key that can clone the parent repository read-only and is not a recipient of its
+   `secrets.yaml`.
+
+If an earlier step of the same job revealed the parent's whole-file store (a legacy deploy
+run side by side with a keyless one, for example), the deploy removes that plaintext
+`secrets.yaml` from the workspace before copying the parent's stacks, for every parent stack
+that has scope files. Otherwise it would win over the scopes this deploy opens.
 
 With scope files present and the whole-file store unreadable, a placeholder that no openable
 scope fills fails the deploy before anything is changed, naming the placeholder. Placeholders

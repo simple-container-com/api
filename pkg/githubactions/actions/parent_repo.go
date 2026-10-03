@@ -248,7 +248,11 @@ func (e *Executor) cloneParentRepository(ctx context.Context) error {
 		return fmt.Errorf("failed to remove stale parent secrets from the workspace: %w", err)
 	}
 	for _, path := range removed {
-		e.logger.Warn(ctx, "Removed %s left by an earlier step; this run uses only what it revealed itself", path)
+		if secretsRevealed {
+			e.logger.Info(ctx, "Replacing %s with the store this run revealed", path)
+		} else {
+			e.logger.Warn(ctx, "Removed %s left by an earlier step; this run cannot open that store and uses its secret scopes", path)
+		}
 	}
 
 	// Copy stacks with awareness of secret revelation status

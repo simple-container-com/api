@@ -15,6 +15,7 @@ func TestParseAuthDescriptor(t *testing.T) {
 	RegisterProviderConfig(ConfigRegisterMap{
 		"test-prov-api-fails": func(c *Config) (Config, error) { return Config{}, errors.New("bad config") },
 	})
+	t.Cleanup(func() { delete(providerConfigMapping, "test-prov-api-fails") })
 
 	got, err := ParseAuthDescriptor("type: " + testProviderType + "\nconfig:\n  projectId: p1\n")
 	if err != nil {

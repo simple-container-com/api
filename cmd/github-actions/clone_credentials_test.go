@@ -38,7 +38,9 @@ func cloneKeepsFederatedCredentials(t *testing.T, translated bool) {
 		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(workspace, "gha-creds-1.json"))
 	}
 
-	actions.PreserveWorkspaceCredentialFiles()
+	if _, failed := actions.PreserveWorkspaceCredentialFiles(); len(failed) != 0 {
+		t.Fatal(failed)
+	}
 	if err := copyRepositoryContents(clone, workspace); err != nil {
 		t.Fatal(err)
 	}

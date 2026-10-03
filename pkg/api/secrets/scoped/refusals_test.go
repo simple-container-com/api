@@ -38,7 +38,7 @@ func writeTestFile(t *testing.T, path, content string) {
 func TestNewScopeFileRefusals(t *testing.T) {
 	r, _ := genEd25519Recipient(t)
 	_, err := NewScopeFile("app", "Bad Scope", []string{r})
-	wantErr(t, "bad scope", err, "scope")
+	wantErr(t, "bad scope", err, "invalid scope name")
 	_, err = NewScopeFile(" ", "pr", []string{r})
 	wantErr(t, "no stack", err, "no stack")
 	_, err = NewScopeFile("app", "pr", nil)
@@ -52,7 +52,7 @@ func TestLoadScopeFileRefusals(t *testing.T) {
 
 	cases := []struct{ name, file, body, want string }{
 		{"not yaml", "secrets.pr.yaml", "values: [", "failed to parse"},
-		{"bad scope name", "secrets.pr.yaml", "schemaVersion: 1\nstack: app\nscope: '../x'\n", "scope"},
+		{"bad scope name", "secrets.pr.yaml", "schemaVersion: 1\nstack: app\nscope: '../x'\n", "invalid scope name"},
 		{"no stack", "secrets.pr.yaml", "schemaVersion: 1\nscope: pr\n", "no stack field"},
 		{"moved to another stack", "secrets.pr.yaml", "schemaVersion: 1\nstack: other\nscope: pr\n", "moved file"},
 	}
@@ -80,9 +80,7 @@ func TestScopeFileSetOpenAndSaveRefusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := f.Set("bad key!", "v"); err == nil {
-		t.Error("an invalid key name was accepted")
-	}
+	wantErr(t, "bad key", f.Set("bad key!", "v"), "invalid secret key")
 	f.Values = nil
 	if err := f.Set("TOKEN", "v"); err != nil {
 		t.Fatalf("Set on a file with a nil map: %v", err)
@@ -140,11 +138,11 @@ func TestVerifyConsistencyRefusals(t *testing.T) {
 		edit func(*ScopeFile)
 		want string
 	}{
-		{"bad scope", func(c *ScopeFile) { c.Scope = "Bad Scope" }, "scope"},
+		{"bad scope", func(c *ScopeFile) { c.Scope = "Bad Scope" }, "invalid scope name"},
 		{"no stack", func(c *ScopeFile) { c.Stack = " " }, "has no stack"},
 		{"no recipients", func(c *ScopeFile) { c.Recipients = nil }, "has no recipients"},
-		{"unparseable recipient", func(c *ScopeFile) { c.Recipients = []string{"ssh-ed25519 not-a-key"} }, ""},
-		{"bad key name", func(c *ScopeFile) { c.Values["bad key!"] = c.Values["TOKEN"] }, ""},
+		{"unparseable recipient", func(c *ScopeFile) { c.Recipients = []string{"ssh-ed25519 not-a-key"} }, "failed to parse recipient public key"},
+		{"bad key name", func(c *ScopeFile) { c.Values["bad key!"] = c.Values["TOKEN"] }, "invalid secret key"},
 		{"plaintext value", func(c *ScopeFile) { ev := c.Values["TOKEN"]; ev.Ciphertext = "not base64!"; c.Values["TOKEN"] = ev }, "not base64"},
 		{"short value", func(c *ScopeFile) { ev := c.Values["TOKEN"]; ev.Ciphertext = short; c.Values["TOKEN"] = ev }, "value ciphertext"},
 		{"wrap count", func(c *ScopeFile) { c.Recipients = append(c.Recipients, kms) }, "expected 2"},
@@ -204,9 +202,8 @@ func TestPathsAndScopesFileRefusals(t *testing.T) {
 	if err != nil || len(files) != 1 || filepath.Base(files[0]) != "secrets.pr.yaml" {
 		t.Errorf("ListScopeFiles = %v, %v; want only the one scope file", files, err)
 	}
-	if _, err := ListScopeFiles(blocker); err == nil {
-		t.Error("listed scope files under a path that is a file")
-	}
+	_, err = ListScopeFiles(blocker)
+	wantErr(t, "stacks root is a file", err, "failed to list")
 
 	scopes := filepath.Join(root, "scopes")
 	if err := os.MkdirAll(scopes, 0o755); err != nil {
@@ -219,7 +216,7 @@ func TestPathsAndScopesFileRefusals(t *testing.T) {
 	wantErr(t, "scopes not yaml", err, "failed to parse")
 	writeTestFile(t, filepath.Join(root, "badname.yaml"), "schemaVersion: 1\nscopes:\n  'Bad Name': {}\n")
 	_, err = LoadScopes(filepath.Join(root, "badname.yaml"))
-	wantErr(t, "bad scope name", err, "in ")
+	wantErr(t, "bad scope name", err, "invalid scope name")
 	writeTestFile(t, filepath.Join(root, "noscopes.yaml"), "schemaVersion: 1\n")
 	s, err := LoadScopes(filepath.Join(root, "noscopes.yaml"))
 	if err != nil || s.Scopes == nil {
@@ -234,11 +231,9 @@ func TestPathsAndScopesFileRefusals(t *testing.T) {
 	_, err = s.Recipients("empty")
 	wantErr(t, "scope with no recipients", err, "no recipients")
 	_, err = s.Allow("Bad Name", r)
-	wantErr(t, "allow bad scope", err, "scope")
+	wantErr(t, "allow bad scope", err, "invalid scope name")
 	_, err = s.Allow("pr", "ssh-ed25519 not-a-key")
-	if err == nil {
-		t.Error("allowed an unparseable recipient")
-	}
+	wantErr(t, "allow unparseable", err, "failed to parse recipient public key")
 	s.Scopes = nil
 	if added, err := s.Allow("pr", r); err != nil || !added {
 		t.Errorf("Allow on a nil map = %v, %v", added, err)
@@ -249,29 +244,19 @@ func TestPathsAndScopesFileRefusals(t *testing.T) {
 	_, err = s.Disallow("absent", r)
 	wantErr(t, "disallow undeclared", err, "not declared")
 	_, err = s.Disallow("pr", "ssh-ed25519 not-a-key")
-	if err == nil {
-		t.Error("disallowed an unparseable recipient")
-	}
+	wantErr(t, "disallow unparseable", err, "failed to parse recipient public key")
 }
 
 func TestEncryptForRecipientsRefusals(t *testing.T) {
 	r, _ := genEd25519Recipient(t)
 	_, err := encryptForRecipients([]string{r, r}, "app", "pr", "K", "v")
-	if err == nil {
-		t.Error("sealed twice to the same recipient")
-	}
+	wantErr(t, "duplicate recipient", err, "duplicate recipient")
 	_, err = encryptForRecipients([]string{"gcpkms://projects/x"}, "app", "pr", "K", "v")
-	if err == nil {
-		t.Error("sealed to a malformed gcpkms recipient")
-	}
+	wantErr(t, "malformed gcpkms recipient", err, "gcpkms")
 	_, err = encryptForRecipients([]string{"ssh-ed25519 not-a-key"}, "app", "pr", "K", "v")
-	if err == nil {
-		t.Error("sealed to an unparseable ssh recipient")
-	}
+	wantErr(t, "unparseable ssh recipient", err, "failed to parse recipient public key")
 	_, err = encryptForRecipients(nil, "app", "pr", "K", "v")
-	if err == nil {
-		t.Error("sealed to nobody")
-	}
+	wantErr(t, "no recipients", err, "has no recipients to encrypt")
 }
 
 func TestResolveScopedValuesInputs(t *testing.T) {
@@ -281,9 +266,8 @@ func TestResolveScopedValuesInputs(t *testing.T) {
 	}
 	file := filepath.Join(t.TempDir(), "file")
 	writeTestFile(t, file, "x")
-	if _, err := ResolveScopedValues(file, nil); err == nil {
-		t.Error("a stack dir that is a file was read")
-	}
+	_, err = ResolveScopedValues(file, nil)
+	wantErr(t, "stack dir is a file", err, "failed to list")
 
 	dir := filepath.Join(t.TempDir(), "app")
 	writeTestFile(t, filepath.Join(dir, "secrets.yaml"), "legacy")
@@ -328,21 +312,24 @@ func TestOpenerKMSClientsAreProbedOnce(t *testing.T) {
 	if _, ok := o.kmsClientFor(context.Background(), "eu-west-2"); ok || calls != before {
 		t.Error("probed again after finding no identity")
 	}
+}
 
+func TestIsDeclaredSSHRecipientIgnoresKMSAndUnparseable(t *testing.T) {
+	r, priv := genEd25519Recipient(t)
+	o := NewOpener([]string{priv}, false)
 	if o.IsDeclaredSSHRecipient([]string{"ssh-ed25519 not-a-key", testGCPRecipient()}) {
 		t.Error("an unparseable or KMS recipient counted as a held SSH key")
+	}
+	if !o.IsDeclaredSSHRecipient([]string{"ssh-ed25519 not-a-key", r}) {
+		t.Error("the held key was not found next to an unparseable recipient")
 	}
 }
 
 func TestWrapDEKWithKMSRefusals(t *testing.T) {
 	_, err := wrapDEKKMS("awskms://", []byte("dek"), "app", "pr", "K")
-	if err == nil {
-		t.Error("wrapped for a malformed awskms recipient")
-	}
+	wantErr(t, "malformed awskms recipient", err, "awskms")
 	_, err = parseKMSRecipient("awskms://alias/x?%zz")
-	if err == nil {
-		t.Error("parsed a recipient with a broken query")
-	}
+	wantErr(t, "broken query", err, "awskms")
 
 	prev := newKMSClient
 	t.Cleanup(func() { newKMSClient = prev })

@@ -124,7 +124,9 @@ client deploy without renaming it, all opt-in:
 1. **Ambient GCP credentials.** A `gcp-service-account` auth entry with empty `credentials`
    makes every GCP client (Pulumi provider, state backend, storage, service usage, registry
    token) use Application Default Credentials, which in CI are the Workload Identity
-   Federation credentials of the job. The auth entry then holds no secret. AWS already
+   Federation credentials of the job. gcloud does not read ADC, and GKE kubeconfigs reach it
+   through `gke-gcloud-auth-plugin`, so in GitHub Actions the action signs gcloud in with the
+   same file, in a configuration private to the run. The auth entry then holds no secret. AWS already
    behaves this way with empty static keys.
 2. **Auth entries in scopes.** A scope entry `auth:<name>` holds the YAML of one entry of
    the `auth:` map, sealed and bound like a value. A deploy that opens the scope gets its
@@ -159,7 +161,10 @@ as non-fatal.
 
 What stays shared: a client deploy still reads the parent's Pulumi state (stack references
 for cluster, registry and database outputs), so its identity needs read access to that state
-and decrypt on the state's secrets-provider key. That exposes the parent's secret outputs to
+and decrypt on the state's secrets-provider key. It also opens its own secrets-provider stack
+(`<stack>--sc`, shared by the stack's environments) on every run: Pulumi locks it and reads its
+checkpoint, so the identity needs to create and delete objects under that stack's lock prefix
+and to read its checkpoint, not to write the checkpoint. That exposes the parent's secret outputs to
 every client identity; narrowing it is separate from the secret store.
 
 ## Parent/child resolution — the load-bearing constraint (P0-1)
@@ -167,6 +172,8 @@ every client identity; narrowing it is separate from the secret store.
 A child (client) stack with `parent: <org>/<parent-stack>` does NOT decrypt in isolation.
 `parent_repo.go` clones the parent repo, reveals its `.sc/stacks/*` plaintext, **copies it
 into the child workspace**, then optionally reveals the child's own `.sc/stacks/<child>/`.
+Before the copy it removes a revealed `secrets.yaml` that an earlier step of the same job
+left for a parent stack with scope files, so the merge holds only what this run revealed.
 So `${secret:KEY}` resolves against a MERGE of (parent store) ⊕ (child store). Two
 consequences the spec must honor:
 

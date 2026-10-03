@@ -108,8 +108,12 @@ func main() {
 		// Cloning replaces the workspace's contents, and with them any credential
 		// file an earlier step wrote there, such as a Workload Identity Federation
 		// config from google-github-actions/auth.
-		for name, path := range actions.PreserveWorkspaceCredentialFiles() {
+		preserved, failed := actions.PreserveWorkspaceCredentialFiles()
+		for name, path := range preserved {
 			log.Info(ctx, "%s preserved outside the workspace at %s", name, path)
+		}
+		for name, err := range failed {
+			log.Warn(ctx, "%s could not be preserved and the clone will remove it: %v", name, err)
 		}
 
 		// Clone the repository like actions/checkout does
