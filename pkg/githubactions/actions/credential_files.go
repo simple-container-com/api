@@ -6,6 +6,7 @@ package actions
 import (
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // credentialFileVars name files that an earlier workflow step writes and a cloud
@@ -17,17 +18,18 @@ var credentialFileVars = []string{
 	"GOOGLE_GHA_CREDS_PATH",
 }
 
-// remapWorkspaceCredentialFiles points credential-file variables at a private
-// copy inside this container. GitHub runs a Docker action with the job's
-// workspace mounted at GITHUB_WORKSPACE, but a file an earlier step wrote there
-// is named by its path on the runner, which does not exist in here. A variable is
-// changed only when its file is missing and a regular file of the same name sits
-// at the root of the mounted workspace, which is where those tools write it.
+// remapWorkspaceCredentialFiles points credential-file variables that name a file
+// in the job's workspace at a private copy inside this container. Those tools
+// write the file at the root of the workspace, and the variable reaches the
+// container either already translated to the mounted workspace or still naming
+// the runner path, which does not exist in here; in the second case the file of
+// the same name at the root of GITHUB_WORKSPACE is used.
 //
 // The file is copied out of the workspace rather than referenced in it: when the
 // job has no checkout, the action clones the repository and replaces the
 // workspace's contents, which would delete the credentials of the identity the
-// rest of the run is meant to use.
+// rest of the run is meant to use. A variable naming a file outside the
+// workspace is left alone.
 func remapWorkspaceCredentialFiles() map[string]string {
 	workspace := os.Getenv("GITHUB_WORKSPACE")
 	changed := map[string]string{}
@@ -39,14 +41,18 @@ func remapWorkspaceCredentialFiles() map[string]string {
 		if p == "" {
 			continue
 		}
+		src := p
 		if _, err := os.Stat(p); err == nil {
+			if !insideDir(p, workspace) {
+				continue
+			}
+		} else {
+			src = filepath.Join(workspace, filepath.Base(p))
+		}
+		if st, err := os.Stat(src); err != nil || !st.Mode().IsRegular() {
 			continue
 		}
-		candidate := filepath.Join(workspace, filepath.Base(p))
-		if st, err := os.Stat(candidate); err != nil || !st.Mode().IsRegular() {
-			continue
-		}
-		dst, err := preserveCredentialFile(candidate)
+		dst, err := preserveCredentialFile(src)
 		if err != nil {
 			continue
 		}
@@ -77,4 +83,9 @@ func preserveCredentialFile(src string) (string, error) {
 		return "", err
 	}
 	return dst, nil
+}
+
+func insideDir(path, dir string) bool {
+	rel, err := filepath.Rel(filepath.Clean(dir), filepath.Clean(path))
+	return err == nil && rel != "." && !strings.HasPrefix(rel, "..")
 }

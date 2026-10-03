@@ -15,6 +15,14 @@ import (
 // workspace's contents. A Workload Identity Federation config that an earlier
 // step wrote into the workspace must still be what the run authenticates with.
 func TestCloneKeepsFederatedCredentials(t *testing.T) {
+	for _, translated := range []bool{false, true} {
+		t.Run(map[bool]string{false: "runner path", true: "workspace path"}[translated], func(t *testing.T) {
+			cloneKeepsFederatedCredentials(t, translated)
+		})
+	}
+}
+
+func cloneKeepsFederatedCredentials(t *testing.T, translated bool) {
 	workspace := t.TempDir()
 	clone := t.TempDir()
 	t.Setenv("TMPDIR", t.TempDir())
@@ -26,6 +34,9 @@ func TestCloneKeepsFederatedCredentials(t *testing.T) {
 	}
 	t.Setenv("GITHUB_WORKSPACE", workspace)
 	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/home/runner/work/app/app/gha-creds-1.json")
+	if translated {
+		t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", filepath.Join(workspace, "gha-creds-1.json"))
+	}
 
 	actions.PreserveWorkspaceCredentialFiles()
 	if err := copyRepositoryContents(clone, workspace); err != nil {

@@ -66,3 +66,29 @@ func TestRemapWorkspaceCredentialFiles_NoWorkspace(t *testing.T) {
 		t.Fatal("variable changed without a workspace")
 	}
 }
+
+// The variable usually reaches the container already naming the mounted
+// workspace. The file still has to leave the workspace before the clone.
+func TestRemapWorkspaceCredentialFiles_TranslatedPath(t *testing.T) {
+	workspace := t.TempDir()
+	t.Setenv("TMPDIR", t.TempDir())
+	inWorkspace := filepath.Join(workspace, "gha-creds-2.json")
+	if err := os.WriteFile(inWorkspace, []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GITHUB_WORKSPACE", workspace)
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", inWorkspace)
+
+	remapWorkspaceCredentialFiles()
+
+	got := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if strings.HasPrefix(got, workspace) {
+		t.Fatalf("GOOGLE_APPLICATION_CREDENTIALS = %q; still inside the workspace", got)
+	}
+	if err := os.RemoveAll(workspace); err != nil {
+		t.Fatal(err)
+	}
+	if data, err := os.ReadFile(got); err != nil || string(data) != "{}" {
+		t.Errorf("credentials lost with the workspace: %q, %v", data, err)
+	}
+}
