@@ -55,7 +55,7 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	}
 
 	if ambient {
-		// nothing to activate
+		loginGcloudWithAmbientCredentials(ctx, log)
 	} else if gcloudPath, err := exec.LookPath("gcloud"); err != nil {
 		fmt.Println("WARN: Failed to find gcloud command")
 	} else if f, err := os.CreateTemp(os.TempDir(), "google-creds.json"); err != nil {
@@ -306,4 +306,35 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 // missing grant into a misleading storage.buckets.create error.
 func stateBucketMissing(err error) bool {
 	return errors.Is(err, gcpStorage.ErrBucketNotExist)
+}
+
+// runGcloud runs the gcloud CLI; tests replace it.
+var runGcloud = func(args ...string) ([]byte, error) {
+	gcloudPath, err := exec.LookPath("gcloud")
+	if err != nil {
+		return nil, err
+	}
+	return exec.Command(gcloudPath, args...).CombinedOutput()
+}
+
+// loginGcloudWithAmbientCredentials signs gcloud in with the credentials file
+// Application Default Credentials name. Kubeconfigs authenticate through
+// gke-gcloud-auth-plugin, which asks gcloud for a token, and gcloud does not use
+// a Workload Identity Federation config on its own: with no account signed in
+// it reports none selected. Key mode activates the service account key for the
+// same reason.
+func loginGcloudWithAmbientCredentials(ctx context.Context, log logger.Logger) {
+	credFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credFile == "" {
+		return
+	}
+	if st, err := os.Stat(credFile); err != nil || !st.Mode().IsRegular() {
+		log.Warn(ctx, "GOOGLE_APPLICATION_CREDENTIALS names no readable file; gcloud keeps its current account")
+		return
+	}
+	if out, err := runGcloud("auth", "login", "--cred-file="+credFile, "--quiet"); err != nil {
+		log.Warn(ctx, "failed to sign gcloud in with the ambient credentials: %v: %s", err, strings.TrimSpace(string(out)))
+		return
+	}
+	log.Info(ctx, "gcloud signed in with the ambient credentials")
 }
