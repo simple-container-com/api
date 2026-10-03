@@ -10,9 +10,10 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/onsi/gomega"
 	"golang.org/x/crypto/ed25519"
 	"golang.org/x/crypto/ssh"
+
+	. "github.com/onsi/gomega"
 )
 
 // TestEncryptLargeString_RSAEncryptError covers the error branch inside

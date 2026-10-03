@@ -336,3 +336,35 @@ func TestStateStorageConfig_EffectiveNoncurrentVersionRetentionDays(t *testing.T
 	Expect((&StateStorageConfig{NoncurrentVersionRetentionDays: lo.ToPtr(7)}).EffectiveNoncurrentVersionRetentionDays()).
 		To(Equal(7))
 }
+
+// ---- ambient credentials -------------------------------------------------
+
+func TestCredentials_UsesAmbientCredentials(t *testing.T) {
+	RegisterTestingT(t)
+	Expect((&Credentials{}).UsesAmbientCredentials()).To(BeTrue())
+	Expect((&Credentials{Credentials: api.Credentials{Credentials: " \n"}}).UsesAmbientCredentials()).To(BeTrue())
+	Expect((&Credentials{Credentials: api.Credentials{Credentials: `{"type":"service_account"}`}}).UsesAmbientCredentials()).To(BeFalse())
+}
+
+func TestCredentials_CredentialsParsed_Ambient(t *testing.T) {
+	RegisterTestingT(t)
+	_, err := (&Credentials{}).CredentialsParsed()
+	Expect(err).To(MatchError(ContainSubstring("set serviceAccount")))
+
+	c := &Credentials{ServiceAccountConfig: ServiceAccountConfig{ServiceAccount: "deployer@p.iam.gserviceaccount.com"}}
+	parsed, err := c.CredentialsParsed()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(parsed.Type).To(Equal("service_account"))
+	Expect(parsed.ClientEmail).To(Equal("deployer@p.iam.gserviceaccount.com"))
+}
+
+func TestCredentials_CredentialsParsed_KeyWinsOverServiceAccount(t *testing.T) {
+	RegisterTestingT(t)
+	c := &Credentials{
+		Credentials:          api.Credentials{Credentials: `{"type":"service_account","client_email":"key@p.iam.gserviceaccount.com"}`},
+		ServiceAccountConfig: ServiceAccountConfig{ServiceAccount: "other@p.iam.gserviceaccount.com"},
+	}
+	parsed, err := c.CredentialsParsed()
+	Expect(err).NotTo(HaveOccurred())
+	Expect(parsed.ClientEmail).To(Equal("key@p.iam.gserviceaccount.com"))
+}
