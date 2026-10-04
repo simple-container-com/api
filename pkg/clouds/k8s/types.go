@@ -43,6 +43,9 @@ type DeploymentConfig struct {
 	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty" yaml:"externalTrafficPolicy,omitempty"`
 
 	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
+
+	// SecurityContext is the pod-level securityContext from cloudExtras (fsGroup etc.).
+	SecurityContext *PodSecurityContext `json:"securityContext,omitempty" yaml:"securityContext,omitempty"`
 }
 
 type CaddyConfig struct {

@@ -505,6 +505,49 @@ stacks:
 
 ---
 
+# **Advanced Configuration: Pod Security Context**
+
+## **Why You Need This**
+
+A persistent volume declared in `docker-compose.yaml` with the `simple-container.com/volume-*` labels is provisioned as a fresh disk whose root directory is owned by `root`. If the image runs as a non-root user (for example `USER app` in the Dockerfile), the container cannot create anything on that volume and usually fails at startup with `Permission denied`.
+
+The same setup works with plain `docker compose`, because Docker copies the image's directory ownership into a new named volume. Kubernetes does not. Setting `fsGroup` makes the kubelet hand the volume to that group when the pod starts.
+
+## **Configuring securityContext in client.yaml**
+
+```yaml
+stacks:
+  production:
+    type: cloud-compose
+    parent: myproject/devops
+    config:
+      dockerComposeFile: ./docker-compose.yaml
+      runs: [web, worker]
+
+      cloudExtras:
+        securityContext:
+          fsGroup: 10001                       # GID of the image's non-root user
+          fsGroupChangePolicy: OnRootMismatch  # skip the recursive chown when ownership already matches
+          runAsNonRoot: true
+```
+
+| Field | Description |
+|-------|-------------|
+| `runAsUser` | UID for every container in the pod that does not set its own |
+| `runAsGroup` | Primary GID for every container in the pod that does not set its own |
+| `runAsNonRoot` | Refuse to start containers whose effective UID is 0 |
+| `fsGroup` | Volumes are group-owned by this GID (with the setgid bit) and the containers join the group |
+| `fsGroupChangePolicy` | `Always` (Kubernetes default) or `OnRootMismatch`; the latter keeps restarts fast on large volumes |
+| `supplementalGroups` | Extra GIDs added to every container |
+
+Notes:
+
+- This is the **pod-level** securityContext, so it applies to every container in `runs` and to sidecars. A sidecar's own container-level settings still take precedence.
+- Values the API server would reject (negative IDs, an unknown `fsGroupChangePolicy`, `runAsNonRoot: true` with `runAsUser: 0`) fail the deploy at preview time.
+- Leaving `securityContext` out keeps the pod spec exactly as before.
+
+---
+
 # **Advanced Configuration: Large Temporary Storage**
 
 ## **What are Generic Ephemeral Volumes?**

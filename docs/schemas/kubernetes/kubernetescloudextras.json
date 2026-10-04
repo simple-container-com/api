@@ -715,6 +715,34 @@
         ],
         "type": "object"
       },
+      "securityContext": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "fsGroup": {
+            "type": "integer"
+          },
+          "fsGroupChangePolicy": {
+            "type": "string"
+          },
+          "runAsGroup": {
+            "type": "integer"
+          },
+          "runAsNonRoot": {
+            "type": "boolean"
+          },
+          "runAsUser": {
+            "type": "integer"
+          },
+          "supplementalGroups": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
       "serviceType": {
         "type": "string"
       },
