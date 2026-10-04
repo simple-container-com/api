@@ -297,7 +297,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 			MinAvailable: lo.ToPtr(1),
 		}),
 		RollingUpdate:                 lo.If(args.Deployment.RollingUpdate != nil, toRollingUpdateArgs(args.Deployment.RollingUpdate)).Else(nil),
-		SecurityContext:               nil, // TODO
+		SecurityContext:               toPodSecurityContextArgs(args.Deployment.SecurityContext),
 		Log:                           args.Params.Log,
 		SecretVolumes:                 args.SecretVolumes,
 		SecretVolumeOutputs:           args.SecretVolumeOutputs,
@@ -440,4 +440,23 @@ func autoTCPReadinessProbe(container k8s.CloudRunContainer) (*corev1.ProbeArgs, 
 	default:
 		return nil, nil
 	}
+}
+
+// toPodSecurityContextArgs maps cloudExtras.securityContext onto the pod spec. An unset
+// context stays nil, so stacks that do not use it render exactly as before.
+func toPodSecurityContextArgs(sc *k8s.PodSecurityContext) *corev1.PodSecurityContextArgs {
+	if sc == nil {
+		return nil
+	}
+	res := &corev1.PodSecurityContextArgs{
+		RunAsUser:           sdk.IntPtrFromPtr(sc.RunAsUser),
+		RunAsGroup:          sdk.IntPtrFromPtr(sc.RunAsGroup),
+		RunAsNonRoot:        sdk.BoolPtrFromPtr(sc.RunAsNonRoot),
+		FsGroup:             sdk.IntPtrFromPtr(sc.FSGroup),
+		FsGroupChangePolicy: sdk.StringPtrFromPtr(sc.FSGroupChangePolicy),
+	}
+	if len(sc.SupplementalGroups) > 0 {
+		res.SupplementalGroups = sdk.ToIntArray(sc.SupplementalGroups)
+	}
+	return res
 }

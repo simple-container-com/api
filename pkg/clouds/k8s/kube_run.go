@@ -42,6 +42,11 @@ type CloudExtras struct {
 	ExternalTrafficPolicy *string `json:"externalTrafficPolicy,omitempty" yaml:"externalTrafficPolicy,omitempty"`
 
 	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
+
+	// SecurityContext is the pod-level securityContext. Its main use is fsGroup: a freshly
+	// provisioned persistent volume is owned by root, so a container running as a non-root
+	// user cannot write to it until the kubelet hands the volume to that group.
+	SecurityContext *PodSecurityContext `json:"securityContext,omitempty" yaml:"securityContext,omitempty"`
 }
 
 // TopologySpreadConstraint spreads pods across nodes without the GKE Autopilot 0.5 vCPU minimum that pod anti-affinity requires.
@@ -157,6 +162,46 @@ type VPAConfig struct {
 	ContainerPolicies []VPAContainerPolicy `json:"containerPolicies" yaml:"containerPolicies"`
 }
 
+// PodSecurityContext is the subset of the Kubernetes pod securityContext exposed through cloudExtras.
+// Container-level settings of sidecars (e.g. a Cloud SQL proxy) still take precedence over it.
+type PodSecurityContext struct {
+	RunAsUser    *int  `json:"runAsUser,omitempty" yaml:"runAsUser,omitempty"`
+	RunAsGroup   *int  `json:"runAsGroup,omitempty" yaml:"runAsGroup,omitempty"`
+	RunAsNonRoot *bool `json:"runAsNonRoot,omitempty" yaml:"runAsNonRoot,omitempty"`
+	// FSGroup makes mounted volumes group-owned by this GID (with the setgid bit), so a
+	// non-root container can write to a volume that was provisioned owned by root.
+	FSGroup *int `json:"fsGroup,omitempty" yaml:"fsGroup,omitempty"`
+	// FSGroupChangePolicy is "Always" (Kubernetes default) or "OnRootMismatch", which skips the
+	// recursive ownership change when the volume root already matches and keeps restarts fast.
+	FSGroupChangePolicy *string `json:"fsGroupChangePolicy,omitempty" yaml:"fsGroupChangePolicy,omitempty"`
+	SupplementalGroups  []int   `json:"supplementalGroups,omitempty" yaml:"supplementalGroups,omitempty"`
+}
+
+// Validate rejects values the API server would refuse, so the mistake surfaces at preview
+// time instead of as a Deployment stuck without pods. A nil context is valid.
+func (c *PodSecurityContext) Validate() error {
+	if c == nil {
+		return nil
+	}
+	for name, id := range map[string]*int{"runAsUser": c.RunAsUser, "runAsGroup": c.RunAsGroup, "fsGroup": c.FSGroup} {
+		if id != nil && *id < 0 {
+			return errors.Errorf("%s must not be negative, got %d", name, *id)
+		}
+	}
+	for _, g := range c.SupplementalGroups {
+		if g < 0 {
+			return errors.Errorf("supplementalGroups must not contain negative ids, got %d", g)
+		}
+	}
+	if p := c.FSGroupChangePolicy; p != nil && *p != "Always" && *p != "OnRootMismatch" {
+		return errors.Errorf(`fsGroupChangePolicy must be "Always" or "OnRootMismatch", got %q`, *p)
+	}
+	if c.RunAsNonRoot != nil && *c.RunAsNonRoot && c.RunAsUser != nil && *c.RunAsUser == 0 {
+		return errors.New("runAsNonRoot is true but runAsUser is 0")
+	}
+	return nil
+}
+
 // VPAResourceRequirements defines resource requirements for VPA
 type VPAResourceRequirements struct {
 	CPU              *string `json:"cpu" yaml:"cpu"`
@@ -216,6 +261,11 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 		deployCfg.ServiceType = k8sCloudExtras.ServiceType                     // Extract Service type override (e.g. LoadBalancer for UDP)
 		deployCfg.ExternalTrafficPolicy = k8sCloudExtras.ExternalTrafficPolicy // e.g. Local, required for WebRTC return media
 		deployCfg.TopologySpreadConstraints = k8sCloudExtras.TopologySpreadConstraints
+
+		if err := k8sCloudExtras.SecurityContext.Validate(); err != nil {
+			return nil, errors.Wrapf(err, "invalid cloudExtras.securityContext")
+		}
+		deployCfg.SecurityContext = k8sCloudExtras.SecurityContext
 
 		// Process affinity rules and merge with existing NodeSelector if needed
 		if k8sCloudExtras.Affinity != nil {
