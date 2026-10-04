@@ -8,17 +8,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net/url"
-	"os"
-	"os/exec"
-	"strings"
 
 	auth "golang.org/x/oauth2/google"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
-	"github.com/pulumi/pulumi-command/sdk/go/command/local"
 	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -87,7 +82,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	out := &GkeAutopilotOutput{}
 
 	kubeProvider, err := sdkK8s.NewProvider(ctx, input.ToResName(stackName), &sdkK8s.ProviderArgs{
-		Kubeconfig:            sdk.String(kubeConfig),
+		Kubeconfig:            pApi.SecretString(sdk.String(kubeConfig)),
 		EnableServerSideApply: sdk.BoolPtr(true), // Required for DeploymentPatch resources
 	})
 	if err != nil {
@@ -297,54 +292,6 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	}
 
 	return &api.ResourceOutput{Ref: out}, nil
-}
-
-// authAgainstRegistry - run gcloud auth configure-docker to configure docker/config.json to access repo
-// nolint: unused
-func authAgainstRegistry(ctx *sdk.Context, authName string, input api.ResourceInput, params pApi.ProvisionParams, registryURL sdk.StringOutput) ([]sdk.ResourceOption, error) {
-	authConfig, ok := input.Descriptor.Config.Config.(api.AuthConfig)
-	if !ok {
-		return nil, errors.Errorf("failed to convert resource input to api.AuthConfig for %q", input.Descriptor.Type)
-	}
-
-	var opts []sdk.ResourceOption
-	if _, err := exec.LookPath("gcloud"); err == nil {
-		env := lo.SliceToMap(os.Environ(), func(env string) (string, string) {
-			parts := strings.SplitN(env, "=", 2)
-			return parts[0], parts[1]
-		})
-		env["GOOGLE_CREDENTIALS"] = authConfig.CredentialsValue()
-		env["GOOGLE_APPLICATION_CREDENTIALS"] = authConfig.CredentialsValue()
-		registryHost := registryURL.ApplyT(func(out any) (string, error) {
-			rUrl := out.(string)
-			var parsedRegistryURL *url.URL
-			if strings.HasPrefix(rUrl, "http") {
-				parsedRegistryURL, err = url.Parse(rUrl)
-				if err != nil {
-					return "", errors.Wrapf(err, "failed to parse registry url %q as is", rUrl)
-				}
-			} else if parsedRegistryURL, err = url.Parse(fmt.Sprintf("https://%s", rUrl)); err != nil {
-				return "", errors.Wrapf(err, "failed to parse registry url %q", rUrl)
-			}
-			params.Log.Info(ctx.Context(), "extracted registry host for gcloud auth configure-docker: %q", parsedRegistryURL.Host)
-			return parsedRegistryURL.Host, nil
-		})
-
-		params.Log.Info(ctx.Context(), "configure gcloud auth configure-docker against registry host...")
-		configureDockerCmd, err := local.NewCommand(ctx, fmt.Sprintf("%s-%s-%s", input.StackParams.StackName, input.StackParams.Environment, authName), &local.CommandArgs{
-			Update:      sdk.Sprintf("gcloud auth configure-docker %s --quiet", registryHost),
-			Create:      sdk.Sprintf("gcloud auth configure-docker %s --quiet", registryHost),
-			Triggers:    sdk.ArrayInput(sdk.Array{sdk.String(lo.RandomString(5, lo.AllCharset))}),
-			Environment: sdk.ToStringMap(env),
-		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to authenticate against docker registry")
-		}
-		opts = append(opts, sdk.DependsOn([]sdk.Resource{configureDockerCmd}))
-	} else {
-		return nil, errors.Errorf("command `gcloud` was not found, cannot authenticate against artifact registry")
-	}
-	return opts, nil
 }
 
 type AccessTokenCreds struct {

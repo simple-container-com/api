@@ -148,7 +148,7 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 		ImageName: sdk.Sprintf("%s/%s:%s", pushRegistryURL, args.Image.Name, version),
 		Registry: docker.RegistryArgs{
 			Server:   pushRegistryURL,
-			Password: sdk.String(gcpCreds.Password),
+			Password: pApi.SecretString(sdk.String(gcpCreds.Password)),
 			Username: sdk.String(gcpCreds.Username),
 		},
 	}, opts...)

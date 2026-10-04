@@ -47,9 +47,50 @@ and [`MAINTAINERS.md`](MAINTAINERS.md) (who holds what).
   with a read-only token and no access to org secrets.
 - **No secrets in workflow logs**: GitHub Actions auto-redacts known
   secret values; we add no debug echoes of env vars that might
-  contain secrets.
+  contain secrets. A consumer's cloud credential is not a known value
+  to GitHub, so it is handled by the rule below instead.
 - **Job-scoped env**: secrets passed to steps via `env:` at the step
   level (or `env:` on the smallest enclosing job), never globally.
+
+## Credentials Simple Container passes to Pulumi
+
+A consumer's cloud credential does not stay in the config file it came
+from: Simple Container hands it to a Pulumi provider, and from there it
+is recorded in the stack checkpoint and rendered in preview and update
+diffs. A dry-run in CI therefore prints whatever was passed in clear.
+
+Two rules keep that closed.
+
+- **Mark the input secret at the call site.** Generated provider SDKs
+  wrap the fields they own (pulumi-aws `accessKey`/`secretKey`/`token`,
+  pulumi-gcp `accessToken`, pulumi-cloudflare `apiToken`,
+  pulumi-mongodbatlas `privateKey`, the `data` of a Kubernetes
+  `Secret`), and `TestUpstreamProvidersStillSecretTheirOwnCredentials`
+  fails if an SDK bump stops holding up its end. Several fields Simple
+  Container uses are **not** among them and are wrapped here, with
+  `pApi.SecretString`: gcp `credentials`, kubernetes `kubeconfig`,
+  docker `registry.password`, a `command:local:Command` environment or
+  script that carries one, and a Cloudflare worker script that embeds a
+  basic-auth password.
+
+  Adding a call site that hands a credential to Pulumi means wrapping it
+  there too. The rule is per call site rather than per type, so it is
+  worth grepping for `pApi.SecretString` next to whatever you are adding
+  rather than assuming the class is covered.
+- **Redact on the way out.** `PreviewResult.Summary`,
+  `UpdateResult.Summary`, provider diagnostics and the errors returned
+  from a failed operation pass through `redactCredentials`, which
+  removes PEM private keys and credential-named scalar fields from
+  engine output. This is defence in depth; it is not a substitute for
+  the first rule, and it has known limits: a credential inside an array,
+  one embedded in a connection URI, and one in a bare all-letter value
+  on a diagnostic line are not removed.
+
+A credential printed in clear by `sc provision`, `sc deploy` or a
+preview in CI is a leak, and is handled under **On suspected leak**
+below: rotate first, then fix the call site. A checkpoint written before
+the fix keeps its plaintext copy, in the state file and in the retained
+backup generations, until the stack is deployed again.
 
 ## Rotation cadence
 

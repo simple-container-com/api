@@ -42,7 +42,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		p.logger.Info(ctx, "%s", color.GreenFmt("Refreshing stack %q...", stackSource.Name()))
 		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))
 		if err != nil {
-			return err
+			return redactError(err)
 		}
 		p.logger.Info(ctx, "%s", color.GreenFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
 	}
@@ -61,7 +61,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 
 		previewResult, err := stackSource.Preview(ctx, previewOpts...)
 		if err != nil {
-			return err
+			return redactError(err)
 		}
 		p.logger.Info(ctx, "%s", color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	}
@@ -85,7 +85,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 
 	upRes, err := stackSource.Up(ctx, upOpts...)
 	if err != nil {
-		return err
+		return redactError(err)
 	}
 	p.logger.Info(ctx, "%s", color.GreenFmt("Update summary: \n%s", p.toUpdateResult(stackSource.Name(), upRes)))
 	return nil

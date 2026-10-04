@@ -103,7 +103,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		return nil, err
 	}
 	kubeProvider, err := sdkK8s.NewProvider(ctx, fmt.Sprintf("%s-caddy-kubeprovider", input.ToResName(input.Descriptor.Name)), &sdkK8s.ProviderArgs{
-		Kubeconfig: kubeconfig,
+		Kubeconfig: pApi.SecretString(kubeconfig),
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q",
@@ -412,7 +412,8 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	}
 	// Otherwise, use clusterName as-is (Case 1: GKE Autopilot - already has suffix)
 	ctx.Export(ToIngressIpExport(clusterName), sc.Service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
-		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
+		// A Service whose status has not been reported yet resolves to nil.
+		if status == nil || status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
 			params.Log.Warn(ctx.Context(), "failed to export ingress IP: load balancer is nil and there is no ingress IP found")
 			return ""
 		}

@@ -187,7 +187,7 @@ func exportExistingLoadBalancerIP(ctx *sdk.Context, cluster *container.Cluster, 
 	// Create a Kubernetes provider for the adopted cluster
 	kubeconfig := generateKubeconfig(cluster, gkeInput)
 	kubeProvider, err := k8s.NewProvider(ctx, fmt.Sprintf("%s-adoption-kube-provider", clusterName), &k8s.ProviderArgs{
-		Kubeconfig: kubeconfig,
+		Kubeconfig: pApi.SecretString(kubeconfig),
 	})
 	if err != nil {
 		return errors.Wrapf(err, "failed to create Kubernetes provider for adopted cluster %q", gkeInput.ClusterName)
@@ -216,7 +216,9 @@ func exportExistingLoadBalancerIP(ctx *sdk.Context, cluster *container.Cluster, 
 
 	// Extract the load balancer IP and export it
 	loadBalancerIP := service.Status.ApplyT(func(status *corev1.ServiceStatus) string {
-		if status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
+		// A Service whose status has not been reported yet resolves to nil,
+		// not to an empty status, so the nil check has to come first.
+		if status == nil || status.LoadBalancer == nil || len(status.LoadBalancer.Ingress) == 0 {
 			params.Log.Warn(ctx.Context(), "⚠️ No load balancer ingress found for service %q in namespace %q", serviceName, namespace)
 			return ""
 		}

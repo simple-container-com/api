@@ -50,14 +50,8 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 		fmt.Println("Failed to set GOOGLE_CREDENTIALS env variable: ", err.Error())
 	}
 
-	if gcloudPath, err := exec.LookPath("gcloud"); err != nil {
-		fmt.Println("WARN: Failed to find gcloud command")
-	} else if f, err := os.CreateTemp(os.TempDir(), "google-creds.json"); err != nil {
-		fmt.Println("WARN: failed to create temp file for google creds: ", err.Error())
-	} else if _, err := f.Write([]byte(authCfg.CredentialsValue())); err != nil {
-		fmt.Println("WARN: failed to write temp file for google creds: ", err.Error())
-	} else if err := exec.Command(gcloudPath, "auth", "activate-service-account", "--key-file", f.Name()).Run(); err != nil {
-		fmt.Println("WARN: failed to activate gcloud service account: ", err.Error())
+	if err := activateGcloudServiceAccount(ctx, credValue); err != nil {
+		log.Warn(ctx, "failed to activate gcloud service account: %v", err)
 	}
 
 	if !stateStoreCfg.IsProvisionEnabled() {
@@ -273,6 +267,47 @@ func ShouldApplyNoncurrentVersionLifecycle(attrs *gcpStorage.BucketAttrs, retent
 	return len(attrs.Lifecycle.Rules) == 0
 }
 
+// activateGcloudServiceAccount hands the service-account key to gcloud, whose
+// only interface for one is a file on disk.
+//
+// The file holds a live private key, so it is removed as soon as gcloud has
+// read it. Leaving it in TMPDIR would outlast the operation that needed it and,
+// on a shared or reused runner, outlast the job.
+func activateGcloudServiceAccount(ctx context.Context, credentials string) error {
+	// Ambient auth (workload identity, an attached service account) leaves the
+	// credentials empty. There is nothing to activate, and running gcloud
+	// against an empty key file only produces a warning on every provision.
+	if credentials == "" {
+		return nil
+	}
+	gcloudPath, err := exec.LookPath("gcloud")
+	if err != nil {
+		return errors.Wrapf(err, "gcloud command not found")
+	}
+	f, err := os.CreateTemp(os.TempDir(), "google-creds-*.json")
+	if err != nil {
+		return errors.Wrapf(err, "failed to create temp file for google creds")
+	}
+	defer func() {
+		_ = os.Remove(f.Name())
+	}()
+	if _, err := f.Write([]byte(credentials)); err != nil {
+		_ = f.Close()
+		return errors.Wrapf(err, "failed to write temp file for google creds")
+	}
+	if err := f.Close(); err != nil {
+		return errors.Wrapf(err, "failed to close temp file for google creds")
+	}
+	// The command's own output is deliberately not folded into the error: it
+	// is unbounded text from a process that was just handed a private key, and
+	// this package cannot reach the redactor that would make it safe to
+	// repeat.
+	if err := exec.CommandContext(ctx, gcloudPath, "auth", "activate-service-account", "--key-file", f.Name()).Run(); err != nil {
+		return errors.Wrapf(err, "gcloud auth activate-service-account failed")
+	}
+	return nil
+}
+
 func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	pcfg, ok := input.Descriptor.Config.Config.(api.AuthConfig)
 	if !ok {
@@ -283,7 +318,7 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	projectId := pcfg.ProjectIdValue()
 
 	provider, err := gcp.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &gcp.ProviderArgs{
-		Credentials: sdk.String(creds),
+		Credentials: pApi.SecretString(sdk.String(creds)),
 		Project:     sdk.String(projectId),
 	})
 	return &api.ResourceOutput{

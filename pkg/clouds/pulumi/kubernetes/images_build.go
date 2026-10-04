@@ -58,7 +58,7 @@ func BuildAndPushImages(ctx *sdk.Context, args BuildArgs) ([]*ContainerImage, er
 			ProviderOptions:        args.Opts,
 			Platform:               lo.If(container.Image.Platform != "", lo.ToPtr(string(container.Image.Platform))).Else(nil),
 			Registry: docker.RegistryArgs{
-				Password: lo.If(args.RegistryPassword != nil, sdk.StringPtr(lo.FromPtr(args.RegistryPassword))).Else(nil),
+				Password: registryPassword(args.RegistryPassword),
 				Server:   sdk.String(args.RegistryURL),
 				Username: lo.If(args.RegistryUsername != nil, sdk.StringPtr(lo.FromPtr(args.RegistryUsername))).Else(nil),
 			},
@@ -72,4 +72,14 @@ func BuildAndPushImages(ctx *sdk.Context, args BuildArgs) ([]*ContainerImage, er
 			AddOpts:   image.AddOpts,
 		}, nil
 	})
+}
+
+// registryPassword wraps a configured registry credential as a secret.
+// pulumi-docker does not wrap `registry.password` itself, so an unwrapped one
+// is a plaintext resource input and is rendered in the diff.
+func registryPassword(password *string) sdk.StringPtrInput {
+	if password == nil {
+		return nil
+	}
+	return pApi.SecretString(sdk.String(*password))
 }

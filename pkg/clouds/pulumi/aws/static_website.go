@@ -176,19 +176,12 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		// fixme: implement own s3 uploader instead of aws s3 sync
 		// Pass static creds only when configured; otherwise inherit the ambient AWS
 		// default chain (OIDC web-identity / instance profile) for the s3 sync.
-		syncEnv := map[string]string{}
-		if input.Account.Region != "" {
-			syncEnv["AWS_DEFAULT_REGION"] = input.Account.Region
-		}
-		if input.Account.AccessKey != "" {
-			syncEnv["AWS_ACCESS_KEY_ID"] = input.Account.AccessKey
-			syncEnv["AWS_SECRET_ACCESS_KEY"] = input.Account.SecretAccessKey
-		}
+		syncEnv := syncEnvironment(input.Account)
 		_, err = local.NewCommand(ctx, fmt.Sprintf("%s-sync", input.ServiceName), &local.CommandArgs{
 			Create:      sdk.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, mainBucket.Bucket),
 			Update:      sdk.Sprintf("aws s3 sync %s s3://%s", input.BundleDir, mainBucket.Bucket),
 			Triggers:    sdk.ArrayInput(sdk.Array{sdk.String(checksum)}),
-			Environment: sdk.ToStringMap(syncEnv),
+			Environment: syncEnv,
 		}, sdk.DependsOn([]sdk.Resource{mainBucket, publicAccessBlock, ownershipControls, mainBucketPolicy}))
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to invoke aws s3 sync")
@@ -245,4 +238,23 @@ func provisionStaticSite(input *StaticSiteInput) (*StaticSiteOutput, error) {
 		WwwBucket:                   wwwBucket,
 		WwwRecord:                   wwwRecord,
 	}, nil
+}
+
+// syncEnvironment builds the environment for the bundle upload command.
+//
+// pulumi-command wraps nothing of its own, so a credential put in a command's
+// environment is a plaintext resource input like any other and is rendered in
+// the diff. The region is not a credential and stays legible. Empty static
+// credentials mean ambient auth (OIDC web identity, an instance profile), and
+// nothing is set so the AWS default chain resolves them at call time.
+func syncEnvironment(account aws.AccountConfig) sdk.StringMap {
+	env := sdk.StringMap{}
+	if account.Region != "" {
+		env["AWS_DEFAULT_REGION"] = sdk.String(account.Region)
+	}
+	if account.AccessKey != "" {
+		env["AWS_ACCESS_KEY_ID"] = pApi.SecretString(sdk.String(account.AccessKey))
+		env["AWS_SECRET_ACCESS_KEY"] = pApi.SecretString(sdk.String(account.SecretAccessKey))
+	}
+	return env
 }
