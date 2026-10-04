@@ -326,7 +326,7 @@ func TestResolveScopedValues_KMSNoCredentialsSkips(t *testing.T) {
 	// Now a caller with no ambient AWS credentials: client build fails → skip, no error.
 	prev := newKMSClient
 	newKMSClient = func(_ context.Context, _ string) (kmsAPI, error) {
-		return nil, errors.New("no ambient AWS credentials")
+		return nil, &kmsCredentialError{Err: errors.New("no ambient AWS credentials")}
 	}
 	defer func() { newKMSClient = prev }()
 	got, err := ResolveScopedValues(dir, nil)

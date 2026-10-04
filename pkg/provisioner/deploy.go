@@ -129,17 +129,22 @@ func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.S
 }
 
 func (p *provisioner) getStacksDir(cfg *api.ConfigFile, providedDir string) string {
-	stacksDir := providedDir
+	return ResolveStacksDir(p.rootDir, cfg, providedDir)
+}
 
-	if stacksDir == "" {
+// ResolveStacksDir is the single source of truth for where stack descriptors live:
+// the --dir value, else the config file's stacksDir, else DefaultStacksRootDir.
+// Relative results are anchored at rootDir (the git workdir), not the cwd.
+func ResolveStacksDir(rootDir string, cfg *api.ConfigFile, providedDir string) string {
+	stacksDir := providedDir
+	if stacksDir == "" && cfg != nil {
 		stacksDir = cfg.StacksDir
 	}
-
 	if stacksDir == "" {
 		stacksDir = DefaultStacksRootDir
 	}
 	if filepath.IsAbs(stacksDir) {
 		return stacksDir
 	}
-	return filepath.Join(p.rootDir, stacksDir)
+	return filepath.Join(rootDir, stacksDir)
 }

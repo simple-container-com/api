@@ -10,7 +10,12 @@ import (
 	"encoding/base64"
 	"strings"
 
+	"cloud.google.com/go/kms/apiv1/kmspb"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/googleapis/gax-go/v2"
 	"github.com/pkg/errors"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 )
@@ -61,10 +66,15 @@ func NewOpener(privateKeys []string, kmsAllowed bool) *Opener {
 	return o
 }
 
-// hasMaterial reports whether the opener has any way to decrypt at all (used to
-// short-circuit resolution when a caller supplied nothing usable).
-func (o *Opener) hasMaterial() bool {
-	return len(o.sshByFP) > 0 || o.kmsAllowed
+// Close releases the cached Cloud KMS client. It is safe on an Opener that never
+// built one, and idempotent.
+func (o *Opener) Close() error {
+	c := o.gcpClient
+	if c == nil {
+		return nil
+	}
+	o.gcpClient = nil
+	return c.Close()
 }
 
 // IsDeclaredSSHRecipient reports whether any held SSH key is listed in recipients.
@@ -91,23 +101,27 @@ func (o *Opener) IsDeclaredSSHRecipient(recipients []string) bool {
 // kmsClientFor returns a cached KMS client for region, or (nil,false) if no ambient
 // KMS identity is available. The "no identity" verdict is cached so credentials are
 // probed at most once per Opener.
-func (o *Opener) kmsClientFor(ctx context.Context, region string) (kmsAPI, bool) {
+func (o *Opener) kmsClientFor(ctx context.Context, region string) (kmsAPI, bool, error) {
 	if o.kmsNoIdentity {
-		return nil, false
+		return nil, false, nil
 	}
 	if o.kmsClients == nil {
 		o.kmsClients = map[string]kmsAPI{}
 	}
 	if c, ok := o.kmsClients[region]; ok {
-		return c, true
+		return c, true, nil
 	}
 	c, err := newKMSClient(ctx, region)
 	if err != nil {
+		if !isKMSNoIdentity(err) {
+			return nil, false, err // a timed-out or throttled credential probe: retry, not skip
+		}
 		o.kmsNoIdentity = true
-		return nil, false
+		return nil, false, nil
 	}
-	o.kmsClients[region] = c
-	return c, true
+	b := &kmsIdentityBreaker{kmsAPI: c, o: o}
+	o.kmsClients[region] = b
+	return b, true, nil
 }
 
 // gcpKMSClient returns the cached Cloud KMS client, or (nil,false) when no
@@ -124,8 +138,41 @@ func (o *Opener) gcpKMSClient(ctx context.Context) (gcpKMSAPI, bool) {
 		o.gcpNoIdentity = true
 		return nil, false
 	}
-	o.gcpClient = c
-	return c, true
+	o.gcpClient = &gcpIdentityBreaker{gcpKMSAPI: c, o: o}
+	return o.gcpClient, true
+}
+
+// kmsIdentityBreaker trips the AWS no-identity breaker when a Decrypt fails to
+// resolve credentials, so credentials that vanish after the probe cost one failure
+// per resolve, not one per value.
+type kmsIdentityBreaker struct {
+	kmsAPI
+	o *Opener
+}
+
+func (b *kmsIdentityBreaker) Decrypt(ctx context.Context, in *kms.DecryptInput, opts ...func(*kms.Options)) (*kms.DecryptOutput, error) {
+	out, err := b.kmsAPI.Decrypt(ctx, in, opts...)
+	if err != nil && isKMSNoIdentity(err) {
+		b.o.kmsNoIdentity = true
+	}
+	return out, err
+}
+
+// gcpIdentityBreaker trips the Cloud KMS no-identity breaker on Unauthenticated.
+// The Cloud KMS client resolves Application Default Credentials lazily (a missing
+// metadata server or key file only surfaces on the first RPC), so without this a
+// deploy with no GCP identity would stall once per scoped value.
+type gcpIdentityBreaker struct {
+	gcpKMSAPI
+	o *Opener
+}
+
+func (b *gcpIdentityBreaker) Decrypt(ctx context.Context, req *kmspb.DecryptRequest, opts ...gax.CallOption) (*kmspb.DecryptResponse, error) {
+	out, err := b.gcpKMSAPI.Decrypt(ctx, req, opts...)
+	if status.Code(err) == codes.Unauthenticated {
+		b.o.gcpNoIdentity = true
+	}
+	return out, err
 }
 
 // OpenValue attempts to decrypt one envelope value bound to (stack, scope, key).
@@ -184,7 +231,12 @@ func (o *Opener) OpenValue(stack, scope, key string, ev EncryptedValue) (string,
 				}
 				dek, owned, err = decryptGCPKMSWrap(ctx, cli, r, blob, stack, scope, key)
 			} else {
-				cli, ok := o.kmsClientFor(ctx, r.region)
+				cli, ok, cerr := o.kmsClientFor(ctx, r.region)
+				if cerr != nil {
+					cancel()
+					transient = errors.Wrapf(cerr, "KMS client for %s (transient, retry)", r.raw)
+					continue
+				}
 				if !ok {
 					cancel()
 					continue // no ambient KMS identity → skip (breaker set, no re-probe)

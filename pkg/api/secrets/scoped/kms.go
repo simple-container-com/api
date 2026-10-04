@@ -58,9 +58,63 @@ type kmsAPI interface {
 var newKMSClient = func(ctx context.Context, region string) (kmsAPI, error) {
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(region))
 	if err != nil {
-		return nil, errors.Wrap(err, "failed to load AWS config for KMS")
+		// A broken or absent profile is no identity, like no credentials at all.
+		return nil, errors.Wrap(&kmsCredentialError{Err: err}, "failed to load AWS config for KMS")
+	}
+	// LoadDefaultConfig resolves credentials lazily and succeeds with none, so probe
+	// once here: with no ambient identity the caller sets its breaker instead of
+	// finding out per Decrypt. The tagging provider also marks later resolution
+	// failures so decryptKMSWrap can tell them from a KMS backend fault.
+	cfg.Credentials = &kmsCredentialProvider{inner: cfg.Credentials}
+	if _, err := cfg.Credentials.Retrieve(ctx); err != nil {
+		return nil, errors.Wrap(err, "no ambient AWS credentials for KMS")
 	}
 	return kms.NewFromConfig(cfg), nil
+}
+
+// kmsCredentialError tags a failure to resolve AWS credentials. The SDK reports it
+// from Decrypt as an untyped "get identity: ..." chain (not a smithy.APIError), so
+// the credential provider wraps it in this type to make it matchable with errors.As.
+type kmsCredentialError struct{ Err error }
+
+func (e *kmsCredentialError) Error() string { return "resolve AWS credentials: " + e.Err.Error() }
+func (e *kmsCredentialError) Unwrap() error { return e.Err }
+
+type kmsCredentialProvider struct{ inner aws.CredentialsProvider }
+
+func (p *kmsCredentialProvider) Retrieve(ctx context.Context) (aws.Credentials, error) {
+	c, err := p.inner.Retrieve(ctx)
+	if err != nil {
+		return aws.Credentials{}, &kmsCredentialError{Err: err}
+	}
+	return c, nil
+}
+
+// isKMSNoIdentity reports a credential-resolution failure that means "this
+// principal has no usable AWS identity" (nothing configured, role refused). A
+// cancelled or timed-out resolution, or a throttled/5xx identity service (STS), is
+// NOT no-identity: it is retryable.
+func isKMSNoIdentity(err error) bool {
+	var ce *kmsCredentialError
+	if !errors.As(err, &ce) {
+		return false
+	}
+	if errors.Is(ce.Err, context.Canceled) || errors.Is(ce.Err, context.DeadlineExceeded) {
+		return false
+	}
+	var apiErr smithy.APIError
+	if errors.As(ce.Err, &apiErr) {
+		return !isKMSThrottleOrServerFault(apiErr)
+	}
+	return true
+}
+
+func isKMSThrottleOrServerFault(apiErr smithy.APIError) bool {
+	if apiErr.ErrorFault() == smithy.FaultServer {
+		return true
+	}
+	code := apiErr.ErrorCode()
+	return strings.Contains(code, "Throttl") || code == "RequestLimitExceeded" || code == "TooManyRequestsException"
 }
 
 // kmsRecipient is a parsed awskms:// recipient.
@@ -181,7 +235,7 @@ func wrapDEKKMS(recipient string, dek []byte, stack, scope, key string) ([]strin
 //
 //   - (dek, true, nil)   — decrypted; the caller is a recipient (has kms:Decrypt).
 //   - (nil, false, nil)  — NOT a recipient here: AccessDenied / NotFound / disabled
-//     key / invalid key state. Least-privilege skip.
+//     key / invalid key state, or no usable AWS credentials. Least-privilege skip.
 //   - (nil, true, err)   — INTEGRITY failure (tamper): InvalidCiphertext (broken
 //     EncryptionContext binding / mangled blob) or IncorrectKey (the pinned key is
 //     not the one that produced the ciphertext — a transplant onto a scope whose
@@ -199,8 +253,8 @@ func decryptKMSWrap(ctx context.Context, cli kmsAPI, r kmsRecipient, blob []byte
 		if isKMSIntegrityError(err) {
 			return nil, true, errors.Wrapf(err, "KMS rejected the wrap for %s (tampered blob, wrong key, or wrong stack/scope/key binding)", r.raw)
 		}
-		if isKMSNotAuthorized(err) {
-			return nil, false, nil // not a recipient of this key → skip
+		if isKMSNotAuthorized(err) || isKMSNoIdentity(err) {
+			return nil, false, nil // not a recipient of this key / no identity → skip
 		}
 		return nil, false, errors.Wrapf(err, "KMS decrypt failed for %s (transient — retry)", r.raw)
 	}

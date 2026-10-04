@@ -136,9 +136,12 @@ client deploy without renaming it, all opt-in:
    additional authenticated data and CRC32C integrity checks in both directions, so a
    federated job opens its scope with no stored key.
 4. **Unresolved placeholders fail.** When the parent has scope files and no readable
-   whole-file store, an unresolved `${secret:}`/`${auth:}` in the parts of the stack a
-   deploy uses (the client config for the environment; the parent's provisioner, templates,
-   registrar, CI/CD and resources for the parent environment) fails the deploy. It is keyed
+   whole-file store, an unresolved `${secret:}`/`${auth:}` in the parts of the stack the
+   deploy consumes fails it: the client config for the environment; the template the client
+   selects (or the parent environment's default); the parent resources the client lists in
+   `uses` and `dependencies`; the registrars; and the parent's provisioner. Sibling stacks'
+   resources, unused templates and CI/CD are not inspected, so one client's unfillable
+   placeholder does not fail another's deploy. It is keyed
    on the scope files being present, so a job holding the wrong key fails rather than
    shipping literals. Other environments' placeholders are ignored: they are out of reach by
    design.
@@ -427,6 +430,14 @@ result transparently:
    open it keylessly. Consumer-side follow-up (out-of-repo): add the `awskms://` recipient +
    `ci-oidc-pr-scan` role, then `disallow` the SSH key and delete `SC_KEY_PR`.
 
-Open question for review: scope-name↔environment conventions (free-form names vs
-enforcing env names), and whether `doctor` should print recipient fingerprints for
-audit evidence (ISO/SOC).
+Scope names stay free-form and are not bound to environments. A stack has one secret
+namespace, as with the whole-file store: `${secret:KEY}` has no environment axis, and a parent
+provision resolves every environment in one read, so a key that opens several scopes cannot
+choose between two values of one key. Per-environment values use per-environment keys
+(`staging-db-password`, `prod-db-password`); the same key with different values in two
+openable scopes stays an integrity error, and its message names that fix. Binding scopes to
+environments would need an environment-aware resolver through the provisioner and is left
+for a later version.
+
+Open question for review: whether `doctor` should print recipient fingerprints for audit
+evidence (ISO/SOC).

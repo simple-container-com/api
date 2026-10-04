@@ -184,7 +184,9 @@ func (f *ScopeFile) Get(key, privateKey string) (string, error) {
 	if _, _, err := privateKeyFingerprint(privateKey); err != nil {
 		return "", err
 	}
-	val, owned, err := NewOpener([]string{privateKey}, false).OpenValue(f.Stack, f.Scope, key, enc)
+	op := NewOpener([]string{privateKey}, false)
+	defer func() { _ = op.Close() }()
+	val, owned, err := op.OpenValue(f.Stack, f.Scope, key, enc)
 	if err != nil {
 		return "", err
 	}

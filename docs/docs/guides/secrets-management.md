@@ -758,6 +758,13 @@ Scoped values live in committed, encrypted files alongside a stack's config:
     secrets.pr.yaml              # scope "pr": committed encrypted, structure diffable, values opaque
 ```
 
+`stacks/` here is the stacks directory deploys read from: the `-d/--dir` value, else `stacksDir`
+in the profile config file, else `.sc/stacks`. A relative path is relative to the repository
+root. Every `sc secrets scope` command resolves it the same way and accepts `-d/--dir`, so a scope
+file is written where the deploy reads it. `scopes.yaml` always stays in `.sc/`. If a repo
+sets a custom `stacksDir`, `sc secrets scope lint` warns about scope files left under
+`.sc/stacks`, since deploys will not read them.
+
 A recipient is either an **SSH public key** (`ssh-ed25519` / `ssh-rsa`) or an **AWS KMS key**
 (`awskms://<key>?region=<region>`). Each value is encrypted once under a random data key bound
 to its `(stack, scope, key)`; that data key is then wrapped for every recipient. A ciphertext
@@ -813,6 +820,11 @@ At deploy time, `${secret:KEY}` and `sc stack secret-get` transparently include 
 the job's key can open, merged over the whole-file store (the legacy store wins on conflict). A key may sit in
 several scopes with the same value; different values fail the deploy, and
 `sc secrets scope lint` fails on them when it can open the copies (it warns when it cannot).
+Scopes do not give a key a value per environment: `${secret:KEY}` has no environment axis,
+and a key that opens several scopes (an admin's, or a parent provision that reads every
+environment) sees them all. Name per-environment values per environment, as with the
+whole-file store: `staging-db-password` in the `staging` scope and `prod-db-password` in
+the `prod` scope.
 A key in both a scope and the whole-file store fails lint unless `--allow-legacy-duplicates`
 is given, which is meant for the period when clients are moving off the store. A key that is **not** a recipient of a scope cannot decrypt it — the
 `pull_request` clamp is cryptographic, not a config flag.
@@ -838,7 +850,7 @@ sc secrets scope list --scope pr -s <stack>          # enumerate what to rotate
 sc secrets scope set  --scope pr -s <stack> KEY <new-value>
 
 # 3. Commit the resealed scope file(s) + scopes.yaml.
-git add .sc/scopes.yaml .sc/stacks/<stack>/secrets.*.yaml && git commit -S -s -m "rotate pr scope after key revocation"
+git add .sc/scopes.yaml <stacks-dir>/<stack>/secrets.*.yaml && git commit -S -s -m "rotate pr scope after key revocation"
 ```
 
 Then, depending on the recipient kind:
@@ -1020,8 +1032,10 @@ run side by side with a keyless one, for example), the deploy removes that plain
 that has scope files. Otherwise it would win over the scopes this deploy opens.
 
 With scope files present and the whole-file store unreadable, a placeholder that no openable
-scope fills fails the deploy before anything is changed, naming the placeholder. Placeholders
-of other environments are ignored. Without scope files nothing changes: an unresolved
+scope fills fails the deploy before anything is changed, naming the placeholder. Only what the
+deploy consumes is checked: the client config, its template, the resources it lists in
+`uses` and `dependencies`, the registrars and the provisioner. Placeholders of other
+environments, sibling stacks' resources and unused templates are ignored. Without scope files nothing changes: an unresolved
 placeholder is logged and deployed as before.
 
 ## Summary

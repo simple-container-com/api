@@ -4,9 +4,6 @@
 package scoped
 
 import (
-	"os"
-	"path/filepath"
-
 	"github.com/pkg/errors"
 )
 
@@ -53,22 +50,9 @@ var ErrScopedUnavailable = errors.New("scoped secret temporarily unavailable")
 func ResolveScopedValues(stackDir string, privateKeys []string) (map[string]string, error) {
 	out := map[string]string{}
 
-	entries, err := os.ReadDir(stackDir)
-	if os.IsNotExist(err) {
-		return out, nil
-	}
+	scopeFiles, _, err := ScopeFilesIn(stackDir)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to list %s for scoped secrets", stackDir)
-	}
-	var scopeFiles []string
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		if ScopeNameFromFile(e.Name()) == "" {
-			continue // not a secrets.<scope>.yaml (legacy secrets.yaml is excluded)
-		}
-		scopeFiles = append(scopeFiles, filepath.Join(stackDir, e.Name()))
+		return nil, err
 	}
 	if len(scopeFiles) == 0 {
 		return out, nil // no scopes → do not even parse keys
@@ -79,9 +63,7 @@ func ResolveScopedValues(stackDir string, privateKeys []string) (map[string]stri
 	// KMS wrap slot AND that no held SSH key opened, so an SSH-only store never calls
 	// AWS. Unparseable/empty candidate keys are skipped (a caller may pass several).
 	op := NewOpener(privateKeys, true)
-	if !op.hasMaterial() {
-		return out, nil // nothing usable to open with
-	}
+	defer func() { _ = op.Close() }()
 
 	origin := map[string]string{} // key -> scope, to detect cross-scope duplicates
 	for _, path := range scopeFiles {
@@ -137,10 +119,13 @@ func ResolveScopedValues(stackDir string, privateKeys []string) (map[string]stri
 				// (a DNS token every client deploy needs) reaches each client's own
 				// scope, and a key that opens several of them, such as a break-glass
 				// recipient, sees them all. Only different values are ambiguous.
+				// Resolution is not per environment: ${secret:KEY} has no environment
+				// axis, and a parent provision reads every environment at once, so a
+				// key that opens both copies (an admin's) could not pick one.
 				if out[key] == val {
 					continue
 				}
-				return nil, errors.Wrapf(ErrScopedIntegrity, "secret %q has different values in two openable scopes (%q and %q); resolution is ambiguous — run `sc secrets scope lint`", key, prev, f.Scope)
+				return nil, errors.Wrapf(ErrScopedIntegrity, "secret %q has different values in two openable scopes (%q and %q); a stack has one secret namespace, so give each value its own key (for example %s-%s); see `sc secrets scope lint`", key, prev, f.Scope, f.Scope, key)
 			}
 			out[key] = val
 			origin[key] = f.Scope

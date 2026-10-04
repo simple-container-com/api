@@ -16,10 +16,11 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/secrets/scoped"
+	"github.com/simple-container-com/api/pkg/provisioner"
 )
 
 // scopeCmd carries the shared flags for the `secrets scope` verbs. Scoped secrets
-// live in .sc/stacks/<stack>/secrets.<scope>.yaml, governed by .sc/scopes.yaml —
+// live in <stacksDir>/<stack>/secrets.<scope>.yaml (default .sc/stacks), governed by .sc/scopes.yaml:
 // a per-scope recipient set so a pull_request CI job can hold a key that opens
 // only its scope, not the whole-file store.
 type scopeCmd struct {
@@ -27,11 +28,46 @@ type scopeCmd struct {
 	scope   string
 	stack   string
 	keyFile string
+	dir     string
 }
 
 // scDir returns the .sc config directory for the current repo.
 func (s *scopeCmd) scDir() string {
 	return filepath.Join(s.Root.Provisioner.Cryptor().Workdir(), api.ScConfigDirectory)
+}
+
+// stacksDir resolves the stacks root exactly as deploys do (--dir, else the config
+// file's stacksDir, else .sc/stacks), so scope files are written where they are read.
+func (s *scopeCmd) stacksDir() (string, error) {
+	root := s.Root.Provisioner.Cryptor().Workdir()
+	var cfg *api.ConfigFile
+	if s.dir == "" {
+		profile := provisioner.DefaultProfile
+		if s.Root.Params != nil && s.Root.Params.Profile != "" {
+			profile = s.Root.Params.Profile
+		}
+		_, statErr := os.Stat(api.ConfigFilePath(root, profile))
+		if os.Getenv(api.ScConfigEnvVariable) != "" || statErr == nil {
+			c, err := api.ReadConfigFile(root, profile)
+			if err != nil {
+				return "", errors.Wrap(err, "failed to resolve the stacks directory from the config file")
+			}
+			cfg = c
+		}
+	}
+	return provisioner.ResolveStacksDir(root, cfg, s.dir), nil
+}
+
+func (s *scopeCmd) scopeFilePath() (string, error) {
+	stacksDir, err := s.stacksDir()
+	if err != nil {
+		return "", err
+	}
+	return scoped.ScopeFilePath(stacksDir, s.stack, s.scope), nil
+}
+
+func (s *scopeCmd) addDirFlag(cmd *cobra.Command) {
+	cmd.Flags().StringVarP(&s.dir, "dir", "d", "", "root directory for stack configurations (default: stacksDir from the config file, else .sc/stacks)")
 }
 
 // privateKey resolves the private key used to decrypt scoped values, in order:
@@ -72,7 +108,7 @@ func NewScopeCmd(sCmd *secretsCmd) *cobra.Command {
 		Short: "Manage per-scope secrets (secrets.<scope>.yaml) with per-scope recipients",
 		Long: "Per-scope secrets let a narrow CI context (e.g. pull_request scan jobs) hold a key " +
 			"that decrypts only one scope instead of the whole-file store. Recipients are governed " +
-			"by .sc/scopes.yaml (CODEOWNERS-gated); values live in .sc/stacks/<stack>/secrets.<scope>.yaml.",
+			"by .sc/scopes.yaml (CODEOWNERS-gated); values live in <stacksDir>/<stack>/secrets.<scope>.yaml (default .sc/stacks).",
 		SilenceUsage: true,
 	}
 	cmd.AddCommand(
@@ -92,9 +128,10 @@ func NewScopeCmd(sCmd *secretsCmd) *cobra.Command {
 // value-level command.
 func (s *scopeCmd) addScopeStackFlags(cmd *cobra.Command) {
 	cmd.Flags().StringVar(&s.scope, "scope", "", "scope name (e.g. pr)")
-	cmd.Flags().StringVarP(&s.stack, "stack", "s", "", "stack name (secrets.<scope>.yaml under .sc/stacks/<stack>)")
+	cmd.Flags().StringVarP(&s.stack, "stack", "s", "", "stack name (secrets.<scope>.yaml under the stacks dir)")
 	_ = cmd.MarkFlagRequired("scope")
 	_ = cmd.MarkFlagRequired("stack")
+	s.addDirFlag(cmd)
 }
 
 // openForWrite loads (or creates) the scope file for --stack/--scope, and verifies
@@ -112,7 +149,11 @@ func (s *scopeCmd) openForWrite() (*scoped.ScopeFile, *scoped.Scopes, string, er
 	if err != nil {
 		return nil, nil, "", errors.Wrapf(err, "declare the scope first with `sc secrets scope allow`")
 	}
-	path := scoped.ScopeFilePath(s.scDir(), s.stack, s.scope)
+	stacksDir, err := s.stacksDir()
+	if err != nil {
+		return nil, nil, "", err
+	}
+	path := scoped.ScopeFilePath(stacksDir, s.stack, s.scope)
 	var f *scoped.ScopeFile
 	if _, statErr := os.Stat(path); statErr == nil {
 		if f, err = scoped.LoadScopeFile(path); err != nil {
@@ -193,12 +234,17 @@ func newScopeGetCmd(sCmd *secretsCmd) *cobra.Command {
 			if pkErr == nil && strings.TrimSpace(pk) != "" {
 				keys = append(keys, pk)
 			}
-			path := scoped.ScopeFilePath(s.scDir(), s.stack, s.scope)
+			path, err := s.scopeFilePath()
+			if err != nil {
+				return err
+			}
 			f, err := scoped.LoadScopeFile(path)
 			if err != nil {
 				return err
 			}
-			val, owned, err := f.Open(args[0], scoped.NewOpener(keys, true))
+			opener := scoped.NewOpener(keys, true)
+			defer func() { _ = opener.Close() }()
+			val, owned, err := f.Open(args[0], opener)
 			if err != nil {
 				return err
 			}
@@ -224,7 +270,10 @@ func newScopeListCmd(sCmd *secretsCmd) *cobra.Command {
 		Short: "List secret names in a scope (values are never printed)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := scoped.ScopeFilePath(s.scDir(), s.stack, s.scope)
+			path, err := s.scopeFilePath()
+			if err != nil {
+				return err
+			}
 			f, err := scoped.LoadScopeFile(path)
 			if err != nil {
 				return err
@@ -246,7 +295,10 @@ func newScopeDeleteCmd(sCmd *secretsCmd) *cobra.Command {
 		Short: "Remove a value from a scope",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			path := scoped.ScopeFilePath(s.scDir(), s.stack, s.scope)
+			path, err := s.scopeFilePath()
+			if err != nil {
+				return err
+			}
 			f, err := scoped.LoadScopeFile(path)
 			if err != nil {
 				return err
@@ -273,6 +325,7 @@ func newScopeAllowCmd(sCmd *secretsCmd) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&s.scope, "scope", "", "scope name (e.g. pr)")
 	_ = cmd.MarkFlagRequired("scope")
+	s.addDirFlag(cmd)
 	return cmd
 }
 
@@ -288,6 +341,7 @@ func newScopeDisallowCmd(sCmd *secretsCmd) *cobra.Command {
 	}
 	cmd.Flags().StringVar(&s.scope, "scope", "", "scope name (e.g. pr)")
 	_ = cmd.MarkFlagRequired("scope")
+	s.addDirFlag(cmd)
 	return cmd
 }
 
@@ -337,7 +391,11 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 	// so declaring the first recipient of an empty scope needs no key. Nothing is
 	// written until every reseal succeeds, so a mid-way decrypt/parse failure can
 	// never leave some files resealed and scopes.yaml/other files behind (drift).
-	files, err := scoped.ListScopeFiles(s.scDir())
+	stacksDir, err := s.stacksDir()
+	if err != nil {
+		return err
+	}
+	files, err := scoped.ListScopeFiles(stacksDir)
 	if err != nil {
 		return err
 	}
@@ -347,6 +405,11 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 	}
 	var pending []pendingSave
 	var opener *scoped.Opener
+	defer func() {
+		if opener != nil {
+			_ = opener.Close()
+		}
+	}()
 	for _, path := range files {
 		if scoped.ScopeNameFromFile(path) != s.scope {
 			continue
@@ -406,17 +469,38 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			files, err := scoped.ListScopeFiles(scDir)
+			stacksDir, err := s.stacksDir()
+			if err != nil {
+				return err
+			}
+			files, lookalikes, err := scoped.ListScopeFilesAndLookalikes(stacksDir)
 			if err != nil {
 				return err
 			}
 			var problems, warnings []string
+			for _, p := range lookalikes {
+				warnings = append(warnings, fmt.Sprintf("%s is not a scope file (no stack, scope or recipients field) and is ignored; if it is one, restore those fields", p))
+			}
+			// Files left under the default dir are invisible to deploys once another
+			// stacks dir is configured; the write would otherwise "succeed" and never apply.
+			defaultDir := provisioner.ResolveStacksDir(s.Root.Provisioner.Cryptor().Workdir(), nil, "")
+			if filepath.Clean(defaultDir) != filepath.Clean(stacksDir) {
+				if stray, sErr := scoped.ListScopeFiles(defaultDir); sErr == nil {
+					for _, f := range stray {
+						warnings = append(warnings, fmt.Sprintf("%s is under %s but the configured stacks dir is %s; deploys will not read it", f, defaultDir, stacksDir))
+					}
+				}
+			}
 			pk, pkErr := s.privateKey()
 			var keys []string
 			if pkErr == nil && strings.TrimSpace(pk) != "" {
 				keys = append(keys, pk)
 			}
+			// lint and doctor span every scope, so every scope key the job holds counts,
+			// as it does at deploy time.
+			keys = append(keys, scoped.EnvScopeKeys()...)
 			opener := scoped.NewOpener(keys, true)
+			defer func() { _ = opener.Close() }()
 			loaded := map[string]map[string]*scoped.ScopeFile{} // stack -> scope -> file
 			// keyScopes[stack][key] = scopes that define it, to catch cross-scope
 			// duplicates (the resolver hard-fails on these at deploy; lint catches
@@ -451,7 +535,7 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 			// the stack's legacy secrets.yaml (mode A, which wins silently at deploy).
 			for stack, keys := range keyScopes {
 				var legacy map[string]string
-				legacyPath := filepath.Join(scoped.StackDir(scDir, stack), api.SecretsDescriptorFileName)
+				legacyPath := filepath.Join(scoped.StackDir(stacksDir, stack), api.SecretsDescriptorFileName)
 				if _, statErr := os.Stat(legacyPath); statErr == nil {
 					if d, rErr := api.ReadDescriptor(legacyPath, &api.SecretsDescriptor{}); rErr == nil {
 						legacy = d.Values
@@ -494,6 +578,7 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 			return nil
 		},
 	}
+	s.addDirFlag(cmd)
 	cmd.Flags().BoolVar(&allowLegacyDuplicates, "allow-legacy-duplicates", false,
 		"report, not fail, keys that are also in the whole-file secrets.yaml: expected while client deploys move off it, "+
 			"since the store keeps serving clients that have not moved")
@@ -535,8 +620,16 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 			if pkErr == nil && strings.TrimSpace(pk) != "" {
 				keys = append(keys, pk)
 			}
+			// lint and doctor span every scope, so every scope key the job holds counts,
+			// as it does at deploy time.
+			keys = append(keys, scoped.EnvScopeKeys()...)
 			opener := scoped.NewOpener(keys, true)
-			files, err := scoped.ListScopeFiles(s.scDir())
+			defer func() { _ = opener.Close() }()
+			stacksDir, err := s.stacksDir()
+			if err != nil {
+				return err
+			}
+			files, err := scoped.ListScopeFiles(stacksDir)
 			if err != nil {
 				return err
 			}
@@ -559,6 +652,7 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 			return nil
 		},
 	}
+	s.addDirFlag(cmd)
 	cmd.Flags().StringVar(&s.keyFile, "key-file", "", "PEM private key to test with (else SC_KEY_<SCOPE> / SC_SCOPE_KEY / ambient config / ambient AWS for KMS)")
 	return cmd
 }

@@ -45,7 +45,10 @@ type fakeGCPKMS struct {
 	encryptAs     string // report this key version name instead of the requested key
 	decryptBadCRC bool
 	decrypts      int
+	closes        int
 }
+
+func (f *fakeGCPKMS) Close() error { f.closes++; return nil }
 
 func (f *fakeGCPKMS) Encrypt(_ context.Context, in *kmspb.EncryptRequest, _ ...gax.CallOption) (*kmspb.EncryptResponse, error) {
 	if in.GetPlaintextCrc32C().GetValue() != crc(in.GetPlaintext()).GetValue() ||

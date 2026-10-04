@@ -25,10 +25,14 @@ var unresolvedRef = regexp.MustCompile(`\$\{(?:secret|auth):[^}]*\}`)
 // scopes alone would ship an unresolved ${secret:} or ${auth:} placeholder.
 var ErrUnresolvedPlaceholders = errors.New("unresolved secret placeholders")
 
-// checkUnresolvedPlaceholders looks at the parts of the target stack this deploy
-// uses: the client config for the environment and the parent's provisioner,
-// templates, registrar, CI/CD and the resources of the parent environment. Other
-// environments are left alone; their secrets are legitimately out of reach.
+// checkUnresolvedPlaceholders looks at what a client deploy of the target stack
+// consumes: the client config for the environment, the template it selects (its own
+// or the parent environment's default), the parent resources it lists in uses and
+// dependencies, every registrar (the zone is picked at run time) and the parent's
+// provisioner. The parent's other templates and resources, its CI/CD (only workflow
+// generation reads it) and other environments are left alone: their secrets are
+// legitimately out of reach, and a sibling stack's placeholder must not block this
+// deploy.
 //
 // When the parent's secrets came from scope files alone, any hit fails the deploy:
 // nothing else can fill it, and scopes are opt-in, so no existing configuration
@@ -43,17 +47,31 @@ func (p *provisioner) checkUnresolvedPlaceholders(ctx context.Context, params ap
 		return nil
 	}
 	parentEnv := lo.Ternary(clientDesc.ParentEnv != "", clientDesc.ParentEnv, params.Environment)
-	parentParts := strings.Split(clientDesc.ParentStack, "/")
-	parentName := parentParts[len(parentParts)-1]
+	parentName := api.ParentStackName(clientDesc.ParentStack)
+	envResources := stack.Server.Resources.Resources[parentEnv]
+
+	templateName := lo.Ternary(clientDesc.Template != "", clientDesc.Template, envResources.Template)
+	uses, deps := clientResourceRefs(clientDesc.Config.Config)
+	resNames := append([]string{}, uses...)
+	for _, d := range deps {
+		resNames = append(resNames, d.Resource)
+	}
 
 	parts := []any{
 		clientDesc,
 		stack.Server.Provisioner,
-		stack.Server.Templates,
 		stack.Server.Resources.Registrar,
-		stack.Server.Resources.Resources[parentEnv],
-		stack.Server.CiCd,
+		stack.Server.Resources.Registrars,
 	}
+	if tpl, ok := stack.Server.Templates[templateName]; ok {
+		parts = append(parts, tpl)
+	}
+	for _, name := range lo.Uniq(resNames) {
+		if res, ok := envResources.Resources[name]; ok {
+			parts = append(parts, res)
+		}
+	}
+
 	found := map[string]bool{}
 	for _, part := range parts {
 		out, err := yaml.Marshal(part)
@@ -77,4 +95,22 @@ func (p *provisioner) checkUnresolvedPlaceholders(ctx context.Context, params ap
 	p.log.Warn(ctx, "stack %q in %q has unresolved placeholders that will be deployed as literal text: %s",
 		params.StackName, params.Environment, strings.Join(names, ", "))
 	return nil
+}
+
+// clientResourceRefs returns the parent resources a client config names in uses and
+// dependencies, as the deploy reads them from the typed config.
+func clientResourceRefs(cfg any) (uses []string, deps []api.StackConfigDependencyResource) {
+	switch c := cfg.(type) {
+	case *api.StackConfigCompose:
+		return c.Uses, c.Dependencies
+	case *api.StackConfigSingleImage:
+		return c.Uses, c.Dependencies
+	}
+	if a, ok := cfg.(api.ResourceAware); ok {
+		uses = a.Uses()
+	}
+	if d, ok := cfg.(api.WithDependsOnResources); ok {
+		deps = d.DependsOnResources()
+	}
+	return uses, deps
 }

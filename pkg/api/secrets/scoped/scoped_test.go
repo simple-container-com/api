@@ -339,10 +339,10 @@ func TestReencrypt_NonRecipientKeyFailsAndLeavesFileIntact(t *testing.T) {
 func TestListScopeFiles_ExcludesLegacyPlaintext(t *testing.T) {
 	RegisterTestingT(t)
 	authA, _ := genEd25519Recipient(t)
-	scDir := t.TempDir()
+	stacksDir := t.TempDir()
 
 	mk := func(stack, base, scope string) {
-		dir := StackDir(scDir, stack)
+		dir := StackDir(stacksDir, stack)
 		Expect(os.MkdirAll(dir, 0o755)).To(Succeed())
 		if scope == "" {
 			Expect(os.WriteFile(filepath.Join(dir, base), []byte("values:\n  k: v\n"), 0o644)).To(Succeed())
@@ -356,7 +356,7 @@ func TestListScopeFiles_ExcludesLegacyPlaintext(t *testing.T) {
 	mk("s1", "secrets.yaml", "") // legacy plaintext — must be excluded
 	mk("s2", ScopeFileName("prod"), "prod")
 
-	files, err := ListScopeFiles(scDir)
+	files, err := ListScopeFiles(stacksDir)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(files).To(HaveLen(2))
 	for _, p := range files {
@@ -369,18 +369,18 @@ func TestResolveScopedValues_KeyDeterminesScope(t *testing.T) {
 	authA, privA := genEd25519Recipient(t)
 	authB, privB := genRSARecipient(t)
 	_, privC := genEd25519Recipient(t) // recipient of nothing
-	scDir := t.TempDir()
-	stackDir := StackDir(scDir, "teststack")
+	stacksDir := t.TempDir()
+	stackDir := StackDir(stacksDir, "teststack")
 
 	pr, err := NewScopeFile("teststack", "pr", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(pr.Set("defectdojo-api-key", "dd")).To(Succeed())
-	Expect(pr.Save(ScopeFilePath(scDir, "teststack", "pr"))).To(Succeed())
+	Expect(pr.Save(ScopeFilePath(stacksDir, "teststack", "pr"))).To(Succeed())
 
 	prod, err := NewScopeFile("teststack", "prod", []string{authB})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(prod.Set("prod-mongo-uri", "mongo")).To(Succeed())
-	Expect(prod.Save(ScopeFilePath(scDir, "teststack", "prod"))).To(Succeed())
+	Expect(prod.Save(ScopeFilePath(stacksDir, "teststack", "prod"))).To(Succeed())
 
 	// A's key opens pr only — the prod value is invisible (cryptographic clamp).
 	got, err := ResolveScopedValues(stackDir, []string{privA})
@@ -403,7 +403,7 @@ func TestResolveScopedValues_KeyDeterminesScope(t *testing.T) {
 	Expect(got).To(BeEmpty())
 
 	// A stack dir with no scope files → nothing (no error) — backward compat.
-	got, err = ResolveScopedValues(StackDir(scDir, "nostack"), []string{privA})
+	got, err = ResolveScopedValues(StackDir(stacksDir, "nostack"), []string{privA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).To(BeEmpty())
 }
@@ -411,18 +411,18 @@ func TestResolveScopedValues_KeyDeterminesScope(t *testing.T) {
 func TestResolveScopedValues_CrossScopeDuplicateFails(t *testing.T) {
 	RegisterTestingT(t)
 	authA, privA := genEd25519Recipient(t)
-	scDir := t.TempDir()
-	stackDir := StackDir(scDir, "teststack")
+	stacksDir := t.TempDir()
+	stackDir := StackDir(stacksDir, "teststack")
 
 	pr, err := NewScopeFile("teststack", "pr", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(pr.Set("shared", "1")).To(Succeed())
-	Expect(pr.Save(ScopeFilePath(scDir, "teststack", "pr"))).To(Succeed())
+	Expect(pr.Save(ScopeFilePath(stacksDir, "teststack", "pr"))).To(Succeed())
 
 	staging, err := NewScopeFile("teststack", "staging", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(staging.Set("shared", "2")).To(Succeed())
-	Expect(staging.Save(ScopeFilePath(scDir, "teststack", "staging"))).To(Succeed())
+	Expect(staging.Save(ScopeFilePath(stacksDir, "teststack", "staging"))).To(Succeed())
 
 	_, err = ResolveScopedValues(stackDir, []string{privA})
 	Expect(err).To(HaveOccurred())
@@ -436,18 +436,18 @@ func TestResolveScopedValues_MultipleCandidateKeys(t *testing.T) {
 	// each opens a different scope, and the union is resolved.
 	authA, privA := genEd25519Recipient(t)
 	authB, privB := genRSARecipient(t)
-	scDir := t.TempDir()
-	stackDir := StackDir(scDir, "teststack")
+	stacksDir := t.TempDir()
+	stackDir := StackDir(stacksDir, "teststack")
 
 	pr, err := NewScopeFile("teststack", "pr", []string{authA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(pr.Set("defectdojo-api-key", "dd")).To(Succeed())
-	Expect(pr.Save(ScopeFilePath(scDir, "teststack", "pr"))).To(Succeed())
+	Expect(pr.Save(ScopeFilePath(stacksDir, "teststack", "pr"))).To(Succeed())
 
 	stg, err := NewScopeFile("teststack", "staging", []string{authB})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(stg.Set("staging-token", "stg")).To(Succeed())
-	Expect(stg.Save(ScopeFilePath(scDir, "teststack", "staging"))).To(Succeed())
+	Expect(stg.Save(ScopeFilePath(stacksDir, "teststack", "staging"))).To(Succeed())
 
 	got, err := ResolveScopedValues(stackDir, []string{privA, privB, "", "not-a-key"})
 	Expect(err).NotTo(HaveOccurred())
@@ -605,14 +605,14 @@ func TestScopeFile_AuthEntryIsBoundLikeAValue(t *testing.T) {
 func TestResolveScopedValues_SameValueInTwoScopesResolves(t *testing.T) {
 	RegisterTestingT(t)
 	authA, privA := genEd25519Recipient(t)
-	scDir := t.TempDir()
+	stacksDir := t.TempDir()
 	for _, scope := range []string{"app-staging", "other-staging"} {
 		f, err := NewScopeFile("teststack", scope, []string{authA})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(f.Set("DNS_TOKEN", "same")).To(Succeed())
-		Expect(f.Save(ScopeFilePath(scDir, "teststack", scope))).To(Succeed())
+		Expect(f.Save(ScopeFilePath(stacksDir, "teststack", scope))).To(Succeed())
 	}
-	got, err := ResolveScopedValues(StackDir(scDir, "teststack"), []string{privA})
+	got, err := ResolveScopedValues(StackDir(stacksDir, "teststack"), []string{privA})
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).To(Equal(map[string]string{"DNS_TOKEN": "same"}))
 }

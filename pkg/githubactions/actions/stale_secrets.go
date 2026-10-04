@@ -56,14 +56,9 @@ func removeStaleParentSecrets(parentStacksDir, workspaceStacksDir string) ([]str
 }
 
 func hasScopeFiles(dir string) (bool, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
+	if _, err := os.ReadDir(dir); err != nil {
 		return false, err
 	}
-	for _, e := range entries {
-		if !e.IsDir() && scoped.ScopeNameFromFile(e.Name()) != "" {
-			return true, nil
-		}
-	}
-	return false, nil
+	files, _, err := scoped.ScopeFilesIn(dir)
+	return len(files) > 0, err
 }

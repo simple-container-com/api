@@ -43,6 +43,7 @@ var crc32c = crc32.MakeTable(crc32.Castagnoli)
 type gcpKMSAPI interface {
 	Encrypt(ctx context.Context, req *kmspb.EncryptRequest, opts ...gax.CallOption) (*kmspb.EncryptResponse, error)
 	Decrypt(ctx context.Context, req *kmspb.DecryptRequest, opts ...gax.CallOption) (*kmspb.DecryptResponse, error)
+	Close() error
 }
 
 var newGCPKMSClient = func(ctx context.Context) (gcpKMSAPI, error) {
@@ -73,9 +74,7 @@ func wrapDEKGCPKMS(r kmsRecipient, dek []byte, stack, scope, key string) ([]stri
 	if err != nil {
 		return nil, err
 	}
-	if c, ok := cli.(interface{ Close() error }); ok {
-		defer func() { _ = c.Close() }()
-	}
+	defer func() { _ = cli.Close() }()
 	aad := valueAAD(stack, scope, key)
 	out, err := cli.Encrypt(ctx, &kmspb.EncryptRequest{
 		Name:                              r.keyID,

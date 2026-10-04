@@ -290,24 +290,7 @@ func (p *provisioner) scopeCandidateKeys() []string {
 			keys = append(keys, pk)
 		}
 	}
-	if v := os.Getenv("SC_SCOPE_KEY"); strings.TrimSpace(v) != "" {
-		keys = append(keys, v)
-	}
-	// Accept only SC_KEY_<SCOPE> where <SCOPE> maps back to a valid scope name
-	// (uppercase, '-'→'_'), so an unrelated SC_KEY_* env var is not blindly tried as
-	// a decryption key. A job with several scope keys resolves the union of its scopes.
-	for _, e := range os.Environ() {
-		name, val, ok := strings.Cut(e, "=")
-		if !ok || strings.TrimSpace(val) == "" || !strings.HasPrefix(name, "SC_KEY_") {
-			continue
-		}
-		scopeName := strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(name, "SC_KEY_"), "_", "-"))
-		if scoped.ValidateScopeName(scopeName) != nil {
-			continue
-		}
-		keys = append(keys, val)
-	}
-	return keys
+	return append(keys, scoped.EnvScopeKeys()...)
 }
 
 func (p *provisioner) readClientDescriptor(rootDir string, stackName string) (*api.ClientDescriptor, error) {
@@ -326,16 +309,9 @@ func (p *provisioner) readClientDescriptorFromFile(path string) (*api.ClientDesc
 	}
 }
 
-// hasScopeFiles reports whether stackDir contains any secrets.<scope>.yaml.
+// hasScopeFiles reports whether stackDir contains any real scope file; a
+// secrets.<x>.yaml that is not one (see scoped.IsScopeFile) does not count.
 func hasScopeFiles(stackDir string) bool {
-	entries, err := os.ReadDir(stackDir)
-	if err != nil {
-		return false
-	}
-	for _, e := range entries {
-		if !e.IsDir() && scoped.ScopeNameFromFile(e.Name()) != "" {
-			return true
-		}
-	}
-	return false
+	files, _, err := scoped.ScopeFilesIn(stackDir)
+	return err == nil && len(files) > 0
 }

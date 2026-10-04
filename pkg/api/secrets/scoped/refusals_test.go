@@ -13,6 +13,7 @@ import (
 
 	"cloud.google.com/go/kms/apiv1/kmspb"
 	"github.com/googleapis/gax-go/v2"
+	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -197,8 +198,8 @@ func TestPathsAndScopesFileRefusals(t *testing.T) {
 	writeTestFile(t, filepath.Join(sc, "stacks", "README"), "not a stack")
 	writeTestFile(t, filepath.Join(sc, "stacks", "app", "secrets.yaml"), "legacy")
 	writeTestFile(t, filepath.Join(sc, "stacks", "app", "secrets..yaml"), "no scope")
-	writeTestFile(t, filepath.Join(sc, "stacks", "app", "secrets.pr.yaml"), "scope")
-	files, err := ListScopeFiles(sc)
+	writeTestFile(t, filepath.Join(sc, "stacks", "app", "secrets.pr.yaml"), "schemaVersion: 1\nrecipients: []\n")
+	files, err := ListScopeFiles(filepath.Join(sc, "stacks"))
 	if err != nil || len(files) != 1 || filepath.Base(files[0]) != "secrets.pr.yaml" {
 		t.Errorf("ListScopeFiles = %v, %v; want only the one scope file", files, err)
 	}
@@ -279,11 +280,49 @@ func TestResolveScopedValuesInputs(t *testing.T) {
 		t.Errorf("no scope files = %v, %v; want empty", out, err)
 	}
 
-	writeTestFile(t, filepath.Join(dir, "secrets.pr.yaml"), "values: [")
+	writeTestFile(t, filepath.Join(dir, "secrets.pr.yaml"), "schemaVersion: 1\nrecipients: []\nvalues: not-a-map\n")
 	_, err = ResolveScopedValues(dir, nil)
 	if !errors.Is(err, ErrScopedIntegrity) {
 		t.Errorf("corrupt scope file: err = %v; want ErrScopedIntegrity", err)
 	}
+}
+
+func TestResolveScopedValues_LookalikesAreNotScopeFiles(t *testing.T) {
+	RegisterTestingT(t)
+	auth, priv := genEd25519Recipient(t)
+	dir := filepath.Join(t.TempDir(), "myapp")
+	legacy := "schemaVersion: 1.0\nvalues:\n  DB_PASSWORD: changeme\n"
+	writeTestFile(t, filepath.Join(dir, "secrets.yaml"), legacy)
+	writeTestFile(t, filepath.Join(dir, "secrets.example.yaml"), legacy)
+	writeTestFile(t, filepath.Join(dir, "secrets.backup.yaml"), "schemaVersion: 1.0\nauth:\n  aws:\n    type: aws-token\n    config:\n      account: \"1\"\nvalues:\n  K: v\n")
+	writeTestFile(t, filepath.Join(dir, "secrets.broken.yaml"), "values: [")
+
+	got, err := ResolveScopedValues(dir, []string{priv})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got).To(BeEmpty())
+
+	scopeFiles, lookalikes, err := ScopeFilesIn(dir)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(scopeFiles).To(BeEmpty())
+	Expect(lookalikes).To(HaveLen(3))
+
+	f, err := NewScopeFile("myapp", "pr", []string{auth})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(f.Set("api-key", "v1")).To(Succeed())
+	Expect(f.Save(filepath.Join(dir, ScopeFileName("pr")))).To(Succeed())
+
+	got, err = ResolveScopedValues(dir, []string{priv})
+	Expect(err).NotTo(HaveOccurred())
+	Expect(got).To(Equal(map[string]string{"api-key": "v1"}))
+
+	// A real scope file moved to the wrong stack still hard-fails: the marker is there.
+	other := filepath.Join(t.TempDir(), "otherstack")
+	data, rerr := os.ReadFile(filepath.Join(dir, ScopeFileName("pr")))
+	Expect(rerr).NotTo(HaveOccurred())
+	writeTestFile(t, filepath.Join(other, ScopeFileName("pr")), string(data))
+	_, err = ResolveScopedValues(other, []string{priv})
+	Expect(errors.Is(err, ErrScopedIntegrity)).To(BeTrue())
+	Expect(err.Error()).To(ContainSubstring("moved file?"))
 }
 
 func TestOpenerKMSClientsAreProbedOnce(t *testing.T) {
@@ -296,21 +335,47 @@ func TestOpenerKMSClientsAreProbedOnce(t *testing.T) {
 	t.Cleanup(func() { newKMSClient = prev })
 
 	o := &Opener{}
-	if _, ok := o.kmsClientFor(context.Background(), "us-east-1"); !ok {
+	if _, ok, err := o.kmsClientFor(context.Background(), "us-east-1"); !ok || err != nil {
 		t.Fatal("no client")
 	}
-	if _, ok := o.kmsClientFor(context.Background(), "us-east-1"); !ok || calls != 1 {
+	if _, ok, _ := o.kmsClientFor(context.Background(), "us-east-1"); !ok || calls != 1 {
 		t.Errorf("second call for one region made %d clients; want 1", calls)
 	}
 
-	newKMSClient = func(context.Context, string) (kmsAPI, error) { calls++; return nil, errors.New("no credentials") }
+	newKMSClient = func(context.Context, string) (kmsAPI, error) {
+		calls++
+		return nil, &kmsCredentialError{Err: errors.New("no credentials")}
+	}
 	o = NewOpener(nil, true)
-	if _, ok := o.kmsClientFor(context.Background(), "eu-west-1"); ok {
-		t.Error("a client without credentials")
+	if _, ok, err := o.kmsClientFor(context.Background(), "eu-west-1"); ok || err != nil {
+		t.Errorf("no credentials: ok %v, err %v; want a silent skip", ok, err)
 	}
 	before := calls
-	if _, ok := o.kmsClientFor(context.Background(), "eu-west-2"); ok || calls != before {
+	if _, ok, _ := o.kmsClientFor(context.Background(), "eu-west-2"); ok || calls != before {
 		t.Error("probed again after finding no identity")
+	}
+}
+
+// A credential probe that times out says nothing about the identity: it is a
+// retry, and it must not trip the breaker for the rest of the run.
+func TestOpenerKMSClientProbeTimeoutIsTransient(t *testing.T) {
+	calls := 0
+	prev := newKMSClient
+	newKMSClient = func(context.Context, string) (kmsAPI, error) {
+		calls++
+		return nil, &kmsCredentialError{Err: context.DeadlineExceeded}
+	}
+	t.Cleanup(func() { newKMSClient = prev })
+
+	o := NewOpener(nil, true)
+	if _, ok, err := o.kmsClientFor(context.Background(), "us-east-1"); ok || err == nil {
+		t.Fatalf("ok %v, err %v; want a transient error", ok, err)
+	}
+	if _, _, err := o.kmsClientFor(context.Background(), "us-east-1"); err == nil || calls != 2 {
+		t.Errorf("second call: err %v after %d probes; want another probe and error", err, calls)
+	}
+	if o.kmsNoIdentity {
+		t.Error("a timed-out probe tripped the no-identity breaker")
 	}
 }
 
@@ -358,4 +423,44 @@ type failingEncryptGCPKMS struct{ fakeGCPKMS }
 
 func (f *failingEncryptGCPKMS) Encrypt(context.Context, *kmspb.EncryptRequest, ...gax.CallOption) (*kmspb.EncryptResponse, error) {
 	return nil, status.Error(codes.PermissionDenied, "encrypt denied")
+}
+
+// A key that opens two scopes holding the same secret with different values cannot
+// pick one: ${secret:} has no environment axis. Environment-qualified keys are the
+// supported layout, and the error says so.
+func TestResolveScopedValues_AdminAcrossEnvironmentScopes(t *testing.T) {
+	admin, adminPriv := genEd25519Recipient(t)
+	dir := filepath.Join(t.TempDir(), "myapp")
+	seal := func(scope string, kv map[string]string) {
+		t.Helper()
+		f, err := NewScopeFile("myapp", scope, []string{admin})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for k, v := range kv {
+			if err := f.Set(k, v); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := f.Save(filepath.Join(dir, ScopeFileName(scope))); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	seal("staging", map[string]string{"DB_PASSWORD": "s"})
+	seal("prod", map[string]string{"DB_PASSWORD": "p"})
+	_, err := ResolveScopedValues(dir, []string{adminPriv})
+	if !errors.Is(err, ErrScopedIntegrity) || !strings.Contains(err.Error(), "give each value its own key") {
+		t.Fatalf("err = %v; want an integrity error that names the fix", err)
+	}
+
+	seal("staging", map[string]string{"staging-db-password": "s"})
+	seal("prod", map[string]string{"prod-db-password": "p"})
+	got, err := ResolveScopedValues(dir, []string{adminPriv})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["staging-db-password"] != "s" || got["prod-db-password"] != "p" || len(got) != 2 {
+		t.Errorf("got %v; want both environment-qualified values", got)
+	}
 }

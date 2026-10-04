@@ -15,6 +15,7 @@ import (
 	"github.com/pkg/errors"
 	"golang.org/x/crypto/ssh"
 
+	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 	"github.com/simple-container-com/api/pkg/api/secrets/scoped"
 )
@@ -135,4 +136,46 @@ func Test_readSecretsDescriptor_ScopedShadowedByLegacy(t *testing.T) {
 	Expect(joined).To(ContainSubstring("shadowed"))
 	Expect(joined).NotTo(ContainSubstring("legacy-value"))
 	Expect(joined).NotTo(ContainSubstring("scoped-value"))
+}
+
+func TestResolveStacksDir(t *testing.T) {
+	RegisterTestingT(t)
+	root := t.TempDir()
+	abs := filepath.Join(t.TempDir(), "abs-stacks")
+	cfg := &api.ConfigFile{StacksDir: "deploy/stacks"}
+
+	Expect(ResolveStacksDir(root, nil, "")).To(Equal(filepath.Join(root, ".sc", "stacks")))
+	Expect(ResolveStacksDir(root, &api.ConfigFile{}, "")).To(Equal(filepath.Join(root, ".sc", "stacks")))
+	Expect(ResolveStacksDir(root, cfg, "")).To(Equal(filepath.Join(root, "deploy", "stacks")))
+	Expect(ResolveStacksDir(root, cfg, "flag/stacks")).To(Equal(filepath.Join(root, "flag", "stacks")))
+	Expect(ResolveStacksDir(root, cfg, abs)).To(Equal(abs))
+	Expect(ResolveStacksDir(root, &api.ConfigFile{StacksDir: abs}, "")).To(Equal(abs))
+
+	p := &provisioner{rootDir: root}
+	Expect(p.getStacksDir(cfg, "")).To(Equal(ResolveStacksDir(root, cfg, "")))
+}
+
+// A plaintext secrets.example.yaml next to the stack is not a scope file: it must
+// not fail the read, shadow the legacy store, or mark the stack scoped-only.
+func Test_readSecretsDescriptor_LookalikeIsNotScopeFile(t *testing.T) {
+	RegisterTestingT(t)
+	stacksDir := t.TempDir()
+	stackDir := filepath.Join(stacksDir, "myapp")
+	Expect(os.MkdirAll(stackDir, 0o755)).To(Succeed())
+	example := "schemaVersion: 1.0\nvalues:\n  DB_PASSWORD: changeme\n"
+	Expect(os.WriteFile(filepath.Join(stackDir, "secrets.example.yaml"), []byte(example), 0o644)).To(Succeed())
+	t.Setenv("SC_SCOPE_KEY", "unused")
+
+	p := &provisioner{}
+	_, err := p.readSecretsDescriptor(context.Background(), stacksDir, "myapp")
+	Expect(errors.Is(err, os.ErrNotExist)).To(BeTrue())
+	Expect(errors.Is(err, scoped.ErrScopedIntegrity)).To(BeFalse())
+	Expect(p.scopedOnly).To(BeEmpty())
+
+	Expect(os.WriteFile(filepath.Join(stackDir, "secrets.yaml"), []byte("values:\n  REAL: legacy\n"), 0o644)).To(Succeed())
+	desc, err := p.readSecretsDescriptor(context.Background(), stacksDir, "myapp")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(desc.Values).To(Equal(map[string]string{"REAL": "legacy"}))
+	Expect(p.scopedOnly).To(BeEmpty())
+	Expect(hasScopeFiles(stackDir)).To(BeFalse())
 }

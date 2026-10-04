@@ -37,7 +37,7 @@ provisioner:
       config:
         credentials: "${auth:gcloud}"
         projectId: "${auth:gcloud.projectId}"
-        bucketName: state
+        bucketName: "${secret:STATE_BUCKET}"
     secrets-provider:
       type: gcp-kms
       config:
@@ -188,7 +188,7 @@ func Test_Deploy_ScopedOnly_AmbientAuth(t *testing.T) {
 	w := newScopedWorkspace(t, rec, map[string]string{
 		"auth:gcloud":     ambientGcloudAuth,
 		"staging-app-key": "s3cr3t",
-		"NOTIFY_TOKEN":    "notify",
+		"STATE_BUCKET":    "state-bucket",
 	})
 	t.Setenv("SC_KEY_APP_STAGING", key)
 
@@ -207,7 +207,7 @@ func Test_Deploy_ScopedOnly_AmbientAuth(t *testing.T) {
 	out, _ := api.MarshalDescriptor(&got.Server)
 	Expect(string(out)).NotTo(ContainSubstring("${auth:"), "parent config still has an unresolved ${auth:}")
 	Expect(string(out)).To(ContainSubstring("acme-staging"))
-	Expect(string(out)).To(ContainSubstring("notify"))
+	Expect(string(out)).To(ContainSubstring("state-bucket"))
 }
 
 func Test_Deploy_ScopedOnly_MissingSecretFailsBeforePulumi(t *testing.T) {
@@ -216,13 +216,13 @@ func Test_Deploy_ScopedOnly_MissingSecretFailsBeforePulumi(t *testing.T) {
 	w := newScopedWorkspace(t, rec, map[string]string{
 		"auth:gcloud":     ambientGcloudAuth,
 		"staging-app-key": "s3cr3t",
-		// NOTIFY_TOKEN is missing from the scope
+		// STATE_BUCKET is missing from the scope
 	})
 	t.Setenv("SC_KEY_APP_STAGING", key)
 
 	got, err := w.deploy(t, nil, "staging")
 	Expect(errors.Is(err, ErrUnresolvedPlaceholders)).To(BeTrue(), "err = %v", err)
-	Expect(err.Error()).To(ContainSubstring("${secret:NOTIFY_TOKEN}"))
+	Expect(err.Error()).To(ContainSubstring("${secret:STATE_BUCKET}"))
 	Expect(got).To(BeNil(), "the deploy reached Pulumi with an unresolved secret")
 }
 
@@ -231,7 +231,7 @@ func Test_Deploy_ScopedOnly_MissingAuthFailsBeforePulumi(t *testing.T) {
 	rec, key := scopeKey(t)
 	w := newScopedWorkspace(t, rec, map[string]string{
 		"staging-app-key": "s3cr3t",
-		"NOTIFY_TOKEN":    "notify",
+		"STATE_BUCKET":    "state-bucket",
 	})
 	t.Setenv("SC_KEY_APP_STAGING", key)
 
@@ -249,7 +249,7 @@ func Test_Deploy_ScopedOnly_OtherEnvironmentsSecretsAreNotRequired(t *testing.T)
 	w := newScopedWorkspace(t, rec, map[string]string{
 		"auth:gcloud":     ambientGcloudAuth,
 		"staging-app-key": "s3cr3t",
-		"NOTIFY_TOKEN":    "notify",
+		"STATE_BUCKET":    "state-bucket",
 	})
 	t.Setenv("SC_KEY_APP_STAGING", key)
 	_, err := w.deploy(t, nil, "staging")
@@ -263,7 +263,7 @@ func Test_Deploy_ScopedOnly_KeyOfAnotherScopeOpensNothing(t *testing.T) {
 	w := newScopedWorkspace(t, rec, map[string]string{
 		"auth:gcloud":     ambientGcloudAuth,
 		"staging-app-key": "s3cr3t",
-		"NOTIFY_TOKEN":    "notify",
+		"STATE_BUCKET":    "state-bucket",
 	})
 	t.Setenv("SC_KEY_APP_STAGING", otherKey)
 	// The key opens no scope, so the parent has no secrets at all. That must fail
@@ -279,7 +279,7 @@ func Test_Deploy_ScopedAuthCannotOverrideLegacy(t *testing.T) {
 	rec, key := scopeKey(t)
 	w := newScopedWorkspace(t, rec, map[string]string{"auth:gcloud": ambientGcloudAuth})
 	legacy := "auth:\n  gcloud:\n    type: gcp-service-account\n    config:\n      projectId: legacy-project\n      credentials: '{\"type\":\"service_account\"}'\n" +
-		"values:\n  staging-app-key: legacy\n  NOTIFY_TOKEN: legacy\n"
+		"values:\n  staging-app-key: legacy\n  STATE_BUCKET: legacy\n"
 	Expect(os.WriteFile(filepath.Join(w.parentDir, "secrets.yaml"), []byte(legacy), 0o644)).To(Succeed())
 	t.Setenv("SC_KEY_APP_STAGING", key)
 
@@ -314,7 +314,7 @@ func Test_Deploy_LegacyUnresolvedPlaceholderOnlyWarns(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got).NotTo(BeNil())
 	joined := strings.Join(log.warns, "\n")
-	Expect(joined).To(ContainSubstring("${secret:NOTIFY_TOKEN}"))
+	Expect(joined).To(ContainSubstring("${secret:STATE_BUCKET}"))
 	Expect(joined).NotTo(ContainSubstring(`{"type":"service_account"}`))
 }
 
@@ -327,7 +327,7 @@ func Test_Deploy_TemplateFromEnvironment(t *testing.T) {
 	w := newScopedWorkspace(t, rec, map[string]string{
 		"auth:gcloud":     ambientGcloudAuth,
 		"staging-app-key": "s3cr3t",
-		"NOTIFY_TOKEN":    "notify",
+		"STATE_BUCKET":    "state-bucket",
 	})
 	client := filepath.Join(w.root, ".sc", "stacks", "app", "client.yaml")
 	body, err := os.ReadFile(client)

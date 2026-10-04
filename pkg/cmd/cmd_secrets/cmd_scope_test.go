@@ -5,6 +5,7 @@ package cmd_secrets
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,8 +15,10 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/secrets"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
+	"github.com/simple-container-com/api/pkg/api/secrets/scoped"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 	"github.com/simple-container-com/api/pkg/provisioner"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
@@ -256,4 +259,179 @@ func TestScopeCmd_KMSRecipientGovernance(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred(), out)
 	scopesYAML, _ = os.ReadFile(filepath.Join(workdir, ".sc", "scopes.yaml"))
 	Expect(string(scopesYAML)).NotTo(ContainSubstring(kmsRec))
+}
+
+func writeStacksDirConfig(t *testing.T, workdir, stacksDir string) *api.ConfigFile {
+	t.Helper()
+	cfg := &api.ConfigFile{ProjectName: "myapp", StacksDir: stacksDir}
+	Expect(os.MkdirAll(filepath.Join(workdir, ".sc"), 0o755)).To(Succeed())
+	Expect(cfg.WriteConfigFile(workdir, "default")).To(Succeed())
+	return cfg
+}
+
+// deployRead reads the stack the way a deploy does: through the provisioner's
+// ReadStacks with the configured (or --dir) stacks dir.
+func deployRead(t *testing.T, workdir string, cfg *api.ConfigFile, flagDir, stack string) (map[string]string, error) {
+	t.Helper()
+	cryptor, err := secrets.NewCryptor(workdir)
+	Expect(err).NotTo(HaveOccurred())
+	p, err := provisioner.New(provisioner.WithCryptor(cryptor), provisioner.WithPlaceholders(placeholders.New()))
+	Expect(err).NotTo(HaveOccurred())
+	Expect(p.Init(context.Background(), api.InitParams{ProjectName: "myapp", RootDir: workdir, SkipScDirCreation: true, SkipProfileCreation: true, IgnoreWorkdirErrors: true})).To(Succeed())
+	err = p.ReadStacks(context.Background(), cfg, api.ProvisionParams{StacksDir: flagDir, Stacks: []string{stack}}, api.ReadIgnoreNoAnyCfg)
+	if err != nil {
+		return nil, err
+	}
+	return p.Stacks()[stack].Secrets.Values, nil
+}
+
+func TestScopeCmd_ConfiguredStacksDir(t *testing.T) {
+	RegisterTestingT(t)
+	workdir := t.TempDir()
+	authorized, keyPEM := testRecipient(t)
+	cfg := writeStacksDirConfig(t, workdir, "deploy/stacks")
+	t.Setenv("SC_SCOPE_KEY", keyPEM)
+
+	out, err := execScope(t, workdir, "", "allow", "--scope", "pr", authorized)
+	Expect(err).NotTo(HaveOccurred(), out)
+	out, err = execScope(t, workdir, "", "set", "--scope", "pr", "-s", "myapp", "api-key", "v1")
+	Expect(err).NotTo(HaveOccurred(), out)
+
+	custom := filepath.Join(workdir, "deploy", "stacks", "myapp", "secrets.pr.yaml")
+	Expect(custom).To(BeAnExistingFile())
+	Expect(filepath.Join(workdir, ".sc", "stacks")).NotTo(BeADirectory())
+	Expect(filepath.Join(workdir, ".sc", "scopes.yaml")).To(BeAnExistingFile())
+
+	vals, err := deployRead(t, workdir, cfg, "", "myapp")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(vals).To(HaveKeyWithValue("api-key", "v1"))
+
+	out, err = execScope(t, workdir, "", "get", "--scope", "pr", "-s", "myapp", "api-key")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(strings.TrimSpace(out)).To(Equal("v1"))
+	out, _ = execScope(t, workdir, "", "list", "--scope", "pr", "-s", "myapp")
+	Expect(out).To(ContainSubstring("api-key"))
+
+	// lint, doctor and reseal-on-allow walk the configured dir
+	out, err = execScope(t, workdir, "", "lint")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(out).To(ContainSubstring("1 scope file(s) OK"))
+	out, _ = execScope(t, workdir, "", "doctor")
+	Expect(out).To(ContainSubstring("YES"))
+	second, _ := testRecipient(t)
+	out, err = execScope(t, workdir, "", "allow", "--scope", "pr", second)
+	Expect(err).NotTo(HaveOccurred(), out)
+	f, err := scoped.LoadScopeFile(custom)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(f.Recipients).To(HaveLen(2))
+	out, err = execScope(t, workdir, "", "lint")
+	Expect(err).NotTo(HaveOccurred(), out)
+
+	out, err = execScope(t, workdir, "", "delete", "--scope", "pr", "-s", "myapp", "api-key")
+	Expect(err).NotTo(HaveOccurred(), out)
+	vals, err = deployRead(t, workdir, cfg, "", "myapp")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(vals).NotTo(HaveKey("api-key"))
+}
+
+func TestScopeCmd_DefaultStacksDir(t *testing.T) {
+	RegisterTestingT(t)
+	workdir := t.TempDir()
+	authorized, keyPEM := testRecipient(t)
+	cfg := writeStacksDirConfig(t, workdir, "")
+	t.Setenv("SC_SCOPE_KEY", keyPEM)
+
+	_, err := execScope(t, workdir, "", "allow", "--scope", "pr", authorized)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = execScope(t, workdir, "", "set", "--scope", "pr", "-s", "myapp", "api-key", "v1")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(filepath.Join(workdir, ".sc", "stacks", "myapp", "secrets.pr.yaml")).To(BeAnExistingFile())
+	vals, err := deployRead(t, workdir, cfg, "", "myapp")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(vals).To(HaveKeyWithValue("api-key", "v1"))
+
+	// no config file at all behaves the same (CI with only a scope key)
+	bare := t.TempDir()
+	_, err = execScope(t, bare, "", "allow", "--scope", "pr", authorized)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = execScope(t, bare, "", "set", "--scope", "pr", "-s", "myapp", "k", "v")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(filepath.Join(bare, ".sc", "stacks", "myapp", "secrets.pr.yaml")).To(BeAnExistingFile())
+}
+
+func TestScopeCmd_DirFlagOverridesConfig(t *testing.T) {
+	RegisterTestingT(t)
+	workdir := t.TempDir()
+	authorized, keyPEM := testRecipient(t)
+	cfg := writeStacksDirConfig(t, workdir, "deploy/stacks")
+	t.Setenv("SC_SCOPE_KEY", keyPEM)
+
+	_, err := execScope(t, workdir, "", "allow", "--scope", "pr", authorized)
+	Expect(err).NotTo(HaveOccurred())
+	out, err := execScope(t, workdir, "", "set", "--scope", "pr", "-s", "myapp", "-d", "flag/stacks", "k", "v")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(filepath.Join(workdir, "flag", "stacks", "myapp", "secrets.pr.yaml")).To(BeAnExistingFile())
+	Expect(filepath.Join(workdir, "deploy")).NotTo(BeADirectory())
+
+	vals, err := deployRead(t, workdir, cfg, "flag/stacks", "myapp")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(vals).To(HaveKeyWithValue("k", "v"))
+
+	out, err = execScope(t, workdir, "", "lint", "--dir", "flag/stacks")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(out).To(ContainSubstring("1 scope file(s) OK"))
+	// without the flag the config dir is used and holds nothing
+	out, err = execScope(t, workdir, "", "lint")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(out).To(ContainSubstring("0 scope file(s) OK"))
+}
+
+func TestScopeCmd_LintWarnsOnFilesInDefaultDir(t *testing.T) {
+	RegisterTestingT(t)
+	workdir := t.TempDir()
+	authorized, _ := testRecipient(t)
+
+	// written while the default dir was in effect
+	_, err := execScope(t, workdir, "", "allow", "--scope", "pr", authorized)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = execScope(t, workdir, "", "set", "--scope", "pr", "-s", "myapp", "k", "v")
+	Expect(err).NotTo(HaveOccurred())
+
+	writeStacksDirConfig(t, workdir, "deploy/stacks")
+	out, err := execScope(t, workdir, "", "lint")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(out).To(ContainSubstring("deploys will not read it"))
+	Expect(out).To(ContainSubstring(filepath.Join(".sc", "stacks", "myapp", "secrets.pr.yaml")))
+}
+
+func TestScopeCmd_BrokenConfigIsNotSilentlyIgnored(t *testing.T) {
+	RegisterTestingT(t)
+	workdir := t.TempDir()
+	authorized, _ := testRecipient(t)
+	_, err := execScope(t, workdir, "", "allow", "--scope", "pr", authorized)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(os.WriteFile(filepath.Join(workdir, ".sc", "cfg.default.yaml"), []byte("stacksDir: [unclosed"), 0o644)).To(Succeed())
+	out, err := execScope(t, workdir, "", "set", "--scope", "pr", "-s", "myapp", "k", "v")
+	Expect(err).To(HaveOccurred(), out)
+	Expect(err.Error()).To(ContainSubstring("failed to resolve the stacks directory"))
+	Expect(filepath.Join(workdir, ".sc", "stacks")).NotTo(BeADirectory())
+}
+
+func TestScopeCmd_LintWarnsOnLookalike(t *testing.T) {
+	RegisterTestingT(t)
+	workdir := t.TempDir()
+	authorized, _ := testRecipient(t)
+
+	_, err := execScope(t, workdir, "", "allow", "--scope", "pr", authorized)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = execScope(t, workdir, "", "set", "--scope", "pr", "-s", "myapp", "api-key", "v")
+	Expect(err).NotTo(HaveOccurred())
+
+	example := filepath.Join(workdir, ".sc", "stacks", "myapp", "secrets.example.yaml")
+	Expect(os.WriteFile(example, []byte("schemaVersion: 1.0\nvalues:\n  DB_PASSWORD: changeme\n"), 0o644)).To(Succeed())
+
+	out, err := execScope(t, workdir, "", "lint")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(out).To(ContainSubstring("secrets.example.yaml is not a scope file"))
+	Expect(out).To(ContainSubstring("1 scope file(s) OK"))
 }

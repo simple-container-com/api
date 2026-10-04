@@ -18,7 +18,7 @@ func TestStaleParentSecretsDoNotOutliveACopyWithoutThem(t *testing.T) {
 	workspace := filepath.Join(root, ".sc", "stacks")
 
 	mustWrite(t, filepath.Join(parent, "infra", "server.yaml"), "server")
-	mustWrite(t, filepath.Join(parent, "infra", "secrets.team.yaml"), "scope")
+	mustWrite(t, filepath.Join(parent, "infra", "secrets.team.yaml"), "schemaVersion: 1\nrecipients: []\n")
 	mustWrite(t, filepath.Join(workspace, "infra", "secrets.yaml"), "revealed by an earlier step")
 	mustWrite(t, filepath.Join(workspace, "app", "client.yaml"), "client")
 	mustWrite(t, filepath.Join(workspace, "app", "secrets.yaml"), "the client's own")
@@ -97,7 +97,7 @@ func TestStaleParentSecretsSkipsSymlinkedStackDir(t *testing.T) {
 	parent := filepath.Join(root, ".devops", ".sc", "stacks")
 	workspace := filepath.Join(root, ".sc", "stacks")
 	elsewhere := filepath.Join(root, "elsewhere")
-	mustWrite(t, filepath.Join(parent, "infra", "secrets.team.yaml"), "scope")
+	mustWrite(t, filepath.Join(parent, "infra", "secrets.team.yaml"), "schemaVersion: 1\nrecipients: []\n")
 	mustWrite(t, filepath.Join(elsewhere, "secrets.yaml"), "not ours")
 	if err := os.MkdirAll(workspace, 0o755); err != nil {
 		t.Fatal(err)
@@ -122,7 +122,7 @@ func TestStaleParentSecretsErrors(t *testing.T) {
 
 	parent := filepath.Join(root, ".devops", ".sc", "stacks")
 	workspace := filepath.Join(root, ".sc", "stacks")
-	mustWrite(t, filepath.Join(parent, "infra", "secrets.team.yaml"), "scope")
+	mustWrite(t, filepath.Join(parent, "infra", "secrets.team.yaml"), "schemaVersion: 1\nrecipients: []\n")
 	mustWrite(t, filepath.Join(workspace, "infra", "secrets.yaml", "inside"), "a directory, not a file")
 	if _, err := removeStaleParentSecrets(parent, workspace); err == nil {
 		t.Error("a secrets.yaml that cannot be removed was not reported")
@@ -132,5 +132,23 @@ func TestStaleParentSecretsErrors(t *testing.T) {
 	mustWrite(t, notDir, "x")
 	if _, err := removeStaleParentSecrets(notDir, workspace); err == nil {
 		t.Error("a parent stacks path that is a file was not reported")
+	}
+}
+
+// A secrets.<x>.yaml that the scoped store did not write is not a scope file; the
+// revealed secrets.yaml may be the only store and must stay.
+func TestStaleParentSecretsKeptWithLookalikeFile(t *testing.T) {
+	root := t.TempDir()
+	parent := filepath.Join(root, ".devops", ".sc", "stacks")
+	workspace := filepath.Join(root, ".sc", "stacks")
+	mustWrite(t, filepath.Join(parent, "infra", "secrets.example.yaml"), "schemaVersion: 1.0\nvalues:\n  DB_PASSWORD: changeme\n")
+	mustWrite(t, filepath.Join(workspace, "infra", "secrets.yaml"), "revealed by an earlier step")
+
+	removed, err := removeStaleParentSecrets(parent, workspace)
+	if err != nil || len(removed) != 0 {
+		t.Fatalf("removed %v, %v; want nothing removed", removed, err)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, "infra", "secrets.yaml")); err != nil {
+		t.Errorf("secrets.yaml was removed because of a look-alike file: %v", err)
 	}
 }
