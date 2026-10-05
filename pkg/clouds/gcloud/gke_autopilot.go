@@ -148,6 +148,11 @@ func ToGkeAutopilotConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stac
 		deployCfg.ExternalTrafficPolicy = k8sCloudExtras.ExternalTrafficPolicy // e.g. Local, required for WebRTC return media
 		deployCfg.TopologySpreadConstraints = k8sCloudExtras.TopologySpreadConstraints
 
+		if err := k8sCloudExtras.SecurityContext.Validate(); err != nil {
+			return nil, errors.Wrapf(err, "invalid cloudExtras.securityContext")
+		}
+		deployCfg.SecurityContext = k8sCloudExtras.SecurityContext
+
 		// Process affinity rules and merge with existing NodeSelector if needed
 		if k8sCloudExtras.Affinity != nil {
 			// Store the full affinity configuration for advanced usage
