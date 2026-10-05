@@ -8,15 +8,14 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
+	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/yandex"
-	sdkYandex "github.com/simple-container-com/pulumi-yandex/sdk/go/yandex"
 )
 
 type registrar struct {
@@ -59,8 +58,10 @@ func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.Pro
 		RegionId: sdk.StringPtr(cfg.EffectiveRegion()),
 		Zone:     sdk.StringPtr(cfg.EffectiveZone()),
 	}
+	// secretStringPtr, never sdk.StringPtr — see credentials.go. The registrar builds
+	// its own provider, so it leaks independently of the one in provider.go.
 	if cfg.ServiceAccountKey != "" {
-		providerArgs.ServiceAccountKeyFile = sdk.StringPtr(cfg.ServiceAccountKey)
+		providerArgs.ServiceAccountKeyFile = secretStringPtr(cfg.ServiceAccountKey)
 	}
 	provider, err := sdkYandex.NewProvider(ctx, providerName, providerArgs)
 	if err != nil {
@@ -212,7 +213,7 @@ func (r *registrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack
 	gateway, err := sdkYandex.NewApiGateway(ctx, gatewayName, &sdkYandex.ApiGatewayArgs{
 		Name:     sdk.String(gatewayName),
 		FolderId: sdk.StringPtr(r.config.FolderID),
-		Spec:     proxySpec(gatewayName, endpoint.TargetHost),
+		Spec:     proxySpec(gatewayName, endpoint.TargetHost, endpoint.WebSocket),
 		CustomDomains: sdkYandex.ApiGatewayCustomDomainArray{
 			sdkYandex.ApiGatewayCustomDomainArgs{
 				Fqdn:          sdk.String(strings.TrimSuffix(endpoint.Domain, ".")),
@@ -224,27 +225,95 @@ func (r *registrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack
 		return nil, errors.Wrapf(err, "failed to create API gateway %q for domain %q", gatewayName, endpoint.Domain)
 	}
 
-	// The gateway's service domain is a bare hostname; YC DNS wants CNAME data absolute.
+	// The gateway's service domain is a bare hostname; YC DNS wants the data absolute.
 	target := gateway.Domain.ApplyT(fqdn).(sdk.StringOutput)
 	return r.NewRecord(ctx, api.DnsRecord{
 		Name:     endpoint.Domain,
-		Type:     "CNAME",
+		Type:     hostnameRecordType(endpoint.Domain, r.config.ZoneName),
 		ValueOut: target,
 	})
 }
 
-func proxySpec(title string, targetHost sdk.StringInput) sdk.StringOutput {
+// hostnameRecordType picks the record type that can point a name at the gateway's
+// hostname. Away from the apex that is a plain CNAME; AT the apex a CNAME is illegal
+// (api.IsZoneApex explains why) and Yandex Cloud has no ALIAS. Its answer is ANAME — a
+// CNAME-shaped record the nameserver resolves server-side and answers as an A, so the
+// apex keeps its SOA and NS. The trade-off is a single server-side resolution with no
+// geographic spread, which the `landing` repo weighed and accepted for simple-forge.ru's
+// apex; it is the only way to serve a bare domain on YC DNS at all.
+//
+// Serving the apex is not an edge case for this registrar: a service that declares
+// `domain: <zone>` — the normal shape for a product's own front door — hits it on the
+// first deploy, and YC rejects the CNAME with a message about the record type rather
+// than about the apex.
+func hostnameRecordType(domain, zoneName string) string {
+	if api.IsZoneApex(domain, zoneName) {
+		return "ANAME"
+	}
+	return "CNAME"
+}
+
+func proxySpec(title string, targetHost sdk.StringInput, websocket bool) sdk.StringOutput {
 	return targetHost.ToStringOutput().ApplyT(func(host string) string {
-		return proxySpecFor(title, host)
+		return proxySpecFor(title, host, websocket)
 	}).(sdk.StringOutput)
 }
 
 // proxySpecFor is an OpenAPI document that forwards every method and every path to the
 // endpoint. `/` and `/{path+}` are both needed: the greedy parameter does not match the
 // empty path. The integration is `http` rather than `serverless_containers` so that the
-// gateway works for any endpoint the registrar is handed, and so that the Host header it
-// forwards is the target's own — which is what replaces Cloudflare's rewriting worker.
-func proxySpecFor(title, targetHost string) string {
+// gateway works for any endpoint the registrar is handed.
+//
+// The forwarding rules below are not optional decoration. An API Gateway passes NOTHING
+// through by default — "headers other than User-Agent and query parameters of the
+// original request are not provided" — so a spec without `headers` and `query` reaches
+// the service as a bare request:
+//
+//   - no query string, which silently breaks every presigned URL, pagination cursor and
+//     OAuth callback (`?code=…`) the service serves;
+//   - no Cookie, so any session-cookie authentication answers 401;
+//   - no visitor Host, so a service that routes by hostname serves its default site to
+//     every domain — with a 200, which reads like success.
+//
+// `'*': '*'` relays everything the spec does not override. `Host` IS overridden, to the
+// target's own hostname: the upstream is reached over TLS by that name, and relaying the
+// visitor's Host would send an SNI the target's certificate does not cover. The visitor's
+// hostname travels as `X-Forwarded-Host` instead, which is the header the Cloudflare-side
+// services already read — so a service moved onto YC needs no change to resolve by host.
+// With omitEmptyHeaders the substitution simply disappears when a header is absent,
+// rather than arriving as an empty value that a receiver has to special-case.
+//
+// `Authorization` is the one header that must NOT be relayed, and the reason is not
+// hygiene — it is that the request would stop arriving at all. A Serverless Container's
+// own ingress reads `Authorization: Bearer …` as an IAM token and answers
+// `403 {"errorCode":403,"errorMessage":"Forbidden: Not authorized"}` BEFORE the container
+// runs, even when its invoker binding is `system:allUsers`. Measured live 2026-09-29: the
+// capital-B `Bearer` scheme is a reserved word at that ingress (`Basic`, `Token` and
+// lowercase `bearer` pass and are then dropped), so relaying it turns every bearer-token
+// caller into a 403 that no service code can see or explain. Overriding it to the empty
+// string makes omitEmptyHeaders drop it, and the credential travels as
+// `X-Forwarded-Authorization` instead — measured on the same run: 403 became 200 with the
+// token intact. A service that authenticates bearer tokens behind this gateway reads that
+// header (or has its SDK normalise it) — the alternative is that it cannot be reached.
+//
+// When websocket is set, each path carries three more operations so the gateway also
+// terminates WebSocket connections (see webSocketOperations). That is opt-in because the
+// feature is Preview and a service with no socket handler should not be given one; see
+// yandex.CloudExtras.WebSocket for the whole rationale.
+func proxySpecFor(title, targetHost string, websocket bool) string {
+	rootParams := headerParams("        ")
+	rootIntegration := forwardingIntegration("        ", targetHost, "/")
+	// The greedy path needs its segment declared as well, or `{path}` in the
+	// integration URL renders as literal braces.
+	greedyParams := pathParam("        ") + "\n" + headerParams("        ")
+	greedyIntegration := forwardingIntegration("        ", targetHost, "/{path}")
+
+	var rootSockets, greedySockets string
+	if websocket {
+		rootSockets = webSocketOperations("    ", rootParams, rootIntegration)
+		greedySockets = webSocketOperations("    ", greedyParams, greedyIntegration)
+	}
+
 	return fmt.Sprintf(`openapi: 3.0.0
 info:
   title: %s
@@ -252,21 +321,100 @@ info:
 paths:
   /:
     x-yc-apigateway-any-method:
+      parameters:
+%s
       x-yc-apigateway-integration:
-        type: http
-        url: https://%s/
+%s%s
   /{path+}:
     x-yc-apigateway-any-method:
       parameters:
-        - name: path
-          in: path
-          required: true
-          schema:
-            type: string
+%s
       x-yc-apigateway-integration:
-        type: http
-        url: https://%s/{path}
-`, title, targetHost, targetHost)
+%s%s
+`, title,
+		rootParams, rootIntegration, rootSockets,
+		greedyParams, greedyIntegration, greedySockets)
+}
+
+// webSocketOps are the three API Gateway operations that make one path relay a
+// WebSocket. All three are emitted together on purpose:
+//
+//   - CONNECT is what makes the upgrade legal at all. A path carrying only
+//     x-yc-apigateway-any-method answers an upgrade request with an immediate 405.
+//   - MESSAGE receives each client frame as an ordinary HTTP POST to the integration,
+//     and its own response body is delivered back to the client as a message.
+//   - DISCONNECT is the only notification the service gets that the client went away.
+//     Without it a handler streaming into a closed socket learns nothing until its
+//     pushes start failing.
+//
+// The service pushes out of band — the gateway does not relay the integration's response
+// body incrementally either. It POSTs to
+// apigateway-connections.api.cloud.yandex.net/…/connections/{id}:send, authenticated with
+// an IAM token from the instance metadata service, and finds {id} in the
+// X-Yc-Apigateway-Websocket-Connection-Id header that arrives on every one of these three
+// events. Because the id is already on the MESSAGE event, a handler that runs a whole turn
+// inside that invocation needs no connection registry.
+//
+// Two operational limits are the caller's to respect: a socket lives at most 60 minutes
+// (10 idle), and the MESSAGE invocation is bounded by the container's own timeout — SC's
+// default is 10 s, which cuts a streaming turn off mid-answer.
+var webSocketOps = []string{
+	"x-yc-apigateway-websocket-connect",
+	"x-yc-apigateway-websocket-message",
+	"x-yc-apigateway-websocket-disconnect",
+}
+
+// webSocketOperations renders the three socket operations as siblings of
+// x-yc-apigateway-any-method, each re-using the same parameters and the same forwarding
+// integration as the HTTP path. Sharing the integration is what makes a cookie session
+// work over the socket: `headers: {'*': '*'}` relays Cookie verbatim on CONNECT and on
+// MESSAGE, so the handshake authenticates exactly the way a request does and no second
+// mechanism is needed.
+func webSocketOperations(indent, params, integration string) string {
+	var b strings.Builder
+	for _, op := range webSocketOps {
+		// The leading newline is what keeps the no-websocket spec byte-identical: the
+		// caller appends this right after the HTTP integration with nothing between.
+		fmt.Fprintf(&b, "\n%s%s:\n%s  parameters:\n%s\n%s  x-yc-apigateway-integration:\n%s",
+			indent, op, indent, params, indent, integration)
+	}
+	return b.String()
+}
+
+// forwardedHeaders are the request headers the spec reads by name so it can re-send them
+// under a name of its own. They have to be declared as parameters for `{Name}` to
+// interpolate — an undeclared parameter renders as the literal braces.
+var forwardedHeaders = []string{"Host", "Authorization"}
+
+func headerParams(indent string) string {
+	var b strings.Builder
+	for _, h := range forwardedHeaders {
+		fmt.Fprintf(&b, "%s- name: %s\n%s  in: header\n%s  required: false\n%s  schema:\n%s    type: string\n",
+			indent, h, indent, indent, indent, indent)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// pathParam declares the greedy `/{path+}` segment. Like the headers above it has to be a
+// declared parameter for `{path}` to interpolate in the integration URL.
+func pathParam(indent string) string {
+	return fmt.Sprintf("%[1]s- name: path\n%[1]s  in: path\n%[1]s  required: true\n%[1]s  schema:\n%[1]s    type: string",
+		indent)
+}
+
+func forwardingIntegration(indent, targetHost, path string) string {
+	return fmt.Sprintf(`%[1]stype: http
+%[1]surl: https://%[2]s%[3]s
+%[1]squery:
+%[1]s  '*': '*'
+%[1]sheaders:
+%[1]s  '*': '*'
+%[1]s  Host: %[2]s
+%[1]s  X-Forwarded-Host: '{Host}'
+%[1]s  X-Forwarded-Authorization: '{Authorization}'
+%[1]s  Authorization: ''
+%[1]somitEmptyHeaders: true
+%[1]somitEmptyQueryParameters: true`, indent, targetHost, path)
 }
 
 // apiGatewayName derives the gateway's name from the endpoint's. The suffix is what

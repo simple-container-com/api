@@ -124,6 +124,7 @@ type SimpleContainerArgs struct {
 	LbConfig                  *api.SimpleContainerLBConfig   `json:"lbConfig" yaml:"lbConfig"`
 	SecretEnvs                map[string]string              `json:"secretEnvs" yaml:"secretEnvs"`
 	Annotations               map[string]string              `json:"annotations" yaml:"annotations"`
+	PodAnnotations            map[string]string              `json:"podAnnotations" yaml:"podAnnotations"`
 	NodeSelector              map[string]string              `json:"nodeSelector" yaml:"nodeSelector"`
 	Affinity                  *k8s.AffinityRules             `json:"affinity" yaml:"affinity"`
 	TopologySpreadConstraints []k8s.TopologySpreadConstraint `json:"topologySpreadConstraints" yaml:"topologySpreadConstraints"`
@@ -685,7 +686,7 @@ func NewSimpleContainer(ctx *sdk.Context, args *SimpleContainerArgs, opts ...sdk
 			Template: &corev1.PodTemplateSpecArgs{
 				Metadata: &metav1.ObjectMetaArgs{
 					Labels:      sdk.ToStringMap(appLabels),
-					Annotations: sdk.ToStringMap(appAnnotations),
+					Annotations: sdk.ToStringMap(lo.Assign(args.PodAnnotations, appAnnotations)),
 				},
 				Spec: podSpecArgs,
 			},

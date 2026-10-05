@@ -1339,6 +1339,14 @@ resources:
             useSSL: true                            # Use SSL by default (optional, default: true)
             usePrefixes: false                      # Use prefixes instead of domains (optional, default: false)
             provisionIngress: false                 # Provision ingress for Caddy (optional, default: false)
+
+            # Scheduling (optional)
+            podAnnotations:                         # Pod template only; simple-container.com/ and pulumi.com/ keys rejected
+              cluster-autoscaler.kubernetes.io/safe-to-evict: "false"   # keep autoscaler scale-down from evicting Caddy
+            topologySpreadConstraints:              # Spread replicas; labelSelector defaults to the Caddy pod labels
+              - topologyKey: kubernetes.io/hostname
+                maxSkew: 1
+                whenUnsatisfiable: ScheduleAnyway
             
             # VPA Configuration for automatic resource optimization (optional)
             vpa:
