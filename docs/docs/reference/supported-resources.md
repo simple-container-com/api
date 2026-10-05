@@ -1064,8 +1064,43 @@ auth:
     type: gcp-service-account
     config:
       projectId: "my-gcp-project"
-      serviceAccountKey: "${env:GCP_SERVICE_ACCOUNT_KEY}"
+      credentials: "${env:GCP_SERVICE_ACCOUNT_KEY}"   # service-account key JSON
 ```
+
+**Ambient credentials (no key).** Leave `credentials` empty and every GCP client uses
+Application Default Credentials instead: in GitHub Actions, the file that
+`google-github-actions/auth` writes after exchanging the job's OIDC token through Workload
+Identity Federation; elsewhere, a metadata server or `gcloud auth application-default login`.
+No long-lived key exists to leak. A configured value must still be a service-account key.
+
+```yaml
+auth:
+  gcloud:
+    type: gcp-service-account
+    config:
+      projectId: "my-gcp-project"
+      credentials: ""                                   # use ADC
+      serviceAccount: deployer@my-gcp-project.iam.gserviceaccount.com  # static websites only
+```
+
+`serviceAccount` is read only in ambient mode, and only by resources that grant the deploying
+identity access to themselves (a static website's bucket write binding), which otherwise take
+the email from the key.
+
+In ambient mode, inside GitHub Actions:
+
+- The credentials file stays available when the job has no checkout step. The action clones
+  the repository itself and replaces the workspace, so it first copies credential files it
+  finds there (`GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`,
+  `GOOGLE_GHA_CREDS_PATH`) to a private directory and points the variables at the copies.
+- gcloud is signed in with that file (`gcloud auth login --cred-file`), because GKE
+  kubeconfigs authenticate through `gke-gcloud-auth-plugin`, which asks gcloud, and gcloud
+  does not read Application Default Credentials. The sign-in uses a gcloud configuration
+  private to the run (`CLOUDSDK_CONFIG`), so later steps of the job keep their account.
+  Outside GitHub Actions gcloud is left as the user configured it.
+- With `provision: true` on the state storage, the identity reads the state bucket's
+  metadata (`storage.buckets.get`). Without it, the bucket is taken to exist and its
+  lifecycle is not checked; it is created only when Cloud Storage reports it missing.
 
 #### **GCP Secrets Manager** (`gcp-secrets-manager`)
 
