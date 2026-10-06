@@ -90,7 +90,7 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	}, opts...)
 	if err != nil {
 		if pgCfg.HasPrivateNetwork() {
-			return nil, errors.Wrapf(err, "failed to provision postgres instance %q (privateNetwork requires a Private Services Access range and servicenetworking connection on the VPC)", postgresName)
+			return nil, errors.Wrapf(err, "failed to provision postgres instance %q (privateNetwork requires Private Services Access on the VPC: set privateServicesAccessRange or create it outside SC)", postgresName)
 		}
 		return nil, errors.Wrapf(err, "failed to provision postgres instance %q", postgresName)
 	}

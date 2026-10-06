@@ -99,12 +99,16 @@ func TestPostgres_PrivateServicesAccessCreatedBeforeInstance(t *testing.T) {
 	Expect(addr["prefixLength"].NumberValue()).To(BeEquivalentTo(20))
 	Expect(addr["network"].StringValue()).To(Equal(psaTestNetwork))
 	rangeName := addr["name"].StringValue()
-	Expect(rangeName).To(HaveSuffix("-psa"))
+	Expect(rangeName).To(Equal("postgres--production-psa"))
+	addrArgs := mocks.only(psaTestAddress)
+	Expect(addrArgs.RegisterRPC.GetRetainOnDelete()).To(BeTrue(), "the range must outlive the abandoned peering")
 
 	conn := mocks.only(psaTestConnection)
 	Expect(conn.Inputs["service"].StringValue()).To(Equal("servicenetworking.googleapis.com"))
 	Expect(conn.Inputs["network"].StringValue()).To(Equal(psaTestNetwork))
 	Expect(conn.Inputs["deletionPolicy"].StringValue()).To(Equal("ABANDON"))
+	Expect(conn.RegisterRPC.GetDependencies()).To(ContainElement(ContainSubstring(psaTestAddress+"::"+addrArgs.Name)),
+		"the connection must reference the reserved range resource, not a literal name")
 	ranges := conn.Inputs["reservedPeeringRanges"].ArrayValue()
 	Expect(ranges).To(HaveLen(1))
 	Expect(ranges[0].StringValue()).To(Equal(rangeName))
@@ -139,5 +143,34 @@ func TestPostgres_InvalidPrivateServicesAccessRangeFailsBeforeAnyResource(t *tes
 	mocks, services, err := runPostgresWithMocks(t, psaTestConfig(lo.ToPtr("10.30.0.0/25")))
 	Expect(err).To(MatchError(ContainSubstring("/24 or larger")))
 	Expect(mocks.resources).To(BeEmpty())
+	Expect(services.isServiceEnabled("projects/p/services/servicenetworking.googleapis.com")).To(BeFalse())
+}
+
+func TestPostgres_PrivateServicesAccessRangeNameTooLong(t *testing.T) {
+	RegisterTestingT(t)
+	services := newMockServicesAPIClient()
+	setGlobalServicesAPIClient(services)
+	t.Cleanup(resetGlobalServicesAPIClient)
+
+	mocks := &psaMocks{resources: map[string][]pulumi.MockResourceArgs{}}
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		prov, err := gcpsdk.NewProvider(ctx, "gcp", &gcpsdk.ProviderArgs{Project: pulumi.String("p")})
+		if err != nil {
+			return err
+		}
+		params := createBasicProvisionParams()
+		params.Provider = prov
+		_, err = Postgres(ctx, api.Stack{}, api.ResourceInput{
+			Descriptor: &api.ResourceDescriptor{
+				Name:   strings.Repeat("x", 50),
+				Type:   gcloud.ResourceTypePostgresGcpCloudsql,
+				Config: api.Config{Config: psaTestConfig(lo.ToPtr("10.30.0.0/20"))},
+			},
+			StackParams: &api.StackParams{Environment: "production"},
+		}, params)
+		return err
+	}, pulumi.WithMocks("project", "stack", mocks))
+	Expect(err).To(MatchError(ContainSubstring("exceeds 63 characters")))
+	Expect(mocks.resources[psaTestAddress]).To(BeEmpty())
 	Expect(services.isServiceEnabled("projects/p/services/servicenetworking.googleapis.com")).To(BeFalse())
 }
