@@ -63,6 +63,15 @@ func TestPostgresGcpCloudsqlConfig_Validate(t *testing.T) {
 		{name: "public off without network", cfg: PostgresGcpCloudsqlConfig{PublicIpEnabled: lo.ToPtr(false)}, errSubstr: "requires privateNetwork"},
 		{name: "public off with empty network", cfg: PostgresGcpCloudsqlConfig{PublicIpEnabled: lo.ToPtr(false), PrivateNetwork: lo.ToPtr("")}, errSubstr: "requires privateNetwork"},
 		{name: "public off with network ok", cfg: PostgresGcpCloudsqlConfig{PublicIpEnabled: lo.ToPtr(false), PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc")}},
+		{name: "psa range without network", cfg: PostgresGcpCloudsqlConfig{PrivateServicesAccessRange: lo.ToPtr("10.30.0.0/20")}, errSubstr: "requires privateNetwork"},
+		{name: "psa range not a CIDR", cfg: PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc"), PrivateServicesAccessRange: lo.ToPtr("10.30.0.0")}, errSubstr: "must be a CIDR"},
+		{name: "psa range public", cfg: PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc"), PrivateServicesAccessRange: lo.ToPtr("8.8.8.0/24")}, errSubstr: "RFC 1918"},
+		{name: "psa range ipv6", cfg: PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc"), PrivateServicesAccessRange: lo.ToPtr("fd00::/48")}, errSubstr: "RFC 1918"},
+		{name: "psa range host bits", cfg: PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc"), PrivateServicesAccessRange: lo.ToPtr("10.30.0.1/20")}, errSubstr: "use \"10.30.0.0/20\""},
+		{name: "psa range too small", cfg: PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc"), PrivateServicesAccessRange: lo.ToPtr("10.30.0.0/25")}, errSubstr: "/24 or larger"},
+		{name: "psa range /24 ok", cfg: PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc"), PrivateServicesAccessRange: lo.ToPtr("192.168.10.0/24")}},
+		{name: "psa range /20 ok", cfg: PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc"), PrivateServicesAccessRange: lo.ToPtr("10.30.0.0/20")}},
+		{name: "psa range empty is unset", cfg: PostgresGcpCloudsqlConfig{PrivateServicesAccessRange: lo.ToPtr("")}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
