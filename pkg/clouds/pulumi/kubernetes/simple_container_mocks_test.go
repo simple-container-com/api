@@ -21,6 +21,8 @@ type simpleContainerMocks struct {
 	createdResources map[string]resource.PropertyMap
 	// Registered resource dependencies (URNs) keyed by type token
 	dependencies map[string][]string
+	// Resource inputs keyed by type token, in registration order
+	inputs map[string][]resource.PropertyMap
 }
 
 // NewSimpleContainerMocks creates a new mock instance
@@ -29,6 +31,7 @@ func NewSimpleContainerMocks() *simpleContainerMocks {
 		resourceCounts:   make(map[string]int),
 		createdResources: make(map[string]resource.PropertyMap),
 		dependencies:     make(map[string][]string),
+		inputs:           make(map[string][]resource.PropertyMap),
 	}
 }
 
@@ -41,6 +44,7 @@ func (m *simpleContainerMocks) NewResource(args pulumi.MockResourceArgs) (string
 	if args.RegisterRPC != nil {
 		m.dependencies[args.TypeToken] = append(m.dependencies[args.TypeToken], args.RegisterRPC.GetDependencies()...)
 	}
+	m.inputs[args.TypeToken] = append(m.inputs[args.TypeToken], args.Inputs.Copy())
 	m.mu.Unlock()
 
 	// Generate unique resource ID
@@ -100,6 +104,13 @@ func (m *simpleContainerMocks) DependenciesFor(resourceType string) []string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return append([]string(nil), m.dependencies[resourceType]...)
+}
+
+// InputsFor returns the inputs of every resource registered with the given type token.
+func (m *simpleContainerMocks) InputsFor(resourceType string) []resource.PropertyMap {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return append([]resource.PropertyMap(nil), m.inputs[resourceType]...)
 }
 
 // GetCreatedResource returns the properties of a created resource
