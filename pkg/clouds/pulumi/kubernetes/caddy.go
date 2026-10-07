@@ -8,13 +8,14 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/util/validation"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
 	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
@@ -103,7 +104,10 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		return nil, err
 	}
 	kubeProvider, err := sdkK8s.NewProvider(ctx, fmt.Sprintf("%s-caddy-kubeprovider", input.ToResName(input.Descriptor.Name)), &sdkK8s.ProviderArgs{
-		Kubeconfig: kubeconfig,
+		// Marked here rather than at each caller so every path into Caddy —
+		// the k8s resource below, and gke_autopilot.go's derived kubeconfig —
+		// crosses the provider boundary secret. See SecretKubeconfig.
+		Kubeconfig: SecretKubeconfigOutput(kubeconfig),
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q",

@@ -254,6 +254,35 @@ version:
 
 PRs without required tests are blocked at maintainer review.
 
+### Provider credentials: a secretness test is required
+
+Any change that passes a credential to a Pulumi provider — a
+service-account document, a kubeconfig, an API token, a secret
+access key — must come with a test asserting the input reached
+the engine **secret**, in the shape used by
+`pkg/clouds/pulumi/yandex/credentials_test.go`:
+
+```go
+inputs := mocks.inputsWithProp("pulumi:providers:<p>", "<prop>")
+Expect(inputs["<prop>"].IsSecret()).To(BeTrue())
+```
+
+This is not tidiness. Pulumi prints the properties of every
+resource it creates or changes in its preview and update summaries,
+SC forwards that summary to stdout, and CI archives it — so an
+unmarked provider credential is published by the first deploy of
+the stack that uses it. A Yandex service-account private key
+reached a world-readable GitHub Actions log this way on
+2026-09-30. Do **not** assume the upstream provider SDK marks the
+field: pulumi-aws, pulumi-cloudflare and pulumi-mongodbatlas mark
+theirs in `NewProvider`, pulumi-gcp marks only `accessToken`, and
+pulumi-kubernetes marks nothing at all.
+
+Verify in a deploy by **counting** — e.g. `gh run view --log |
+grep -c 'PRIVATE KEY'` must be `0`. Never print a log line that
+may contain a credential value, in a test, a smoke report, or a
+PR description.
+
 ## Naming conventions
 
 | What | Convention | Example |
