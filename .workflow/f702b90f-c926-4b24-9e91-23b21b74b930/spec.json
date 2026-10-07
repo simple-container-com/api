@@ -1,0 +1,138 @@
+{
+  "initialCharacterId": "pm",
+  "characters": [
+    {
+      "id": "pm",
+      "agentId": "34890141-d95a-4628-9507-35a06c70827e",
+      "displayName": "Max Warner",
+      "roleHint": "pm",
+      "capabilities": {
+        "hasDocker": false,
+        "hasPersistentDisk": false,
+        "maxTurnDurationSec": 1800,
+        "supportsLongLived": false,
+        "isolation": "process",
+        "egressPolicy": "scoped",
+        "minMemoryMB": 512
+      },
+      "description": "Product Manager — Max Warner (autonomous slice-id addition shipped 2026-06-11)."
+    },
+    {
+      "id": "architect",
+      "agentId": "7b6ae717-cab4-4b7c-b4ea-ed61353ee6f4",
+      "displayName": "Dan Johnson",
+      "roleHint": "architect",
+      "capabilities": {
+        "hasDocker": false,
+        "hasPersistentDisk": false,
+        "maxTurnDurationSec": 1800,
+        "supportsLongLived": false,
+        "isolation": "process",
+        "egressPolicy": "scoped",
+        "minMemoryMB": 512
+      },
+      "description": "Architect — Dan Johnson (no prompt changes for SDLC; existing persona is strong)."
+    },
+    {
+      "id": "developer",
+      "agentId": "0d913379-fa6c-4833-8c61-b39a94acec46",
+      "displayName": "David Black",
+      "roleHint": "developer",
+      "initialPrompt": "BUILD-BEFORE-HANDOFF (mandatory): before you hand off, actually build + test what you changed in the cloned repo and confirm it passes — do not hand off code you only edited.\n- Go changes: `go build ./... \u0026\u0026 go test ./...` (scope tests to touched packages if the suite is huge).\n- SPA / internal/ui changes: `cd internal/ui \u0026\u0026 npm ci \u0026\u0026 npm run build:prod` — this is the EXACT build the deploy runs (Dockerfile node:20 `tsc -b \u0026\u0026 vite build`). A TypeScript error such as an unused import (TS6133) FAILS this build and breaks the deploy even though `go build` is clean.\n- Swagger: if you changed an annotated handler/struct, run `make swag` and ensure no drift.\nCite your real commit SHA from `git rev-parse HEAD` in the handoff. If a build fails, FIX it before handing off.\n\nCREDENTIAL BLOCKERS — do not escalate one you cannot personally resolve. `api_call` auto-injects auth for api.github.com and *.rapidapi.com ONLY, so an unauthenticated call to app.simple-forge.com always returns 401. You hold no secret grants; QA holds `forge_api_key` (the conductor API key) and can `secret_get` it. If a live smoke is blocked only by that 401, write the exact calls + the evidence they should produce into your handoff and hand off to QA to execute them. Report that as work handed on, not as a failure.",
+      "capabilities": {
+        "hasDocker": true,
+        "hasPersistentDisk": true,
+        "maxTurnDurationSec": 3600,
+        "supportsLongLived": false,
+        "isolation": "container",
+        "egressPolicy": "open",
+        "minMemoryMB": 2048,
+        "runtimeKindsAllowed": [
+          "container",
+          "vm"
+        ]
+      },
+      "description": "Developer — David Black (autonomous workflow-branch commit clause shipped 2026-06-11)."
+    },
+    {
+      "id": "qa",
+      "agentId": "b49e743d-1004-406c-b832-db4098eaa8ac",
+      "displayName": "Maria Currie",
+      "roleHint": "qa",
+      "initialPrompt": "You are the build/verify GATE — do NOT sign off on inspection or the developer's word alone. Actually RUN the build + tests in the cloned repo (which holds the developer's changes) and observe them pass before signoff:\n- Go: `go build ./... \u0026\u0026 go test ./...`.\n- SPA / internal/ui: `cd internal/ui \u0026\u0026 npm ci \u0026\u0026 npm run build:prod` — the EXACT deploy build; a TS error here (e.g. unused import → TS6133) breaks the deploy even when Go compiles. Confirm exit 0.\n- Swagger: if annotated handlers/structs changed, `make swag` then `git diff --exit-code internal/docs`.\nReport PASS only for checks you actually ran and saw succeed. If ANY build/test FAILS, return a NON-signoff verdict with the exact error so the developer fixes it — NEVER sign off without a green build. (2026-06-18: a slice merged a TS6133 error because QA skipped the SPA build → broke conductor's deploy.)",
+      "capabilities": {
+        "hasDocker": true,
+        "hasPersistentDisk": false,
+        "maxTurnDurationSec": 2700,
+        "supportsLongLived": false,
+        "isolation": "container",
+        "egressPolicy": "open",
+        "minMemoryMB": 1024,
+        "runtimeKindsAllowed": [
+          "container",
+          "vm"
+        ]
+      },
+      "description": "QA — Maria Currie (autonomous deploy/smoke/destroy/sign-off duties block shipped 2026-06-11). CREDENTIALS (this reaches the transition gate — keep it accurate): qa is granted the secret aliases `forge_api_key` (the conductor API key for app.simple-forge.com, cross-org), `staging-forge-isolated-jwt-signing-secret` and `ollama_api_key`, fetchable in-turn with `secret_get`. qa is therefore the ONLY character in this workflow that can authenticate a live smoke against app.simple-forge.com; pm/architect/developer hold no grants and always get 401 there (`api_call` auto-injects credentials for api.github.com and *.rapidapi.com ONLY). So a live smoke blocked purely by a missing conductor credential must ADVANCE to qa — it is NOT an unresolvable blocker and must NOT be escalated.",
+      "secrets": [
+        "staging-forge-isolated-jwt-signing-secret",
+        "forge_api_key",
+        "ollama_api_key",
+        "conn:yandex-cloud-ai:aae38f45-2800-4d43-aba2-418bb3821f85:api_key",
+        "conn:gigachat:beec9e3d-4e54-4c84-8c4b-d130e1615385:authorization_key"
+      ]
+    },
+    {
+      "id": "devops",
+      "agentId": "7075eb90-38ec-4ab2-8159-c9eb8a2ff5a5",
+      "displayName": "William Smith",
+      "roleHint": "devops",
+      "capabilities": {
+        "hasDocker": false,
+        "hasPersistentDisk": false,
+        "maxTurnDurationSec": 1800,
+        "supportsLongLived": false,
+        "isolation": "process",
+        "egressPolicy": "scoped",
+        "minMemoryMB": 512
+      },
+      "description": "DevOps — William Smith (autonomous chain-continuation tail shipped 2026-06-11).",
+      "secrets": [
+        "sc_deploy_config"
+      ]
+    }
+  ],
+  "transitions": [
+    {
+      "id": "pm-to-architect",
+      "fromCharacterId": "pm",
+      "toCharacterId": "architect",
+      "escalationPolicy": "operator_review"
+    },
+    {
+      "id": "architect-to-developer",
+      "fromCharacterId": "architect",
+      "toCharacterId": "developer",
+      "escalationPolicy": "operator_review"
+    },
+    {
+      "id": "developer-to-qa",
+      "fromCharacterId": "developer",
+      "toCharacterId": "qa",
+      "escalationPolicy": "operator_review"
+    },
+    {
+      "id": "qa-to-devops",
+      "fromCharacterId": "qa",
+      "toCharacterId": "devops",
+      "condition": "handoff.verdict == 'signoff'",
+      "escalationPolicy": "operator_review"
+    }
+  ],
+  "managementAgentId": "architect",
+  "enrichBudgetDefault": 2,
+  "storageMode": "shared",
+  "allowWorkflowTriggers": true,
+  "autonomyBudget": 4,
+  "autoMemory": true
+}
