@@ -815,18 +815,23 @@ How the commands behave at the edges:
   `-`). This is a change: `set KEY` without a value used to read stdin. The stack must be
   an existing directory in the stacks dir; stack names are one path segment of letters,
   digits, `_`, `.` and `-`, starting with a letter, digit or `_`.
-- A `secrets.<scope>.yaml` that does not parse or is not a mapping (merge-conflict
-  markers, a truncated write) fails lint, the deploy read and resealing, with a hint to
-  rename it if it is not a scope file. A file that holds nothing (empty or comments
-  only), or a readable mapping with none of the `stack`, `scope` and `recipients` keys
-  such as a plaintext `secrets.example.yaml`, is ignored, with a lint warning. Run
-  `sc secrets scope lint` before upgrading: a file it now rejects would fail deploys.
+- A `secrets.<scope>.yaml` that does not parse, is not a mapping or is zero bytes long
+  (merge-conflict markers, a truncated write; sc never writes an empty file) fails lint,
+  the deploy read and resealing, with a hint to rename it if it is not a scope file. A
+  file of only whitespace or comments, or a readable mapping with none of the `stack`,
+  `scope` and `recipients` keys such as a plaintext `secrets.example.yaml`, is ignored,
+  and both lint and the deploy log say so. Run `sc secrets scope lint` before upgrading:
+  a file it now rejects would fail deploys.
 - Commands that change scope files or `scopes.yaml` lock the `.sc` directory, so
-  parallel `set` calls do not lose each other's values. The lock is an advisory `flock`:
-  it covers every process on the host that reaches the repository, gives up with a
-  message after two minutes, and is not taken on Windows.
+  parallel `set` calls do not lose each other's values. The lock is an advisory `flock`
+  on the directory; where the filesystem cannot lock a directory (NFS and some network
+  mounts) a `.sc/.scope-store.lock` file is locked instead, so add it to `.gitignore`
+  there. A waiting command says so after five seconds and gives up after two minutes
+  (`SC_SCOPE_LOCK_TIMEOUT`, a Go duration, changes that). Do not run `git checkout` or
+  `git clean` on `.sc` while a command runs. The store is not locked on Windows.
 - A key given through `--key-file`, `SC_KEY_<SCOPE>` or `SC_SCOPE_KEY` that does not
-  parse is reported as such, rather than as "not a recipient".
+  parse stops the command, naming where it came from, rather than reading as "not a
+  recipient". A deploy logs it as a warning.
 
 ### Using a scope key in CI
 

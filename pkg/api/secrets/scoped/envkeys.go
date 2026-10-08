@@ -5,6 +5,7 @@ package scoped
 
 import (
 	"os"
+	"sort"
 	"strings"
 )
 
@@ -29,4 +30,29 @@ func EnvScopeKeys() []string {
 		keys = append(keys, val)
 	}
 	return keys
+}
+
+// InvalidEnvScopeKeys names the SC_SCOPE_KEY and SC_KEY_<SCOPE> variables that
+// are set but do not parse as a private key. EnvScopeKeys still returns their
+// values, and an Opener skips them; a caller reports them so a broken CI secret is
+// not read as "not a recipient".
+func InvalidEnvScopeKeys() []string {
+	var bad []string
+	if v := os.Getenv("SC_SCOPE_KEY"); strings.TrimSpace(v) != "" && ValidatePrivateKey(v) != nil {
+		bad = append(bad, "SC_SCOPE_KEY")
+	}
+	for _, e := range os.Environ() {
+		name, val, ok := strings.Cut(e, "=")
+		if !ok || strings.TrimSpace(val) == "" || !strings.HasPrefix(name, "SC_KEY_") {
+			continue
+		}
+		if ValidateScopeName(strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(name, "SC_KEY_"), "_", "-"))) != nil {
+			continue
+		}
+		if ValidatePrivateKey(val) != nil {
+			bad = append(bad, name)
+		}
+	}
+	sort.Strings(bad)
+	return bad
 }

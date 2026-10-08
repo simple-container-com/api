@@ -263,9 +263,19 @@ func (p *provisioner) readSecretsDescriptorFromFile(ctx context.Context, descFil
 	// fails the deploy (see checkUnresolvedPlaceholders) instead of reaching the
 	// deployment as text. Keyed on the scope files being there, not on any of them
 	// opening, so a job holding the wrong key fails instead of deploying literals.
-	scopeFiles, sfErr := hasScopeFiles(path.Dir(descFilePath))
+	scopeFileList, lookalikes, sfErr := scoped.ScopeFilesIn(path.Dir(descFilePath))
 	if sfErr != nil {
 		return nil, errors.Wrapf(scoped.ErrScopedIntegrity, "%v", sfErr)
+	}
+	scopeFiles := len(scopeFileList) > 0
+	if p.log != nil {
+		// Ignored at deploy as at lint, but said here too: lint is not always run.
+		for _, f := range lookalikes {
+			p.log.Warn(ctx, "%s holds no scope (empty, comments only or no stack/scope/recipients field) and is ignored", f)
+		}
+		for _, name := range scoped.InvalidEnvScopeKeys() {
+			p.log.Warn(ctx, "%s is set but cannot be parsed as a private key; it opens nothing", name)
+		}
 	}
 	if !legacyExists && scopeFiles {
 		if p.scopedOnly == nil {
@@ -311,11 +321,4 @@ func (p *provisioner) readClientDescriptorFromFile(path string) (*api.ClientDesc
 	} else {
 		return desc, nil
 	}
-}
-
-// hasScopeFiles reports whether stackDir contains any real scope file; a
-// secrets.<x>.yaml that is not one (see scoped.IsScopeFile) does not count.
-func hasScopeFiles(stackDir string) (bool, error) {
-	files, _, err := scoped.ScopeFilesIn(stackDir)
-	return len(files) > 0, err
 }

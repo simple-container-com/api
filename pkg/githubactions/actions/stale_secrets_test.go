@@ -155,15 +155,16 @@ func TestStaleParentSecretsKeptWithLookalikeFile(t *testing.T) {
 
 // A damaged scope file in the parent still marks the stack as scoped: the stale
 // store goes, and the deploy then fails on the damaged file rather than running
-// on a store this run did not reveal. An empty placeholder holds nothing and
-// changes nothing.
+// on a store this run did not reveal. A zero-byte file is a truncated scope file;
+// a whitespace or comments-only placeholder holds nothing and changes nothing.
 func TestStaleParentSecretsWithDamagedOrEmptyScopeFile(t *testing.T) {
 	for name, tc := range map[string]struct {
 		content string
 		removed bool
 	}{
 		"merge conflict": {"<<<<<<< HEAD\nscope: team\n=======\n", true},
-		"empty":          {"", false},
+		"zero bytes":     {"", true},
+		"whitespace":     {"\n\n", false},
 		"comments only":  {"# filled in later\n", false},
 	} {
 		t.Run(name, func(t *testing.T) {

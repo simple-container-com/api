@@ -272,7 +272,9 @@ func DropsRecipients(from, to []string) bool {
 		}
 	}
 	for _, r := range from {
-		if id, err := recipientID(r); err == nil && !kept[id] {
+		// A recipient that cannot be identified counts as dropped: warn rather
+		// than miss a removal.
+		if id, err := recipientID(r); err != nil || !kept[id] {
 			return true
 		}
 	}

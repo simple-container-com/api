@@ -74,14 +74,15 @@ func ScopeFilePath(stacksDir, stack, scope string) string {
 }
 
 // IsScopeFile reports whether path, named secrets.<scope>.yaml, is to be treated
-// as a scope file. Look-alikes are files that hold nothing of the store's: an
-// empty or comments-only file, and a readable YAML mapping without any of its
+// as a scope file. Look-alikes are files that hold nothing of the store's: a
+// file of only whitespace or comments, and a readable YAML mapping without any of its
 // stack, scope and recipients keys (a plaintext secrets.example.yaml, a
 // secrets.backup.yaml copy of the legacy store; both formats carry schemaVersion,
 // so it is no marker). Anything else counts, including a file that does not parse
 // or is not a mapping: merge-conflict markers or a truncated write in a real
 // scope file must fail the read when LoadScopeFile rejects it, never drop the
-// file silently.
+// file silently. A zero-byte file counts too: sc never writes one, so it is a
+// truncated scope file, not a placeholder.
 func IsScopeFile(path string) (bool, error) {
 	if ScopeNameFromFile(path) == "" {
 		return false, nil
@@ -90,12 +91,15 @@ func IsScopeFile(path string) (bool, error) {
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to read %s", path)
 	}
+	if len(data) == 0 {
+		return true, nil
+	}
 	var doc yaml.Node
 	if yaml.Unmarshal(data, &doc) != nil {
 		return true, nil
 	}
 	if doc.Kind == 0 || (doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 && doc.Content[0].Tag == "!!null") {
-		return false, nil // empty, comments only, or null: nothing to lose
+		return false, nil // whitespace, comments only, or null: nothing to lose
 	}
 	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
 		return true, nil

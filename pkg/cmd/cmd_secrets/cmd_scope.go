@@ -137,8 +137,19 @@ func parsedKey(key, source string) (string, error) {
 }
 
 // lock holds the scope store lock for one read-modify-write command.
-func (s *scopeCmd) lock() (func(), error) {
-	return scoped.LockStore(s.scDir())
+func (s *scopeCmd) lock(cmd *cobra.Command) (func(), error) {
+	return scoped.LockStore(s.scDir(), func() {
+		fmt.Fprintf(cmd.OutOrStderr(), "waiting for another sc process to finish changing %s...\n", s.scDir())
+	})
+}
+
+// validateNames checks --scope and --stack before a command locks the store, so
+// a mistyped call fails without touching it.
+func (s *scopeCmd) validateNames() error {
+	if err := scoped.ValidateScopeName(s.scope); err != nil {
+		return err
+	}
+	return scoped.ValidateStackName(s.stack)
 }
 
 func NewScopeCmd(sCmd *secretsCmd) *cobra.Command {
@@ -253,7 +264,10 @@ func newScopeSetCmd(sCmd *secretsCmd) *cobra.Command {
 					return errors.Wrapf(err, "%s must be the YAML of one auth entry (type + config)", key)
 				}
 			}
-			unlock, err := s.lock()
+			if err := s.validateNames(); err != nil {
+				return err
+			}
+			unlock, err := s.lock(cmd)
 			if err != nil {
 				return err
 			}
@@ -353,7 +367,10 @@ func newScopeDeleteCmd(sCmd *secretsCmd) *cobra.Command {
 		Short: "Remove a value from a scope",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			unlock, err := s.lock()
+			if err := s.validateNames(); err != nil {
+				return err
+			}
+			unlock, err := s.lock(cmd)
 			if err != nil {
 				return err
 			}
@@ -415,7 +432,7 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 	if err := scoped.ValidateScopeName(s.scope); err != nil {
 		return err
 	}
-	unlock, err := s.lock()
+	unlock, err := s.lock(cmd)
 	if err != nil {
 		return err
 	}
@@ -517,6 +534,14 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 		fmt.Fprintf(cmd.OutOrStdout(), "recipient %s scope %q and every file matches; nothing to do\n", verb, s.scope)
 		return nil
 	}
+	// scopes.yaml is rendered before any file is written, so one this command
+	// cannot edit stops it with every scope file untouched.
+	var commitScopes func() error
+	if changed {
+		if commitScopes, err = sc.Prepare(scopesPath); err != nil {
+			return err
+		}
+	}
 	// Phase 2: persist. Write the resealed files first, then scopes.yaml last, so a
 	// reader never sees scopes.yaml advertise a recipient a file hasn't been
 	// resealed for.
@@ -525,8 +550,8 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 			return err
 		}
 	}
-	if changed {
-		if err := sc.Save(scopesPath); err != nil {
+	if commitScopes != nil {
+		if err := commitScopes(); err != nil {
 			return err
 		}
 	}
@@ -581,7 +606,10 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 				return err
 			}
 			// lint and doctor span every scope, so every scope key the job holds counts,
-			// as it does at deploy time.
+			// as it does at deploy time; one that does not parse is an error.
+			if bad := scoped.InvalidEnvScopeKeys(); len(bad) > 0 {
+				return errors.Errorf("%s cannot be parsed as a private key", strings.Join(bad, ", "))
+			}
 			keys = append(keys, scoped.EnvScopeKeys()...)
 			opener := scoped.NewOpener(keys, true)
 			defer func() { _ = opener.Close() }()
@@ -719,7 +747,10 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 				return err
 			}
 			// lint and doctor span every scope, so every scope key the job holds counts,
-			// as it does at deploy time.
+			// as it does at deploy time; one that does not parse is an error.
+			if bad := scoped.InvalidEnvScopeKeys(); len(bad) > 0 {
+				return errors.Errorf("%s cannot be parsed as a private key", strings.Join(bad, ", "))
+			}
 			keys = append(keys, scoped.EnvScopeKeys()...)
 			if len(keys) == 0 {
 				fmt.Fprintf(cmd.OutOrStderr(), "! no private key found (--key-file, SC_KEY_<SCOPE>, SC_SCOPE_KEY or SIMPLE_CONTAINER_CONFIG); only KMS recipients are tested\n")

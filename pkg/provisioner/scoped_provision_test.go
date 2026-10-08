@@ -177,7 +177,28 @@ func Test_readSecretsDescriptor_LookalikeIsNotScopeFile(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(desc.Values).To(Equal(map[string]string{"REAL": "legacy"}))
 	Expect(p.scopedOnly).To(BeEmpty())
-	has, err := hasScopeFiles(stackDir)
+	files, _, err := scoped.ScopeFilesIn(stackDir)
 	Expect(err).NotTo(HaveOccurred())
-	Expect(has).To(BeFalse())
+	Expect(files).To(BeEmpty())
+}
+
+// A deploy says what it ignores: look-alike files and scope keys that do not
+// parse, since lint is not always run.
+func Test_readSecretsDescriptor_WarnsAboutWhatItIgnores(t *testing.T) {
+	RegisterTestingT(t)
+	stacksDir := t.TempDir()
+	stackDir := filepath.Join(stacksDir, "myapp")
+	Expect(os.MkdirAll(stackDir, 0o755)).To(Succeed())
+	Expect(os.WriteFile(filepath.Join(stackDir, "secrets.yaml"), []byte("values:\n  REAL: legacy\n"), 0o644)).To(Succeed())
+	Expect(os.WriteFile(filepath.Join(stackDir, "secrets.example.yaml"), []byte("# filled in later\n"), 0o644)).To(Succeed())
+	t.Setenv("SC_KEY_PR", "not a key")
+
+	log := &captureLogger{}
+	p := &provisioner{log: log}
+	desc, err := p.readSecretsDescriptor(context.Background(), stacksDir, "myapp")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(desc.Values).To(HaveKeyWithValue("REAL", "legacy"))
+	joined := strings.Join(log.warns, "\n")
+	Expect(joined).To(ContainSubstring("secrets.example.yaml holds no scope"))
+	Expect(joined).To(ContainSubstring("SC_KEY_PR is set but cannot be parsed"))
 }

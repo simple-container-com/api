@@ -189,10 +189,12 @@ func TestScopesSave_EmptyExistingFileIsWrittenFresh(t *testing.T) {
 func TestScopesSave_RefusesFilesItCannotEditSafely(t *testing.T) {
 	s := &Scopes{Scopes: map[string]Scope{"pr": {Recipients: []string{"ssh-ed25519 AAAAa"}}}}
 	for name, content := range map[string]string{
-		"unparseable": "scopes: [",
-		"a list":      "- a list\n",
-		"anchor":      "schemaVersion: 1\nbase: &keys\n  - ssh-ed25519 AAAAa\nscopes:\n  pr:\n    recipients: *keys\n",
-		"merge key":   "schemaVersion: 1\ndefaults: &d\n  recipients: [ssh-ed25519 AAAAa]\nscopes:\n  pr:\n    <<: *d\n",
+		"unparseable":   "scopes: [",
+		"a list":        "- a list\n",
+		"anchor":        "schemaVersion: 1\nbase: &keys\n  - ssh-ed25519 AAAAa\nscopes:\n  pr:\n    recipients: *keys\n",
+		"merge key":     "schemaVersion: 1\ndefaults: &d\n  recipients: [ssh-ed25519 AAAAa]\nscopes:\n  pr:\n    <<: *d\n",
+		"inline merge":  "schemaVersion: 1\nscopes:\n  pr:\n    <<: {recipients: [ssh-ed25519 AAAAa]}\n",
+		"two documents": "schemaVersion: 1\nscopes: {}\n---\nschemaVersion: 1\nscopes:\n  other: {recipients: [ssh-ed25519 AAAAb]}\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			path := writeScopes(t, content)
@@ -204,15 +206,14 @@ func TestScopesSave_RefusesFilesItCannotEditSafely(t *testing.T) {
 			}
 		})
 	}
-	if os.Geteuid() != 0 {
-		path := writeScopes(t, reviewedScopes)
-		if err := os.Chmod(path, 0); err != nil {
-			t.Fatal(err)
-		}
-		t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
-		if err := s.Save(path); err == nil || !strings.Contains(err.Error(), "failed to read") {
-			t.Errorf("unreadable file: %v", err)
-		}
+	// A read error that is not "missing": a directory where the file should be,
+	// which fails for root too.
+	dir := filepath.Join(t.TempDir(), ScopesFileName)
+	if err := os.Mkdir(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(dir); err == nil || !strings.Contains(err.Error(), "failed to read") {
+		t.Errorf("unreadable file: %v", err)
 	}
 }
 
@@ -318,4 +319,104 @@ func sameScopes(a, b map[string]Scope) bool {
 		}
 	}
 	return true
+}
+
+// A file of only comments gets the scopes and keeps its header.
+func TestScopesSave_CommentOnlyFileKeepsItsHeader(t *testing.T) {
+	path := writeScopes(t, "# Owned by the platform team.\n# Edit through sc secrets scope allow.\n")
+	s := &Scopes{Scopes: map[string]Scope{"pr": {Recipients: []string{"ssh-ed25519 AAAAa"}}}}
+	got := saveAndRead(t, s, path)
+	if !strings.HasPrefix(got, "# Owned by the platform team.\n# Edit through sc secrets scope allow.\n") {
+		t.Errorf("header lost:\n%s", got)
+	}
+	if back, err := LoadScopes(path); err != nil || !reflect.DeepEqual(back.Scopes, s.Scopes) {
+		t.Errorf("reload %+v, %v", back, err)
+	}
+}
+
+// Hand-edited nulls are filled in rather than refused or half-merged.
+func TestScopesSave_NullScopes(t *testing.T) {
+	for name, content := range map[string]string{
+		"scopes null": "schemaVersion: 1\nscopes:\n",
+		"scope null":  "schemaVersion: 1\nscopes:\n  pr:\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeScopes(t, content)
+			s := &Scopes{Scopes: map[string]Scope{"pr": {Recipients: []string{"ssh-ed25519 AAAAa"}}}}
+			saveAndRead(t, s, path)
+			back, err := LoadScopes(path)
+			if err != nil || !reflect.DeepEqual(back.Scopes, s.Scopes) {
+				t.Fatalf("reload %+v, %v", back, err)
+			}
+		})
+	}
+}
+
+// A quoted description stays quoted while unchanged, and a changed one is
+// written plain.
+func TestScopesSave_DescriptionStyle(t *testing.T) {
+	content := "schemaVersion: 1\nscopes:\n  pr:\n    description: \"pull request scans\"\n    recipients:\n      - ssh-ed25519 AAAAa\n"
+	path := writeScopes(t, content)
+	s, _ := LoadScopes(path)
+	pr := s.Scopes["pr"]
+	pr.Recipients = append(pr.Recipients, "ssh-ed25519 AAAAb")
+	s.Scopes["pr"] = pr
+	if got := saveAndRead(t, s, path); !strings.Contains(got, `description: "pull request scans"`) {
+		t.Errorf("quoting lost:\n%s", got)
+	}
+	s, _ = LoadScopes(path)
+	pr = s.Scopes["pr"]
+	pr.Description = "scans"
+	s.Scopes["pr"] = pr
+	if got := saveAndRead(t, s, path); !strings.Contains(got, "    description: scans\n") {
+		t.Errorf("changed description:\n%s", got)
+	}
+}
+
+func TestScopesSave_KeepsCommentsOnSchemaVersionAndDedupes(t *testing.T) {
+	path := writeScopes(t, "schemaVersion: 1 # pinned\nscopes:\n  pr:\n    recipients:\n      - ssh-ed25519 AAAAa\n      - ssh-ed25519 AAAAa\n")
+	s, err := LoadScopes(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := saveAndRead(t, s, path)
+	if !strings.Contains(got, "schemaVersion: 1 # pinned") {
+		t.Errorf("comment lost:\n%s", got)
+	}
+	if strings.Count(got, "ssh-ed25519 AAAAa") != 1 {
+		t.Errorf("duplicate recipient kept:\n%s", got)
+	}
+}
+
+func TestScopesSave_WritesAtomicallyWith0644(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, ScopesFileName)
+	s := &Scopes{Scopes: map[string]Scope{"pr": {Recipients: []string{"ssh-ed25519 AAAAa"}}}}
+	saveAndRead(t, s, path)
+	if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o644 {
+		t.Errorf("mode %v, %v; want 0644", st.Mode().Perm(), err)
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 1 {
+		t.Errorf("left %d entries in the directory; want only scopes.yaml", len(entries))
+	}
+}
+
+// Prepare renders without writing; only its commit writes.
+func TestScopesPrepareWritesNothingUntilCommitted(t *testing.T) {
+	path := writeScopes(t, reviewedScopes)
+	s, _ := LoadScopes(path)
+	delete(s.Scopes, "alpha")
+	commit, err := s.Prepare(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(path); string(data) != reviewedScopes {
+		t.Fatal("Prepare wrote the file")
+	}
+	if err := commit(); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(path); strings.Contains(string(data), "alpha") {
+		t.Error("commit did not write")
+	}
 }

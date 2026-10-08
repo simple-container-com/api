@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -32,7 +33,7 @@ func TestLockStoreSerializesReadModifyWrite(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			release, err := LockStore(scDir)
+			release, err := LockStore(scDir, nil)
 			if err != nil {
 				errs <- err
 				return
@@ -62,44 +63,104 @@ func TestLockStoreSerializesReadModifyWrite(t *testing.T) {
 
 // Two repositories do not share a lock.
 func TestLockStoreIsPerRepository(t *testing.T) {
-	release, err := LockStore(filepath.Join(t.TempDir(), ".sc"))
+	release, err := LockStore(filepath.Join(t.TempDir(), ".sc"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer release()
-	other, err := LockStore(filepath.Join(t.TempDir(), ".sc"))
+	other, err := LockStore(filepath.Join(t.TempDir(), ".sc"), nil)
 	if err != nil {
 		t.Fatalf("another repository's store waited for this one's lock: %v", err)
 	}
 	other()
 }
 
-// A held lock makes the next command give up after lockTimeout with a message,
-// and releasing it lets the next one in.
+// A held lock makes the next command give up after the timeout with a message,
+// says it is waiting first, and releasing it lets the next one in. The wait runs
+// in a goroutine so a broken deadline fails the test instead of hanging it.
 func TestLockStoreTimesOutWithAMessage(t *testing.T) {
-	prev := lockTimeout
-	lockTimeout = 300 * time.Millisecond
-	t.Cleanup(func() { lockTimeout = prev })
+	prevT, prevN := lockTimeout, lockWaitNotice
+	lockTimeout, lockWaitNotice = 400*time.Millisecond, 100*time.Millisecond
+	t.Cleanup(func() { lockTimeout, lockWaitNotice = prevT, prevN })
 	scDir := filepath.Join(t.TempDir(), ".sc")
-	release, err := LockStore(scDir)
+	release, err := LockStore(scDir, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LockStore(scDir); err == nil || !strings.Contains(err.Error(), "another sc process") {
-		t.Fatalf("second lock: %v; want a timeout naming the holder", err)
+	waited := 0
+	done := make(chan error, 1)
+	go func() {
+		_, err := LockStore(scDir, func() { waited++ })
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if err == nil || !strings.Contains(err.Error(), "another sc process") {
+			t.Fatalf("second lock: %v; want a timeout naming the holder", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the deadline did not stop the wait")
+	}
+	if waited != 1 {
+		t.Errorf("waiting notice called %d times; want once", waited)
 	}
 	release()
-	again, err := LockStore(scDir)
+	again, err := LockStore(scDir, nil)
 	if err != nil {
 		t.Fatalf("lock not released: %v", err)
 	}
 	again()
 }
 
+func TestLockStoreTimeoutFromEnvironment(t *testing.T) {
+	scDir := filepath.Join(t.TempDir(), ".sc")
+	t.Setenv("SC_SCOPE_LOCK_TIMEOUT", "nonsense")
+	if _, err := LockStore(scDir, nil); err == nil || !strings.Contains(err.Error(), "SC_SCOPE_LOCK_TIMEOUT") {
+		t.Fatalf("bad timeout accepted: %v", err)
+	}
+	t.Setenv("SC_SCOPE_LOCK_TIMEOUT", "200ms")
+	release, err := LockStore(scDir, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+	start := time.Now()
+	if _, err := LockStore(scDir, nil); err == nil || time.Since(start) > 3*time.Second {
+		t.Fatalf("env timeout not used: %v after %s", err, time.Since(start))
+	}
+}
+
+// Where the filesystem cannot lock a directory (NFS), a lock file in .sc is
+// locked instead; any other lock error fails the command.
+func TestLockStoreFallsBackToAFileAndFailsOnOtherErrors(t *testing.T) {
+	prev := tryLockFn
+	t.Cleanup(func() { tryLockFn = prev })
+	scDir := filepath.Join(t.TempDir(), ".sc")
+	tryLockFn = func(f *os.File) (bool, error) {
+		if st, err := f.Stat(); err == nil && st.IsDir() {
+			return false, syscall.ENOLCK
+		}
+		return prev(f)
+	}
+	release, err := LockStore(scDir, nil)
+	if err != nil {
+		t.Fatalf("fallback: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(scDir, lockFileName)); err != nil {
+		t.Errorf("fallback lock file missing: %v", err)
+	}
+	release()
+
+	tryLockFn = func(*os.File) (bool, error) { return false, syscall.EIO }
+	if rel, err := LockStore(scDir, nil); err == nil || rel != nil {
+		t.Fatalf("an I/O error took the lock: %v", err)
+	}
+}
+
 // The lock excludes other processes, which is what parallel CI commands are.
 func TestLockStoreExcludesOtherProcesses(t *testing.T) {
 	if dir := os.Getenv("SC_TEST_LOCK_HOLDER"); dir != "" {
-		release, err := LockStore(dir)
+		release, err := LockStore(dir, nil)
 		if err != nil {
 			os.Exit(2)
 		}
@@ -126,7 +187,7 @@ func TestLockStoreExcludesOtherProcesses(t *testing.T) {
 	if strings.TrimSpace(line) != "locked" {
 		t.Fatalf("child did not take the lock: %q", line)
 	}
-	if _, err := LockStore(scDir); err == nil {
+	if _, err := LockStore(scDir, nil); err == nil {
 		t.Fatal("took the lock while another process held it")
 	}
 }

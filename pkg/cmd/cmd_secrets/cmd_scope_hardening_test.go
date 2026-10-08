@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -266,6 +267,9 @@ func TestScopeCmd_DoctorStatuses(t *testing.T) {
 // Parallel set calls in one repository keep every value, and every command
 // releases the lock, including when it fails.
 func TestScopeCmd_ConcurrentSetsKeepEveryValue(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the store is not locked on Windows (releases are Linux and macOS only)")
+	}
 	workdir, _, adminPEM := newScopeRepo(t)
 	t.Setenv("SC_SCOPE_KEY", adminPEM)
 	const n = 12
@@ -299,7 +303,7 @@ func TestScopeCmd_ConcurrentSetsKeepEveryValue(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		release, err := scoped.LockStore(filepath.Join(workdir, ".sc"))
+		release, err := scoped.LockStore(filepath.Join(workdir, ".sc"), nil)
 		if err == nil {
 			release()
 		}
@@ -334,4 +338,158 @@ func execScopeQuiet(workdir string, args ...string) (string, error) {
 	cmd.SetArgs(args)
 	err = cmd.Execute()
 	return out.String(), err
+}
+
+func TestScopeCmd_SetAndLintRefuseADriftedFile(t *testing.T) {
+	RegisterTestingT(t)
+	workdir, adminPub, _ := newScopeRepo(t)
+	bobPub, _ := testRecipient(t)
+	_, err := execScope(t, workdir, "", "set", "--scope", "pr", "-s", "app", "K", "v")
+	Expect(err).NotTo(HaveOccurred())
+	scopesPath := filepath.Join(workdir, ".sc", "scopes.yaml")
+	sc, _ := scoped.LoadScopes(scopesPath)
+	sc.Scopes["pr"] = scoped.Scope{Recipients: []string{adminPub, bobPub}}
+	Expect(sc.Save(scopesPath)).To(Succeed())
+	before, _ := os.ReadFile(scopeFile(workdir, "pr"))
+
+	_, err = execScope(t, workdir, "", "set", "--scope", "pr", "-s", "app", "K2", "v")
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("drifted"))
+	after, _ := os.ReadFile(scopeFile(workdir, "pr"))
+	Expect(string(after)).To(Equal(string(before)))
+
+	out, err := execScope(t, workdir, "", "lint")
+	Expect(err).To(HaveOccurred())
+	Expect(out).To(ContainSubstring("recipients drift"))
+}
+
+// delete, allow and disallow wait for the store lock like set does.
+func TestScopeCmd_EveryWritingVerbTakesTheLock(t *testing.T) {
+	RegisterTestingT(t)
+	workdir, _, adminPEM := newScopeRepo(t)
+	bobPub, _ := testRecipient(t)
+	t.Setenv("SC_SCOPE_KEY", adminPEM)
+	_, err := execScope(t, workdir, "", "set", "--scope", "pr", "-s", "app", "K", "v")
+	Expect(err).NotTo(HaveOccurred())
+	release, err := scoped.LockStore(filepath.Join(workdir, ".sc"), nil)
+	Expect(err).NotTo(HaveOccurred())
+	defer release()
+	t.Setenv("SC_SCOPE_LOCK_TIMEOUT", "300ms")
+	for _, args := range [][]string{
+		{"set", "--scope", "pr", "-s", "app", "K2", "v"},
+		{"delete", "--scope", "pr", "-s", "app", "K"},
+		{"allow", "--scope", "pr", bobPub},
+		{"disallow", "--scope", "pr", bobPub},
+	} {
+		_, err := execScope(t, workdir, "", args...)
+		Expect(err).To(HaveOccurred(), "%v ran while the store was locked", args)
+		Expect(err.Error()).To(ContainSubstring("another sc process"), "%v", args)
+	}
+}
+
+// A scopes.yaml that allow cannot edit stops it before any scope file is
+// resealed, so files and governance never disagree.
+func TestScopeCmd_AllowTouchesNothingWhenScopesYAMLCannotBeEdited(t *testing.T) {
+	RegisterTestingT(t)
+	workdir, adminPub, adminPEM := newScopeRepo(t)
+	bobPub, _ := testRecipient(t)
+	t.Setenv("SC_SCOPE_KEY", adminPEM)
+	_, err := execScope(t, workdir, "", "set", "--scope", "pr", "-s", "app", "K", "v")
+	Expect(err).NotTo(HaveOccurred())
+	scopesPath := filepath.Join(workdir, ".sc", "scopes.yaml")
+	anchored := "schemaVersion: 1\nkeys: &admin\n  - " + strings.TrimSpace(adminPub) + "\nscopes:\n  pr:\n    recipients: *admin\n"
+	Expect(os.WriteFile(scopesPath, []byte(anchored), 0o644)).To(Succeed())
+	beforeFile, _ := os.ReadFile(scopeFile(workdir, "pr"))
+
+	_, err = execScope(t, workdir, "", "allow", "--scope", "pr", bobPub)
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("anchors"))
+	afterFile, _ := os.ReadFile(scopeFile(workdir, "pr"))
+	Expect(string(afterFile)).To(Equal(string(beforeFile)))
+	afterScopes, _ := os.ReadFile(scopesPath)
+	Expect(string(afterScopes)).To(Equal(anchored))
+}
+
+func TestScopeCmd_ScopeKeyEnvironment(t *testing.T) {
+	RegisterTestingT(t)
+	workdir, adminPub, adminPEM := newScopeRepo(t)
+	_, err := execScope(t, workdir, "", "allow", "--scope", "my-scope", adminPub)
+	Expect(err).NotTo(HaveOccurred())
+	_, err = execScope(t, workdir, "", "set", "--scope", "my-scope", "-s", "app", "K", "v")
+	Expect(err).NotTo(HaveOccurred())
+
+	// my-scope is read with SC_KEY_MY_SCOPE.
+	t.Setenv("SC_KEY_MY_SCOPE", adminPEM)
+	out, err := execScope(t, workdir, "", "get", "--scope", "my-scope", "-s", "app", "K")
+	Expect(err).NotTo(HaveOccurred(), out)
+	Expect(strings.TrimSpace(out)).To(Equal("v"))
+
+	// A blank SC_KEY_<SCOPE> is not a key: the next source is used.
+	t.Setenv("SC_KEY_MY_SCOPE", "   ")
+	t.Setenv("SC_SCOPE_KEY", adminPEM)
+	out, err = execScope(t, workdir, "", "get", "--scope", "my-scope", "-s", "app", "K")
+	Expect(err).NotTo(HaveOccurred(), out)
+
+	// A junk SC_KEY_<SCOPE> stops lint and doctor, naming it.
+	t.Setenv("SC_KEY_PR", "not a key")
+	for _, verb := range []string{"lint", "doctor"} {
+		_, err := execScope(t, workdir, "", verb)
+		Expect(err).To(HaveOccurred(), verb)
+		Expect(err.Error()).To(ContainSubstring("SC_KEY_PR"), verb)
+	}
+}
+
+// A file whose first value fails to open is ERR even if a later one opens.
+func TestScopeCmd_DoctorErrIsSticky(t *testing.T) {
+	RegisterTestingT(t)
+	workdir, _, adminPEM := newScopeRepo(t)
+	_, err := execScope(t, workdir, "", "set", "--scope", "pr", "-s", "app", "A", "a")
+	Expect(err).NotTo(HaveOccurred())
+	_, err = execScope(t, workdir, "", "set", "--scope", "pr", "-s", "app", "B", "b")
+	Expect(err).NotTo(HaveOccurred())
+	f, _ := scoped.LoadScopeFile(scopeFile(workdir, "pr"))
+	v := f.Values["A"]
+	v.Ciphertext = base64.StdEncoding.EncodeToString([]byte(strings.Repeat("x", 64)))
+	f.Values["A"] = v
+	Expect(f.Save(scopeFile(workdir, "pr"))).To(Succeed())
+	t.Setenv("SC_SCOPE_KEY", adminPEM)
+	out, err := execScope(t, workdir, "", "doctor")
+	Expect(err).NotTo(HaveOccurred())
+	Expect(out).To(MatchRegexp(`(?m)^ERR\s+scope=pr`))
+}
+
+func TestScopeCmd_StdinLineEndings(t *testing.T) {
+	RegisterTestingT(t)
+	workdir, _, adminPEM := newScopeRepo(t)
+	t.Setenv("SC_SCOPE_KEY", adminPEM)
+	for in, want := range map[string]string{
+		"v\n":    "v",
+		"v\r\n":  "v",
+		"v\n\n":  "v\n",
+		"v":      "v",
+		"a\nb\n": "a\nb",
+	} {
+		_, err := execScope(t, workdir, in, "set", "--scope", "pr", "-s", "app", "K", "-")
+		Expect(err).NotTo(HaveOccurred())
+		f, _ := scoped.LoadScopeFile(scopeFile(workdir, "pr"))
+		got, owned, err := f.Open("K", scoped.NewOpener([]string{adminPEM}, false))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(owned).To(BeTrue())
+		Expect(got).To(Equal(want), "stdin %q", in)
+	}
+}
+
+// A mistyped call fails without creating anything, .sc included.
+func TestScopeCmd_InvalidNamesCreateNothing(t *testing.T) {
+	RegisterTestingT(t)
+	workdir := t.TempDir()
+	for _, args := range [][]string{
+		{"set", "--scope", "pr", "-s", "a/b", "K", "v"},
+		{"delete", "--scope", "pr", "-s", "..", "K"},
+		{"set", "--scope", "Bad Scope", "-s", "app", "K", "v"},
+	} {
+		_, err := execScope(t, workdir, "", args...)
+		Expect(err).To(HaveOccurred(), "%v", args)
+	}
+	Expect(filepath.Join(workdir, ".sc")).NotTo(BeADirectory())
 }

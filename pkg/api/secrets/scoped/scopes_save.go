@@ -5,8 +5,10 @@ package scoped
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/pkg/errors"
 	"gopkg.in/yaml.v3"
@@ -23,47 +25,69 @@ const scopesIndent = 2
 // mapping, or built with anchors, aliases or merge keys) is an error, never
 // overwritten.
 func (s *Scopes) Save(path string) error {
+	commit, err := s.Prepare(path)
+	if err != nil {
+		return err
+	}
+	return commit()
+}
+
+// Prepare renders the file Save would write and returns the function that writes
+// it. A caller that changes other files first (resealing scope files) prepares
+// scopes.yaml before touching them, so a scopes.yaml that cannot be edited stops
+// the command before anything is written.
+func (s *Scopes) Prepare(path string) (func() error, error) {
 	if s.SchemaVersion == 0 {
 		s.SchemaVersion = CurrentScopesSchemaVersion
 	}
 	var doc yaml.Node
 	existing, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
-		return errors.Wrapf(err, "failed to read %s", path)
+		return nil, errors.Wrapf(err, "failed to read %s", path)
 	}
 	if err == nil {
-		if uErr := yaml.Unmarshal(existing, &doc); uErr != nil {
-			return errors.Wrapf(uErr, "%s does not parse; fix it before changing scopes", path)
+		dec := yaml.NewDecoder(bytes.NewReader(existing))
+		if uErr := dec.Decode(&doc); uErr != nil && !errors.Is(uErr, io.EOF) {
+			return nil, errors.Wrapf(uErr, "%s does not parse; fix it before changing scopes", path)
+		}
+		var extra yaml.Node
+		if dec.Decode(&extra) != io.EOF {
+			return nil, errors.Errorf("%s holds more than one YAML document; keep one before changing scopes", path)
 		}
 	}
 	switch {
-	case doc.Kind == 0:
+	case doc.Kind == 0, doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 && doc.Content[0].Tag == "!!null":
+		// Nothing to keep but comments: a header a reviewer wrote stays.
 		doc = yaml.Node{}
 		if err := doc.Encode(s); err != nil {
-			return errors.Wrap(err, "failed to marshal scopes")
+			return nil, errors.Wrap(err, "failed to marshal scopes")
 		}
+		doc.HeadComment = commentsOnly(existing)
 	case doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode:
-		return errors.Errorf("%s is not a YAML mapping; fix it before changing scopes", path)
+		return nil, errors.Errorf("%s is not a YAML mapping; fix it before changing scopes", path)
 	case usesReferences(doc.Content[0]):
-		return errors.Errorf("%s uses YAML anchors, aliases or merge keys, which an in-place edit could silently change; expand them by hand first", path)
+		return nil, errors.Errorf("%s uses YAML anchors, aliases or merge keys, which an in-place edit could silently change; expand them by hand first", path)
 	default:
 		if err := s.updateNode(doc.Content[0]); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(scopesIndent)
 	if err := enc.Encode(&doc); err != nil {
-		return errors.Wrap(err, "failed to marshal scopes")
+		return nil, errors.Wrap(err, "failed to marshal scopes")
 	}
 	if err := enc.Close(); err != nil {
-		return errors.Wrap(err, "failed to marshal scopes")
+		return nil, errors.Wrap(err, "failed to marshal scopes")
 	}
-	if err := writeFileAtomic(path, buf.Bytes(), 0o644); err != nil {
-		return errors.Wrapf(err, "failed to write %s", path)
-	}
-	return nil
+	data := buf.Bytes()
+	return func() error {
+		if err := writeFileAtomic(path, data, 0o644); err != nil {
+			return errors.Wrapf(err, "failed to write %s", path)
+		}
+		return nil
+	}, nil
 }
 
 // usesReferences reports whether any node under n is an anchor, an alias or a
@@ -199,4 +223,17 @@ func deleteMapKey(m *yaml.Node, key string) {
 			return
 		}
 	}
+}
+
+// commentsOnly returns the comment lines of a file that holds nothing else, without
+// their '#', for use as a fresh document's head comment.
+func commentsOnly(data []byte) string {
+	var lines []string
+	for _, l := range strings.Split(string(data), "\n") {
+		t := strings.TrimSpace(l)
+		if strings.HasPrefix(t, "#") {
+			lines = append(lines, strings.TrimSpace(strings.TrimPrefix(t, "#")))
+		}
+	}
+	return strings.Join(lines, "\n")
 }

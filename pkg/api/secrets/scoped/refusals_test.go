@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -332,6 +333,7 @@ func TestResolveScopedValues_LookalikesAreNotScopeFiles(t *testing.T) {
 func TestResolveScopedValues_DamagedScopeFileFails(t *testing.T) {
 	_, priv := genEd25519Recipient(t)
 	for name, content := range map[string]string{
+		"zero bytes":  "",
 		"unparseable": "values: [",
 		"conflict":    "<<<<<<< HEAD\nscope: pr\n=======\nscope: pr\n>>>>>>> main\n",
 		"a list":      "- a\n- b\n",
@@ -350,13 +352,12 @@ func TestResolveScopedValues_DamagedScopeFileFails(t *testing.T) {
 	}
 }
 
-// A secrets.<scope>.yaml that holds nothing (empty, comments only, null) has no
-// secrets to lose: it is a look-alike, so a stray placeholder does not fail
-// every deploy of its stack. LoadScopeFile still refuses it with a clear message.
+// A secrets.<scope>.yaml of only whitespace, comments or null has no secrets to
+// lose: it is a look-alike, so a stray placeholder does not fail every deploy of
+// its stack. LoadScopeFile still refuses it with a clear message.
 func TestResolveScopedValues_EmptyLookalikeIsIgnored(t *testing.T) {
 	_, priv := genEd25519Recipient(t)
 	for name, content := range map[string]string{
-		"empty":           "",
 		"whitespace only": "  \n\n",
 		"comments only":   "# placeholder, filled in later\n",
 		"null":            "~\n",
@@ -570,5 +571,61 @@ func TestResolveScopedValues_AdminAcrossEnvironmentScopes(t *testing.T) {
 	}
 	if got["staging-db-password"] != "s" || got["prod-db-password"] != "p" || len(got) != 2 {
 		t.Errorf("got %v; want both environment-qualified values", got)
+	}
+}
+
+// A secrets.<scope>.yaml that cannot be read is an error everywhere it is
+// classified, never "no scope files".
+func TestScopeFilesIn_UnreadableFileIsAnError(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "myapp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "missing-target"), filepath.Join(dir, "secrets.pr.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ScopeFilesIn(dir); err == nil {
+		t.Error("ScopeFilesIn hid an unreadable scope file")
+	}
+	if _, err := IsScopeFile(filepath.Join(dir, "secrets.pr.yaml")); err == nil {
+		t.Error("IsScopeFile hid a read error")
+	}
+	if _, err := ResolveScopedValues(dir, nil); err == nil {
+		t.Error("ResolveScopedValues hid an unreadable scope file")
+	}
+}
+
+func TestIsScopeFileMarkers(t *testing.T) {
+	for content, want := range map[string]bool{
+		"stack: app\nvalues: {}\n":  true,
+		"scope: pr\n":               true,
+		"recipients: []\n":          true,
+		"values:\n  K: plaintext\n": false,
+	} {
+		p := filepath.Join(t.TempDir(), "secrets.pr.yaml")
+		writeTestFile(t, p, content)
+		if got, err := IsScopeFile(p); err != nil || got != want {
+			t.Errorf("%q: %v, %v; want %v", content, got, err, want)
+		}
+	}
+}
+
+func TestDropsRecipientsCountsUnidentifiableAsDropped(t *testing.T) {
+	a, _ := genEd25519Recipient(t)
+	if !DropsRecipients([]string{a, "not a key"}, []string{a}) {
+		t.Error("an unidentifiable recipient that goes away is not reported")
+	}
+}
+
+func TestInvalidEnvScopeKeys(t *testing.T) {
+	_, priv := genEd25519Recipient(t)
+	t.Setenv("SC_SCOPE_KEY", "junk")
+	t.Setenv("SC_KEY_MY_SCOPE", "junk")
+	t.Setenv("SC_KEY_PR", priv)
+	t.Setenv("SC_KEY_", "junk")  // no scope name: not a scope key at all
+	t.Setenv("SC_KEY_QA", "   ") // blank: not set
+	got := InvalidEnvScopeKeys()
+	if want := []string{"SC_KEY_MY_SCOPE", "SC_SCOPE_KEY"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v; want %v", got, want)
 	}
 }

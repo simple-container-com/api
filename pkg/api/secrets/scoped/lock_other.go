@@ -11,3 +11,4 @@ import "os"
 // and concurrent changes can lose updates.
 func tryLock(*os.File) (bool, error) { return true, nil }
 func unlock(*os.File) error          { return nil }
+func unsupportedLock(error) bool     { return false }
