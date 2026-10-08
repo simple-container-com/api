@@ -59,6 +59,12 @@ func (s *scopeCmd) stacksDir() (string, error) {
 }
 
 func (s *scopeCmd) scopeFilePath() (string, error) {
+	if err := scoped.ValidateScopeName(s.scope); err != nil {
+		return "", err
+	}
+	if err := scoped.ValidateStackName(s.stack); err != nil {
+		return "", err
+	}
 	stacksDir, err := s.stacksDir()
 	if err != nil {
 		return "", err
@@ -84,22 +90,37 @@ func (s *scopeCmd) privateKey() (string, error) {
 		if err != nil {
 			return "", errors.Wrapf(err, "failed to read --key-file %s", s.keyFile)
 		}
-		return string(b), nil
+		return parsedKey(string(b), "--key-file "+s.keyFile)
 	}
 	if s.scope != "" {
 		envName := "SC_KEY_" + strings.ToUpper(strings.ReplaceAll(s.scope, "-", "_"))
 		if v := os.Getenv(envName); strings.TrimSpace(v) != "" {
-			return v, nil
+			return parsedKey(v, envName)
 		}
 	}
 	if v := os.Getenv("SC_SCOPE_KEY"); strings.TrimSpace(v) != "" {
-		return v, nil
+		return parsedKey(v, "SC_SCOPE_KEY")
 	}
 	pk := s.Root.Provisioner.Cryptor().PrivateKey()
 	if strings.TrimSpace(pk) == "" {
 		return "", errors.New("no private key available: set --key-file, SC_KEY_<SCOPE> / SC_SCOPE_KEY, or SIMPLE_CONTAINER_CONFIG")
 	}
 	return pk, nil
+}
+
+// parsedKey returns key if it parses, and otherwise an error naming where it came
+// from: a key that was given explicitly and cannot be used must not read as "not
+// a recipient".
+func parsedKey(key, source string) (string, error) {
+	if err := scoped.ValidatePrivateKey(key); err != nil {
+		return "", errors.Wrapf(err, "%s cannot be parsed as a private key", source)
+	}
+	return key, nil
+}
+
+// lock holds the scope store lock for one read-modify-write command.
+func (s *scopeCmd) lock() (func(), error) {
+	return scoped.LockStore(s.scDir())
 }
 
 func NewScopeCmd(sCmd *secretsCmd) *cobra.Command {
@@ -141,6 +162,9 @@ func (s *scopeCmd) openForWrite() (*scoped.ScopeFile, *scoped.Scopes, string, er
 	if err := scoped.ValidateScopeName(s.scope); err != nil {
 		return nil, nil, "", err
 	}
+	if err := scoped.ValidateStackName(s.stack); err != nil {
+		return nil, nil, "", err
+	}
 	sc, err := scoped.LoadScopes(scoped.ScopesPath(s.scDir()))
 	if err != nil {
 		return nil, nil, "", err
@@ -163,6 +187,10 @@ func (s *scopeCmd) openForWrite() (*scoped.ScopeFile, *scoped.Scopes, string, er
 			return nil, nil, "", errors.Wrapf(err, "%s recipients drifted from %s — reconcile with `sc secrets scope allow/disallow`", filepath.Base(path), scoped.ScopesFileName)
 		}
 	} else if os.IsNotExist(statErr) {
+		// A typo in --stack would otherwise create a stack directory nothing deploys.
+		if st, dErr := os.Stat(filepath.Dir(path)); dErr != nil || !st.IsDir() {
+			return nil, nil, "", errors.Errorf("stack %q has no directory %s; check --stack and --dir", s.stack, filepath.Dir(path))
+		}
 		if f, err = scoped.NewScopeFile(s.stack, s.scope, recipients); err != nil {
 			return nil, nil, "", err
 		}
@@ -175,10 +203,11 @@ func (s *scopeCmd) openForWrite() (*scoped.ScopeFile, *scoped.Scopes, string, er
 func newScopeSetCmd(sCmd *secretsCmd) *cobra.Command {
 	s := &scopeCmd{secretsCmd: sCmd}
 	cmd := &cobra.Command{
-		Use:   "set KEY [VALUE]",
-		Short: "Seal a value into a scope (VALUE from arg, or '-'/omitted reads stdin)",
+		Use:   "set KEY VALUE|-",
+		Short: "Seal a value into a scope (VALUE from the argument, or '-' to read stdin)",
 		Long: "Seal a value into a scope. The value is taken from the VALUE argument, or " +
-			"read from stdin when VALUE is omitted or '-'. When read from stdin, a single " +
+			"read from stdin when VALUE is '-'. Put '--' before KEY when the value starts " +
+			"with '-'. When read from stdin, a single " +
 			"trailing newline is stripped (the usual echo/heredoc artifact); pipe binary or " +
 			"exact-match data via the VALUE argument if that matters.\n\n" +
 			"A KEY of auth:<name> seals an auth entry instead of a value: the YAML that " +
@@ -186,7 +215,14 @@ func newScopeSetCmd(sCmd *secretsCmd) *cobra.Command {
 			"scope but not the whole-file store gets its ${auth:<name>} from it. With " +
 			"credentials left empty, a gcp-service-account entry uses the environment's " +
 			"credentials (Workload Identity Federation in CI).",
-		Args: cobra.RangeArgs(1, 2),
+		Args: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 {
+				// Omitting the value used to read stdin, so "set K -v" stored stdin while
+				// -v went to the verbose flag. The value is now always explicit.
+				return errors.New("VALUE is required: pass it as the second argument, or '-' to read it from stdin (put '--' before KEY when the value starts with '-')")
+			}
+			return cobra.ExactArgs(2)(cmd, args)
+		},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			key := args[0]
 			value, err := readValueArg(cmd, args)
@@ -199,6 +235,11 @@ func newScopeSetCmd(sCmd *secretsCmd) *cobra.Command {
 					return errors.Wrapf(err, "%s must be the YAML of one auth entry (type + config)", key)
 				}
 			}
+			unlock, err := s.lock()
+			if err != nil {
+				return err
+			}
+			defer unlock()
 			f, _, path, err := s.openForWrite()
 			if err != nil {
 				return err
@@ -295,6 +336,11 @@ func newScopeDeleteCmd(sCmd *secretsCmd) *cobra.Command {
 		Short: "Remove a value from a scope",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			unlock, err := s.lock()
+			if err != nil {
+				return err
+			}
+			defer unlock()
 			path, err := s.scopeFilePath()
 			if err != nil {
 				return err
@@ -352,33 +398,34 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 	if err := scoped.ValidateScopeName(s.scope); err != nil {
 		return err
 	}
+	unlock, err := s.lock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	scopesPath := scoped.ScopesPath(s.scDir())
 	sc, err := scoped.LoadScopes(scopesPath)
 	if err != nil {
 		return err
 	}
+	// changed: scopes.yaml itself changes. Even when it does not, files whose
+	// recipients drifted from it are resealed: lint and set send the operator here
+	// to reconcile exactly that.
+	var changed bool
 	if allow {
-		changed, aErr := sc.Allow(s.scope, pubKey)
-		if aErr != nil {
+		var aErr error
+		if changed, aErr = sc.Allow(s.scope, pubKey); aErr != nil {
 			return aErr
 		}
-		if !changed {
-			fmt.Fprintf(cmd.OutOrStdout(), "recipient already present in scope %q; nothing to do\n", s.scope)
-			return nil
-		}
 	} else {
-		removed, dErr := sc.Disallow(s.scope, pubKey)
-		if dErr != nil {
+		var dErr error
+		if changed, dErr = sc.Disallow(s.scope, pubKey); dErr != nil {
 			return dErr
-		}
-		if !removed {
-			fmt.Fprintf(cmd.OutOrStdout(), "recipient not present in scope %q; nothing to do\n", s.scope)
-			return nil
 		}
 		// Refuse to strand a scope with no recipients — the resulting store would be
 		// undecryptable and every value orphaned. Deleting the scope is the explicit
 		// path for that.
-		if left := sc.Scopes[s.scope].Recipients; len(left) == 0 {
+		if left := sc.Scopes[s.scope].Recipients; changed && len(left) == 0 {
 			return errors.Errorf("refusing to remove the last recipient of scope %q; delete the scope's files and its %s entry instead", s.scope, scoped.ScopesFileName)
 		}
 	}
@@ -418,6 +465,9 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 		if lErr != nil {
 			return lErr
 		}
+		if !changed && scoped.SameRecipients(f.Recipients, recipients) == nil {
+			continue
+		}
 		if len(f.Values) > 0 {
 			if opener == nil {
 				// Reseal decrypts current values first: build an Opener from any SSH key
@@ -438,6 +488,14 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 		}
 		pending = append(pending, pendingSave{f: f, path: path})
 	}
+	if !changed && len(pending) == 0 {
+		verb := "already present in"
+		if !allow {
+			verb = "not present in"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "recipient %s scope %q and every file matches; nothing to do\n", verb, s.scope)
+		return nil
+	}
 	// Phase 2: persist. Write the resealed files first, then scopes.yaml last, so a
 	// reader never sees scopes.yaml advertise a recipient a file hasn't been
 	// resealed for.
@@ -446,8 +504,10 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 			return err
 		}
 	}
-	if err := sc.Save(scopesPath); err != nil {
-		return err
+	if changed {
+		if err := sc.Save(scopesPath); err != nil {
+			return err
+		}
 	}
 	fmt.Fprintf(cmd.OutOrStdout(), "scope %q now has %d recipient(s); resealed %d file(s)\n", s.scope, len(recipients), len(pending))
 	if !allow {
@@ -520,6 +580,20 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 					problems = append(problems, fmt.Sprintf("%s: %s", filepath.Base(path), rErr.Error()))
 				} else if dErr := scoped.SameRecipients(f.Recipients, want); dErr != nil {
 					problems = append(problems, fmt.Sprintf("%s: recipients drift vs %s: %s", filepath.Base(path), scoped.ScopesFileName, dErr.Error()))
+				}
+				// A broken auth entry fails every deploy that opens the scope, so check
+				// the ones this run can open.
+				for _, k := range f.Keys() {
+					if !strings.HasPrefix(k, scoped.AuthKeyPrefix) {
+						continue
+					}
+					v, owned, oErr := f.Open(k, opener)
+					if oErr != nil || !owned {
+						continue
+					}
+					if _, aErr := api.ParseAuthDescriptor(v); aErr != nil {
+						problems = append(problems, fmt.Sprintf("%s: %s does not parse as an auth entry: %v", filepath.Base(path), k, aErr))
+					}
 				}
 				if keyScopes[f.Stack] == nil {
 					keyScopes[f.Stack] = map[string][]string{}
@@ -623,6 +697,9 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 			// lint and doctor span every scope, so every scope key the job holds counts,
 			// as it does at deploy time.
 			keys = append(keys, scoped.EnvScopeKeys()...)
+			if len(keys) == 0 {
+				fmt.Fprintf(cmd.OutOrStderr(), "! no private key found (--key-file, SC_KEY_<SCOPE>, SC_SCOPE_KEY or SIMPLE_CONTAINER_CONFIG); only KMS recipients are tested\n")
+			}
 			opener := scoped.NewOpener(keys, true)
 			defer func() { _ = opener.Close() }()
 			stacksDir, err := s.stacksDir()
@@ -642,10 +719,14 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 				status := "no"
 				if len(f.Keys()) == 0 {
 					status = "empty"
-				} else if _, owned, gErr := f.Open(f.Keys()[0], opener); gErr != nil {
-					status = "ERR"
-				} else if owned {
-					status = "YES"
+				}
+				for _, k := range f.Keys() {
+					if _, owned, gErr := f.Open(k, opener); gErr != nil {
+						status = "ERR"
+						break
+					} else if owned {
+						status = "YES"
+					}
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%-5s scope=%s  file=%s\n", status, f.Scope, filepath.Base(path))
 			}
@@ -657,10 +738,9 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 	return cmd
 }
 
-// readValueArg returns the value from args[1], or reads stdin when args[1] is
-// absent or "-".
+// readValueArg returns the value from args[1], or reads stdin when args[1] is "-".
 func readValueArg(cmd *cobra.Command, args []string) (string, error) {
-	if len(args) == 2 && args[1] != "-" {
+	if args[1] != "-" {
 		return args[1], nil
 	}
 	data, err := io.ReadAll(cmd.InOrStdin())

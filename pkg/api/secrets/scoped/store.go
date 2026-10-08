@@ -82,8 +82,8 @@ func NewScopeFile(stack, scope string, recipients []string) (*ScopeFile, error) 
 	if err := ValidateScopeName(scope); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(stack) == "" {
-		return nil, errors.New("cannot create a scope file with no stack")
+	if err := ValidateStackName(stack); err != nil {
+		return nil, err
 	}
 	if len(recipients) == 0 {
 		return nil, errors.Errorf("cannot create scope %q with no recipients", scope)
@@ -106,6 +106,9 @@ func LoadScopeFile(path string) (*ScopeFile, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read scope file %s", path)
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		return nil, errors.Errorf("scope file %s is empty (truncated write?)", path)
 	}
 	var f ScopeFile
 	if err := yaml.Unmarshal(data, &f); err != nil {

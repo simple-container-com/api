@@ -43,6 +43,9 @@ var (
 	// components, so control characters and separators are rejected.
 	scopeNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	secretKeyRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	// stackNameRe is a single directory name under the stacks dir: no separator,
+	// and never "." or "..".
+	stackNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 )
 
 // Fingerprint returns the stable SHA256 SSH fingerprint of an authorized public
@@ -88,6 +91,26 @@ func SameRecipients(a, b []string) error {
 
 // ValidateScopeName rejects scope names that are unsafe as a filename component or
 // AAD field.
+// ValidateStackName rejects a stack name that is not one directory under the
+// stacks dir, so a scope file can only be written where it will be read.
+func ValidateStackName(stack string) error {
+	if !stackNameRe.MatchString(stack) {
+		return errors.Errorf("invalid stack name %q (allowed: %s)", stack, stackNameRe.String())
+	}
+	return nil
+}
+
+// normalizeRecipient trims the surrounding whitespace a pasted key carries, and
+// refuses a value spanning several lines: only its first key would be sealed to,
+// while scopes.yaml would list them all.
+func normalizeRecipient(recipient string) (string, error) {
+	r := strings.TrimSpace(recipient)
+	if strings.ContainsAny(r, "\r\n") {
+		return "", errors.New("a recipient must be one key on one line")
+	}
+	return r, nil
+}
+
 func ValidateScopeName(scope string) error {
 	if !scopeNameRe.MatchString(scope) {
 		return errors.Errorf("invalid scope name %q (allowed: %s)", scope, scopeNameRe.String())
@@ -180,6 +203,10 @@ func (s *Scopes) Allow(scope, recipient string) (bool, error) {
 	if err := ValidateScopeName(scope); err != nil {
 		return false, err
 	}
+	recipient, err := normalizeRecipient(recipient)
+	if err != nil {
+		return false, err
+	}
 	if _, err := recipientID(recipient); err != nil {
 		return false, err
 	}
@@ -209,6 +236,10 @@ func (s *Scopes) Disallow(scope, recipient string) (bool, error) {
 	sc, ok := s.Scopes[scope]
 	if !ok {
 		return false, errors.Errorf("scope %q is not declared", scope)
+	}
+	recipient, err := normalizeRecipient(recipient)
+	if err != nil {
+		return false, err
 	}
 	fp, err := recipientID(recipient)
 	if err != nil {

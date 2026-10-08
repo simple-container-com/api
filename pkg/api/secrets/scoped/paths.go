@@ -43,11 +43,21 @@ func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
 		_ = tmp.Close()
 		return errors.Wrapf(err, "failed to chmod %s", tmpName)
 	}
+	// Flush before the rename, so a crash cannot leave the new name on an empty file.
+	if err := tmp.Sync(); err != nil {
+		_ = tmp.Close()
+		return errors.Wrapf(err, "failed to sync %s", tmpName)
+	}
 	if err := tmp.Close(); err != nil {
 		return errors.Wrapf(err, "failed to close %s", tmpName)
 	}
 	if err := os.Rename(tmpName, path); err != nil {
 		return errors.Wrapf(err, "failed to rename %s -> %s", tmpName, path)
+	}
+	// Persist the rename itself; not every platform can sync a directory.
+	if d, err := os.Open(dir); err == nil {
+		_ = d.Sync()
+		_ = d.Close()
 	}
 	return nil
 }
@@ -63,13 +73,14 @@ func ScopeFilePath(stacksDir, stack, scope string) string {
 	return filepath.Join(StackDir(stacksDir, stack), ScopeFileName(scope))
 }
 
-// IsScopeFile reports whether path is a file the scoped store wrote: its name is
-// secrets.<scope>.yaml AND its top-level YAML carries a stack, scope or recipients
-// key. Save always writes all three, while the legacy format (and so a plaintext
-// secrets.example.yaml or a secrets.backup.yaml copy) has none of them; both formats
-// carry schemaVersion, so it is no marker. Unparseable YAML is not ours either. A
-// file that passes this check and then fails LoadScopeFile is corrupt or tampered,
-// and stays a hard error there.
+// IsScopeFile reports whether path, named secrets.<scope>.yaml, is to be treated
+// as a scope file. Only a readable YAML mapping without any of the store's stack,
+// scope and recipients keys is a look-alike (a plaintext secrets.example.yaml, a
+// secrets.backup.yaml copy of the legacy store: both formats carry schemaVersion,
+// so it is no marker). Anything else counts, including a file that does not
+// parse, is empty or is not a mapping: merge-conflict markers or a truncated write
+// in a real scope file must fail the read when LoadScopeFile rejects it, never
+// drop the file silently.
 func IsScopeFile(path string) (bool, error) {
 	if ScopeNameFromFile(path) == "" {
 		return false, nil
@@ -78,12 +89,14 @@ func IsScopeFile(path string) (bool, error) {
 	if err != nil {
 		return false, errors.Wrapf(err, "failed to read %s", path)
 	}
-	var top map[string]yaml.Node
-	if yaml.Unmarshal(data, &top) != nil {
-		return false, nil
+	var doc yaml.Node
+	if yaml.Unmarshal(data, &doc) != nil || doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+		return true, nil
 	}
-	for _, k := range []string{"stack", "scope", "recipients"} {
-		if _, ok := top[k]; ok {
+	top := doc.Content[0]
+	for i := 0; i+1 < len(top.Content); i += 2 {
+		switch top.Content[i].Value {
+		case "stack", "scope", "recipients":
 			return true, nil
 		}
 	}

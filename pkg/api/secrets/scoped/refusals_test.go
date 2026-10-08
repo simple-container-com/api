@@ -40,8 +40,10 @@ func TestNewScopeFileRefusals(t *testing.T) {
 	r, _ := genEd25519Recipient(t)
 	_, err := NewScopeFile("app", "Bad Scope", []string{r})
 	wantErr(t, "bad scope", err, "invalid scope name")
-	_, err = NewScopeFile(" ", "pr", []string{r})
-	wantErr(t, "no stack", err, "no stack")
+	for _, stack := range []string{"", " ", "a/b", "..", ".", "-x", "a b"} {
+		_, err = NewScopeFile(stack, "pr", []string{r})
+		wantErr(t, "stack "+stack, err, "invalid stack name")
+	}
 	_, err = NewScopeFile("app", "pr", nil)
 	wantErr(t, "no recipients", err, "no recipients")
 }
@@ -295,7 +297,6 @@ func TestResolveScopedValues_LookalikesAreNotScopeFiles(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "secrets.yaml"), legacy)
 	writeTestFile(t, filepath.Join(dir, "secrets.example.yaml"), legacy)
 	writeTestFile(t, filepath.Join(dir, "secrets.backup.yaml"), "schemaVersion: 1.0\nauth:\n  aws:\n    type: aws-token\n    config:\n      account: \"1\"\nvalues:\n  K: v\n")
-	writeTestFile(t, filepath.Join(dir, "secrets.broken.yaml"), "values: [")
 
 	got, err := ResolveScopedValues(dir, []string{priv})
 	Expect(err).NotTo(HaveOccurred())
@@ -304,7 +305,7 @@ func TestResolveScopedValues_LookalikesAreNotScopeFiles(t *testing.T) {
 	scopeFiles, lookalikes, err := ScopeFilesIn(dir)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(scopeFiles).To(BeEmpty())
-	Expect(lookalikes).To(HaveLen(3))
+	Expect(lookalikes).To(HaveLen(2))
 
 	f, err := NewScopeFile("myapp", "pr", []string{auth})
 	Expect(err).NotTo(HaveOccurred())
@@ -323,6 +324,51 @@ func TestResolveScopedValues_LookalikesAreNotScopeFiles(t *testing.T) {
 	_, err = ResolveScopedValues(other, []string{priv})
 	Expect(errors.Is(err, ErrScopedIntegrity)).To(BeTrue())
 	Expect(err.Error()).To(ContainSubstring("moved file?"))
+}
+
+// A secrets.<scope>.yaml that is not a readable mapping is a damaged scope file
+// (merge-conflict markers, a truncated write), never a look-alike: the read
+// fails instead of silently losing the scope.
+func TestResolveScopedValues_DamagedScopeFileFails(t *testing.T) {
+	auth, priv := genEd25519Recipient(t)
+	for name, content := range map[string]string{
+		"unparseable":     "values: [",
+		"conflict":        "<<<<<<< HEAD\nscope: pr\n=======\nscope: pr\n>>>>>>> main\n",
+		"empty":           "",
+		"whitespace only": "  \n\n",
+		"a list":          "- a\n- b\n",
+		"a scalar":        "just text\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "myapp")
+			writeTestFile(t, filepath.Join(dir, "secrets.pr.yaml"), content)
+			if _, err := ResolveScopedValues(dir, []string{priv}); !errors.Is(err, ErrScopedIntegrity) {
+				t.Errorf("err = %v; want ErrScopedIntegrity", err)
+			}
+			if ok, err := IsScopeFile(filepath.Join(dir, "secrets.pr.yaml")); err != nil || !ok {
+				t.Errorf("IsScopeFile = %v, %v; want a scope file", ok, err)
+			}
+		})
+	}
+	_ = auth
+}
+
+func TestScopesAllowNormalizesRecipients(t *testing.T) {
+	a, _ := genEd25519Recipient(t)
+	b, _ := genEd25519Recipient(t)
+	s := &Scopes{Scopes: map[string]Scope{}}
+	if _, err := s.Allow("pr", "  "+strings.TrimSpace(a)+"\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Scopes["pr"].Recipients[0]; got != strings.TrimSpace(a) {
+		t.Errorf("stored %q", got)
+	}
+	if _, err := s.Allow("pr", strings.TrimSpace(a)+"\n"+strings.TrimSpace(b)); err == nil || !strings.Contains(err.Error(), "one key on one line") {
+		t.Errorf("two keys on two lines accepted: %v", err)
+	}
+	if removed, err := s.Disallow("pr", " "+strings.TrimSpace(a)+"\r\n"); err != nil || !removed {
+		t.Errorf("disallow with surrounding whitespace: %v, %v", removed, err)
+	}
 }
 
 func TestOpenerKMSClientsAreProbedOnce(t *testing.T) {

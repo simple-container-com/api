@@ -788,7 +788,8 @@ sc secrets scope allow    --scope pr 'awskms://alias/sc-pr?region=us-east-1'  # 
 sc secrets scope disallow --scope pr <recipient>     # remove a recipient + reseal (then rotate values!)
 
 # Manage values in a scope.
-sc secrets scope set    --scope pr -s <stack> KEY <value>   # or omit value / pass '-' to read stdin
+sc secrets scope set    --scope pr -s <stack> KEY <value>   # or '-' to read the value from stdin
+sc secrets scope set    --scope pr -s <stack> -- KEY -v      # '--' before KEY when the value starts with '-'
 sc secrets scope get    --scope pr -s <stack> KEY
 sc secrets scope list   --scope pr -s <stack>
 sc secrets scope delete --scope pr -s <stack> KEY
@@ -800,6 +801,24 @@ sc secrets scope doctor   # which scopes the current key can open
 
 Commit only the encrypted `secrets.<scope>.yaml` and `scopes.yaml`; never the legacy
 plaintext `stacks/*/secrets.yaml`.
+
+How the commands behave at the edges:
+
+- `allow` and `disallow` edit `scopes.yaml` in place: only the recipient line they add
+  or remove changes, and comments, order and unknown keys stay. They also reseal any
+  scope file whose recipients drifted from `scopes.yaml`, which is how lint's
+  "recipients drift" is fixed. A recipient is one key on one line; surrounding
+  whitespace is trimmed.
+- `set` needs the value, or `-` for stdin. The stack must be an existing directory in the
+  stacks dir, and its name a single path segment.
+- A `secrets.<scope>.yaml` that does not parse, is empty or is not a mapping (merge
+  conflict markers, a truncated write) fails lint, the deploy read and resealing. Only a
+  readable mapping with none of the `stack`, `scope` and `recipients` keys, such as a
+  plaintext `secrets.example.yaml`, is ignored, with a lint warning.
+- Commands that change scope files or `scopes.yaml` take a per-repository lock, so
+  parallel `set` calls in one job do not lose each other's values.
+- A key given through `--key-file`, `SC_KEY_<SCOPE>` or `SC_SCOPE_KEY` that does not
+  parse is reported as such, rather than as "not a recipient".
 
 ### Using a scope key in CI
 
