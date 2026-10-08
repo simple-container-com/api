@@ -12,9 +12,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
-	awsImpl "github.com/pulumi/pulumi-aws/sdk/v6/go/aws"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/appautoscaling"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
@@ -28,6 +25,7 @@ import (
 	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/ecs"
 	"github.com/pulumi/pulumi-awsx/sdk/v2/go/awsx/lb"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
@@ -698,6 +696,26 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	ref.Service = service
 	ctx.Export(fmt.Sprintf("%s-service-name", ecsSimpleClusterName), service.Service.Name())
 
+	// Attach the service's generated policy to the task role. The ECS Fargate
+	// task definition above binds BOTH ExecutionRole and TaskRole to the same
+	// `taskExecRole` — the running container's AWS SDK and ECS's secret-pull
+	// path reach the actions through the one attachment below. There is only
+	// one role, one policy, one attachment.
+	//
+	// A second attachment was previously created inside a nested
+	// `service.TaskDefinition.ApplyT(...).ApplyT(...)` closure for the same
+	// (role, policy) pair. Pulumi treats resources instantiated inside a
+	// nested Apply closure as deferred creates whose outputs aren't registered
+	// into the resource graph, so each `pulumi up` would call `DetachRolePolicy`
+	// on the previous iteration's attachment (because the parent
+	// `service.TaskDefinition` churns on the `deployTime` tag — set on every
+	// deploy, line ~679) without a paired `AttachRolePolicy` being tracked.
+	// Net effect: the role ended every deploy with the policy detached, new
+	// tasks failed to start with `AccessDeniedException` on
+	// `secretsmanager:GetSecretValue`, and the running task kept serving
+	// traffic only until its STS credentials expired. Live-caught on
+	// baas-meeting staging after forge-baas added `cloudExtras.awsRoles` for
+	// the first time (2026-10-06; CloudTrail entry at 18:42:48 UTC).
 	execPolicyAttachmentName := fmt.Sprintf("%s-p-exec", ecsSimpleClusterName)
 	execPolicyAttachment, err := iam.NewRolePolicyAttachment(ctx, execPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
 		Role:      taskExecRole.Name,
@@ -708,23 +726,6 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 	}
 	ref.ExecPolicyAttachment = execPolicyAttachment
 	ctx.Export(fmt.Sprintf("%s-p-exec-arn", ecsSimpleClusterName), execPolicyAttachment.PolicyArn)
-
-	service.TaskDefinition.ApplyT(func(td *ecsV6.TaskDefinition) any {
-		return td.TaskRoleArn.ApplyT(func(taskRoleArn *string) (*iam.RolePolicyAttachment, error) {
-			role := awsImpl.GetArnOutput(ctx, awsImpl.GetArnOutputArgs{
-				Arn: sdk.String(lo.FromPtr(taskRoleArn)),
-			}, sdk.Provider(params.Provider))
-			ccPolicyAttachmentName := fmt.Sprintf("%s-p-cc", ecsSimpleClusterName)
-			return iam.NewRolePolicyAttachment(ctx, ccPolicyAttachmentName, &iam.RolePolicyAttachmentArgs{
-				PolicyArn: ccPolicy.Arn,
-				Role: role.Resource().ApplyT(func(roleResource string) string {
-					roleName := roleResource[strings.Index(roleResource, "/")+1:]
-					params.Log.Info(ctx.Context(), "attaching policy %q to role %q", ccPolicyName, roleName)
-					return roleName
-				}),
-			}, opts...)
-		})
-	})
 
 	params.Log.Info(ctx.Context(), "configure Cloudwatch dashboard for ecs cluster %q...", ecsClusterName)
 	if err := createEcsCloudwatchDashboard(ctx, ecsCloudwatchDashboardCfg{

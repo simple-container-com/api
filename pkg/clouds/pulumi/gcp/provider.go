@@ -6,12 +6,15 @@ package gcp
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"strings"
 
 	gcpStorage "cloud.google.com/go/storage"
-	gcpOptions "google.golang.org/api/option"
+	"google.golang.org/api/googleapi"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -35,8 +38,9 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	log.Debug(ctx, "🔍 GCP Auth Debug - Credentials length: %d", len(authCfg.CredentialsValue()))
 
 	credValue := authCfg.CredentialsValue()
-	if credValue == "" {
-		log.Debug(ctx, "❌ GCP credentials are EMPTY!")
+	ambient := gcloud.UsesAmbientCredentials(credValue)
+	if ambient {
+		log.Info(ctx, "GCP credentials are empty: using Application Default Credentials (ambient mode)")
 	} else if credValue[0] == '$' {
 		log.Debug(ctx, "❌ GCP credentials contain unresolved placeholder (starts with '$')")
 	} else if credValue[0] == '{' {
@@ -46,18 +50,18 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	}
 
 	// hackily set google creds env variable, so that bucket can access it (see github.com/pulumi/pulumi/pkg/v3/authhelpers/gcpauth.go:28)
-	if err := os.Setenv("GOOGLE_CREDENTIALS", credValue); err != nil {
+	// In ambient mode GOOGLE_CREDENTIALS is not set: the Pulumi backend falls back to
+	// Application Default Credentials. gcloud does not, so it is signed in below.
+	if ambient {
+		// nothing to activate
+	} else if err := os.Setenv("GOOGLE_CREDENTIALS", credValue); err != nil {
 		fmt.Println("Failed to set GOOGLE_CREDENTIALS env variable: ", err.Error())
 	}
 
-	if gcloudPath, err := exec.LookPath("gcloud"); err != nil {
-		fmt.Println("WARN: Failed to find gcloud command")
-	} else if f, err := os.CreateTemp(os.TempDir(), "google-creds.json"); err != nil {
-		fmt.Println("WARN: failed to create temp file for google creds: ", err.Error())
-	} else if _, err := f.Write([]byte(authCfg.CredentialsValue())); err != nil {
-		fmt.Println("WARN: failed to write temp file for google creds: ", err.Error())
-	} else if err := exec.Command(gcloudPath, "auth", "activate-service-account", "--key-file", f.Name()).Run(); err != nil {
-		fmt.Println("WARN: failed to activate gcloud service account: ", err.Error())
+	if ambient {
+		loginGcloudWithAmbientCredentials(ctx, log)
+	} else {
+		activateGcloudServiceAccount(ctx, log, credValue)
 	}
 
 	if !stateStoreCfg.IsProvisionEnabled() {
@@ -69,7 +73,7 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 	if !ok {
 		return errors.Errorf("failed to convert auth config to *gcloud.Credentials")
 	}
-	client, err := gcpStorage.NewClient(ctx, gcpOptions.WithCredentialsJSON([]byte(authCfg.CredentialsValue()))) //nolint:staticcheck // SA1019: no in-memory replacement available
+	client, err := gcpStorage.NewClient(ctx, clientOptions(credValue)...)
 	if err != nil {
 		return errors.Wrapf(err, "failed to initialize gcp client")
 	}
@@ -81,7 +85,13 @@ func InitStateStore(ctx context.Context, stateStoreCfg api.StateStorageConfig, l
 
 	attrs, err := bucketRef.Attrs(ctx)
 	if err != nil {
-		// does not exist
+		switch stateBucketReadOutcome(err) {
+		case stateBucketForbidden:
+			log.Warn(ctx, "cannot read state bucket %q metadata (permission denied); it exists, so it is not created and its lifecycle is not checked", gcpStateCfg.GetBucketName())
+			return nil
+		case stateBucketReadFailed:
+			return errors.Wrapf(err, "failed to read state bucket %q", gcpStateCfg.GetBucketName())
+		}
 		return bucketRef.Create(ctx, gcpStateCfg.ProjectId, &gcpStorage.BucketAttrs{
 			Location:  lo.FromPtr(gcpStateCfg.Location),
 			Lifecycle: StateHistoryLifecycle(retentionDays),
@@ -282,11 +292,130 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	creds := pcfg.CredentialsValue()
 	projectId := pcfg.ProjectIdValue()
 
-	provider, err := gcp.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &gcp.ProviderArgs{
-		Credentials: sdk.String(creds),
-		Project:     sdk.String(projectId),
-	})
+	args := &gcp.ProviderArgs{Project: sdk.String(projectId)}
+	if !gcloud.UsesAmbientCredentials(creds) {
+		// Without Credentials the provider uses Application Default Credentials.
+		args.Credentials = sdk.String(creds)
+	}
+	provider, err := gcp.NewProvider(ctx, input.ToResName(input.Descriptor.Name), args)
 	return &api.ResourceOutput{
 		Ref: provider,
 	}, err
+}
+
+type stateBucketRead int
+
+const (
+	stateBucketMissing stateBucketRead = iota
+	stateBucketForbidden
+	stateBucketReadFailed
+)
+
+// stateBucketReadOutcome classifies a failed read of the state bucket's metadata.
+// Only a bucket that does not exist is created. A denied read proves the bucket
+// exists (Cloud Storage answers 404 for a missing one), so an identity that may
+// write its own state objects but not read bucket metadata still deploys. Any
+// other error stops the run instead of being taken for a missing bucket.
+func stateBucketReadOutcome(err error) stateBucketRead {
+	if errors.Is(err, gcpStorage.ErrBucketNotExist) {
+		return stateBucketMissing
+	}
+	var gerr *googleapi.Error
+	if errors.As(err, &gerr) && gerr.Code == http.StatusForbidden {
+		return stateBucketForbidden
+	}
+	if status.Code(err) == codes.PermissionDenied {
+		return stateBucketForbidden
+	}
+	return stateBucketReadFailed
+}
+
+// runGcloud runs the gcloud CLI with this process's environment; tests replace it.
+var runGcloud = func(args ...string) ([]byte, error) {
+	gcloudPath, err := exec.LookPath("gcloud")
+	if err != nil {
+		return nil, err
+	}
+	return exec.Command(gcloudPath, args...).CombinedOutput()
+}
+
+// activateGcloudServiceAccount activates the configured service account key in
+// gcloud, for kubeconfigs that authenticate through gke-gcloud-auth-plugin. gcloud
+// keeps its own copy of the key, so the temporary file is removed afterwards.
+func activateGcloudServiceAccount(ctx context.Context, log logger.Logger, key string) {
+	f, err := os.CreateTemp("", "google-creds-*.json")
+	if err != nil {
+		log.Warn(ctx, "failed to create a temp file for the gcloud key: %v", err)
+		return
+	}
+	defer func() { _ = os.Remove(f.Name()) }()
+	if _, err := f.WriteString(key); err != nil {
+		_ = f.Close()
+		log.Warn(ctx, "failed to write the gcloud key: %v", err)
+		return
+	}
+	if err := f.Close(); err != nil {
+		log.Warn(ctx, "failed to write the gcloud key: %v", err)
+		return
+	}
+	if out, err := runGcloud("auth", "activate-service-account", "--key-file", f.Name()); err != nil {
+		if errors.Is(err, exec.ErrNotFound) {
+			log.Debug(ctx, "gcloud is not installed; skipping service account activation")
+			return
+		}
+		log.Warn(ctx, "failed to activate the gcloud service account: %v: %s", err, strings.TrimSpace(string(out)))
+	}
+}
+
+// loginGcloudWithAmbientCredentials signs gcloud in with the credentials file
+// Application Default Credentials name. Kubeconfigs authenticate through
+// gke-gcloud-auth-plugin, which asks gcloud for a token, and gcloud does not use
+// a Workload Identity Federation config on its own: with no account signed in it
+// reports none selected. Key mode activates the service account key for the same
+// reason.
+//
+// It runs only in GitHub Actions, where nothing else signs gcloud in; on a
+// workstation gcloud already carries the user's own account. The sign-in goes to
+// a gcloud configuration directory private to this process (CLOUDSDK_CONFIG,
+// inherited by the processes it starts), so the account later steps of the job
+// share in their home directory is never switched.
+func loginGcloudWithAmbientCredentials(ctx context.Context, log logger.Logger) {
+	credFile := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+	if credFile == "" || os.Getenv("GITHUB_ACTIONS") != "true" {
+		return
+	}
+	if st, err := os.Stat(credFile); err != nil || !st.Mode().IsRegular() {
+		log.Warn(ctx, "GOOGLE_APPLICATION_CREDENTIALS names no readable file; gcloud is not signed in, and GKE kubeconfigs will not authenticate")
+		return
+	}
+	configDir, err := os.MkdirTemp("", "sc-gcloud-")
+	if err != nil {
+		log.Warn(ctx, "failed to create a private gcloud configuration: %v; GKE kubeconfigs will not authenticate", err)
+		return
+	}
+	prev, hadPrev := os.LookupEnv("CLOUDSDK_CONFIG")
+	restore := func() {
+		if hadPrev {
+			_ = os.Setenv("CLOUDSDK_CONFIG", prev)
+		} else {
+			_ = os.Unsetenv("CLOUDSDK_CONFIG")
+		}
+		_ = os.RemoveAll(configDir)
+	}
+	if err := os.Setenv("CLOUDSDK_CONFIG", configDir); err != nil {
+		restore()
+		log.Warn(ctx, "failed to point gcloud at a private configuration: %v", err)
+		return
+	}
+	out, err := runGcloud("auth", "login", "--cred-file="+credFile, "--quiet")
+	if err != nil {
+		restore()
+		if errors.Is(err, exec.ErrNotFound) {
+			log.Debug(ctx, "gcloud is not installed; skipping its sign-in")
+			return
+		}
+		log.Warn(ctx, "failed to sign gcloud in with the ambient credentials: %v: %s; GKE kubeconfigs will not authenticate", err, strings.TrimSpace(string(out)))
+		return
+	}
+	log.Info(ctx, "gcloud signed in with the ambient credentials (private configuration)")
 }

@@ -53,6 +53,11 @@ const (
 
 type ServiceAccountConfig struct {
 	ProjectId string `json:"projectId" yaml:"projectId"`
+	// ServiceAccount is the email of the identity the ambient credentials act as.
+	// Only read when credentials are empty (see UsesAmbientCredentials), where no
+	// key JSON exists to take the email from; resources that grant the deploying
+	// identity access to themselves (a static website's write binding) need it.
+	ServiceAccount string `json:"serviceAccount,omitempty" yaml:"serviceAccount,omitempty"`
 }
 
 type Credentials struct {
@@ -204,7 +209,27 @@ func (r *Credentials) CredentialsValue() string {
 	return r.Credentials.Credentials // just return serialized gcp account json
 }
 
+// UsesAmbientCredentials reports whether no service-account key is configured, in
+// which case every GCP client uses Application Default Credentials: whatever the
+// environment provides, such as a GitHub OIDC token exchanged through Workload
+// Identity Federation. An empty value used to fail at the first API call, so no
+// working configuration changes meaning.
+func (r *Credentials) UsesAmbientCredentials() bool {
+	return UsesAmbientCredentials(r.CredentialsValue())
+}
+
+// UsesAmbientCredentials reports whether a credentials value means "use ADC".
+func UsesAmbientCredentials(credentials string) bool {
+	return strings.TrimSpace(credentials) == ""
+}
+
 func (r *Credentials) CredentialsParsed() (*CredentialsParsed, error) {
+	if r.UsesAmbientCredentials() {
+		if r.ServiceAccount == "" {
+			return nil, errors.New("credentials are empty (ambient mode), so the deploying identity cannot be read from a key; set serviceAccount to its email")
+		}
+		return &CredentialsParsed{Type: "service_account", ClientEmail: r.ServiceAccount}, nil
+	}
 	var key CredentialsParsed
 	if err := json.Unmarshal([]byte(r.CredentialsValue()), &key); err != nil {
 		return nil, err

@@ -308,3 +308,16 @@ func TestStacksMap_ReconcileForDeploy(t *testing.T) {
 		Expect(err.Error()).To(ContainSubstring("not configured"))
 	})
 }
+
+func TestParentStackName(t *testing.T) {
+	RegisterTestingT(t)
+	for ref, want := range map[string]string{
+		"name":     "name",
+		"org/name": "name",
+		"a/b/c":    "c",
+		"":         "",
+		"org/":     "",
+	} {
+		Expect(ParentStackName(ref)).To(Equal(want), "ref %q", ref)
+	}
+}

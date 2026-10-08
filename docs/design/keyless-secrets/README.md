@@ -4,6 +4,15 @@
 **Area:** `pkg/api/secrets` (encryption envelope, recipients, CLI `secrets` commands)
 **Relates to:** [`docs/SECRETS-POLICY.md`](../../SECRETS-POLICY.md), [`docs/SECURITY.md`](../../SECURITY.md)
 
+> **v1 implementation note (supersedes parts of this RFC):** the shipped "Minimal v1" is
+> [`scoped-store-v1.md`](./scoped-store-v1.md). It deliberately diverges from the RFC's
+> tooling decision: it reuses **sc's own ciphers** (RSA-OAEP + X25519 sealed box), NOT SOPS
+> (adding SOPS would be a large new dependency for no capability sc lacks), and recipients are
+> **SSH keys**, not native age. Scope selection is **key-driven** (a job decrypts exactly the
+> scopes its key is a recipient of), which replaces the RFC's `secretScope:` config field with
+> a cryptographic clamp. The KMS-wrapped / OIDC-federated recipient in this RFC remains the
+> **v2** target and slots in as an additional recipient type on the same file format.
+
 ## Summary
 
 Today, decrypting an SC secret store in CI requires materializing the store's
@@ -268,9 +277,15 @@ itself; supply-chain compromise of the CLI or CI actions (mitigated by signed re
 ## Migration phases
 
 0. **Design + review** (this document).
-1. **v2 envelope + version-aware fail-closed client**, released and rolled out before
-   any v2 write. Modernize the asymmetric recipient scheme as part of v2.
-2. **`KeyProvider` + first KMS provider + OIDC acquisition**, behind a feature flag.
+1. **Envelope + version-aware fail-closed client**, released and rolled out before
+   any scoped write. Asymmetric recipient scheme modernized (X25519 for ed25519).
+   **DONE** — shipped; see [`scoped-store-v1.md`](./scoped-store-v1.md).
+2. **`KeyProvider` + first KMS provider (AWS) + OIDC acquisition.** **DONE (code)** — the
+   `awskms://` recipient kind is implemented in the scoped store: the per-value data key is
+   wrapped with `kms:Encrypt` and opened with `kms:Decrypt` under the ambient (OIDC) AWS
+   credential chain, bound by a KMS EncryptionContext. It is additive (no flag needed — a
+   scope simply lists a KMS recipient); the remaining work is the per-stack consumer rollout
+   in phases 3–7 below.
 3. **Canary** on one low-risk staging stack. Gate: `sc deploy` obtains cloud
    credentials from the federated environment, not the store; measured KMS latency;
    verified rollback runbook.
