@@ -32,27 +32,34 @@ func EnvScopeKeys() []string {
 	return keys
 }
 
-// InvalidEnvScopeKeys names the SC_SCOPE_KEY and SC_KEY_<SCOPE> variables that
-// are set but do not parse as a private key. EnvScopeKeys still returns their
-// values, and an Opener skips them; a caller reports them so a broken CI secret is
-// not read as "not a recipient".
-func InvalidEnvScopeKeys() []string {
+// InvalidEnvScopeKeys names the SC_SCOPE_KEY variable and the SC_KEY_<SCOPE>
+// variables of the given scopes that are set but do not parse as a private key.
+// Only scopes the caller knows exist are checked: SC_KEY_FILE or SC_KEY_ID may
+// be some other tool's variable, not a key to a scope named "file". EnvScopeKeys
+// still returns their values, and an Opener skips them; a caller reports them so
+// a broken CI secret is not read as "not a recipient".
+func InvalidEnvScopeKeys(scopes []string) []string {
 	var bad []string
 	if v := os.Getenv("SC_SCOPE_KEY"); strings.TrimSpace(v) != "" && ValidatePrivateKey(v) != nil {
 		bad = append(bad, "SC_SCOPE_KEY")
 	}
-	for _, e := range os.Environ() {
-		name, val, ok := strings.Cut(e, "=")
-		if !ok || strings.TrimSpace(val) == "" || !strings.HasPrefix(name, "SC_KEY_") {
+	seen := map[string]bool{}
+	for _, scope := range scopes {
+		name := ScopeKeyEnvName(scope)
+		if seen[name] {
 			continue
 		}
-		if ValidateScopeName(strings.ToLower(strings.ReplaceAll(strings.TrimPrefix(name, "SC_KEY_"), "_", "-"))) != nil {
-			continue
-		}
-		if ValidatePrivateKey(val) != nil {
+		seen[name] = true
+		if v := os.Getenv(name); strings.TrimSpace(v) != "" && ValidatePrivateKey(v) != nil {
 			bad = append(bad, name)
 		}
 	}
 	sort.Strings(bad)
 	return bad
+}
+
+// ScopeKeyEnvName is the environment variable that holds a scope's CI key:
+// SC_KEY_<SCOPE>, uppercase, with '-' as '_'.
+func ScopeKeyEnvName(scope string) string {
+	return "SC_KEY_" + strings.ToUpper(strings.ReplaceAll(scope, "-", "_"))
 }

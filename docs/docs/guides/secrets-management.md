@@ -829,9 +829,11 @@ How the commands behave at the edges:
   there. A waiting command says so after five seconds and gives up after two minutes
   (`SC_SCOPE_LOCK_TIMEOUT`, a Go duration, changes that). Do not run `git checkout` or
   `git clean` on `.sc` while a command runs. The store is not locked on Windows.
-- A key given through `--key-file`, `SC_KEY_<SCOPE>` or `SC_SCOPE_KEY` that does not
-  parse stops the command, naming where it came from, rather than reading as "not a
-  recipient". A deploy logs it as a warning.
+- A key given through `--key-file`, `SC_SCOPE_KEY`, or `SC_KEY_<SCOPE>` for a scope in
+  `scopes.yaml`, that does not parse stops the command, naming where it came from,
+  rather than reading as "not a recipient". A deploy logs it as a warning, once. An
+  `SC_KEY_*` variable whose suffix names no scope is not a scope key and is left alone.
+- An existing `scopes.yaml` keeps its indentation; a new one is written with two spaces.
 
 ### Using a scope key in CI
 

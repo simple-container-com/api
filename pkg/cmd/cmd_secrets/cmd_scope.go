@@ -93,7 +93,7 @@ func (s *scopeCmd) privateKey() (string, error) {
 		return parsedKey(string(b), "--key-file "+s.keyFile)
 	}
 	if s.scope != "" {
-		envName := "SC_KEY_" + strings.ToUpper(strings.ReplaceAll(s.scope, "-", "_"))
+		envName := scoped.ScopeKeyEnvName(s.scope)
 		if v := os.Getenv(envName); strings.TrimSpace(v) != "" {
 			return parsedKey(v, envName)
 		}
@@ -134,6 +134,20 @@ func parsedKey(key, source string) (string, error) {
 		return "", errors.Wrapf(err, "%s cannot be parsed as a private key", source)
 	}
 	return key, nil
+}
+
+// declaredScopes lists the scopes in scopes.yaml, so only their SC_KEY_*
+// variables are taken for scope keys; nil when it cannot be read.
+func (s *scopeCmd) declaredScopes() []string {
+	sc, err := scoped.LoadScopes(scoped.ScopesPath(s.scDir()))
+	if err != nil {
+		return nil
+	}
+	names := make([]string, 0, len(sc.Scopes))
+	for name := range sc.Scopes {
+		names = append(names, name)
+	}
+	return names
 }
 
 // lock holds the scope store lock for one read-modify-write command.
@@ -607,7 +621,7 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 			}
 			// lint and doctor span every scope, so every scope key the job holds counts,
 			// as it does at deploy time; one that does not parse is an error.
-			if bad := scoped.InvalidEnvScopeKeys(); len(bad) > 0 {
+			if bad := scoped.InvalidEnvScopeKeys(s.declaredScopes()); len(bad) > 0 {
 				return errors.Errorf("%s cannot be parsed as a private key", strings.Join(bad, ", "))
 			}
 			keys = append(keys, scoped.EnvScopeKeys()...)
@@ -748,7 +762,7 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 			}
 			// lint and doctor span every scope, so every scope key the job holds counts,
 			// as it does at deploy time; one that does not parse is an error.
-			if bad := scoped.InvalidEnvScopeKeys(); len(bad) > 0 {
+			if bad := scoped.InvalidEnvScopeKeys(s.declaredScopes()); len(bad) > 0 {
 				return errors.Errorf("%s cannot be parsed as a private key", strings.Join(bad, ", "))
 			}
 			keys = append(keys, scoped.EnvScopeKeys()...)

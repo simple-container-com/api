@@ -14,7 +14,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// scopesIndent is the indentation scopes.yaml is written with.
+// scopesIndent is the indentation a new scopes.yaml is written with. An existing
+// file keeps its own, or the first edit would reindent every line of it.
 const scopesIndent = 2
 
 // Save writes scopes.yaml. scopes.yaml is a reviewed governance file, so an
@@ -51,7 +52,13 @@ func (s *Scopes) Prepare(path string) (func() error, error) {
 			return nil, errors.Wrapf(uErr, "%s does not parse; fix it before changing scopes", path)
 		}
 		var extra yaml.Node
-		if dec.Decode(&extra) != io.EOF {
+		switch xErr := dec.Decode(&extra); {
+		case errors.Is(xErr, io.EOF):
+		case xErr != nil:
+			return nil, errors.Wrapf(xErr, "%s does not parse; fix it before changing scopes", path)
+		case extra.Kind == yaml.DocumentNode && (len(extra.Content) == 0 || (len(extra.Content) == 1 && extra.Content[0].Tag == "!!null" && extra.Content[0].Value == "")):
+			// A trailing "---" with nothing after it.
+		default:
 			return nil, errors.Errorf("%s holds more than one YAML document; keep one before changing scopes", path)
 		}
 	}
@@ -74,7 +81,7 @@ func (s *Scopes) Prepare(path string) (func() error, error) {
 	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(scopesIndent)
+	enc.SetIndent(detectIndent(existing))
 	if err := enc.Encode(&doc); err != nil {
 		return nil, errors.Wrap(err, "failed to marshal scopes")
 	}
@@ -236,4 +243,21 @@ func commentsOnly(data []byte) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// detectIndent returns the indentation of the first indented mapping key in data,
+// or scopesIndent when there is none.
+func detectIndent(data []byte) int {
+	for _, line := range strings.Split(string(data), "\n") {
+		trimmed := strings.TrimLeft(line, " ")
+		n := len(line) - len(trimmed)
+		if n == 0 || trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "-") {
+			continue
+		}
+		if n >= 2 && n <= 8 {
+			return n
+		}
+		return scopesIndent
+	}
+	return scopesIndent
 }

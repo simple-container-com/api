@@ -182,23 +182,38 @@ func Test_readSecretsDescriptor_LookalikeIsNotScopeFile(t *testing.T) {
 	Expect(files).To(BeEmpty())
 }
 
-// A deploy says what it ignores: look-alike files and scope keys that do not
-// parse, since lint is not always run.
+// A deploy says what it ignores: look-alike files and the keys of its scopes
+// that do not parse, the latter once however many stacks share them, since lint
+// is not always run.
 func Test_readSecretsDescriptor_WarnsAboutWhatItIgnores(t *testing.T) {
 	RegisterTestingT(t)
 	stacksDir := t.TempDir()
-	stackDir := filepath.Join(stacksDir, "myapp")
-	Expect(os.MkdirAll(stackDir, 0o755)).To(Succeed())
-	Expect(os.WriteFile(filepath.Join(stackDir, "secrets.yaml"), []byte("values:\n  REAL: legacy\n"), 0o644)).To(Succeed())
-	Expect(os.WriteFile(filepath.Join(stackDir, "secrets.example.yaml"), []byte("# filled in later\n"), 0o644)).To(Succeed())
+	_, pub, err := ciphers.GenerateEd25519KeyPair()
+	Expect(err).NotTo(HaveOccurred())
+	sshPub, err := ssh.NewPublicKey(pub)
+	Expect(err).NotTo(HaveOccurred())
+	authorized := string(ssh.MarshalAuthorizedKey(sshPub))
+	for _, stack := range []string{"web", "worker"} {
+		stackDir := filepath.Join(stacksDir, stack)
+		Expect(os.MkdirAll(stackDir, 0o755)).To(Succeed())
+		Expect(os.WriteFile(filepath.Join(stackDir, "secrets.yaml"), []byte("values:\n  REAL: legacy\n"), 0o644)).To(Succeed())
+		f, err := scoped.NewScopeFile(stack, "pr", []string{authorized})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(f.Save(filepath.Join(stackDir, scoped.ScopeFileName("pr")))).To(Succeed())
+	}
+	Expect(os.WriteFile(filepath.Join(stacksDir, "web", "secrets.example.yaml"), []byte("# filled in later\n"), 0o644)).To(Succeed())
 	t.Setenv("SC_KEY_PR", "not a key")
+	t.Setenv("SC_KEY_FILE", "/not/a/scope")
 
 	log := &captureLogger{}
 	p := &provisioner{log: log}
-	desc, err := p.readSecretsDescriptor(context.Background(), stacksDir, "myapp")
-	Expect(err).NotTo(HaveOccurred())
-	Expect(desc.Values).To(HaveKeyWithValue("REAL", "legacy"))
+	for _, stack := range []string{"web", "worker"} {
+		desc, err := p.readSecretsDescriptor(context.Background(), stacksDir, stack)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(desc.Values).To(HaveKeyWithValue("REAL", "legacy"))
+	}
 	joined := strings.Join(log.warns, "\n")
 	Expect(joined).To(ContainSubstring("secrets.example.yaml holds no scope"))
-	Expect(joined).To(ContainSubstring("SC_KEY_PR is set but cannot be parsed"))
+	Expect(strings.Count(joined, "SC_KEY_PR is set but cannot be parsed")).To(Equal(1))
+	Expect(joined).NotTo(ContainSubstring("SC_KEY_FILE"))
 }

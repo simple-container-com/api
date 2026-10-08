@@ -124,36 +124,80 @@ func TestLockStoreTimeoutFromEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer release()
-	start := time.Now()
-	if _, err := LockStore(scDir, nil); err == nil || time.Since(start) > 3*time.Second {
-		t.Fatalf("env timeout not used: %v after %s", err, time.Since(start))
+	if _, err := lockWithin(t, scDir, 3*time.Second); err == nil {
+		t.Fatal("env timeout not used")
+	}
+}
+
+// lockWithin runs LockStore and fails the test if it does not return in time,
+// so a broken deadline or fallback loop fails instead of hanging the package.
+func lockWithin(t *testing.T, scDir string, d time.Duration) (func(), error) {
+	t.Helper()
+	type result struct {
+		release func()
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		r, err := LockStore(scDir, nil)
+		done <- result{r, err}
+	}()
+	select {
+	case r := <-done:
+		return r.release, r.err
+	case <-time.After(d):
+		t.Fatalf("LockStore did not return within %s", d)
+		return nil, nil
 	}
 }
 
 // Where the filesystem cannot lock a directory (NFS), a lock file in .sc is
-// locked instead; any other lock error fails the command.
-func TestLockStoreFallsBackToAFileAndFailsOnOtherErrors(t *testing.T) {
-	prev := tryLockFn
-	t.Cleanup(func() { tryLockFn = prev })
+// locked instead, and it excludes a second caller like the directory lock does.
+func TestLockStoreFallsBackToALockFile(t *testing.T) {
+	prevLock, prevT := tryLockFn, lockTimeout
+	t.Cleanup(func() { tryLockFn, lockTimeout = prevLock, prevT })
+	lockTimeout = 300 * time.Millisecond
 	scDir := filepath.Join(t.TempDir(), ".sc")
 	tryLockFn = func(f *os.File) (bool, error) {
 		if st, err := f.Stat(); err == nil && st.IsDir() {
 			return false, syscall.ENOLCK
 		}
-		return prev(f)
+		return prevLock(f)
 	}
-	release, err := LockStore(scDir, nil)
+	release, err := lockWithin(t, scDir, 5*time.Second)
 	if err != nil {
 		t.Fatalf("fallback: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(scDir, lockFileName)); err != nil {
 		t.Errorf("fallback lock file missing: %v", err)
 	}
+	if _, err := lockWithin(t, scDir, 5*time.Second); err == nil || !strings.Contains(err.Error(), "another sc process") {
+		t.Errorf("a second caller took the fallback lock: %v", err)
+	}
 	release()
+}
 
+// A filesystem that cannot lock the lock file either fails the command, once.
+func TestLockStoreFailsWhenNothingCanBeLocked(t *testing.T) {
+	prev := tryLockFn
+	t.Cleanup(func() { tryLockFn = prev })
+	tryLockFn = func(*os.File) (bool, error) { return false, syscall.ENOLCK }
+	if rel, err := lockWithin(t, filepath.Join(t.TempDir(), ".sc"), 5*time.Second); err == nil || rel != nil {
+		t.Fatalf("took a lock nothing could hold: %v", err)
+	}
+}
+
+// Any other lock error fails the command and does not fall back.
+func TestLockStoreDoesNotFallBackOnOtherErrors(t *testing.T) {
+	prev := tryLockFn
+	t.Cleanup(func() { tryLockFn = prev })
 	tryLockFn = func(*os.File) (bool, error) { return false, syscall.EIO }
-	if rel, err := LockStore(scDir, nil); err == nil || rel != nil {
+	scDir := filepath.Join(t.TempDir(), ".sc")
+	if rel, err := lockWithin(t, scDir, 5*time.Second); err == nil || rel != nil {
 		t.Fatalf("an I/O error took the lock: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(scDir, lockFileName)); !os.IsNotExist(err) {
+		t.Errorf("an I/O error fell back to the lock file: %v", err)
 	}
 }
 
@@ -187,7 +231,7 @@ func TestLockStoreExcludesOtherProcesses(t *testing.T) {
 	if strings.TrimSpace(line) != "locked" {
 		t.Fatalf("child did not take the lock: %q", line)
 	}
-	if _, err := LockStore(scDir, nil); err == nil {
+	if _, err := lockWithin(t, scDir, 5*time.Second); err == nil {
 		t.Fatal("took the lock while another process held it")
 	}
 }

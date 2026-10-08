@@ -622,10 +622,13 @@ func TestInvalidEnvScopeKeys(t *testing.T) {
 	t.Setenv("SC_SCOPE_KEY", "junk")
 	t.Setenv("SC_KEY_MY_SCOPE", "junk")
 	t.Setenv("SC_KEY_PR", priv)
-	t.Setenv("SC_KEY_", "junk")  // no scope name: not a scope key at all
-	t.Setenv("SC_KEY_QA", "   ") // blank: not set
-	got := InvalidEnvScopeKeys()
+	t.Setenv("SC_KEY_QA", "   ")          // blank: not set
+	t.Setenv("SC_KEY_FILE", "/some/path") // another tool's variable: no scope "file"
+	got := InvalidEnvScopeKeys([]string{"my-scope", "pr", "qa", "my-scope"})
 	if want := []string{"SC_KEY_MY_SCOPE", "SC_SCOPE_KEY"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("got %v; want %v", got, want)
+	}
+	if ScopeKeyEnvName("my-scope") != "SC_KEY_MY_SCOPE" {
+		t.Errorf("ScopeKeyEnvName = %s", ScopeKeyEnvName("my-scope"))
 	}
 }

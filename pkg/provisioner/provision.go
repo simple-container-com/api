@@ -271,10 +271,21 @@ func (p *provisioner) readSecretsDescriptorFromFile(ctx context.Context, descFil
 	if p.log != nil {
 		// Ignored at deploy as at lint, but said here too: lint is not always run.
 		for _, f := range lookalikes {
-			p.log.Warn(ctx, "%s holds no scope (empty, comments only or no stack/scope/recipients field) and is ignored", f)
+			p.log.Warn(ctx, "%s holds no scope (whitespace or comments only, or no stack/scope/recipients field) and is ignored", f)
 		}
-		for _, name := range scoped.InvalidEnvScopeKeys() {
-			p.log.Warn(ctx, "%s is set but cannot be parsed as a private key; it opens nothing", name)
+		// Keys of the scopes this stack has, each reported once per provisioner.
+		scopeNames := make([]string, 0, len(scopeFileList))
+		for _, f := range scopeFileList {
+			scopeNames = append(scopeNames, scoped.ScopeNameFromFile(f))
+		}
+		for _, name := range scoped.InvalidEnvScopeKeys(scopeNames) {
+			if p.warnedKeys == nil {
+				p.warnedKeys = map[string]bool{}
+			}
+			if !p.warnedKeys[name] {
+				p.warnedKeys[name] = true
+				p.log.Warn(ctx, "%s is set but cannot be parsed as a private key; it opens nothing", name)
+			}
 		}
 	}
 	if !legacyExists && scopeFiles {

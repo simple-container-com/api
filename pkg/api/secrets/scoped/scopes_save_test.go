@@ -420,3 +420,35 @@ func TestScopesPrepareWritesNothingUntilCommitted(t *testing.T) {
 		t.Error("commit did not write")
 	}
 }
+
+// A file written with four spaces (as older sc versions wrote it) keeps them:
+// only the added line changes.
+func TestScopesSave_KeepsTheFilesIndentation(t *testing.T) {
+	content := "schemaVersion: 1\nscopes:\n    pr:\n        recipients:\n            - ssh-ed25519 AAAAa\n"
+	path := writeScopes(t, content)
+	s, err := LoadScopes(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := s.Scopes["pr"]
+	pr.Recipients = append(pr.Recipients, "ssh-ed25519 AAAAb")
+	s.Scopes["pr"] = pr
+	if got, want := saveAndRead(t, s, path), content+"            - ssh-ed25519 AAAAb\n"; got != want {
+		t.Fatalf("--- got\n%s--- want\n%s", got, want)
+	}
+}
+
+// A trailing "---" with nothing after it is one document, not two.
+func TestScopesSave_TrailingDocumentMarkerIsOneDocument(t *testing.T) {
+	path := writeScopes(t, "schemaVersion: 1\nscopes:\n  pr:\n    recipients:\n      - ssh-ed25519 AAAAa\n---\n")
+	s, err := LoadScopes(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := s.Scopes["pr"]
+	pr.Recipients = append(pr.Recipients, "ssh-ed25519 AAAAb")
+	s.Scopes["pr"] = pr
+	if err := s.Save(path); err != nil {
+		t.Fatalf("a trailing --- was taken for a second document: %v", err)
+	}
+}
