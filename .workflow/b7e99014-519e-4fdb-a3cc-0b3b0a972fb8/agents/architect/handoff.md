@@ -1,23 +1,41 @@
+# Architecture handoff — YC deploy fidelity (S1 + S2)
+
 ### 1. Commit + branch identity
-No code mutations in this turn.
+No code mutations in this turn. Repository contents were accessible; this is an implementation plan, **not** a claim that the fix is code-complete.
 
 Branch: `forge/workflow/99171cbe-7c27-4976-a999-931b834b5d62/run/b7e99014-519e-4fdb-a3cc-0b3b0a972fb8`
 
 ### 2. Files touched
+
 | Path | Lines added / removed | What changed |
 |---|---|---|
-| None | 0 | No files touched in this turn |
+| None | 0 | Architecture review only |
+
+### Architectural decisions for Developer
+
+1. **Enforce the revision postcondition; do not mistake a warning for a returned error.** In `pkg/clouds/pulumi/yandex/serverless_container.go`, `NewServerlessContainer` currently registers the resource and exports its ID and URL without checking `RevisionId`. The fork’s generated `ServerlessContainer` resource exposes `RevisionId pulumi.StringOutput`; the upstream Terraform resource defines `revision_id` as its computed *last revision ID*. Check the resolved output after registration, making an empty ID a Pulumi program error that names `containerName`, the resolved container ID, and `crInput.FolderID`. A synchronous error from `NewServerlessContainer` should carry the same identity context. **SC cannot directly intercept the provider’s `diag.Warning` at this resource call**; do not promise its text will appear in the hard error. If it is not available through an observed interface, give an actionable fallback: revision deployment did not produce a revision, inspect the YC deploy diagnostic for this container/folder. Sources: repository file `pkg/clouds/pulumi/yandex/serverless_container.go`; fork generated `sdk/go/yandex/serverlessContainer.go`; upstream `yandex/resource_yandex_serverless_container.go`.
+
+2. **An old revision does not prove an update succeeded.** Empty `RevisionId` covers failed first creation, **not** a refused update that retains the previous ID. For an update that changes revision-driving inputs, capture the previously deployed revision ID before apply and require the post-apply ID to differ; a genuinely unchanged deployment must not be rejected. Compare the actual desired revision inputs, including the immutable image reference, rather than `deployParams.Version` alone. This needs an authoritative *pre-update* observation—YC container/revision API or prior persisted state—and a post-update observation; `container.RevisionId` by itself is insufficient to establish the baseline. The fork also generates `GetServerlessContainer(ctx, name, id, state, opts...)` for a resource read, but **that read’s suitability for obtaining pre-update state has not been established**. Developer should verify the YC SDK/API method and the Pulumi lifecycle before choosing the seam, then document its behavior on warning and no-op. Fail closed if the attempted revision cannot be distinguished from the old one. Do not introduce a broad S3 provider-warning renderer as a shortcut.
+
+3. **Filter at the final YC environment boundary.** The current function merges SC defaults, `params.BaseEnvVariables`, compute-context variables, and `stackConfig.Env` into `envVariables`, removes secret-backed names, and passes that map into `ServerlessContainerImageArgs.Environment`. Apply a small, explicit `YC_RESERVED_ENV` set containing at least `PORT` **after every merge and before assigning `Environment`**, so no source can reintroduce it. Log sorted dropped **names only**, never values; document that YC supplies the port. Inspect the Lockbox `containerSecrets` path too: a reserved name entering through secrets must not bypass this boundary—reject it by name or handle it explicitly, rather than silently deploying an invalid revision. Do not modify shared `client.yaml`, `BaseEnvVariables`, or `pkg/clouds/pulumi/aws/aws_lambda.go`; AWS must continue receiving its existing env anchor. Add other reserved names only against verified YC documentation. Source: repository `serverless_container.go`; the roadmap item records YC’s observed `PORT` rejection.
+
+4. **Order the first revision behind grants, not merely behind the service account.** `provisionContainerServiceAccount` creates additive `ResourcemanagerFolderIamMember` resources for `DefaultContainerRoles`, including `container-registry.images.puller`; the caller currently appends a dependency only on the returned service-account resource. Return the created binding resources as well, and add `sdk.DependsOn` for **all** of them to the container’s options. Preserve the explicit pre-existing-service-account branch: SC creates no bindings for that account, so it must not pretend to wait for or manage them. A resource dependency guarantees the grant resources completed; if YC IAM propagation still races in live testing, add a bounded, cancellable readiness check for the required effective grant rather than an arbitrary sleep. Source: repository `serverless_container.go` and its existing explicit-account tests.
+
+5. **Tests and release gates.** Extend the existing `pulumi.WithMocks` / `bucketMocks` tests in `pkg/clouds/pulumi/yandex/serverless_container_test.go`. Have the mock return controlled `revisionId` values and assert: failed create with empty revision errors with container/folder identity; failed changed update retaining the old revision errors; successful changed update advances; no-change run accepts the same revision. The update cases require a seam that can independently stub baseline and post-apply observations—plain `NewResource` input capture does not simulate an update. Assert that `PORT` supplied through each relevant env source is absent from the recorded container image environment, permitted variables remain, and logging contains names but not a sentinel value. Use `bucketMocks.registerRPCOf(tokenContainer)` to assert the container’s dependency list contains every SC-managed folder-IAM-member resource, including the puller binding; assert the pre-existing-account case has none. Keep existing secrets and AWS tests intact. Source: repository `serverless_container_test.go` and `bucket_test.go`.
+
+**Operator gate:** `forge-atrium/.github/workflows/deploy-forge-atrium.yml`, job `deploy` (**“Deploy forge-atrium”**), dispatched with environment `staging-ru`; the `Deploy forge-atrium` step uses `simple-container-com/api/.github/actions/deploy-client-stack@main`. The separate `forge-atrium/.github/workflows/validate.yml` job `validate` supplies dependent-service build/vet/test evidence, **not** proof of deployment. Code-complete means the API and Atrium builds/tests pass against the changed dependency; shipped means the authorized Actions deploy uses the released fix, reports a new deployed revision, and a live `/ready` response succeeds. An authorized staging failure probe should be isolated and should verify a nonzero deploy result without putting the live service at risk. The operator must authorize the `staging-ru` workflow dispatch and provide its existing configured Actions secrets/grants; do not run `sc deploy` locally or copy secret values into logs. Source: the two observed Atrium workflow files and the Atrium YC design document.
 
 ### 3. Acceptance criteria verification
+
 | AC# | Criterion | Status | Evidence |
 |---|---|---|---|
-| AC1 | A deliberately broken revision makes SC deploy fail, with actionable YC failure and container/folder identity, on create and update. | FAIL | Need to design the proof of attempted revision deployment and IAM dependency. |
-| AC2 | Shared `client.yaml` with `PORT` deploys unchanged on YC; `PORT` is absent from the revision environment, without changing AWS behavior. | FAIL | Need to design the environment-construction test and YC revision inspection/live smoke. |
-| AC3 | Regression tests cover failed create/update, reserved-name filtering, and first-revision IAM ordering. | FAIL | Need to design the regression tests and dependency assertion. |
-| AC4 | Build/test API and `forge-atrium`; deploy and live-smoke through GitHub Actions when authorized, otherwise state the precise operator gate and distinguish code-complete from shipped. | FAIL | Need to identify the exact authorized GitHub Actions path and live-smoke gate. |
+| AC1 | Failed create **and changed update** fail SC with actionable identity and YC cause when available. | FAIL | Current resource path has no revision postcondition; direct capture of provider warning is unproven. The baseline/changed-update design above is required. |
+| AC2 | Shared `PORT`-bearing YAML deploys unchanged on YC, without affecting AWS. | FAIL | Current YC map forwards merged env without reserved-name filtering; final-boundary filter above is required. |
+| AC3 | Regressions cover create/update, env filtering, and IAM ordering. | FAIL | Existing Pulumi mocks provide a test framework, but these regressions and the update-observation seam are not yet implemented. |
+| AC4 | Build/test API and Atrium; authorized Actions deploy and live smoke, or state the gate. | FAIL | No build, deploy, or smoke was run in this architecture turn. Exact workflow/job and authorization gate are identified above; code-complete is not shipped. |
 
 ### 4. Tests run
-No tests run in this turn.
+None—no code was mutated. Developer and QA must report actual commands and output, not infer passing tests from this design.
 
 ### 5. Verdict
 **Verdict:** signoff
