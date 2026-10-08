@@ -263,7 +263,11 @@ func (p *provisioner) readSecretsDescriptorFromFile(ctx context.Context, descFil
 	// fails the deploy (see checkUnresolvedPlaceholders) instead of reaching the
 	// deployment as text. Keyed on the scope files being there, not on any of them
 	// opening, so a job holding the wrong key fails instead of deploying literals.
-	if !legacyExists && hasScopeFiles(path.Dir(descFilePath)) {
+	scopeFiles, sfErr := hasScopeFiles(path.Dir(descFilePath))
+	if sfErr != nil {
+		return nil, errors.Wrapf(scoped.ErrScopedIntegrity, "%v", sfErr)
+	}
+	if !legacyExists && scopeFiles {
 		if p.scopedOnly == nil {
 			p.scopedOnly = map[string]bool{}
 		}
@@ -311,7 +315,7 @@ func (p *provisioner) readClientDescriptorFromFile(path string) (*api.ClientDesc
 
 // hasScopeFiles reports whether stackDir contains any real scope file; a
 // secrets.<x>.yaml that is not one (see scoped.IsScopeFile) does not count.
-func hasScopeFiles(stackDir string) bool {
+func hasScopeFiles(stackDir string) (bool, error) {
 	files, _, err := scoped.ScopeFilesIn(stackDir)
-	return err == nil && len(files) > 0
+	return len(files) > 0, err
 }

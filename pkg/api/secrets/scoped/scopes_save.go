@@ -18,22 +18,37 @@ const scopesIndent = 2
 // Save writes scopes.yaml. scopes.yaml is a reviewed governance file, so an
 // existing one is updated in place: its comments, scope order and recipient
 // order stay, scopes and recipients that were added are appended, and ones that
-// were removed disappear. A new file is written in a stable field order.
+// were removed disappear. A missing or empty file is written fresh, in a stable
+// field order. An existing file Save cannot edit safely (unreadable, not a
+// mapping, or built with anchors, aliases or merge keys) is an error, never
+// overwritten.
 func (s *Scopes) Save(path string) error {
 	if s.SchemaVersion == 0 {
 		s.SchemaVersion = CurrentScopesSchemaVersion
 	}
 	var doc yaml.Node
 	existing, err := os.ReadFile(path)
-	if err == nil && yaml.Unmarshal(existing, &doc) == nil && doc.Kind == yaml.DocumentNode &&
-		len(doc.Content) == 1 && doc.Content[0].Kind == yaml.MappingNode {
-		if err := s.updateNode(doc.Content[0]); err != nil {
-			return err
+	if err != nil && !os.IsNotExist(err) {
+		return errors.Wrapf(err, "failed to read %s", path)
+	}
+	if err == nil {
+		if uErr := yaml.Unmarshal(existing, &doc); uErr != nil {
+			return errors.Wrapf(uErr, "%s does not parse; fix it before changing scopes", path)
 		}
-	} else {
+	}
+	switch {
+	case doc.Kind == 0:
 		doc = yaml.Node{}
 		if err := doc.Encode(s); err != nil {
 			return errors.Wrap(err, "failed to marshal scopes")
+		}
+	case doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode:
+		return errors.Errorf("%s is not a YAML mapping; fix it before changing scopes", path)
+	case usesReferences(doc.Content[0]):
+		return errors.Errorf("%s uses YAML anchors, aliases or merge keys, which an in-place edit could silently change; expand them by hand first", path)
+	default:
+		if err := s.updateNode(doc.Content[0]); err != nil {
+			return err
 		}
 	}
 	var buf bytes.Buffer
@@ -51,6 +66,20 @@ func (s *Scopes) Save(path string) error {
 	return nil
 }
 
+// usesReferences reports whether any node under n is an anchor, an alias or a
+// merge key: editing one place in such a document can change others.
+func usesReferences(n *yaml.Node) bool {
+	if n.Anchor != "" || n.Kind == yaml.AliasNode || (n.Kind == yaml.ScalarNode && n.Tag == "!!merge") {
+		return true
+	}
+	for _, c := range n.Content {
+		if usesReferences(c) {
+			return true
+		}
+	}
+	return false
+}
+
 // updateNode makes the mapping root of an existing scopes.yaml say what s says,
 // touching only what differs.
 func (s *Scopes) updateNode(root *yaml.Node) error {
@@ -66,7 +95,7 @@ func (s *Scopes) updateNode(root *yaml.Node) error {
 		setMapValue(root, "scopes", scopes)
 	}
 
-	kept := scopes.Content[:0]
+	kept := make([]*yaml.Node, 0, len(scopes.Content))
 	present := map[string]bool{}
 	for i := 0; i+1 < len(scopes.Content); i += 2 {
 		name := scopes.Content[i].Value
@@ -108,7 +137,9 @@ func updateScopeNode(node *yaml.Node, scope Scope) error {
 	if scope.Description == "" {
 		deleteMapKey(node, "description")
 	} else if d := mapValue(node, "description"); d != nil && d.Kind == yaml.ScalarNode {
-		d.Value, d.Tag, d.Style = scope.Description, "!!str", 0
+		if d.Value != scope.Description {
+			d.Value, d.Tag, d.Style = scope.Description, "!!str", 0
+		}
 	} else {
 		setMapValue(node, "description", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: scope.Description})
 	}
@@ -122,7 +153,7 @@ func updateScopeNode(node *yaml.Node, scope Scope) error {
 	for _, r := range scope.Recipients {
 		want[r] = true
 	}
-	kept := recipients.Content[:0]
+	kept := make([]*yaml.Node, 0, len(recipients.Content)+len(scope.Recipients))
 	have := map[string]bool{}
 	for _, item := range recipients.Content {
 		if item.Kind == yaml.ScalarNode && want[item.Value] && !have[item.Value] {

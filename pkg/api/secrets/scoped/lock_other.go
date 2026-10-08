@@ -7,6 +7,7 @@ package scoped
 
 import "os"
 
-// Releases are built for Linux and macOS only; elsewhere the store is unlocked.
-func lockFile(*os.File) error   { return nil }
-func unlockFile(*os.File) error { return nil }
+// Releases are built for Linux and macOS only. Elsewhere the store is not locked,
+// and concurrent changes can lose updates.
+func tryLock(*os.File) (bool, error) { return true, nil }
+func unlock(*os.File) error          { return nil }

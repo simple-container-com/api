@@ -225,7 +225,7 @@ func TestPathsAndScopesFileRefusals(t *testing.T) {
 	if err != nil || s.Scopes == nil {
 		t.Errorf("a file with no scopes: %v, %+v", err, s)
 	}
-	wantErr(t, "save under a file", s.Save(filepath.Join(blocker, "scopes.yaml")), "failed to write")
+	wantErr(t, "save under a file", s.Save(filepath.Join(blocker, "scopes.yaml")), "failed to read")
 
 	r, _ := genEd25519Recipient(t)
 	_, err = s.Recipients("absent")
@@ -330,14 +330,12 @@ func TestResolveScopedValues_LookalikesAreNotScopeFiles(t *testing.T) {
 // (merge-conflict markers, a truncated write), never a look-alike: the read
 // fails instead of silently losing the scope.
 func TestResolveScopedValues_DamagedScopeFileFails(t *testing.T) {
-	auth, priv := genEd25519Recipient(t)
+	_, priv := genEd25519Recipient(t)
 	for name, content := range map[string]string{
-		"unparseable":     "values: [",
-		"conflict":        "<<<<<<< HEAD\nscope: pr\n=======\nscope: pr\n>>>>>>> main\n",
-		"empty":           "",
-		"whitespace only": "  \n\n",
-		"a list":          "- a\n- b\n",
-		"a scalar":        "just text\n",
+		"unparseable": "values: [",
+		"conflict":    "<<<<<<< HEAD\nscope: pr\n=======\nscope: pr\n>>>>>>> main\n",
+		"a list":      "- a\n- b\n",
+		"a scalar":    "just text\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "myapp")
@@ -350,7 +348,71 @@ func TestResolveScopedValues_DamagedScopeFileFails(t *testing.T) {
 			}
 		})
 	}
-	_ = auth
+}
+
+// A secrets.<scope>.yaml that holds nothing (empty, comments only, null) has no
+// secrets to lose: it is a look-alike, so a stray placeholder does not fail
+// every deploy of its stack. LoadScopeFile still refuses it with a clear message.
+func TestResolveScopedValues_EmptyLookalikeIsIgnored(t *testing.T) {
+	_, priv := genEd25519Recipient(t)
+	for name, content := range map[string]string{
+		"empty":           "",
+		"whitespace only": "  \n\n",
+		"comments only":   "# placeholder, filled in later\n",
+		"null":            "~\n",
+		"document marker": "---\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "myapp")
+			p := filepath.Join(dir, "secrets.pr.yaml")
+			writeTestFile(t, p, content)
+			if ok, err := IsScopeFile(p); err != nil || ok {
+				t.Errorf("IsScopeFile = %v, %v; want a look-alike", ok, err)
+			}
+			if got, err := ResolveScopedValues(dir, []string{priv}); err != nil || len(got) != 0 {
+				t.Errorf("ResolveScopedValues = %v, %v; want nothing and no error", got, err)
+			}
+			if _, err := LoadScopeFile(p); err == nil {
+				t.Error("LoadScopeFile accepted a file with no scope in it")
+			}
+		})
+	}
+	dir := filepath.Join(t.TempDir(), "myapp")
+	writeTestFile(t, filepath.Join(dir, "secrets.pr.yaml"), "")
+	if _, err := LoadScopeFile(filepath.Join(dir, "secrets.pr.yaml")); err == nil || !strings.Contains(err.Error(), "is empty") {
+		t.Errorf("empty file error = %v; want it to say the file is empty", err)
+	}
+	writeTestFile(t, filepath.Join(dir, "secrets.qa.yaml"), "<<<<<<< HEAD\nscope: qa\n")
+	if _, err := LoadScopeFile(filepath.Join(dir, "secrets.qa.yaml")); err == nil || !strings.Contains(err.Error(), "rename it") {
+		t.Errorf("unparseable file error = %v; want the rename hint", err)
+	}
+}
+
+func TestValidateStackName(t *testing.T) {
+	for _, ok := range []string{"app", "pay_wallet", "_shared", "a.b", "A-1"} {
+		if err := ValidateStackName(ok); err != nil {
+			t.Errorf("%q refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", ".", "..", "a/b", "../x", "-a", ".hidden", "a b", strings.Repeat("a", 129)} {
+		if err := ValidateStackName(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestDropsRecipients(t *testing.T) {
+	a, _ := genEd25519Recipient(t)
+	b, _ := genEd25519Recipient(t)
+	if !DropsRecipients([]string{a, b}, []string{a}) {
+		t.Error("removing b not reported")
+	}
+	if DropsRecipients([]string{a}, []string{a, b}) {
+		t.Error("adding b reported as a removal")
+	}
+	if DropsRecipients([]string{strings.TrimSpace(a) + " a comment"}, []string{a}) {
+		t.Error("a different comment on the same key reported as a removal")
+	}
 }
 
 func TestScopesAllowNormalizesRecipients(t *testing.T) {

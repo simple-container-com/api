@@ -169,9 +169,9 @@ func TestScopesSave_NewFileUsesTwoSpaces(t *testing.T) {
 	}
 }
 
-// A file this build cannot read as a mapping is replaced, not half-merged.
-func TestScopesSave_UnreadableExistingFileIsReplaced(t *testing.T) {
-	for _, content := range []string{"", "# only a comment\n", "- a list\n", "scopes: ["} {
+// A missing or empty file is written fresh.
+func TestScopesSave_EmptyExistingFileIsWrittenFresh(t *testing.T) {
+	for _, content := range []string{"", "# only a comment\n", "\n"} {
 		path := writeScopes(t, content)
 		s := &Scopes{Scopes: map[string]Scope{"pr": {Recipients: []string{"ssh-ed25519 AAAAa"}}}}
 		if err := s.Save(path); err != nil {
@@ -181,6 +181,56 @@ func TestScopesSave_UnreadableExistingFileIsReplaced(t *testing.T) {
 		if err != nil || !reflect.DeepEqual(back.Scopes, s.Scopes) {
 			t.Errorf("%q: reload %+v, %v", content, back, err)
 		}
+	}
+}
+
+// An existing file Save cannot edit safely is an error and stays untouched: a
+// reviewed governance file is never replaced wholesale.
+func TestScopesSave_RefusesFilesItCannotEditSafely(t *testing.T) {
+	s := &Scopes{Scopes: map[string]Scope{"pr": {Recipients: []string{"ssh-ed25519 AAAAa"}}}}
+	for name, content := range map[string]string{
+		"unparseable": "scopes: [",
+		"a list":      "- a list\n",
+		"anchor":      "schemaVersion: 1\nbase: &keys\n  - ssh-ed25519 AAAAa\nscopes:\n  pr:\n    recipients: *keys\n",
+		"merge key":   "schemaVersion: 1\ndefaults: &d\n  recipients: [ssh-ed25519 AAAAa]\nscopes:\n  pr:\n    <<: *d\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := writeScopes(t, content)
+			if err := s.Save(path); err == nil {
+				t.Fatal("Save edited a file it cannot edit safely")
+			}
+			if data, _ := os.ReadFile(path); string(data) != content {
+				t.Errorf("file changed:\n%s", data)
+			}
+		})
+	}
+	if os.Geteuid() != 0 {
+		path := writeScopes(t, reviewedScopes)
+		if err := os.Chmod(path, 0); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(path, 0o644) })
+		if err := s.Save(path); err == nil || !strings.Contains(err.Error(), "failed to read") {
+			t.Errorf("unreadable file: %v", err)
+		}
+	}
+}
+
+// A description that did not change keeps its style: block scalars and quoting
+// are the reviewer's, and re-styling them is diff noise.
+func TestScopesSave_UnchangedDescriptionKeepsItsStyle(t *testing.T) {
+	content := "schemaVersion: 1\nscopes:\n  pr:\n    description: |\n      line one\n      line two\n    recipients:\n      - ssh-ed25519 AAAAa\n"
+	path := writeScopes(t, content)
+	s, err := LoadScopes(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pr := s.Scopes["pr"]
+	pr.Recipients = append(pr.Recipients, "ssh-ed25519 AAAAb")
+	s.Scopes["pr"] = pr
+	got := saveAndRead(t, s, path)
+	if want := content + "      - ssh-ed25519 AAAAb\n"; got != want {
+		t.Fatalf("--- got\n%s--- want\n%s", got, want)
 	}
 }
 

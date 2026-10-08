@@ -808,15 +808,23 @@ How the commands behave at the edges:
   or remove changes, and comments, order and unknown keys stay. They also reseal any
   scope file whose recipients drifted from `scopes.yaml`, which is how lint's
   "recipients drift" is fixed. A recipient is one key on one line; surrounding
-  whitespace is trimmed.
-- `set` needs the value, or `-` for stdin. The stack must be an existing directory in the
-  stacks dir, and its name a single path segment.
-- A `secrets.<scope>.yaml` that does not parse, is empty or is not a mapping (merge
-  conflict markers, a truncated write) fails lint, the deploy read and resealing. Only a
-  readable mapping with none of the `stack`, `scope` and `recipients` keys, such as a
-  plaintext `secrets.example.yaml`, is ignored, with a lint warning.
-- Commands that change scope files or `scopes.yaml` take a per-repository lock, so
-  parallel `set` calls in one job do not lose each other's values.
+  whitespace is trimmed. They refuse to edit a `scopes.yaml` they cannot edit safely
+  (one that does not parse, or uses YAML anchors, aliases or merge keys) rather than
+  rewrite it.
+- `set` needs the value, or `-` for stdin (put `--` before KEY when the value starts with
+  `-`). This is a change: `set KEY` without a value used to read stdin. The stack must be
+  an existing directory in the stacks dir; stack names are one path segment of letters,
+  digits, `_`, `.` and `-`, starting with a letter, digit or `_`.
+- A `secrets.<scope>.yaml` that does not parse or is not a mapping (merge-conflict
+  markers, a truncated write) fails lint, the deploy read and resealing, with a hint to
+  rename it if it is not a scope file. A file that holds nothing (empty or comments
+  only), or a readable mapping with none of the `stack`, `scope` and `recipients` keys
+  such as a plaintext `secrets.example.yaml`, is ignored, with a lint warning. Run
+  `sc secrets scope lint` before upgrading: a file it now rejects would fail deploys.
+- Commands that change scope files or `scopes.yaml` lock the `.sc` directory, so
+  parallel `set` calls do not lose each other's values. The lock is an advisory `flock`:
+  it covers every process on the host that reaches the repository, gives up with a
+  message after two minutes, and is not taken on Windows.
 - A key given through `--key-file`, `SC_KEY_<SCOPE>` or `SC_SCOPE_KEY` that does not
   parse is reported as such, rather than as "not a recipient".
 

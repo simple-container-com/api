@@ -177,5 +177,7 @@ func Test_readSecretsDescriptor_LookalikeIsNotScopeFile(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(desc.Values).To(Equal(map[string]string{"REAL": "legacy"}))
 	Expect(p.scopedOnly).To(BeEmpty())
-	Expect(hasScopeFiles(stackDir)).To(BeFalse())
+	has, err := hasScopeFiles(stackDir)
+	Expect(err).NotTo(HaveOccurred())
+	Expect(has).To(BeFalse())
 }

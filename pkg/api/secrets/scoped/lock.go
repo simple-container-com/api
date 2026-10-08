@@ -4,37 +4,51 @@
 package scoped
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
-	"path/filepath"
+	"time"
 
 	"github.com/pkg/errors"
 )
 
+// lockTimeout bounds how long a command waits for another sc process to finish
+// changing the store. A package variable so tests can shorten it.
+var lockTimeout = 2 * time.Minute
+
 // LockStore serializes the commands that read, change and write scope files and
-// scopes.yaml for one repository. The writes are atomic, but two concurrent
+// scopes.yaml in one repository. The writes are atomic, but two concurrent
 // read-modify-write runs (parallel `scope set` calls in a CI job) would each save
-// the file they read and drop the other's change. The lock file lives in the
-// temporary directory, keyed by the .sc directory, so nothing appears in the
-// repository. Call the returned function to release it.
+// the file they read and drop the other's change.
+//
+// The lock is an advisory lock on the .sc directory itself: no lock file is
+// created, every process that reaches the repository through any path, user or
+// container shares it, and it disappears with the process. Call the returned
+// function to release it.
 func LockStore(scDir string) (func(), error) {
-	abs, err := filepath.Abs(scDir)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to resolve %s", scDir)
+	if err := os.MkdirAll(scDir, 0o755); err != nil {
+		return nil, errors.Wrapf(err, "failed to create %s", scDir)
 	}
-	sum := sha256.Sum256([]byte(abs))
-	path := filepath.Join(os.TempDir(), "sc-scopes-"+hex.EncodeToString(sum[:8])+".lock")
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	d, err := os.Open(scDir)
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to open the scope store lock %s", path)
+		return nil, errors.Wrapf(err, "failed to open %s to lock it", scDir)
 	}
-	if err := lockFile(f); err != nil {
-		_ = f.Close()
-		return nil, errors.Wrapf(err, "failed to lock the scope store (%s)", path)
+	deadline := time.Now().Add(lockTimeout)
+	for {
+		locked, err := tryLock(d)
+		if err != nil {
+			_ = d.Close()
+			return nil, errors.Wrapf(err, "failed to lock %s", scDir)
+		}
+		if locked {
+			break
+		}
+		if time.Now().After(deadline) {
+			_ = d.Close()
+			return nil, errors.Errorf("another sc process has held the lock on %s for %s; retry when it finishes", scDir, lockTimeout)
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 	return func() {
-		_ = unlockFile(f)
-		_ = f.Close()
+		_ = unlock(d)
+		_ = d.Close()
 	}, nil
 }

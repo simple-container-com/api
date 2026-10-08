@@ -112,7 +112,7 @@ func LoadScopeFile(path string) (*ScopeFile, error) {
 	}
 	var f ScopeFile
 	if err := yaml.Unmarshal(data, &f); err != nil {
-		return nil, errors.Wrapf(err, "failed to parse scope file %s", path)
+		return nil, errors.Wrapf(err, "failed to parse scope file %s (a merge conflict? if it is not a scope file, rename it so it does not match secrets.<scope>.yaml)", path)
 	}
 	if f.SchemaVersion > CurrentScopesSchemaVersion {
 		return nil, errors.Wrapf(ErrScopesVersionUnsupported, "%s declares version %d, this build supports up to %d", path, f.SchemaVersion, CurrentScopesSchemaVersion)

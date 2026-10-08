@@ -103,9 +103,27 @@ func (s *scopeCmd) privateKey() (string, error) {
 	}
 	pk := s.Root.Provisioner.Cryptor().PrivateKey()
 	if strings.TrimSpace(pk) == "" {
-		return "", errors.New("no private key available: set --key-file, SC_KEY_<SCOPE> / SC_SCOPE_KEY, or SIMPLE_CONTAINER_CONFIG")
+		return "", errNoPrivateKey
 	}
 	return pk, nil
+}
+
+// errNoPrivateKey means no key was given at all, which is fine for a scope whose
+// recipients are KMS keys. Any other privateKey error is a key that was given and
+// cannot be used, and the command stops on it.
+var errNoPrivateKey = errors.New("no private key available: set --key-file, SC_KEY_<SCOPE> / SC_SCOPE_KEY, or SIMPLE_CONTAINER_CONFIG")
+
+// optionalKeys returns the key privateKey resolves, if any, failing only on a
+// key that was given but cannot be parsed.
+func (s *scopeCmd) optionalKeys() ([]string, error) {
+	pk, err := s.privateKey()
+	if errors.Is(err, errNoPrivateKey) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return []string{pk}, nil
 }
 
 // parsedKey returns key if it parses, and otherwise an error naming where it came
@@ -178,6 +196,10 @@ func (s *scopeCmd) openForWrite() (*scoped.ScopeFile, *scoped.Scopes, string, er
 		return nil, nil, "", err
 	}
 	path := scoped.ScopeFilePath(stacksDir, s.stack, s.scope)
+	// A typo in --stack would otherwise create a stack directory nothing deploys.
+	if st, dErr := os.Stat(filepath.Dir(path)); dErr != nil || !st.IsDir() {
+		return nil, nil, "", errors.Errorf("stack %q has no directory %s; check --stack and --dir", s.stack, filepath.Dir(path))
+	}
 	var f *scoped.ScopeFile
 	if _, statErr := os.Stat(path); statErr == nil {
 		if f, err = scoped.LoadScopeFile(path); err != nil {
@@ -187,10 +209,6 @@ func (s *scopeCmd) openForWrite() (*scoped.ScopeFile, *scoped.Scopes, string, er
 			return nil, nil, "", errors.Wrapf(err, "%s recipients drifted from %s — reconcile with `sc secrets scope allow/disallow`", filepath.Base(path), scoped.ScopesFileName)
 		}
 	} else if os.IsNotExist(statErr) {
-		// A typo in --stack would otherwise create a stack directory nothing deploys.
-		if st, dErr := os.Stat(filepath.Dir(path)); dErr != nil || !st.IsDir() {
-			return nil, nil, "", errors.Errorf("stack %q has no directory %s; check --stack and --dir", s.stack, filepath.Dir(path))
-		}
 		if f, err = scoped.NewScopeFile(s.stack, s.scope, recipients); err != nil {
 			return nil, nil, "", err
 		}
@@ -269,11 +287,10 @@ func newScopeGetCmd(sCmd *secretsCmd) *cobra.Command {
 				return err
 			}
 			// An SSH key is optional: a KMS-recipient scope is opened via the ambient
-			// AWS credential chain (e.g. an OIDC role) with no private key at all.
-			pk, pkErr := s.privateKey()
-			var keys []string
-			if pkErr == nil && strings.TrimSpace(pk) != "" {
-				keys = append(keys, pk)
+			// credential chain (e.g. an OIDC role) with no private key at all.
+			keys, err := s.optionalKeys()
+			if err != nil {
+				return err
 			}
 			path, err := s.scopeFilePath()
 			if err != nil {
@@ -290,8 +307,8 @@ func newScopeGetCmd(sCmd *secretsCmd) *cobra.Command {
 				return err
 			}
 			if !owned {
-				if pkErr != nil {
-					return errors.Wrapf(pkErr, "no SSH key and no KMS recipient could open %q in scope %q", args[0], s.scope)
+				if len(keys) == 0 {
+					return errors.Wrapf(errNoPrivateKey, "no SSH key and no KMS recipient could open %q in scope %q", args[0], s.scope)
 				}
 				return errors.Errorf("key is not a recipient of %q in scope %q (and no KMS recipient was openable)", args[0], s.scope)
 			}
@@ -452,6 +469,7 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 	}
 	var pending []pendingSave
 	var opener *scoped.Opener
+	dropped := false // some file loses a recipient: its committed values need rotating
 	defer func() {
 		if opener != nil {
 			_ = opener.Close()
@@ -468,15 +486,18 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 		if !changed && scoped.SameRecipients(f.Recipients, recipients) == nil {
 			continue
 		}
+		if scoped.DropsRecipients(f.Recipients, recipients) {
+			dropped = true
+		}
 		if len(f.Values) > 0 {
 			if opener == nil {
 				// Reseal decrypts current values first: build an Opener from any SSH key
 				// we have PLUS KMS (so a scope whose current recipient is a KMS key can
 				// still be resealed by an operator with kms:Decrypt). A missing SSH key is
 				// not fatal here — KMS may open it; Reencrypt fails closed if neither can.
-				var keys []string
-				if pk, kErr := s.privateKey(); kErr == nil && strings.TrimSpace(pk) != "" {
-					keys = append(keys, pk)
+				keys, kErr := s.optionalKeys()
+				if kErr != nil {
+					return kErr
 				}
 				opener = scoped.NewOpener(keys, true)
 			}
@@ -509,8 +530,12 @@ func (s *scopeCmd) reconcileRecipients(cmd *cobra.Command, pubKey string, allow 
 			return err
 		}
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "scope %q now has %d recipient(s); resealed %d file(s)\n", s.scope, len(recipients), len(pending))
-	if !allow {
+	if changed {
+		fmt.Fprintf(cmd.OutOrStdout(), "scope %q now has %d recipient(s); resealed %d file(s)\n", s.scope, len(recipients), len(pending))
+	} else {
+		fmt.Fprintf(cmd.OutOrStdout(), "scopes.yaml unchanged; resealed %d file(s) of scope %q that had drifted from it\n", len(pending), s.scope)
+	}
+	if dropped || (changed && !allow) {
 		fmt.Fprintf(cmd.OutOrStderr(), "WARNING: removing a recipient does NOT revoke access to values already committed in git history. Rotate every value in scope %q now.\n", s.scope)
 	}
 	return nil
@@ -551,10 +576,9 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 					}
 				}
 			}
-			pk, pkErr := s.privateKey()
-			var keys []string
-			if pkErr == nil && strings.TrimSpace(pk) != "" {
-				keys = append(keys, pk)
+			keys, err := s.optionalKeys()
+			if err != nil {
+				return err
 			}
 			// lint and doctor span every scope, so every scope key the job holds counts,
 			// as it does at deploy time.
@@ -591,8 +615,9 @@ func newScopeLintCmd(sCmd *secretsCmd) *cobra.Command {
 					if oErr != nil || !owned {
 						continue
 					}
+					// The parse error can quote the decrypted value, so it is not printed.
 					if _, aErr := api.ParseAuthDescriptor(v); aErr != nil {
-						problems = append(problems, fmt.Sprintf("%s: %s does not parse as an auth entry: %v", filepath.Base(path), k, aErr))
+						problems = append(problems, fmt.Sprintf("%s: %s does not parse as an auth entry; inspect it with `sc secrets scope get` where its value may be shown", filepath.Base(path), k))
 					}
 				}
 				if keyScopes[f.Stack] == nil {
@@ -688,11 +713,10 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 		Short: "Report which scopes the current key or AWS (KMS) credentials can open",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			// SSH key is optional — a KMS recipient is opened via ambient AWS creds.
-			pk, pkErr := s.privateKey()
-			var keys []string
-			if pkErr == nil && strings.TrimSpace(pk) != "" {
-				keys = append(keys, pk)
+			// SSH key is optional — a KMS recipient is opened via ambient credentials.
+			keys, err := s.optionalKeys()
+			if err != nil {
+				return err
 			}
 			// lint and doctor span every scope, so every scope key the job holds counts,
 			// as it does at deploy time.
@@ -720,12 +744,14 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 				if len(f.Keys()) == 0 {
 					status = "empty"
 				}
+				// The first value this run can open settles it; lint checks the rest.
 				for _, k := range f.Keys() {
 					if _, owned, gErr := f.Open(k, opener); gErr != nil {
 						status = "ERR"
 						break
 					} else if owned {
 						status = "YES"
+						break
 					}
 				}
 				fmt.Fprintf(cmd.OutOrStdout(), "%-5s scope=%s  file=%s\n", status, f.Scope, filepath.Base(path))
@@ -740,6 +766,9 @@ func newScopeDoctorCmd(sCmd *secretsCmd) *cobra.Command {
 
 // readValueArg returns the value from args[1], or reads stdin when args[1] is "-".
 func readValueArg(cmd *cobra.Command, args []string) (string, error) {
+	if len(args) < 2 {
+		return "", errors.New("VALUE is required")
+	}
 	if args[1] != "-" {
 		return args[1], nil
 	}

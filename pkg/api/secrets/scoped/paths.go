@@ -74,13 +74,14 @@ func ScopeFilePath(stacksDir, stack, scope string) string {
 }
 
 // IsScopeFile reports whether path, named secrets.<scope>.yaml, is to be treated
-// as a scope file. Only a readable YAML mapping without any of the store's stack,
-// scope and recipients keys is a look-alike (a plaintext secrets.example.yaml, a
-// secrets.backup.yaml copy of the legacy store: both formats carry schemaVersion,
-// so it is no marker). Anything else counts, including a file that does not
-// parse, is empty or is not a mapping: merge-conflict markers or a truncated write
-// in a real scope file must fail the read when LoadScopeFile rejects it, never
-// drop the file silently.
+// as a scope file. Look-alikes are files that hold nothing of the store's: an
+// empty or comments-only file, and a readable YAML mapping without any of its
+// stack, scope and recipients keys (a plaintext secrets.example.yaml, a
+// secrets.backup.yaml copy of the legacy store; both formats carry schemaVersion,
+// so it is no marker). Anything else counts, including a file that does not parse
+// or is not a mapping: merge-conflict markers or a truncated write in a real
+// scope file must fail the read when LoadScopeFile rejects it, never drop the
+// file silently.
 func IsScopeFile(path string) (bool, error) {
 	if ScopeNameFromFile(path) == "" {
 		return false, nil
@@ -90,7 +91,13 @@ func IsScopeFile(path string) (bool, error) {
 		return false, errors.Wrapf(err, "failed to read %s", path)
 	}
 	var doc yaml.Node
-	if yaml.Unmarshal(data, &doc) != nil || doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
+	if yaml.Unmarshal(data, &doc) != nil {
+		return true, nil
+	}
+	if doc.Kind == 0 || (doc.Kind == yaml.DocumentNode && len(doc.Content) == 1 && doc.Content[0].Tag == "!!null") {
+		return false, nil // empty, comments only, or null: nothing to lose
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) != 1 || doc.Content[0].Kind != yaml.MappingNode {
 		return true, nil
 	}
 	top := doc.Content[0]

@@ -13,9 +13,8 @@ import (
 
 func scopeArgs(a ...string) []string { return append([]string{"secrets", "scope"}, a...) }
 
-// A scope file that is not parseable YAML (merge-conflict markers, truncation, empty)
-// is classified as a look-alike: lint exits 0, deploy ignores it, allow/disallow skip it.
-func TestScopeRegression_CorruptScopeFileFailsOpen(t *testing.T) {
+// A scope file with merge-conflict markers fails lint, the deploy read and resealing.
+func TestScopeRegression_DamagedScopeFileFailsLintDeployAndReseal(t *testing.T) {
 	admin := newEd25519(t)
 	r := newRepo(t)
 	ae := adminEnv(admin, nil)
@@ -34,14 +33,14 @@ func TestScopeRegression_CorruptScopeFileFailsOpen(t *testing.T) {
 	if v, err := r.secretGet(t, ae, "V"); err == nil || !strings.Contains(err.Error(), "integrity") {
 		t.Errorf("deploy read ignores the corrupt scope file (v=%q err=%v), want a hard integrity error", v, err)
 	}
-	if out, err := r.sc(t, ae, "", scopeArgs("disallow", "--scope", "pr", bob.pub)...); err == nil && strings.Contains(out, "resealed 0 file(s)") {
-		t.Errorf("disallow silently skipped the corrupt scope file: %s", out)
+	if out, err := r.sc(t, ae, "", scopeArgs("disallow", "--scope", "pr", bob.pub)...); err == nil {
+		t.Errorf("disallow succeeded over a damaged scope file: %s", out)
 	}
 }
 
-// The error from set/lint says to reconcile with allow/disallow, but allow of a
-// recipient already in scopes.yaml (or disallow of one already absent) is a no-op.
-func TestScopeRegression_AllowCannotReconcileDrift(t *testing.T) {
+// allow of a recipient scopes.yaml already lists reseals the files that drifted
+// from it, which is what lint and set tell the operator to do.
+func TestScopeRegression_AllowReconcilesDrift(t *testing.T) {
 	admin, bob := newEd25519(t), newRSA(t)
 	r := newRepo(t)
 	ae := adminEnv(admin, nil)
@@ -55,7 +54,9 @@ func TestScopeRegression_AllowCannotReconcileDrift(t *testing.T) {
 	if err := ss.Save(sy); err != nil {
 		t.Fatal(err)
 	}
-	r.sc(t, ae, "", scopeArgs("allow", "--scope", "pr", bob.pub)...)
+	if out, err := r.sc(t, ae, "", scopeArgs("allow", "--scope", "pr", bob.pub)...); err != nil || !strings.Contains(out, "resealed 1 file(s)") {
+		t.Fatalf("allow did not reseal the drifted file: %v %s", err, out)
+	}
 	if out, err := r.sc(t, ae, "", scopeArgs("lint")...); err != nil {
 		t.Errorf("drift (scopes.yaml has bob, file does not) not reconciled by `allow bob`: %v %s", err, out)
 	}
@@ -63,7 +64,7 @@ func TestScopeRegression_AllowCannotReconcileDrift(t *testing.T) {
 
 // "-v" is also the root verbose flag. Omitting VALUE used to read stdin, so
 // "set K -v" stored stdin. VALUE is now required; '--' lets it start with '-'.
-func TestScopeRegression_ValueDashVSwallowed(t *testing.T) {
+func TestScopeRegression_SetNeedsAnExplicitValue(t *testing.T) {
 	admin := newEd25519(t)
 	r := newRepo(t)
 	ae := adminEnv(admin, nil)
@@ -84,9 +85,8 @@ func TestScopeRegression_ValueDashVSwallowed(t *testing.T) {
 	}
 }
 
-// Stack names are never validated: a/b, .., . write files outside <stacksDir>/<stack>
-// that no command can load afterwards.
-func TestScopeRegression_StackNameNotValidated(t *testing.T) {
+// A stack name is one directory under the stacks dir: a/b, .. and . are refused.
+func TestScopeRegression_StackNameIsValidated(t *testing.T) {
 	admin := newEd25519(t)
 	r := newRepo(t)
 	ae := adminEnv(admin, nil)
@@ -99,8 +99,8 @@ func TestScopeRegression_StackNameNotValidated(t *testing.T) {
 	}
 }
 
-// allow stores the raw argument: leading spaces, CRLF, and a second key on another line.
-func TestScopeRegression_RecipientNotNormalized(t *testing.T) {
+// allow trims a recipient and refuses one that spans several lines.
+func TestScopeRegression_RecipientIsNormalized(t *testing.T) {
 	admin, bob, eve := newEd25519(t), newRSA(t), newEd25519(t)
 	r := newRepo(t)
 	ae := adminEnv(admin, nil)
@@ -120,35 +120,35 @@ func TestScopeRegression_RecipientNotNormalized(t *testing.T) {
 	}
 }
 
-// list/delete do not validate --scope (get/set do): a traversal-shaped scope escapes the file naming.
-func TestScopeRegression_ListDeleteScopeNotValidated(t *testing.T) {
+// list and delete refuse a scope name shaped like a path.
+func TestScopeRegression_ListDeleteValidateScope(t *testing.T) {
 	admin := newEd25519(t)
 	r := newRepo(t)
 	ae := adminEnv(admin, nil)
-	_, err := r.sc(t, ae, "", scopeArgs("list", "--scope", "../../../x", "-s", "infra")...)
-	if err != nil && !strings.Contains(err.Error(), "invalid scope name") {
-		t.Errorf("list --scope ../../../x reached the filesystem instead of being refused: %v", err)
+	for _, verb := range [][]string{{"list"}, {"delete", "K"}} {
+		args := append([]string{verb[0], "--scope", "../../../x", "-s", "infra"}, verb[1:]...)
+		if _, err := r.sc(t, ae, "", scopeArgs(args...)...); err == nil || !strings.Contains(err.Error(), "invalid scope name") {
+			t.Errorf("%s --scope ../../../x: %v; want invalid scope name", verb[0], err)
+		}
 	}
 }
 
-// A malformed SC_KEY_<SCOPE> shadows a valid ambient key in `get`, and the error blames
-// recipiency rather than the unparseable key.
-func TestScopeRegression_BadScopeKeyEnvShadowsAmbient(t *testing.T) {
+// A malformed SC_KEY_<SCOPE> is reported as a key that cannot be parsed, naming it.
+func TestScopeRegression_UnparseableScopeKeyIsReported(t *testing.T) {
 	admin := newEd25519(t)
 	r := newRepo(t)
 	ae := adminEnv(admin, nil)
 	r.allow(t, ae, "pr", admin)
 	r.set(t, ae, "pr", "K", "v")
 	env := adminEnv(admin, map[string]string{"SC_KEY_PR": "not a key"})
-	out, err := r.sc(t, env, "", scopeArgs("get", "--scope", "pr", "-s", "infra", "K")...)
-	if err != nil && !strings.Contains(err.Error(), "parse") {
-		t.Errorf("get fails with a valid ambient key because SC_KEY_PR is junk, and says %q", err)
+	_, err := r.sc(t, env, "", scopeArgs("get", "--scope", "pr", "-s", "infra", "K")...)
+	if err == nil || !strings.Contains(err.Error(), "SC_KEY_PR") || !strings.Contains(err.Error(), "cannot be parsed") {
+		t.Errorf("get with a junk SC_KEY_PR: %v; want it named as unparseable", err)
 	}
-	_ = out
 }
 
-// lint opens values but never validates `auth:` entries it can open; deploy then hard-fails.
-func TestScopeRegression_LintMissesBrokenAuthEntry(t *testing.T) {
+// lint parses the auth: entries it can open, since a broken one fails every deploy.
+func TestScopeRegression_LintCatchesBrokenAuthEntry(t *testing.T) {
 	admin := newEd25519(t)
 	r := newRepo(t)
 	ae := adminEnv(admin, nil)
@@ -159,7 +159,7 @@ func TestScopeRegression_LintMissesBrokenAuthEntry(t *testing.T) {
 	_ = f.Set("auth:broken", "type: [unclosed")
 	_ = f.Save(p)
 	if _, err := r.secretGet(t, ae, "P"); err == nil {
-		t.Skip("deploy read tolerates it")
+		t.Fatal("the deploy read accepted a broken auth entry; lint must keep matching it")
 	}
 	if out, err := r.sc(t, ae, "", scopeArgs("lint")...); err == nil {
 		t.Errorf("lint passes though deploy-time resolution fails on auth:broken: %s", out)

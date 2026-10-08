@@ -45,7 +45,7 @@ var (
 	secretKeyRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	// stackNameRe is a single directory name under the stacks dir: no separator,
 	// and never "." or "..".
-	stackNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	stackNameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 )
 
 // Fingerprint returns the stable SHA256 SSH fingerprint of an authorized public
@@ -91,6 +91,13 @@ func SameRecipients(a, b []string) error {
 
 // ValidateScopeName rejects scope names that are unsafe as a filename component or
 // AAD field.
+func ValidateScopeName(scope string) error {
+	if !scopeNameRe.MatchString(scope) {
+		return errors.Errorf("invalid scope name %q (allowed: %s)", scope, scopeNameRe.String())
+	}
+	return nil
+}
+
 // ValidateStackName rejects a stack name that is not one directory under the
 // stacks dir, so a scope file can only be written where it will be read.
 func ValidateStackName(stack string) error {
@@ -109,13 +116,6 @@ func normalizeRecipient(recipient string) (string, error) {
 		return "", errors.New("a recipient must be one key on one line")
 	}
 	return r, nil
-}
-
-func ValidateScopeName(scope string) error {
-	if !scopeNameRe.MatchString(scope) {
-		return errors.Errorf("invalid scope name %q (allowed: %s)", scope, scopeNameRe.String())
-	}
-	return nil
 }
 
 // AuthKeyPrefix marks a scope entry that holds an auth descriptor (what sits under
@@ -259,4 +259,22 @@ func (s *Scopes) Disallow(scope, recipient string) (bool, error) {
 	sc.Recipients = kept
 	s.Scopes[scope] = sc
 	return removed, nil
+}
+
+// DropsRecipients reports whether going from the recipient set from to the set to
+// removes anyone, compared by fingerprint. Whoever is dropped can still read the
+// values already committed, so the caller warns to rotate them.
+func DropsRecipients(from, to []string) bool {
+	kept := map[string]bool{}
+	for _, r := range to {
+		if id, err := recipientID(r); err == nil {
+			kept[id] = true
+		}
+	}
+	for _, r := range from {
+		if id, err := recipientID(r); err == nil && !kept[id] {
+			return true
+		}
+	}
+	return false
 }
