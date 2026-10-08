@@ -66,7 +66,7 @@ func (l logger) Debug(ctx context.Context, format string, a ...any) {
 
 func (l logger) println(ctx context.Context, levelString, format string, a ...any) {
 	datePrefix := fmt.Sprintf("[%s] ", time.Now().Format("2006-01-02T15:04:05"))
-	fmt.Println(fmt.Sprintf("%s%s: ", datePrefix, levelString) + fmt.Sprintf(format, a...))
+	fmt.Println(Redact(fmt.Sprintf("%s%s: ", datePrefix, levelString) + fmt.Sprintf(format, a...)))
 }
 
 func (l logger) Silent(ctx context.Context) context.Context {
