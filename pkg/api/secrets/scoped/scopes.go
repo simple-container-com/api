@@ -161,21 +161,6 @@ func LoadScopes(path string) (*Scopes, error) {
 	return &s, nil
 }
 
-// Save writes scopes.yaml with a stable field order.
-func (s *Scopes) Save(path string) error {
-	if s.SchemaVersion == 0 {
-		s.SchemaVersion = CurrentScopesSchemaVersion
-	}
-	data, err := yaml.Marshal(s)
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal scopes")
-	}
-	if err := writeFileAtomic(path, data, 0o644); err != nil {
-		return errors.Wrapf(err, "failed to write %s", path)
-	}
-	return nil
-}
-
 // Recipients returns the authoritative recipient set for a scope, or an error if
 // the scope is not declared (a value can only be encrypted to a governed set).
 func (s *Scopes) Recipients(scope string) ([]string, error) {
