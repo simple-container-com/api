@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/discord"
 	"github.com/simple-container-com/api/pkg/clouds/github"
 	"github.com/simple-container-com/api/pkg/clouds/slack"
@@ -327,9 +328,9 @@ func (e *Executor) sendAlert(ctx context.Context, alertType api.AlertType, title
 	// Create alert payload using SC's alert structure
 	alert := api.Alert{
 		Name:          fmt.Sprintf("%s-%s", stackName, stackEnv),
-		Title:         title,
+		Title:         logger.Redact(title),
 		Reason:        fmt.Sprintf("GitHub Action: %s", os.Getenv("GITHUB_WORKFLOW")),
-		Description:   description,
+		Description:   logger.Redact(description),
 		StackName:     stackName,
 		StackEnv:      stackEnv,
 		DetailsUrl:    fmt.Sprintf("https://github.com/%s/actions/runs/%s", os.Getenv("GITHUB_REPOSITORY"), os.Getenv("GITHUB_RUN_ID")),

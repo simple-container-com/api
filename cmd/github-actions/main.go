@@ -192,10 +192,10 @@ func main() {
 	if execErr != nil {
 		if ctx.Err() != nil {
 			log.Warn(ctx, "Action cancelled: %s, error: %v", actionType, execErr)
-			fmt.Fprintf(os.Stderr, "Action cancelled: %v\n", execErr)
+			fmt.Fprint(os.Stderr, logger.Redact(fmt.Sprintf("Action cancelled: %v\n", execErr)))
 		} else {
 			log.Error(ctx, "Action failed: %s, error: %v", actionType, execErr)
-			fmt.Fprintf(os.Stderr, "Action failed: %v\n", execErr)
+			fmt.Fprint(os.Stderr, logger.Redact(fmt.Sprintf("Action failed: %v\n", execErr)))
 		}
 		os.Exit(1)
 	}
