@@ -5,6 +5,7 @@ package scopedstore
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 
@@ -105,9 +106,19 @@ func TestScopeRegression_RecipientIsNormalized(t *testing.T) {
 	r := newRepo(t)
 	ae := adminEnv(admin, nil)
 	r.allow(t, ae, "pr", admin)
-	r.sc(t, ae, "", scopeArgs("allow", "--scope", "pr", "  "+bob.pub+"\r\n")...)
-	r.sc(t, ae, "", scopeArgs("allow", "--scope", "x", admin.pub+"\n"+eve.pub)...)
-	ss, _ := scoped.LoadScopes(r.path(".sc/scopes.yaml"))
+	if out, err := r.sc(t, ae, "", scopeArgs("allow", "--scope", "pr", "  "+bob.pub+"\r\n")...); err != nil {
+		t.Fatalf("allow with surrounding whitespace failed: %v\n%s", err, out)
+	}
+	if _, err := r.sc(t, ae, "", scopeArgs("allow", "--scope", "x", admin.pub+"\n"+eve.pub)...); err == nil {
+		t.Errorf("allow accepted a recipient that spans two lines")
+	}
+	ss, err := scoped.LoadScopes(r.path(".sc/scopes.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Contains(ss.Scopes["pr"].Recipients, bob.pub) {
+		t.Errorf("trimmed recipient not stored: %q", ss.Scopes["pr"].Recipients)
+	}
 	for _, rc := range ss.Scopes["pr"].Recipients {
 		if rc != strings.TrimSpace(rc) {
 			t.Errorf("recipient stored with surrounding whitespace: %q", rc)

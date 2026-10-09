@@ -4,7 +4,6 @@
 package scoped
 
 import (
-	"math/rand"
 	"os"
 	"path/filepath"
 	"time"
@@ -83,7 +82,7 @@ func LockStore(scDir string, waiting func()) (func(), error) {
 			waiting()
 			noticed = true
 		}
-		time.Sleep(time.Duration(50+rand.Intn(100)) * time.Millisecond) //nolint:gosec // jitter, not security
+		time.Sleep(time.Duration(50+time.Now().UnixNano()%100) * time.Millisecond)
 	}
 	return func() {
 		_ = unlock(f)
