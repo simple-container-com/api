@@ -47,7 +47,11 @@ and [`MAINTAINERS.md`](MAINTAINERS.md) (who holds what).
   with a read-only token and no access to org secrets.
 - **No secrets in workflow logs**: GitHub Actions auto-redacts known
   secret values; we add no debug echoes of env vars that might
-  contain secrets.
+  contain secrets. Values read from Pulumi state are not known to the
+  runner, so `sc` redacts private key material itself (PEM and PGP
+  blocks, their base64 forms, service-account key ids) from its log
+  lines, error output, preview summaries and failure alerts. Other
+  credential types in a state diff are not redacted.
 - **Job-scoped env**: secrets passed to steps via `env:` at the step
   level (or `env:` on the smallest enclosing job), never globally.
 
