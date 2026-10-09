@@ -67,6 +67,9 @@
       "privateNetwork": {
         "type": "string"
       },
+      "privateServicesAccessRange": {
+        "type": "string"
+      },
       "project": {
         "type": "string"
       },

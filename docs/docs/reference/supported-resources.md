@@ -954,10 +954,15 @@ resources:
             deletionProtection: true                     # Enable deletion protection (optional)
             queryInsightsEnabled: false                  # Enable query insights (optional)
             queryStringLength: 1024                      # Query string length limit (optional)
+            privateNetwork: "projects/my-gcp-project/global/networks/my-vpc"  # Private IP on this VPC (optional, restarts an existing instance)
+            privateServicesAccessRange: "10.30.0.0/20"   # SC creates Private Services Access on privateNetwork (optional)
+            publicIpEnabled: true                        # false switches the proxy to --private-ip (optional)
             usersProvisionRuntime:                       # User provisioning runtime (optional)
               type: "kubernetes"
               resourceName: "postgres-job-runner"
 ```
+
+**Private IP:** `privateNetwork` needs Private Services Access on the VPC. With `privateServicesAccessRange` (an RFC 1918 CIDR, /24 or larger) SC reserves the range and creates the servicenetworking peering before the instance; leave it unset if the VPC already has one. The peering is one per VPC, so set the range on at most one resource per network, and treat it as immutable: removing it or destroying the stack keeps the range and the peering (delete them with `gcloud services vpc-peerings delete` and `gcloud compute addresses delete` once no instance uses them). Not supported with `adopt: true`. Adding a private IP to an existing instance restarts it; the proxy keeps using the public IP until `publicIpEnabled: false`.
 
 **Database flag removal semantics:** on freshly provisioned instances, deleting an entry from `databaseFlags` reverts that flag to its engine default on the next update (static flags restart the instance). On **adopted** instances (`adopt: true`), flags are only managed while `databaseFlags` is set — deleting the whole block re-enters drift protection and leaves the last-applied flags in place; to disable a flag, set it to its off value (e.g. `"off"`) instead of removing the line.
 
