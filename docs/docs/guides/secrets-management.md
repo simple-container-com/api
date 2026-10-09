@@ -788,7 +788,8 @@ sc secrets scope allow    --scope pr 'awskms://alias/sc-pr?region=us-east-1'  # 
 sc secrets scope disallow --scope pr <recipient>     # remove a recipient + reseal (then rotate values!)
 
 # Manage values in a scope.
-sc secrets scope set    --scope pr -s <stack> KEY <value>   # or omit value / pass '-' to read stdin
+sc secrets scope set    --scope pr -s <stack> KEY <value>   # or '-' to read the value from stdin
+sc secrets scope set    --scope pr -s <stack> -- KEY -v      # '--' before KEY when the value starts with '-'
 sc secrets scope get    --scope pr -s <stack> KEY
 sc secrets scope list   --scope pr -s <stack>
 sc secrets scope delete --scope pr -s <stack> KEY
@@ -800,6 +801,39 @@ sc secrets scope doctor   # which scopes the current key can open
 
 Commit only the encrypted `secrets.<scope>.yaml` and `scopes.yaml`; never the legacy
 plaintext `stacks/*/secrets.yaml`.
+
+How the commands behave at the edges:
+
+- `allow` and `disallow` edit `scopes.yaml` in place: comments, order, indentation and
+  unknown keys stay, though list items written flush with their key are re-indented.
+  They also reseal any scope file whose recipients drifted from `scopes.yaml`, which is
+  how lint's "recipients drift" is fixed. A recipient is one key on one line; surrounding
+  whitespace is trimmed. They refuse to edit a `scopes.yaml` they cannot edit safely
+  (one that does not parse, or uses YAML anchors, aliases or merge keys) rather than
+  rewrite it.
+- `set` needs the value, or `-` for stdin (put `--` before KEY when the value starts with
+  `-`). This is a change: `set KEY` without a value used to read stdin. The stack must be
+  an existing directory in the stacks dir; stack names are one path segment of letters,
+  digits, `_`, `.` and `-`, starting with a letter, digit or `_`.
+- A `secrets.<scope>.yaml` that does not parse, is not a mapping or is zero bytes long
+  (merge-conflict markers, a truncated write; sc never writes an empty file) fails lint,
+  the deploy read and resealing, with a hint to rename it if it is not a scope file. A
+  file of only whitespace or comments, or a readable mapping with none of the `stack`,
+  `scope` and `recipients` keys such as a plaintext `secrets.example.yaml`, is ignored,
+  and both lint and the deploy log say so. Run `sc secrets scope lint` before upgrading:
+  a file it now rejects would fail deploys.
+- Commands that change scope files or `scopes.yaml` lock the `.sc` directory, so
+  parallel `set` calls do not lose each other's values. The lock is an advisory `flock`
+  on the directory; where the filesystem cannot lock a directory (NFS and some network
+  mounts) a `.sc/.scope-store.lock` file is locked instead, so add it to `.gitignore`
+  there. A waiting command says so after five seconds and gives up after two minutes
+  (`SC_SCOPE_LOCK_TIMEOUT`, a Go duration, changes that). Do not run `git checkout` or
+  `git clean` on `.sc` while a command runs. The store is not locked on Windows.
+- A key given through `--key-file`, `SC_SCOPE_KEY`, or `SC_KEY_<SCOPE>` for a scope in
+  `scopes.yaml`, that does not parse stops the command, naming where it came from,
+  rather than reading as "not a recipient". A deploy logs it as a warning, once. An
+  `SC_KEY_*` variable whose suffix names no scope is not a scope key and is left alone.
+- An existing `scopes.yaml` keeps its indentation; a new one is written with two spaces.
 
 ### Using a scope key in CI
 

@@ -239,7 +239,7 @@ whole-file store's existing `secrets add/allow/disallow/reveal/hide` (which have
 semantics):
 
 ```
-sc secrets scope set      --scope pr -s <stack> KEY [VALUE|-]  # seal/update one value (VALUE arg or stdin)
+sc secrets scope set      --scope pr -s <stack> KEY VALUE|-    # seal/update one value (VALUE, or - for stdin; -- before a dash value)
 sc secrets scope get      --scope pr -s <stack> KEY            # decrypt one value with the ambient/scope key
 sc secrets scope list     --scope pr -s <stack>               # list value names (never prints values)
 sc secrets scope delete   --scope pr -s <stack> KEY           # remove a value

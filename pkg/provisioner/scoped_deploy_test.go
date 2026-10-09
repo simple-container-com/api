@@ -346,3 +346,22 @@ func Test_Deploy_TemplateFromEnvironment(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(got.Client.Stacks["staging"].Template).To(Equal("stack-per-app-ambient"))
 }
+
+// A sealed auth entry that does not parse fails the deploy without printing the
+// start of its decrypted value.
+func Test_Deploy_BrokenScopedAuthDoesNotPrintIt(t *testing.T) {
+	RegisterTestingT(t)
+	rec, key := scopeKey(t)
+	w := newScopedWorkspace(t, rec, map[string]string{
+		"auth:gcloud":     "ghp_SUPERSECRETTOKEN",
+		"staging-app-key": "s3cr3t",
+		"STATE_BUCKET":    "state-bucket",
+	})
+	t.Setenv("SC_KEY_APP_STAGING", key)
+
+	got, err := w.deploy(t, nil, "staging")
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring(`scoped auth "gcloud"`))
+	Expect(err.Error()).NotTo(ContainSubstring("ghp_SUP"))
+	Expect(got).To(BeNil())
+}

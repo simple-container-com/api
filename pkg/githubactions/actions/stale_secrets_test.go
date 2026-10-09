@@ -152,3 +152,35 @@ func TestStaleParentSecretsKeptWithLookalikeFile(t *testing.T) {
 		t.Errorf("secrets.yaml was removed because of a look-alike file: %v", err)
 	}
 }
+
+// A damaged scope file in the parent still marks the stack as scoped: the stale
+// store goes, and the deploy then fails on the damaged file rather than running
+// on a store this run did not reveal. A zero-byte file is a truncated scope file;
+// a whitespace or comments-only placeholder holds nothing and changes nothing.
+func TestStaleParentSecretsWithDamagedOrEmptyScopeFile(t *testing.T) {
+	for name, tc := range map[string]struct {
+		content string
+		removed bool
+	}{
+		"merge conflict": {"<<<<<<< HEAD\nscope: team\n=======\n", true},
+		"zero bytes":     {"", true},
+		"whitespace":     {"\n\n", false},
+		"comments only":  {"# filled in later\n", false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			parent := filepath.Join(root, ".devops", ".sc", "stacks")
+			workspace := filepath.Join(root, ".sc", "stacks")
+			mustWrite(t, filepath.Join(parent, "infra", "secrets.team.yaml"), tc.content)
+			mustWrite(t, filepath.Join(workspace, "infra", "secrets.yaml"), "revealed by an earlier step")
+
+			removed, err := removeStaleParentSecrets(parent, workspace)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := len(removed) == 1; got != tc.removed {
+				t.Errorf("removed %v; want removal %v", removed, tc.removed)
+			}
+		})
+	}
+}

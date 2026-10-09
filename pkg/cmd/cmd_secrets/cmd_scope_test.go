@@ -43,6 +43,17 @@ func execScope(t *testing.T, workdir, stdin string, args ...string) (string, err
 	return out.String(), execErr
 }
 
+// mkStackDirs creates the stack directories a repository has before its scopes
+// are set: scope set refuses a stack with no directory.
+func mkStackDirs(t *testing.T, workdir, root string, stacks ...string) {
+	t.Helper()
+	for _, stack := range stacks {
+		if err := os.MkdirAll(filepath.Join(workdir, root, stack), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func testRecipient(t *testing.T) (authorized, privatePEM string) {
 	t.Helper()
 	g := NewWithT(t)
@@ -58,6 +69,7 @@ func testRecipient(t *testing.T) (authorized, privatePEM string) {
 func TestScopeCmd_SetGetListLintDoctor(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, ".sc/stacks", "integrail")
 	authorized, keyPEM := testRecipient(t)
 
 	// allow (no key needed — no files yet)
@@ -96,6 +108,7 @@ func TestScopeCmd_SetGetListLintDoctor(t *testing.T) {
 func TestScopeCmd_AuthEntry(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, ".sc/stacks", "infra")
 	authorized, keyPEM := testRecipient(t)
 	_, err := execScope(t, workdir, "", "allow", "--scope", "app-staging", authorized)
 	Expect(err).NotTo(HaveOccurred())
@@ -129,6 +142,7 @@ func TestScopeCmd_AuthEntry(t *testing.T) {
 func TestScopeCmd_LintCatchesCrossScopeDuplicate(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, ".sc/stacks", "integrail")
 	authorized, keyPEM := testRecipient(t)
 
 	for _, scope := range []string{"pr", "prod"} {
@@ -162,6 +176,7 @@ func TestScopeCmd_LintCatchesCrossScopeDuplicate(t *testing.T) {
 func TestScopeCmd_LintLegacyDuplicates(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, ".sc/stacks", "infra")
 	authorized, _ := testRecipient(t)
 	_, err := execScope(t, workdir, "", "allow", "--scope", "app-staging", authorized)
 	Expect(err).NotTo(HaveOccurred())
@@ -182,6 +197,7 @@ func TestScopeCmd_LintLegacyDuplicates(t *testing.T) {
 func TestScopeCmd_DisallowLastRecipientRefused(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, ".sc/stacks", "integrail")
 	authorized, _ := testRecipient(t)
 
 	_, err := execScope(t, workdir, "", "allow", "--scope", "pr", authorized)
@@ -197,6 +213,7 @@ func TestScopeCmd_DisallowLastRecipientRefused(t *testing.T) {
 func TestScopeCmd_ReconcileFailsClosedWithoutKey(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, ".sc/stacks", "integrail")
 	authA, _ := testRecipient(t)
 	authB, _ := testRecipient(t)
 
@@ -218,6 +235,7 @@ func TestScopeCmd_ReconcileFailsClosedWithoutKey(t *testing.T) {
 func TestScopeCmd_SetRefusesUndeclaredScope(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, ".sc/stacks", "integrail")
 	// No allow first → scope not in scopes.yaml → set must refuse.
 	out, err := execScope(t, workdir, "", "set", "--scope", "pr", "-s", "integrail", "k", "v")
 	Expect(err).To(HaveOccurred())
@@ -288,6 +306,7 @@ func deployRead(t *testing.T, workdir string, cfg *api.ConfigFile, flagDir, stac
 func TestScopeCmd_ConfiguredStacksDir(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, "deploy/stacks", "myapp")
 	authorized, keyPEM := testRecipient(t)
 	cfg := writeStacksDirConfig(t, workdir, "deploy/stacks")
 	t.Setenv("SC_SCOPE_KEY", keyPEM)
@@ -337,6 +356,7 @@ func TestScopeCmd_ConfiguredStacksDir(t *testing.T) {
 func TestScopeCmd_DefaultStacksDir(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, ".sc/stacks", "myapp")
 	authorized, keyPEM := testRecipient(t)
 	cfg := writeStacksDirConfig(t, workdir, "")
 	t.Setenv("SC_SCOPE_KEY", keyPEM)
@@ -352,6 +372,7 @@ func TestScopeCmd_DefaultStacksDir(t *testing.T) {
 
 	// no config file at all behaves the same (CI with only a scope key)
 	bare := t.TempDir()
+	mkStackDirs(t, bare, ".sc/stacks", "myapp")
 	_, err = execScope(t, bare, "", "allow", "--scope", "pr", authorized)
 	Expect(err).NotTo(HaveOccurred())
 	_, err = execScope(t, bare, "", "set", "--scope", "pr", "-s", "myapp", "k", "v")
@@ -362,6 +383,7 @@ func TestScopeCmd_DefaultStacksDir(t *testing.T) {
 func TestScopeCmd_DirFlagOverridesConfig(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, "flag/stacks", "myapp")
 	authorized, keyPEM := testRecipient(t)
 	cfg := writeStacksDirConfig(t, workdir, "deploy/stacks")
 	t.Setenv("SC_SCOPE_KEY", keyPEM)
@@ -389,6 +411,8 @@ func TestScopeCmd_DirFlagOverridesConfig(t *testing.T) {
 func TestScopeCmd_LintWarnsOnFilesInDefaultDir(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, ".sc/stacks", "myapp")
+	mkStackDirs(t, workdir, "deploy/stacks", "myapp")
 	authorized, _ := testRecipient(t)
 
 	// written while the default dir was in effect
@@ -420,6 +444,7 @@ func TestScopeCmd_BrokenConfigIsNotSilentlyIgnored(t *testing.T) {
 func TestScopeCmd_LintWarnsOnLookalike(t *testing.T) {
 	RegisterTestingT(t)
 	workdir := t.TempDir()
+	mkStackDirs(t, workdir, ".sc/stacks", "myapp")
 	authorized, _ := testRecipient(t)
 
 	_, err := execScope(t, workdir, "", "allow", "--scope", "pr", authorized)
