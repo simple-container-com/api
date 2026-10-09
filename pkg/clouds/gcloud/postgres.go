@@ -4,9 +4,11 @@
 package gcloud
 
 import (
+	"net"
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -43,7 +45,8 @@ type PostgresGcpCloudsqlConfig struct {
 	// PrivateNetwork: when set to a VPC network resource path
 	// (projects/{project}/global/networks/{vpc}) the instance is given a
 	// private IP on that network. Requires Private Services Access (a
-	// servicenetworking peering range) to already exist on the VPC. Adding it
+	// servicenetworking peering range) on the VPC: set privateServicesAccessRange
+	// for SC to create it, or create it outside SC. Adding it
 	// while the public IP stays on is a no-cutover step: the instance gains a
 	// private IP but the in-cluster proxy keeps using the public endpoint until
 	// publicIpEnabled is set false (see UsesPrivateIpProxy).
@@ -54,6 +57,14 @@ type PostgresGcpCloudsqlConfig struct {
 	// private IP (--private-ip). Do this only once the private path is verified
 	// reachable, since the proxy has no public fallback.
 	PublicIpEnabled *bool `json:"publicIpEnabled,omitempty" yaml:"publicIpEnabled,omitempty"`
+	// PrivateServicesAccessRange is a CIDR (e.g. 10.30.0.0/20) that SC reserves
+	// on privateNetwork and peers to servicenetworking.googleapis.com before
+	// creating the instance. Leave it unset when Private Services Access already
+	// exists on the VPC. The peering is one per VPC, so set it on at most one
+	// resource per network. Treat it as immutable: the range and peering are
+	// retained when the field is removed or the stack destroyed, and changing it
+	// does not move an existing peering.
+	PrivateServicesAccessRange *string `json:"privateServicesAccessRange,omitempty" yaml:"privateServicesAccessRange,omitempty"`
 	// Resource adoption fields
 	Adopt          bool   `json:"adopt,omitempty" yaml:"adopt,omitempty"`
 	InstanceName   string `json:"instanceName,omitempty" yaml:"instanceName,omitempty"`
@@ -69,6 +80,12 @@ type ProvisionRuntimeConfig struct {
 // HasPrivateNetwork reports whether a non-empty private VPC network is configured.
 func (c *PostgresGcpCloudsqlConfig) HasPrivateNetwork() bool {
 	return c.PrivateNetwork != nil && *c.PrivateNetwork != ""
+}
+
+// HasPrivateServicesAccessRange reports whether SC should create Private
+// Services Access on privateNetwork.
+func (c *PostgresGcpCloudsqlConfig) HasPrivateServicesAccessRange() bool {
+	return c.PrivateServicesAccessRange != nil && *c.PrivateServicesAccessRange != ""
 }
 
 // UsesPrivateIpProxy reports whether the in-cluster cloud-sql-proxy should dial
@@ -93,7 +110,60 @@ func (c *PostgresGcpCloudsqlConfig) Validate() error {
 	if c.PublicIpEnabled != nil && !*c.PublicIpEnabled && !c.HasPrivateNetwork() {
 		return errors.New("publicIpEnabled: false requires privateNetwork to be set")
 	}
+	if c.HasPrivateServicesAccessRange() {
+		// Adoption returns before any provisioning, so the range would be
+		// silently ignored.
+		if c.Adopt {
+			return errors.New("privateServicesAccessRange is not supported with adopt: true; create Private Services Access outside SC")
+		}
+		if !c.HasPrivateNetwork() {
+			return errors.New("privateServicesAccessRange requires privateNetwork to be set")
+		}
+		if _, err := c.PrivateServicesAccessPrefix(); err != nil {
+			return err
+		}
+	}
 	return nil
+}
+
+// PrivateServicesAccessPrefix parses PrivateServicesAccessRange. The range must
+// be an RFC 1918 IPv4 network address no smaller than /24, which is the least
+// Cloud SQL needs per region.
+func (c *PostgresGcpCloudsqlConfig) PrivateServicesAccessPrefix() (*net.IPNet, error) {
+	raw := strings.TrimSpace(lo.FromPtr(c.PrivateServicesAccessRange))
+	ip, ipNet, err := net.ParseCIDR(raw)
+	if err != nil {
+		return nil, errors.Errorf("privateServicesAccessRange must be a CIDR like '10.30.0.0/20', got %q", raw)
+	}
+	if ip.To4() == nil || len(ipNet.Mask) != net.IPv4len || !withinRFC1918(ipNet) {
+		return nil, errors.Errorf("privateServicesAccessRange must be an IPv4 range inside 10.0.0.0/8, 172.16.0.0/12 or 192.168.0.0/16, got %q", raw)
+	}
+	if !ip.Equal(ipNet.IP) {
+		return nil, errors.Errorf("privateServicesAccessRange %q has host bits set; use %q", raw, ipNet.String())
+	}
+	if ones, _ := ipNet.Mask.Size(); ones > 24 {
+		return nil, errors.Errorf("privateServicesAccessRange must be /24 or larger, got /%d", ones)
+	}
+	return ipNet, nil
+}
+
+var rfc1918Blocks = []*net.IPNet{
+	{IP: net.IPv4(10, 0, 0, 0).To4(), Mask: net.CIDRMask(8, 32)},
+	{IP: net.IPv4(172, 16, 0, 0).To4(), Mask: net.CIDRMask(12, 32)},
+	{IP: net.IPv4(192, 168, 0, 0).To4(), Mask: net.CIDRMask(16, 32)},
+}
+
+// withinRFC1918 reports whether the whole range, not just its first address,
+// lies inside one RFC 1918 block.
+func withinRFC1918(ipNet *net.IPNet) bool {
+	ones, _ := ipNet.Mask.Size()
+	for _, block := range rfc1918Blocks {
+		blockOnes, _ := block.Mask.Size()
+		if block.Contains(ipNet.IP) && ones >= blockOnes {
+			return true
+		}
+	}
+	return false
 }
 
 func PostgresqlGcpCloudsqlReadConfig(config *api.Config) (api.Config, error) {

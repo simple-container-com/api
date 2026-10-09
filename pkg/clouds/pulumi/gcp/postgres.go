@@ -57,6 +57,15 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 
 	databaseFlags := toDatabaseFlagArray(configuredDatabaseFlags(pgCfg))
 
+	opts := []sdk.ResourceOption{sdk.Provider(params.Provider)}
+	if pgCfg.HasPrivateServicesAccessRange() {
+		psa, err := privateServicesAccess(ctx, pgCfg, postgresName, params)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{psa}))
+	}
+
 	pgInstance, err := sql.NewDatabaseInstance(ctx, postgresName, &sql.DatabaseInstanceArgs{
 		Name:            sdk.String(postgresName),
 		Region:          sdk.StringPtrFromPtr(lo.If(pgCfg.Region != nil, pgCfg.Region).Else(nil)),
@@ -78,10 +87,10 @@ func Postgres(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 			IpConfiguration:     ipConfiguration(pgCfg),
 		},
 		DeletionProtection: sdk.Bool(pgCfg.DeletionProtection != nil && *pgCfg.DeletionProtection),
-	}, sdk.Provider(params.Provider))
+	}, opts...)
 	if err != nil {
 		if pgCfg.HasPrivateNetwork() {
-			return nil, errors.Wrapf(err, "failed to provision postgres instance %q (privateNetwork requires a Private Services Access range and servicenetworking connection on the VPC)", postgresName)
+			return nil, errors.Wrapf(err, "failed to provision postgres instance %q (privateNetwork requires Private Services Access on the VPC: set privateServicesAccessRange or create it outside SC)", postgresName)
 		}
 		return nil, errors.Wrapf(err, "failed to provision postgres instance %q", postgresName)
 	}
