@@ -11,7 +11,9 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
@@ -31,6 +33,10 @@ func writeADC(t *testing.T, content string) {
 }
 
 func providerInputs(t *testing.T, credentials string) map[string]any {
+	return providerProps(t, credentials).Mappable()
+}
+
+func providerProps(t *testing.T, credentials string) resource.PropertyMap {
 	mocks := newKmsMocks()
 	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
 		_, err := Provider(ctx, api.Stack{}, api.ResourceInput{
@@ -47,7 +53,7 @@ func providerInputs(t *testing.T, credentials string) map[string]any {
 	}
 	for _, a := range mocks.created {
 		if a.TypeToken == "pulumi:providers:gcp" {
-			return a.Inputs.Mappable()
+			return a.Inputs
 		}
 	}
 	t.Fatal("no gcp provider was created")
@@ -61,9 +67,38 @@ func TestProvider_AmbientCredentialsAreNotPassed(t *testing.T) {
 	Expect(providerInputs(t, "")).NotTo(HaveKey("credentials"))
 }
 
-func TestProvider_ConfiguredKeyIsStillPassed(t *testing.T) {
+// The one property that must never be printable. pulumi-gcp's generated
+// NewProvider marks only `accessToken`, so `credentials` — the whole
+// service-account document, `private_key` included — is left to the caller, and
+// an unmarked provider credential is how a Yandex service-account private key
+// reached a world-readable CI log on 2026-09-30.
+func TestProvider_ConfiguredKeyIsSecretAndStillPassed(t *testing.T) {
 	RegisterTestingT(t)
-	Expect(providerInputs(t, fakeServiceAccountKey)).To(HaveKeyWithValue("credentials", fakeServiceAccountKey))
+	creds := providerProps(t, fakeServiceAccountKey)["credentials"]
+	Expect(creds.IsSecret()).To(BeTrue(),
+		"credentials reached the engine unmarked — the service-account document will be "+
+			"printed verbatim in the preview and update summaries and archived in CI logs")
+	// ...and arrive intact. Masking is the engine's job, so a secret
+	// PropertyValue still carries the plaintext document as its element — that
+	// is not the leak. The leak is it reaching the engine unmarked, above.
+	Expect(creds.SecretValue().Element.StringValue()).To(Equal(fakeServiceAccountKey))
+}
+
+// secretCredentials' own contract, asserted directly so a refactor of the helper
+// cannot pass the call-site test by accident.
+func TestSecretCredentialsMarksSecret(t *testing.T) {
+	RegisterTestingT(t)
+
+	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
+		got, err := internals.UnsafeAwaitOutput(ctx.Context(), secretCredentials("a-credential"))
+		if err != nil {
+			return err
+		}
+		Expect(got.Secret).To(BeTrue())
+		Expect(*got.Value.(*string)).To(Equal("a-credential"))
+		return nil
+	}, pulumi.WithMocks("project", "stack", newKmsMocks()))
+	Expect(err).To(BeNil())
 }
 
 func TestClientOptions(t *testing.T) {
