@@ -295,7 +295,7 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	args := &gcp.ProviderArgs{Project: sdk.String(projectId)}
 	if !gcloud.UsesAmbientCredentials(creds) {
 		// Without Credentials the provider uses Application Default Credentials.
-		args.Credentials = sdk.String(creds)
+		args.Credentials = secretCredentials(creds)
 	}
 	provider, err := gcp.NewProvider(ctx, input.ToResName(input.Descriptor.Name), args)
 	return &api.ResourceOutput{

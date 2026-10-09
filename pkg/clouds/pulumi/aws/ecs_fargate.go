@@ -244,8 +244,30 @@ func createEcsFargateCluster(ctx *sdk.Context, stack api.Stack, params pApi.Prov
 		},
 		Egress: ec2.SecurityGroupEgressArray{
 			&ec2.SecurityGroupEgressArgs{
-				Description:    sdk.String("Allow ALL outbound traffic"),
+				Description:    sdk.String("Allow ALL outbound TCP traffic"),
 				Protocol:       sdk.String("tcp"),
+				FromPort:       sdk.Int(0),
+				ToPort:         sdk.Int(65535),
+				CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
+				Ipv6CidrBlocks: sdk.StringArray{sdk.String("::/0")},
+			},
+			// UDP egress is required for any workload that needs STUN
+			// reflexive-candidate discovery or direct UDP media (WebRTC,
+			// VoIP, QUIC without ALPN, etc). Without this rule, pion's
+			// ICE agent can't reach STUN servers, no srflx candidate
+			// is gathered, and the only remaining path is a TURN-TCP-TLS
+			// relay — which routes correctly but is a well-known
+			// SFU-side anti-abuse trigger that silently withholds
+			// returning media on some bridges. Live-caught 2026-10-08
+			// in forge-baas ktalk: a Kontur.Talk JVB forwarded zero
+			// RTP to any Fargate-origin participant until this rule
+			// landed. Opening UDP 0-65535 is standard for Fargate
+			// services; stateful SG tracks the per-flow mapping, so
+			// return-direction UDP is auto-allowed without an ingress
+			// rule.
+			&ec2.SecurityGroupEgressArgs{
+				Description:    sdk.String("Allow ALL outbound UDP traffic (WebRTC/STUN/VoIP)"),
+				Protocol:       sdk.String("udp"),
 				FromPort:       sdk.Int(0),
 				ToPort:         sdk.Int(65535),
 				CidrBlocks:     sdk.StringArray{sdk.String("0.0.0.0/0")},
