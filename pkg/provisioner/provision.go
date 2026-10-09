@@ -235,7 +235,7 @@ func (p *provisioner) readSecretsDescriptorFromFile(ctx context.Context, descFil
 			}
 			auth, err := api.ParseAuthDescriptor(v)
 			if err != nil {
-				return nil, errors.Wrapf(scoped.ErrScopedIntegrity, "scoped auth %q in %s: %v", name, path.Dir(descFilePath), err)
+				return nil, errors.Wrapf(scoped.ErrScopedIntegrity, "scoped auth %q in %s: %v", name, path.Dir(descFilePath), scoped.RedactYAMLError(err))
 			}
 			if desc.Auth == nil {
 				desc.Auth = map[string]api.AuthDescriptor{}

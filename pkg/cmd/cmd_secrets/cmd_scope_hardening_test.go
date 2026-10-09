@@ -493,3 +493,13 @@ func TestScopeCmd_InvalidNamesCreateNothing(t *testing.T) {
 	}
 	Expect(filepath.Join(workdir, ".sc")).NotTo(BeADirectory())
 }
+
+// set refuses a broken auth entry without echoing the start of the value.
+func TestScopeCmd_SetBrokenAuthDoesNotEchoIt(t *testing.T) {
+	RegisterTestingT(t)
+	workdir, _, _ := newScopeRepo(t)
+	out, err := execScope(t, workdir, "ghp_SUPERSECRETTOKEN\n", "set", "--scope", "pr", "-s", "app", "auth:gcloud", "-")
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("must be the YAML of one auth entry"))
+	Expect(err.Error() + out).NotTo(ContainSubstring("ghp_SUP"))
+}

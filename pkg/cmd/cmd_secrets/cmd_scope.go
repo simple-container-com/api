@@ -275,7 +275,7 @@ func newScopeSetCmd(sCmd *secretsCmd) *cobra.Command {
 			if strings.HasPrefix(key, scoped.AuthKeyPrefix) {
 				// Refuse a broken auth entry now rather than at the next deploy.
 				if _, err := api.ParseAuthDescriptor(value); err != nil {
-					return errors.Wrapf(err, "%s must be the YAML of one auth entry (type + config)", key)
+					return errors.Wrapf(scoped.RedactYAMLError(err), "%s must be the YAML of one auth entry (type + config)", key)
 				}
 			}
 			if err := s.validateNames(); err != nil {

@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gopkg.in/yaml.v3"
 )
 
 func wantErr(t *testing.T, name string, err error, contains string) {
@@ -630,5 +631,56 @@ func TestInvalidEnvScopeKeys(t *testing.T) {
 	}
 	if ScopeKeyEnvName("my-scope") != "SC_KEY_MY_SCOPE" {
 		t.Errorf("ScopeKeyEnvName = %s", ScopeKeyEnvName("my-scope"))
+	}
+}
+
+// A YAML error quotes the start of the value it could not decode; for a secret
+// that is the start of the secret.
+func TestRedactYAMLErrorDropsQuotedValues(t *testing.T) {
+	var v struct{ A map[string]string }
+	err := yaml.Unmarshal([]byte("ghp_SUPERSECRETTOKEN"), &v)
+	if err == nil || !strings.Contains(err.Error(), "ghp_SUP") {
+		t.Fatalf("expected a YAML error quoting the value, got %v", err)
+	}
+	if got := RedactYAMLError(err).Error(); strings.Contains(got, "ghp_SUP") || !strings.Contains(got, "cannot unmarshal") {
+		t.Errorf("RedactYAMLError = %q", got)
+	}
+	if RedactYAMLError(nil) != nil {
+		t.Error("RedactYAMLError(nil) != nil")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secrets.pr.yaml")
+	if err := os.WriteFile(path, []byte("ghp_SUPERSECRETTOKEN\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadScopeFile(path); err == nil || strings.Contains(err.Error(), "ghp_SUP") {
+		t.Errorf("LoadScopeFile on a plaintext file: %v", err)
+	}
+}
+
+// Deploys read a stack directory that is a symlink, so allow, disallow and lint
+// must see its scope files too.
+func TestListScopeFilesFollowsSymlinkedStacks(t *testing.T) {
+	root := t.TempDir()
+	stacks := filepath.Join(root, "stacks")
+	real := filepath.Join(root, "real-web")
+	for _, d := range []string{stacks, real} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(real, "secrets.pr.yaml"), []byte("stack: web\nscope: pr\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(stacks, "web")); err != nil {
+		t.Skip("symlinks unsupported:", err)
+	}
+	if err := os.WriteFile(filepath.Join(stacks, "notes.txt"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files, err := ListScopeFiles(stacks)
+	if err != nil || len(files) != 1 {
+		t.Errorf("ListScopeFiles = %v, %v; want the file in the linked stack", files, err)
 	}
 }

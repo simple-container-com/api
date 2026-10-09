@@ -804,10 +804,10 @@ plaintext `stacks/*/secrets.yaml`.
 
 How the commands behave at the edges:
 
-- `allow` and `disallow` edit `scopes.yaml` in place: only the recipient line they add
-  or remove changes, and comments, order and unknown keys stay. They also reseal any
-  scope file whose recipients drifted from `scopes.yaml`, which is how lint's
-  "recipients drift" is fixed. A recipient is one key on one line; surrounding
+- `allow` and `disallow` edit `scopes.yaml` in place: comments, order, indentation and
+  unknown keys stay, though list items written flush with their key are re-indented.
+  They also reseal any scope file whose recipients drifted from `scopes.yaml`, which is
+  how lint's "recipients drift" is fixed. A recipient is one key on one line; surrounding
   whitespace is trimmed. They refuse to edit a `scopes.yaml` they cannot edit safely
   (one that does not parse, or uses YAML anchors, aliases or merge keys) rather than
   rewrite it.

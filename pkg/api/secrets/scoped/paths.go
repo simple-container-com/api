@@ -164,7 +164,8 @@ func ListScopeFilesAndLookalikes(stacksRoot string) (scopeFiles, lookalikes []st
 		return nil, nil, errors.Wrapf(err, "failed to list %s", stacksRoot)
 	}
 	for _, e := range entries {
-		if !e.IsDir() {
+		// Deploys read a stack directory reached through a symlink, so it is listed too.
+		if st, err := os.Stat(filepath.Join(stacksRoot, e.Name())); err != nil || !st.IsDir() {
 			continue
 		}
 		sf, la, err := ScopeFilesIn(filepath.Join(stacksRoot, e.Name()))
