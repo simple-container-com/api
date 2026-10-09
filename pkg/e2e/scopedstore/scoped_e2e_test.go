@@ -266,6 +266,50 @@ func (r *repo) mustSecretGet(t *testing.T, env map[string]string, name string) s
 	return v
 }
 
+// scopes.yaml is a reviewed file: allow and disallow change the recipient lines
+// they are asked to, and nothing else in it.
+func TestScopesYAMLEditsKeepTheReviewedFile(t *testing.T) {
+	admin, pr := newEd25519(t), newRSA(t)
+	r := newRepo(t)
+	ae := adminEnv(admin, nil)
+	r.allow(t, ae, "pr", admin)
+	r.set(t, ae, "pr", "DD_TOKEN", "dd-123")
+
+	reviewed := "# Which keys open each scope. Reviewed by the platform team.\n" +
+		"schemaVersion: 1\n" +
+		"scopes:\n" +
+		"  # pull request scans\n" +
+		"  pr:\n" +
+		"    description: scans\n" +
+		"    recipients:\n" +
+		"      - " + admin.pub + " # break-glass\n"
+	r.write(t, ".sc/scopes.yaml", reviewed)
+
+	r.allow(t, ae, "pr", pr)
+	data, err := os.ReadFile(r.path(".sc/scopes.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := reviewed + "      - " + pr.pub + "\n"; string(data) != want {
+		t.Fatalf("allow rewrote scopes.yaml:\n--- got\n%s--- want\n%s", data, want)
+	}
+	if got := lastLine(r.mustSC(t, jobEnv("SC_KEY_PR", pr), "", "secrets", "scope", "get", "--scope", "pr", "-s", "infra", "DD_TOKEN")); got != "dd-123" {
+		t.Errorf("added recipient reads %q", got)
+	}
+
+	r.mustSC(t, ae, "", "secrets", "scope", "disallow", "--scope", "pr", pr.pub)
+	data, err = os.ReadFile(r.path(".sc/scopes.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != reviewed {
+		t.Fatalf("disallow did not restore the reviewed file:\n--- got\n%s--- want\n%s", data, reviewed)
+	}
+	if out := r.mustSC(t, ae, "", "secrets", "scope", "lint"); !strings.Contains(out, "scope file(s) OK") {
+		t.Errorf("lint after the edits: %s", out)
+	}
+}
+
 func TestScopedStoreE2E(t *testing.T) {
 	t.Run("1 admin creates a scope and both keys open it", func(t *testing.T) {
 		admin, pr := newEd25519(t), newRSA(t)
