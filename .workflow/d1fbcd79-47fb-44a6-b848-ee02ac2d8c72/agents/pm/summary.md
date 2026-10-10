@@ -1,0 +1,1 @@
+[thinking] # PM Handoff — sc-ingress-drops-visitor-host (verification-only)
