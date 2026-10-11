@@ -1,0 +1,1 @@
+I re-ran the probe myself (fresh correlation IDs, `cf-ray: a489fe68fc62b161-FRA`, `x-amzn-requestid: cebe69f6-49cd-46af-88aa-29e09f8aa234`, 01:11:57Z) and reproduced the 200 exactly. **AC1–AC4 PASS. AC3 remains PASS-by-host-keyed-response, not by a literal log line** — I could not close that, and I will not dress it up.
