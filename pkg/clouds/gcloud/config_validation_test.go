@@ -63,6 +63,10 @@ func TestPostgresGcpCloudsqlConfig_Validate(t *testing.T) {
 		{name: "public off without network", cfg: PostgresGcpCloudsqlConfig{PublicIpEnabled: lo.ToPtr(false)}, errSubstr: "requires privateNetwork"},
 		{name: "public off with empty network", cfg: PostgresGcpCloudsqlConfig{PublicIpEnabled: lo.ToPtr(false), PrivateNetwork: lo.ToPtr("")}, errSubstr: "requires privateNetwork"},
 		{name: "public off with network ok", cfg: PostgresGcpCloudsqlConfig{PublicIpEnabled: lo.ToPtr(false), PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc")}},
+		{name: "proxy private without network", cfg: PostgresGcpCloudsqlConfig{ProxyPrivateIp: lo.ToPtr(true)}, errSubstr: "proxyPrivateIp: true requires privateNetwork"},
+		{name: "proxy private with network ok", cfg: PostgresGcpCloudsqlConfig{ProxyPrivateIp: lo.ToPtr(true), PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc")}},
+		{name: "proxy public with public off", cfg: PostgresGcpCloudsqlConfig{ProxyPrivateIp: lo.ToPtr(false), PublicIpEnabled: lo.ToPtr(false), PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc")}, errSubstr: "contradicts publicIpEnabled: false"},
+		{name: "proxy public explicit ok", cfg: PostgresGcpCloudsqlConfig{ProxyPrivateIp: lo.ToPtr(false)}},
 		{name: "psa range without network", cfg: PostgresGcpCloudsqlConfig{PrivateServicesAccessRange: lo.ToPtr("10.30.0.0/20")}, errSubstr: "requires privateNetwork"},
 		{name: "psa range not a CIDR", cfg: PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc"), PrivateServicesAccessRange: lo.ToPtr("10.30.0.0")}, errSubstr: "must be a CIDR"},
 		{name: "psa range public", cfg: PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc"), PrivateServicesAccessRange: lo.ToPtr("8.8.8.0/24")}, errSubstr: "inside 10.0.0.0/8"},
@@ -106,6 +110,12 @@ func TestPostgresGcpCloudsqlConfig_ProxyAndNetworkHelpers(t *testing.T) {
 	Expect((&PostgresGcpCloudsqlConfig{PublicIpEnabled: lo.ToPtr(true)}).UsesPrivateIpProxy()).To(BeFalse())
 	Expect((&PostgresGcpCloudsqlConfig{PrivateNetwork: lo.ToPtr("projects/p/global/networks/vpc")}).UsesPrivateIpProxy()).To(BeFalse())
 	Expect((&PostgresGcpCloudsqlConfig{PublicIpEnabled: lo.ToPtr(false)}).UsesPrivateIpProxy()).To(BeTrue())
+
+	// proxyPrivateIp moves the proxy to the private IP while the public IP stays on.
+	net := lo.ToPtr("projects/p/global/networks/vpc")
+	Expect((&PostgresGcpCloudsqlConfig{PrivateNetwork: net, ProxyPrivateIp: lo.ToPtr(true)}).UsesPrivateIpProxy()).To(BeTrue())
+	Expect((&PostgresGcpCloudsqlConfig{PrivateNetwork: net, ProxyPrivateIp: lo.ToPtr(true), PublicIpEnabled: lo.ToPtr(true)}).UsesPrivateIpProxy()).To(BeTrue())
+	Expect((&PostgresGcpCloudsqlConfig{PrivateNetwork: net, ProxyPrivateIp: lo.ToPtr(false)}).UsesPrivateIpProxy()).To(BeFalse())
 }
 
 // Cloud KMS bills every ACTIVE key version (ENABLED, DISABLED and

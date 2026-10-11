@@ -73,6 +73,9 @@
       "project": {
         "type": "string"
       },
+      "proxyPrivateIp": {
+        "type": "boolean"
+      },
       "publicIpEnabled": {
         "type": "boolean"
       },
