@@ -64,6 +64,7 @@ type ImageOut struct {
 // ImageOut.AddOpts, which gates on sign+verify — not on scan. Scan runs
 // parallel and reports findings without blocking the deploy.
 func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionParams, deployParams api.StackParams, image Image) (*ImageOut, error) {
+	image.Registry = SecretRegistry(image.Registry)
 	imageFullUrl := image.RepositoryUrl.ApplyT(func(repoUri string) string {
 		if image.RepositoryUrlWithImage {
 			return fmt.Sprintf("%s:%s", repoUri, image.Version)
@@ -293,6 +294,16 @@ func executeSecurityOperations(ctx *sdk.Context, stack api.Stack, dockerImage *d
 	return opts, nil
 }
 
+// SecretRegistry returns reg with its password marked secret. The docker
+// provider does not mark registry.password secret, so a plain password (a
+// registry token minted on every run) is stored in state as plaintext.
+func SecretRegistry(reg docker.RegistryArgs) docker.RegistryArgs {
+	if reg.Password != nil {
+		reg.Password = sdk.ToSecret(reg.Password.ToStringPtrOutput()).(sdk.StringPtrOutput)
+	}
+	return reg
+}
+
 // createRegistryLogin writes registry credentials to ~/.docker/config.json
 // so security tools (cosign, grype, trivy, syft) can authenticate.
 func createRegistryLogin(ctx *sdk.Context, image Image, imageName string, baseDeps []sdk.Resource) ([]sdk.Resource, error) {
@@ -308,13 +319,16 @@ func createRegistryLogin(ctx *sdk.Context, image Image, imageName string, baseDe
 		loginInputs = sdk.All(image.Registry.Server, sdk.String(""), sdk.String(""))
 	}
 	loginCmd, err := local.NewCommand(ctx, fmt.Sprintf("registry-login-%s", imageName), &local.CommandArgs{
-		Create: loginInputs.ApplyT(func(args []interface{}) string {
+		// The command (the constant script or the empty-password warning) and the
+		// server hold no credential; Unsecret keeps them readable in diffs although
+		// they are derived from the secret password.
+		Create: sdk.Unsecret(loginInputs.ApplyT(func(args []interface{}) string {
 			return registryLoginCommand(resolveStringArg(args[2]))
-		}).(sdk.StringOutput),
+		})).(sdk.StringOutput),
 		Environment: sdk.StringMap{
-			registryServerEnv: loginInputs.ApplyT(func(args []interface{}) string {
+			registryServerEnv: sdk.Unsecret(loginInputs.ApplyT(func(args []interface{}) string {
 				return resolveStringArg(args[0])
-			}).(sdk.StringOutput),
+			})).(sdk.StringOutput),
 			registryAuthEnv: sdk.ToSecret(loginInputs.ApplyT(func(args []interface{}) string {
 				return registryAuth(resolveStringArg(args[1]), resolveStringArg(args[2]))
 			})).(sdk.StringOutput),
