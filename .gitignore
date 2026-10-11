@@ -38,3 +38,11 @@ pkg/clouds/pulumi/testdata/secrets/docker-creds.yaml
 # directory, which meant an encrypted private key landed in the source tree.
 cosign.key
 cosign.pub
+
+# Auto-added by forge-agent-worker — regenerable build outputs + forge metadata
+.workflow/
+
+# Auto-added by forge-agent-worker — SC plaintext secrets MUST NEVER be committed
+# (only the encrypted .sc/secrets.yaml registry is). See SC secrets docs.
+.sc/stacks/*/secrets.yaml
+!.sc/secrets.yaml
