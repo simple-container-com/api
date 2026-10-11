@@ -309,8 +309,16 @@ func createRegistryLogin(ctx *sdk.Context, image Image, imageName string, baseDe
 	}
 	loginCmd, err := local.NewCommand(ctx, fmt.Sprintf("registry-login-%s", imageName), &local.CommandArgs{
 		Create: loginInputs.ApplyT(func(args []interface{}) string {
-			return writeRegistryLogin(resolveStringArg(args[0]), resolveStringArg(args[1]), resolveStringArg(args[2]))
+			return registryLoginCommand(resolveStringArg(args[2]))
 		}).(sdk.StringOutput),
+		Environment: sdk.StringMap{
+			registryServerEnv: loginInputs.ApplyT(func(args []interface{}) string {
+				return resolveStringArg(args[0])
+			}).(sdk.StringOutput),
+			registryAuthEnv: sdk.ToSecret(loginInputs.ApplyT(func(args []interface{}) string {
+				return registryAuth(resolveStringArg(args[1]), resolveStringArg(args[2]))
+			})).(sdk.StringOutput),
+		},
 	}, sdk.DependsOn(baseDeps))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create registry login for image %q", imageName)

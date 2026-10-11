@@ -376,15 +376,6 @@ func TestResolveStringArg(t *testing.T) {
 	Expect(resolveStringArg(42)).To(BeEmpty())
 }
 
-func TestWriteDockerConfigScript(t *testing.T) {
-	RegisterTestingT(t)
-
-	script := writeDockerConfigScript("registry.example.com", "dGVzdC1hdXRo")
-	Expect(script).To(ContainSubstring("registry.example.com"))
-	Expect(script).To(ContainSubstring("dGVzdC1hdXRo"))
-	Expect(script).To(ContainSubstring(".docker/config.json"))
-}
-
 func TestVerifyProvenanceArgs(t *testing.T) {
 	RegisterTestingT(t)
 
