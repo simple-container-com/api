@@ -82,35 +82,52 @@ func resolveStringArg(v interface{}) string {
 
 // --- Registry auth ---
 
-// writeDockerConfigScript returns a shell script that writes registry
-// credentials to ~/.docker/config.json (and /root/.docker as fallback).
-func writeDockerConfigScript(server, auth string) string {
-	return fmt.Sprintf(
-		`CREDS='{"auths":{"%[1]s":{"auth":"%[2]s"}}}' && `+
-			`mkdir -p "$HOME/.docker" && `+
-			`if [ -f "$HOME/.docker/config.json" ] && command -v jq >/dev/null 2>&1; then `+
-			`jq '.auths["%[1]s"]={"auth":"%[2]s"}' "$HOME/.docker/config.json" > "$HOME/.docker/config.json.tmp" && `+
-			`mv "$HOME/.docker/config.json.tmp" "$HOME/.docker/config.json"; `+
-			`else `+
-			`printf '%%s' "$CREDS" > "$HOME/.docker/config.json"; `+
-			`fi && `+
-			`if [ "$HOME" != "/root" ]; then `+
-			`mkdir -p /root/.docker 2>/dev/null && printf '%%s' "$CREDS" > /root/.docker/config.json 2>/dev/null || true; `+
-			`fi`,
-		server, auth,
-	)
+const (
+	registryServerEnv = "SC_REGISTRY_SERVER"
+	registryAuthEnv   = "SC_REGISTRY_AUTH"
+	// registryFallbackHomeEnv overrides the /root fallback directory (tests).
+	registryFallbackHomeEnv = "SC_REGISTRY_FALLBACK_HOME"
+)
+
+// registryLoginScript writes the credentials in SC_REGISTRY_SERVER and
+// SC_REGISTRY_AUTH to ~/.docker/config.json (and /root/.docker as fallback).
+// They come from the environment so that the command text, which Pulumi prints
+// in every preview diff, never holds the registry token.
+const registryLoginScript = `S="$` + registryServerEnv + `" A="$` + registryAuthEnv + `" R="${` + registryFallbackHomeEnv + `:-/root}"; ` +
+	`if [ -z "$S" ]; then echo 'WARNING: registry server is empty; docker config not written.'; exit 0; fi; ` +
+	`if command -v jq >/dev/null 2>&1; then ` +
+	`CREDS=$(jq -nc --arg s "$S" --arg a "$A" '{auths:{($s):{auth:$a}}}'); ` +
+	`else ` +
+	`CREDS=$(printf '{"auths":{"%s":{"auth":"%s"}}}' "$S" "$A"); ` +
+	`fi && ` +
+	`mkdir -p "$HOME/.docker" && ` +
+	`if [ -f "$HOME/.docker/config.json" ] && command -v jq >/dev/null 2>&1; then ` +
+	`jq --arg s "$S" --arg a "$A" '.auths[$s]={"auth":$a}' "$HOME/.docker/config.json" > "$HOME/.docker/config.json.$$" && ` +
+	`mv "$HOME/.docker/config.json.$$" "$HOME/.docker/config.json"; ` +
+	`else ` +
+	`printf '%s' "$CREDS" > "$HOME/.docker/config.json"; ` +
+	`fi && ` +
+	`if [ "$HOME" != "$R" ]; then ` +
+	`mkdir -p "$R/.docker" 2>/dev/null && printf '%s' "$CREDS" > "$R/.docker/config.json" 2>/dev/null || true; ` +
+	`fi`
+
+const emptyRegistryPasswordWarning = "echo 'WARNING: Registry password is empty — security tools may fail to authenticate. Check RegistryArgs credential flow.'"
+
+// registryLoginCommand returns the registry-login command; the credentials go
+// in its environment (registryAuth).
+func registryLoginCommand(password string) string {
+	if password == "" {
+		return emptyRegistryPasswordWarning
+	}
+	return registryLoginScript
 }
 
-// writeRegistryLogin builds the registry-login shell command from resolved credentials.
-func writeRegistryLogin(server, username, password string) string {
-	if password == "" {
-		return "echo 'WARNING: Registry password is empty — security tools may fail to authenticate. Check RegistryArgs credential flow.'"
-	}
+// registryAuth is the docker config "auth" value for the credentials.
+func registryAuth(username, password string) string {
 	if username == "" {
 		username = "_token"
 	}
-	auth := base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
-	return writeDockerConfigScript(server, auth)
+	return base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 }
 
 // --- Signing/verify CLI helpers ---
