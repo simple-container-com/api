@@ -49,7 +49,8 @@ type PostgresGcpCloudsqlConfig struct {
 	// for SC to create it, or create it outside SC. Adding it
 	// while the public IP stays on is a no-cutover step: the instance gains a
 	// private IP but the in-cluster proxy keeps using the public endpoint until
-	// publicIpEnabled is set false (see UsesPrivateIpProxy).
+	// proxyPrivateIp is set or publicIpEnabled is set false (see
+	// UsesPrivateIpProxy).
 	PrivateNetwork *string `json:"privateNetwork,omitempty" yaml:"privateNetwork,omitempty"`
 	// PublicIpEnabled toggles the instance's public IPv4 address (default true
 	// to preserve existing authorized networks). Setting it false requires
@@ -57,6 +58,12 @@ type PostgresGcpCloudsqlConfig struct {
 	// private IP (--private-ip). Do this only once the private path is verified
 	// reachable, since the proxy has no public fallback.
 	PublicIpEnabled *bool `json:"publicIpEnabled,omitempty" yaml:"publicIpEnabled,omitempty"`
+	// ProxyPrivateIp switches the in-cluster cloud-sql-proxy to the private IP
+	// (--private-ip) while the public IP stays on. Requires privateNetwork. Each
+	// client stack picks it up on its next deploy and every proxy not yet
+	// redeployed keeps the public path, so moving a fleet needs no cutover.
+	// Disabling the public IP (publicIpEnabled: false) implies it.
+	ProxyPrivateIp *bool `json:"proxyPrivateIp,omitempty" yaml:"proxyPrivateIp,omitempty"`
 	// PrivateServicesAccessRange is a CIDR (e.g. 10.30.0.0/20) that SC reserves
 	// on privateNetwork and peers to servicenetworking.googleapis.com before
 	// creating the instance. Leave it unset when Private Services Access already
@@ -89,11 +96,11 @@ func (c *PostgresGcpCloudsqlConfig) HasPrivateServicesAccessRange() bool {
 }
 
 // UsesPrivateIpProxy reports whether the in-cluster cloud-sql-proxy should dial
-// the instance's private IP. The proxy switches to private only once the public
-// IP is disabled, so adding privateNetwork while the public IP stays on does not
+// the instance's private IP: when proxyPrivateIp is set, or when the public IP is
+// disabled and private is the only path. Adding privateNetwork alone does not
 // touch the proxy.
 func (c *PostgresGcpCloudsqlConfig) UsesPrivateIpProxy() bool {
-	return c.PublicIpEnabled != nil && !*c.PublicIpEnabled
+	return lo.FromPtr(c.ProxyPrivateIp) || (c.PublicIpEnabled != nil && !*c.PublicIpEnabled)
 }
 
 // Validate checks Cloud SQL config invariants that would otherwise surface as
@@ -109,6 +116,14 @@ func (c *PostgresGcpCloudsqlConfig) Validate() error {
 	// unreachable by the cloud-sql-proxy.
 	if c.PublicIpEnabled != nil && !*c.PublicIpEnabled && !c.HasPrivateNetwork() {
 		return errors.New("publicIpEnabled: false requires privateNetwork to be set")
+	}
+	if lo.FromPtr(c.ProxyPrivateIp) && !c.HasPrivateNetwork() {
+		return errors.New("proxyPrivateIp: true requires privateNetwork to be set")
+	}
+	// The proxy has no public fallback, so with the public IP off it must dial
+	// the private IP.
+	if c.ProxyPrivateIp != nil && !*c.ProxyPrivateIp && c.PublicIpEnabled != nil && !*c.PublicIpEnabled {
+		return errors.New("proxyPrivateIp: false contradicts publicIpEnabled: false; the proxy would have no address to dial")
 	}
 	if c.HasPrivateServicesAccessRange() {
 		// Adoption returns before any provisioning, so the range would be
