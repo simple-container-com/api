@@ -1,0 +1,1 @@
+All links verified first-party. Here's my handoff.
