@@ -29,21 +29,11 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
-	if !params.SkipRefresh {
-		p.logger.Info(ctx, "%s", color.GreenFmt("Refreshing parent stack %q...", stackSource.Name()))
-		refreshResult, err := stackSource.Refresh(ctx, refreshOptions()...)
-		if err != nil {
-			return nil, err
-		}
-		p.logger.Info(ctx, "%s", color.GreenFmt("Refresh parent summary: %q", p.toRefreshResult(refreshResult)))
-	}
-
 	p.logger.Info(ctx, "Preview parent stack %q...", stackSource.Name())
-	previewResult, err := stackSource.Preview(
-		ctx,
+	previewResult, err := stackSource.Preview(ctx, append([]optpreview.Option{
 		optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))),
 		optpreview.Diff(), // Enable detailed diff output for better visibility into changes
-	)
+	}, previewRefresh(params.SkipRefresh)...)...)
 	if err != nil {
 		return nil, err
 	}

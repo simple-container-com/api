@@ -8,16 +8,26 @@ import (
 
 	. "github.com/onsi/gomega"
 
-	"github.com/pulumi/pulumi/sdk/v3/go/auto/optrefresh"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optpreview"
+	"github.com/pulumi/pulumi/sdk/v3/go/auto/optup"
 )
 
-func TestRefreshRunsTheProgram(t *testing.T) {
+func TestRefreshIsPartOfPreviewAndUpdate(t *testing.T) {
 	RegisterTestingT(t)
-	var o optrefresh.Options
-	for _, opt := range refreshOptions(optrefresh.Message("kept")) {
-		opt.ApplyOption(&o)
+	var p optpreview.Options
+	for _, o := range previewRefresh(false) {
+		o.ApplyOption(&p)
 	}
-	Expect(o.RunProgram).NotTo(BeNil())
-	Expect(*o.RunProgram).To(BeTrue())
-	Expect(o.Message).To(Equal("kept"))
+	Expect(p.Refresh).To(BeTrue())
+	Expect(p.RunProgram).To(HaveValue(BeTrue()))
+
+	var u optup.Options
+	for _, o := range upRefresh(false) {
+		o.ApplyOption(&u)
+	}
+	Expect(u.Refresh).To(BeTrue())
+	Expect(u.RunProgram).To(HaveValue(BeTrue()))
+
+	Expect(previewRefresh(true)).To(BeEmpty())
+	Expect(upRefresh(true)).To(BeEmpty())
 }
