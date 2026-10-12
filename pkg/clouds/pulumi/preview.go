@@ -11,7 +11,6 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
-	"github.com/pulumi/pulumi/sdk/v3/go/auto/optpreview"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -19,7 +18,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
-func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.ProvisionParams) (*api.PreviewResult, error) {
+func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, _ api.ProvisionParams) (*api.PreviewResult, error) {
 	s, err := p.validateStateAndGetStack(ctx)
 	if err != nil {
 		return nil, err
@@ -30,10 +29,7 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 		return nil, err
 	}
 	p.logger.Info(ctx, "Preview parent stack %q...", stackSource.Name())
-	previewResult, err := stackSource.Preview(ctx, append([]optpreview.Option{
-		optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))),
-		optpreview.Diff(), // Enable detailed diff output for better visibility into changes
-	}, previewRefresh(params.SkipRefresh)...)...)
+	previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, true)...)
 	if err != nil {
 		return nil, err
 	}
@@ -57,11 +53,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 		return nil, err
 	}
 	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child stack %q...", stackSource.Name()))
-	previewResult, err := stackSource.Preview(
-		ctx,
-		optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))),
-		optpreview.Diff(), // Enable detailed diff output for better visibility into changes
-	)
+	previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, true)...)
 	if err != nil {
 		return nil, err
 	}

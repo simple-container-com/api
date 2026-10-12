@@ -4,35 +4,53 @@
 package pulumi
 
 import (
+	"context"
+
+	"github.com/Masterminds/semver/v3"
+	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optpreview"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optup"
 )
 
-// The refresh runs inside the preview and the update, with the program, rather
-// than as a separate `pulumi refresh`. A separate refresh configures each
-// provider from state, so after a credential change (a rotated or deleted
-// service-account key, a move to ambient credentials) every refresh of a stack
-// not deployed since fails to authenticate until a deploy without refresh has
-// rewritten the state. Running the program gives the providers the
-// configuration the stack uses now.
-//
-// Inside the operation the program runs once, with the operation's dry-run
-// semantics: a preview stays a preview (resources not created yet are unknown,
-// nothing is written), and an update applies what it refreshed. A standalone
-// `refresh --run-program` would instead run the program as a non-dry run, with
-// empty outputs for resources that do not exist yet, and execute side effects
-// guarded by !ctx.DryRun() before the update.
+// minRefreshCLI is the first pulumi CLI without known engine bugs in
+// `up --refresh --run-program`.
+var minRefreshCLI = semver.MustParse("3.231.0")
 
-func previewRefresh(skip bool) []optpreview.Option {
-	if skip {
-		return nil
+// previewOptions never refresh: a refresh inside a preview reads resources
+// whose provider configuration is still unknown as deleted, and reports them
+// as created.
+func (p *pulumi) previewOptions(ctx context.Context, action contextActionValue, diff bool) []optpreview.Option {
+	opts := []optpreview.Option{optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, action)))}
+	if diff {
+		opts = append(opts, optpreview.Diff())
 	}
-	return []optpreview.Option{optpreview.Refresh(), optpreview.RunProgram(true)}
+	return opts
 }
 
-func upRefresh(skip bool) []optup.Option {
-	if skip {
+// upOptions refresh inside the update with the program, so the providers get
+// the configuration the stack uses now rather than the one stored in state.
+func (p *pulumi) upOptions(ctx context.Context, action contextActionValue, skipRefresh, diff bool) []optup.Option {
+	opts := []optup.Option{optup.EventStreams(p.watchEvents(WithContextAction(ctx, action)))}
+	if !skipRefresh {
+		opts = append(opts, optup.Refresh(), optup.RunProgram(true))
+	}
+	if diff {
+		opts = append(opts, optup.Diff())
+	}
+	return opts
+}
+
+func checkRefreshCLI(version string, skipRefresh bool) error {
+	if skipRefresh {
 		return nil
 	}
-	return []optup.Option{optup.Refresh(), optup.RunProgram(true)}
+	v, err := semver.NewVersion(version)
+	if err != nil {
+		return errors.Wrapf(err, "failed to parse pulumi CLI version %q", version)
+	}
+	if v.LessThan(minRefreshCLI) {
+		return errors.Errorf("pulumi CLI %s is too old to refresh with the program: upgrade to %s or later, or skip the refresh", v, minRefreshCLI)
+	}
+	return nil
 }

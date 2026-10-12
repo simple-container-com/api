@@ -235,7 +235,7 @@ jobs:
           go test ./...
 
   test-registry-integration:
-    name: Run registry integration tests
+    name: Run integration tests
     runs-on: blacksmith-8vcpu-ubuntu-2204
     needs: build-setup
     steps:
@@ -248,27 +248,29 @@ jobs:
           go-version: '1.25'
       - name: install attestation tools
         uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
-      # The refresh integration tests drive the real engine: the pulumi CLI at
-      # the SDK version in go.mod, verified as the release images do.
+      # The engine tests drive the real engine: the pulumi CLI at the SDK
+      # version in go.mod, checked against the published checksums as the
+      # release images do, and the docker plugin of the SDK in go.mod.
       - name: install pulumi CLI
         run: |
           set -euo pipefail
-          PULUMI_VERSION="$(grep 'github.com/pulumi/pulumi/sdk/v3 ' go.mod | awk '{print $2}' | sed 's/^v//')"
-          [ -n "${PULUMI_VERSION}" ] || { echo "no pulumi version in go.mod" >&2; exit 1; }
+          PULUMI_VERSION="$(go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' github.com/pulumi/pulumi/sdk/v3 | sed 's/^v//')"
+          DOCKER_PLUGIN="$(go list -m -f '{{.Version}}' github.com/pulumi/pulumi-docker/sdk/v4 | sed 's/^v//')"
           TARBALL="pulumi-v${PULUMI_VERSION}-linux-x64.tar.gz"
           CHECKSUMS="pulumi-${PULUMI_VERSION}-checksums.txt"
           cd "${RUNNER_TEMP}"
-          curl -fsSL -o "${TARBALL}" "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/${TARBALL}"
-          curl -fsSL -o "${CHECKSUMS}" "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/${CHECKSUMS}"
-          EXPECTED_SHA="$(grep "${TARBALL}" "${CHECKSUMS}" | awk '{print $1}')"
+          curl -fsSL --retry 3 --retry-all-errors -o "${TARBALL}" "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/${TARBALL}"
+          curl -fsSL --retry 3 --retry-all-errors -o "${CHECKSUMS}" "https://github.com/pulumi/pulumi/releases/download/v${PULUMI_VERSION}/${CHECKSUMS}"
+          EXPECTED_SHA="$(awk -v f="${TARBALL}" '$2 == f {print $1}' "${CHECKSUMS}")"
           [ -n "${EXPECTED_SHA}" ] || { echo "no checksum entry for ${TARBALL}" >&2; exit 1; }
           echo "${EXPECTED_SHA}  ${TARBALL}" | sha256sum -c -
           tar -xzf "${TARBALL}"
           echo "${RUNNER_TEMP}/pulumi" >> "${GITHUB_PATH}"
+          "${RUNNER_TEMP}/pulumi/pulumi" plugin install resource docker "${DOCKER_PLUGIN}"
       - name: test
         run: |
           go test -tags integration -count=1 ./pkg/clouds/pulumi/docker/...
-          go test -tags integration -count=1 -run 'TestRefresh|TestPreviewRefresh|TestUpdateRefresh' ./pkg/clouds/pulumi/
+          go test -tags integration -count=1 -timeout 30m -run '^TestEngine' ./pkg/clouds/pulumi/
 
   finalize:
     name: Finalize build in branch

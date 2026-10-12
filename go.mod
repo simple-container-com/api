@@ -7,6 +7,7 @@ require (
 	cloud.google.com/go/storage v1.62.3
 	filippo.io/edwards25519 v1.2.0
 	github.com/MShekow/directory-checksum v1.4.18
+	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/anthonycorbacho/slack-webhook v1.0.1
 	github.com/antonmedv/expr v1.12.6
 	github.com/atombender/go-jsonschema v0.24.1
@@ -113,7 +114,6 @@ require (
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.33.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/exporter/metric v0.55.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.55.0 // indirect
-	github.com/Masterminds/semver/v3 v3.4.0 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/OpenPeeDeeP/depguard/v2 v2.2.1 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
