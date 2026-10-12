@@ -40,7 +40,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 
 	if !params.SkipRefresh {
 		p.logger.Info(ctx, "%s", color.GreenFmt("Refreshing stack %q...", stackSource.Name()))
-		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))
+		refreshResult, err := stackSource.Refresh(ctx, refreshOptions(optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))...)
 		if err != nil {
 			return err
 		}

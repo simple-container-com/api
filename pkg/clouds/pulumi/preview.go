@@ -31,7 +31,7 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	}
 	if !params.SkipRefresh {
 		p.logger.Info(ctx, "%s", color.GreenFmt("Refreshing parent stack %q...", stackSource.Name()))
-		refreshResult, err := stackSource.Refresh(ctx)
+		refreshResult, err := stackSource.Refresh(ctx, refreshOptions()...)
 		if err != nil {
 			return nil, err
 		}

@@ -50,7 +50,7 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 	if !params.SkipRefresh {
 		p.logger.Info(ctx, "Refreshing stack %q...", s.Ref().FullyQualifiedName())
-		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))
+		refreshResult, err := stackSource.Refresh(ctx, refreshOptions(optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))...)
 		if err != nil {
 			return err
 		}
