@@ -7,7 +7,9 @@
 [![Semgrep](https://github.com/simple-container-com/api/actions/workflows/semgrep.yml/badge.svg?branch=main)](https://github.com/simple-container-com/api/actions/workflows/semgrep.yml)
 [![SLSA Build L3](https://slsa.dev/images/gh-badge-level3.svg)](https://slsa.dev/spec/v1.0/levels#build-l3)
 [![Sigstore signed](https://img.shields.io/badge/sigstore-signed-blue?logo=sigstore)](docs/SECURITY.md)
-[![Go Report Card](https://goreportcard.com/badge/github.com/simple-container-com/api)](https://goreportcard.com/report/github.com/simple-container-com/api)
+[![Build](https://github.com/simple-container-com/api/actions/workflows/push.yaml/badge.svg?branch=main)](https://github.com/simple-container-com/api/actions/workflows/push.yaml)
+[![govulncheck](https://github.com/simple-container-com/api/actions/workflows/govulncheck.yml/badge.svg?branch=main)](https://github.com/simple-container-com/api/actions/workflows/govulncheck.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/simple-container-com/api.svg)](https://pkg.go.dev/github.com/simple-container-com/api)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
 **Simple Container (`sc`)** is a **cloud-agnostic deployment tool** designed to simplify **microservices deployment, 
