@@ -39,6 +39,7 @@ RUN --mount=type=cache,target=/tmp/pulumi-dl,sharing=locked \
 
 # gcloud: pinned version + SHA-256 (Google does not publish per-release sig).
 # Refresh: pull the tarball, sha256sum it, paste below.
+# The component install has a fixed 60s read timeout in gcloud, so it retries.
 ARG GCLOUD_VERSION="579.0.0"
 ARG GCLOUD_SHA256="a9a7fbe51cda37cf6142b1bbcff12227550e60a6c67e8cf84644fb301371c4de"
 RUN --mount=type=cache,target=/tmp/gcloud-dl,sharing=locked \
@@ -51,7 +52,11 @@ RUN --mount=type=cache,target=/tmp/gcloud-dl,sharing=locked \
     && tar -xzf "${TARBALL}" -C /opt \
     && /opt/google-cloud-sdk/install.sh --quiet \
         --usage-reporting=false --path-update=false --bash-completion=false \
-    && /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet
+    && for attempt in 1 2 3 4; do \
+         /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet && break; \
+         [ "${attempt}" -lt 4 ] || exit 1; \
+         sleep $((attempt * 20)); \
+       done
 
 # Slim gcloud — must be a SEPARATE RUN because `gcloud components install`
 # touches `bundledpythonunix` after the rm chain in the same RUN executes.
