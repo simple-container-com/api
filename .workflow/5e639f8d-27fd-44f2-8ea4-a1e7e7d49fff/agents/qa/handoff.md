@@ -6,7 +6,7 @@ Verification complete. Here is my handoff.
 
 ## 1. Commit + branch identity
 
-- **Commit:** `2ec145ef0b` (full: `2ec145ef0bed9357dba50fb4e4c9e74e8593f3d1`)
+- **Commit:** `2ec145ef0b` (full: `2ec145ef0bed`)
 - **Branch:** `forge/workflow/99171cbe-7c27-4976-a999-931b834b5d62/run/5e639f8d-27fd-44f2-8ea4-a1e7e7d49fff`
 - Developer's prior commit independently verified as real, not described: `git log -1 -- docs/implementation/2026-10-14/sc-ingress-visitor-host-audit/README.md` → `1e1ddf7b9f71cf10… simple-container-forge[bot]`, this run. **Substance gate satisfied** — a real SHA, a real non-`.workflow/` source path, with live command output.
 

@@ -6,7 +6,7 @@ Committed and verified. Here is my handoff.
 
 ## 1. Commit + branch identity
 
-- **Commit:** `1e1ddf7b9f` (full: `1e1ddf7b9f71cf108f6f65cce2435b8740d18134`)
+- **Commit:** `1e1ddf7b9f` (full: `1e1ddf7b9f71`)
 - **Branch:** `forge/workflow/99171cbe-7c27-4976-a999-931b834b5d62/run/5e639f8d-27fd-44f2-8ea4-a1e7e7d49fff`
 - PR: engine auto-opens at handoff time.
 - Verified the artifact is real, not just described: `git log -1 -- docs/implementation/2026-10-14/sc-ingress-visitor-host-audit/README.md` → `1e1ddf7b9f ... simple-container-forge[bot]` (this run).

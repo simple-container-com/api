@@ -7,7 +7,7 @@
 > **Read `./devops-provisioning-audit.md` alongside this file.** The DevOps turn audited the
 > *provisioning* side and produced three findings that **correct this document**:
 >
-> 1. **The fix's SHA on `main` is `5252819589f8c11f4a4a450c1dbcc4602e1913cb`, not `5d6d0afe`.**
+> 1. **The fix's SHA on `main` is `5252819589f8`, not `5d6d0afe`.**
 >    `5d6d0afe` is a pre-merge commit object not reachable from `main` (proven by merge-base).
 >    Both carry the identical tree, so the fix's content is not in doubt — only the citation.
 > 2. **SC `2026.9.16` genuinely contains the fix** (ancestry-proven; published 2026-09-30).

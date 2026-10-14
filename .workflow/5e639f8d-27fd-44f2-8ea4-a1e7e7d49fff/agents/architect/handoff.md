@@ -6,7 +6,7 @@ I read the actual provisioning code directly from `simple-container-com/api` (no
 
 ```
 read_repository_file: pkg/clouds/pulumi/cloudflare/registrar.go
-sha: c9929918b51225e80d96f8692b19efa441fe872a
+sha: c9929918b512
 ```
 
 Confirmed, verbatim from the file:

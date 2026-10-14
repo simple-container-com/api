@@ -22,8 +22,8 @@ The brief, the roadmap item and both prior handoffs cite the fix as "merged `5d6
 commit object exists, but **it is not reachable from `main`**:
 
 ```
-GET /repos/simple-container-com/api/compare/2026.9.16...5d6d0afe3fee2d9f769e935ca54cf9280a13e337
-→ 200, merge_base_commit.sha = eeaba3c0b93d985c18f408c34bb1ad3ef2609d93
+GET /repos/simple-container-com/api/compare/2026.9.16...5d6d0afe3fee
+→ 200, merge_base_commit.sha = eeaba3c0b93d
 ```
 
 `eeaba3c0` is `5d6d0afe`'s own **parent**. A merge-base equal to the parent means the two refs
@@ -34,23 +34,23 @@ The commit that actually carries the change on `main`:
 
 ```
 GET /repos/simple-container-com/api/commits?path=pkg/clouds/pulumi/cloudflare/registrar.go&sha=main
-→ 5252819589f8c11f4a4a450c1dbcc4602e1913cb
+→ 5252819589f8
   "fix(cloudflare): forward the visitor's Host as X-Forwarded-Host (#406)"
   2026-09-23T19:05:52Z, PGP verified=true
 
-GET /repos/simple-container-com/api/compare/5252819589f8c11f4a4a450c1dbcc4602e1913cb...2026.9.16
-→ 200, merge_base_commit.sha = 5252819589f8c11f4a4a450c1dbcc4602e1913cb
+GET /repos/simple-container-com/api/compare/5252819589f8...2026.9.16
+→ 200, merge_base_commit.sha = 5252819589f8
 ```
 
 Here the merge-base **equals the base commit**, which is exactly the ancestry proof: `5252819589`
 is an ancestor of tag `2026.9.16`.
 
-Both commits share tree `96c2740845855d9f65dc9fb8bf88199d02591939`, so the *content* of the fix is
+Both commits share tree `96c274084585`, so the *content* of the fix is
 identical and nothing about the fix itself is in doubt. Only the citation is wrong. It matters
 because `5d6d0afe` is the SHA an operator would use to bisect "did this deploy include the fix" —
 and it resolves to a commit not on the release line.
 
-**Use `5252819589f8c11f4a4a450c1dbcc4602e1913cb` in the roadmap item and anywhere else the fix is
+**Use `5252819589f8` in the roadmap item and anywhere else the fix is
 cited.**
 
 ## Finding 2 (confirmation) — SC `2026.9.16` genuinely contains the fix
@@ -59,7 +59,7 @@ cited.**
 GET /repos/simple-container-com/api/releases/tags/2026.9.16
 → tag_name 2026.9.16, target_commitish main,
   published_at 2026-09-30T10:54:52Z,
-  tag commit 0aaefb044c65f0c71b3a634c6ccbd8eeaebc1482 (2026-09-30T10:33:17Z)
+  tag commit 0aaefb044c65 (2026-09-30T10:33:17Z)
 ```
 
 Combined with Finding 1's ancestry proof: the fix (merged 2026-09-23) is in the tree released as
@@ -200,7 +200,7 @@ blocked_on: "Cloudflare API token scoped to Workers-script read (GET /client/v4/
 > single-tenant origins. Provisioning-side screen clears 13 of 14 domains past the SC 2026.9.16
 > cut-over (published 2026-09-30); `vpr.simple-forge.com` is the only one whose owning repo
 > (vpr-math-tutor, last commit 2026-09-27) predates it and cannot be called either way.
-> **Correction:** the fix's SHA on `main` is `5252819589f8c11f4a4a450c1dbcc4602e1913cb` (PR #406,
+> **Correction:** the fix's SHA on `main` is `5252819589f8` (PR #406,
 > 2026-09-23); the previously-cited `5d6d0afe` is a pre-merge commit not reachable from `main`.
 > Evidence: `api` `docs/implementation/2026-10-14/sc-ingress-visitor-host-audit/` (`README.md` +
 > `devops-provisioning-audit.md`).
