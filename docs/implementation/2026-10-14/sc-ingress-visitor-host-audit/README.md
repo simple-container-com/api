@@ -137,8 +137,61 @@ Only the Cloudflare-Worker mechanism is in scope. Two other mechanisms serve fle
 
 Auditing these would produce a false signal in either direction.
 
+## QA independent verification (2026-10-14, QA turn)
+
+QA re-ran the sweep rather than accepting the table above on trust. Results and corrections:
+
+**1. Probe sweep reproduced, with one correction.** 14 of 16 domains matched the developer's
+recorded codes exactly (`app` 200, `ai` 200, `sessions` 404, `notifier` 200, `storage` 401,
+`inference` 404, `talk` 200, `concierge` 200, `meet` 200, `vpr` 200,
+`forge.simple-container.com` 200, `simple-container.com` 200, `simple-forge.com` 200, `voice` 200),
+`cf-ray` present on all 14. **Correction:** `voice.simple-forge.com` returned `000` on QA's first
+sweep and `200` on retry 1 — a transient, so the developer's 200 stands, but the domain is flappier
+than a single-sample table shows.
+
+**2. A new discriminator was tried, and it does not rescue the audit.** The fixed worker uses
+`set()`, not `append()`, so it must **clobber** a client-supplied `X-Forwarded-Host`. That makes
+"spoof the header and see whether the origin reacts" a candidate black-box test needing no
+credentials. On the known-good domain it behaves exactly as the fix predicts:
+
+```
+GET https://atriumdev.app/api/v1/portal                                   → 200 host-keyed manifest
+GET  ″  with -H "X-Forwarded-Host: nonexistent-bogus-host.example.com"    → 200, byte-identical
+GET https://atriumdev.app/api/v1/portals/resolve?domain=nonexistent-...   → 404 {"error":"We could not find that."}
+```
+
+Byte-identical under spoof = the worker replaced the client value. But on single-tenant domains the
+test is **inconclusive by construction**: `app` and `notifier` returned byte-identical responses
+spoofed vs. unspoofed, which is equally consistent with "worker clobbered it" and with "origin never
+read it". It cannot separate the two hypotheses, so it yields no per-domain verdict.
+
+**3. A near-miss false pass, caught.** `simple-forge.com` *did* return a DIFFERENT body under spoof
+— briefly reading as the fleet's one genuine host-routing signal. It is **noise**: two *identical*
+requests with no spoof at all also differ (`cmp` → first difference at byte 47698 of 56066, same
+total length both times — a per-render nonce in the static bundle). Logging that DIFFERENT as AC2
+evidence would have been a fabricated pass. Recorded so the next reader does not re-derive it.
+
+**4. The structural claim holds under independent check.** QA re-ran the org-wide search: exactly
+**4** hits for `X-Forwarded-Host`, only one a consumer (`forge-conductor`
+`cloudsessions/handler.go:2602`). QA read that call site directly — the resolved value flows into
+`serviceURL` on a **worker-dispatch payload** (`cloudexec.TurnDispatch`), never into an HTTP
+response body, and `h.publicCallbackBaseURL` is preferred when set. So it is not observable
+black-box even **with** the conductor bearer (`forge_api_key`) that QA holds and the developer did
+not. The missing grant is specifically a **Cloudflare token**; no credential QA holds substitutes.
+
+**5. The two dead `-test` domains are stable, not transient.** Retried 3× each, `000` every time,
+while 14 peers succeeded in the same sweeps. Both resolve to sandbox-NAT addresses adjacent to the
+live ones (`inference-test` → `198.18.140.62`, `forge-test` → `198.18.140.63`, vs. live `inference`
+→ `198.18.78.99`). Reported as an observation for the operator; not diagnosed, no fix guessed.
+
+**QA verdict on the slice:** the developer's `UNVERIFIABLE` classification is correct and is the
+right call — it is distinct from FAIL and must not be upgraded to PASS. `status: in-progress` with
+a named Cloudflare-token blocker is the accurate state.
+
 ## Bottom line
 
 The slice is **not** shippable on this evidence, and no amount of further black-box probing will
-make it so. The honest next step is a Cloudflare API token scoped to Workers-script read, which
-turns a 16-domain unverifiable audit into a 16-domain deterministic one in a single pass.
+make it so — QA tried the one remaining credential-free discriminator (spoof-clobber) and it is
+inconclusive on single-tenant origins by construction. The honest next step is a Cloudflare API
+token scoped to Workers-script read, which turns a 16-domain unverifiable audit into a 16-domain
+deterministic one in a single pass.
