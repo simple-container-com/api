@@ -54,7 +54,7 @@ RUN --mount=type=cache,target=/tmp/gcloud-dl,sharing=locked \
         --usage-reporting=false --path-update=false --bash-completion=false \
     && for attempt in 1 2 3 4; do \
          /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet && break; \
-         [ "${attempt}" -lt 4 ] || exit 1; \
+         test "${attempt}" -lt 4 || exit 1; \
          sleep $((attempt * 20)); \
        done
 
