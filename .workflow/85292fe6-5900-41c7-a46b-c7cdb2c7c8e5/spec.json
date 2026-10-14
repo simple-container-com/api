@@ -1,0 +1,24 @@
+{
+  "initialCharacterId": "devops",
+  "characters": [
+    {
+      "id": "devops",
+      "agentId": "6a3081f3-947c-44bb-ba63-058fa5badbf3",
+      "displayName": "DevOps",
+      "roleHint": "devops",
+      "capabilities": {
+        "hasDocker": true,
+        "hasPersistentDisk": true,
+        "maxTurnDurationSec": 0,
+        "supportsLongLived": true,
+        "isolation": "container",
+        "egressPolicy": "open"
+      },
+      "description": "Ad-hoc DevOps — auto-generated from a recorded follow-up task."
+    }
+  ],
+  "transitions": null,
+  "managementAgentId": "devops",
+  "enrichBudgetDefault": 2,
+  "storageMode": "linked"
+}
