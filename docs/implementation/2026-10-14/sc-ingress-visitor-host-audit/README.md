@@ -4,13 +4,28 @@
 **Date:** 2026-10-14
 **Type:** read-only audit. No `api` source change was made or intended.
 
+> **Read `./devops-provisioning-audit.md` alongside this file.** The DevOps turn audited the
+> *provisioning* side and produced three findings that **correct this document**:
+>
+> 1. **The fix's SHA on `main` is `5252819589f8c11f4a4a450c1dbcc4602e1913cb`, not `5d6d0afe`.**
+>    `5d6d0afe` is a pre-merge commit object not reachable from `main` (proven by merge-base).
+>    Both carry the identical tree, so the fix's content is not in doubt — only the citation.
+> 2. **SC `2026.9.16` genuinely contains the fix** (ancestry-proven; published 2026-09-30).
+> 3. **`inference-test.simple-forge.com` and `forge-test.simple-container.com` have NO DNS
+>    RECORD** — NXDOMAIN and NODATA respectively on both Google and Cloudflare public resolvers.
+>    The `198.18.140.x` addresses recorded below were **sandbox DNS-NAT synthetics**, not real
+>    records (`198.18.0.0/15` is RFC 2544 benchmark space). Those two domains are **not
+>    provisioned**, so there is no worker to audit and nothing to fix under this slice. The
+>    correct verdict for them is **N/A — not provisioned**, not `UNREACHABLE`.
+>    **The standing in-scope domain count is therefore 14, not 16.**
+
 ## Why this audit exists
 
 `NewOverrideHeaderRule` (`pkg/clouds/pulumi/cloudflare/registrar.go`) mints a **separate**
 Cloudflare worker script per SC-provisioned domain, with `overrideHost` baked in as a string
-literal via `sdk.Sprintf`. The `X-Forwarded-Host` fix (PR #406, merged `5d6d0afe`, released in
-SC 2026.9.16) is therefore **not** fleet-wide on merge: each domain picks it up only when its own
-registrar leg re-provisions on that stack's next deploy.
+literal via `sdk.Sprintf`. The `X-Forwarded-Host` fix (PR #406, merged `5252819589` — see the
+correction above — released in SC 2026.9.16) is therefore **not** fleet-wide on merge: each domain
+picks it up only when its own registrar leg re-provisions on that stack's next deploy.
 
 `atriumdev.app` has been live-verified. This audit asked whether the other SC-provisioned domains
 carry the same fixed worker.
@@ -42,7 +57,7 @@ One of the following, none of which this run holds:
 |---|---|
 | Read each minted worker script's source and confirm it contains the `fwdHeaders.set("X-Forwarded-Host", origHost)` line | **Cloudflare API token** (`GET /client/v4/accounts/{id}/workers/scripts/{name}`). Unauthenticated probe returns 403 `9106 Missing X-Auth-Email header`. |
 | Read the origin's received headers from logs | **AWS credentials + CloudWatch Logs read.** No `aws` CLI and no credential material present in this environment. |
-| Check each stack's last-deploy timestamp against SC 2026.9.16 (2026-09-30) | **Pulumi state access** (`sc stack export` / backend creds). No `sc` CLI present. |
+| Check each stack's last-deploy timestamp against SC 2026.9.16 (2026-09-30) | **Pulumi state access** (`sc stack export` / backend creds). No `sc` CLI present. (DevOps turn produced a *partial* proxy for this from repo activity — see `devops-provisioning-audit.md`; it bounds risk but proves nothing per-domain.) |
 
 The Cloudflare-API route is the cheapest and the most direct: it inspects the exact artifact whose
 per-domain-ness is the whole problem, needs no service cooperation, and works uniformly for
@@ -63,13 +78,13 @@ request genuinely traversed Cloudflare (sandbox egress NATs through `198.18.0.0/
 | 4 | `notifier.simple-forge.com` | 200 | yes | **UNVERIFIABLE** |
 | 5 | `storage.simple-forge.com` | 401 (auth-gated) | yes | **UNVERIFIABLE** |
 | 6 | `inference.simple-forge.com` | 404 (`/health` → 200) | yes | **UNVERIFIABLE** |
-| 7 | `inference-test.simple-forge.com` | TLS handshake OK, HTTP never completes | n/a | **UNREACHABLE** — see below |
+| 7 | `inference-test.simple-forge.com` | TLS handshake OK, HTTP never completes | n/a | **N/A — NOT PROVISIONED** (NXDOMAIN; see correction at top) |
 | 8 | `talk.simple-forge.com` | 200 | yes | **UNVERIFIABLE** |
 | 9 | `concierge.simple-forge.com` | 200 | yes | **UNVERIFIABLE** |
 | 10 | `meet.simple-forge.com` | 200 | yes | **UNVERIFIABLE** |
-| 11 | `vpr.simple-forge.com` | 200 | yes | **UNVERIFIABLE** |
+| 11 | `vpr.simple-forge.com` | 200 | yes | **UNVERIFIABLE** (and the one domain whose repo predates the release cut-over — prioritise it) |
 | 12 | `forge.simple-container.com` | 200 | yes | **UNVERIFIABLE** |
-| 13 | `forge-test.simple-container.com` | TLS handshake OK, HTTP never completes | n/a | **UNREACHABLE** — see below |
+| 13 | `forge-test.simple-container.com` | TLS handshake OK, HTTP never completes | n/a | **N/A — NOT PROVISIONED** (NODATA; see correction at top) |
 | 14 | `simple-container.com` | 200 | yes | **UNVERIFIABLE** |
 | 15 | `simple-forge.com` | 200 | yes | **UNVERIFIABLE** |
 | 16 | `voice.simple-forge.com` | 200 | yes | **UNVERIFIABLE** |
@@ -95,18 +110,18 @@ $ curl -s "https://atriumdev.app/api/v1/portals/resolve?domain=nonexistent-bogus
 Positive is host-keyed; same-origin negative control 404s. The audit method is sound — it simply
 has no purchase on single-tenant services.
 
-### The two unreachable domains
+### The two unreachable domains — superseded, see correction at top
 
-`inference-test.simple-forge.com` (`198.18.140.62`) and `forge-test.simple-container.com`
-(`198.18.140.63`) resolve, complete a TLS handshake with `Verify return code: 0 (ok)`, and then
-fail the HTTP exchange with `SSL_ERROR_SYSCALL` on both :443 and :80. Retried **4×** across ~30s
-per the run's transient-retry policy; identical every time, and the *other* 14 domains succeeded in
-the same sweeps. This is a stable condition, not a network blip.
+`inference-test.simple-forge.com` and `forge-test.simple-container.com` resolved (in-sandbox) to
+`198.18.140.62` / `198.18.140.63`, completed a TLS handshake with `Verify return code: 0 (ok)`, and
+then failed the HTTP exchange with `SSL_ERROR_SYSCALL` on both :443 and :80. Retried **4×** across
+~30s per the run's transient-retry policy; identical every time, and the *other* 14 domains
+succeeded in the same sweeps.
 
-Both are `-test` stacks. The most likely explanation is a torn-down or never-provisioned test
-stack whose DNS record outlives its origin, but **this run cannot confirm that** without Pulumi
-state access. Recorded as an observation, not a diagnosis. It needs an operator eye regardless of
-the header question.
+**The DevOps turn resolved this**: both names are absent from public DNS (NXDOMAIN / NODATA on two
+independent resolvers), and those `198.18.140.x` addresses were sandbox DNS-NAT synthetics — the
+TLS handshake was against the NAT, not Cloudflare. The stacks are **not provisioned**; there is no
+worker to audit. Evidence and resolver output: `./devops-provisioning-audit.md` Finding 3.
 
 ## A rejected hypothesis, recorded so it is not re-derived
 
@@ -183,6 +198,8 @@ not. The missing grant is specifically a **Cloudflare token**; no credential QA 
 while 14 peers succeeded in the same sweeps. Both resolve to sandbox-NAT addresses adjacent to the
 live ones (`inference-test` → `198.18.140.62`, `forge-test` → `198.18.140.63`, vs. live `inference`
 → `198.18.78.99`). Reported as an observation for the operator; not diagnosed, no fix guessed.
+**Superseded by DevOps Finding 3** — QA's instinct that these were NAT-adjacent addresses was
+right, and the public-resolver check confirms the names do not exist at all.
 
 **QA verdict on the slice:** the developer's `UNVERIFIABLE` classification is correct and is the
 right call — it is distinct from FAIL and must not be upgraded to PASS. `status: in-progress` with
@@ -193,5 +210,7 @@ a named Cloudflare-token blocker is the accurate state.
 The slice is **not** shippable on this evidence, and no amount of further black-box probing will
 make it so — QA tried the one remaining credential-free discriminator (spoof-clobber) and it is
 inconclusive on single-tenant origins by construction. The honest next step is a Cloudflare API
-token scoped to Workers-script read, which turns a 16-domain unverifiable audit into a 16-domain
-deterministic one in a single pass.
+token scoped to Workers-script read, which turns a 14-domain unverifiable audit into a 14-domain
+deterministic one in a single pass. If only one call can be spent, spend it on
+`vpr.simple-forge.com` — the one domain whose provisioning window does not clear the release
+cut-over (`./devops-provisioning-audit.md`, deploy-window screen).
