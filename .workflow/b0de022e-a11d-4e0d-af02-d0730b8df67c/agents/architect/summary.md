@@ -1,0 +1,1 @@
+[thinking] # Architect Handoff — `aws-provider-key-in-deploy-log`: redact secrets in diagnostic logging
