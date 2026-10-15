@@ -26,11 +26,25 @@ swap, the default invocation reliably dies.
 **Use the capped entrypoints in the `Makefile`:**
 
 ```sh
-make check        # go vet ./...  — the cheapest full-repo gate; see below
-make build        # just the sc binary, into dist/
+make check        # go vet ./...  — START HERE; the only full-repo path that fits 12 GB
 make test         # serialised, with GOMEMLIMIT
-make build-all    # the full ./... compile, serialised — only when you really need it
+make build        # link the sc binary into dist/ — needs ~13 GB, see below
+make build-all    # the full ./... compile+link — ~14 GB, ~76 min cold
 ```
+
+Measured on this module with the caps applied — know these before you pick a command:
+
+| command | peak RSS | wall | notes |
+|---|---|---|---|
+| `make check` | **2.3 GB** | ~3 min | compiles warm, vet analysis fresh |
+| `make build` | **12.9 GB** | ~2 min | compiles warm — this is the *link* |
+| `make build-all` | **14.2 GB** | ~76 min | from a cold cache |
+
+**The caps bound the compile phase, not the link.** Linking `./cmd/sc` needs ~13 GB by
+itself, and neither `GOMAXPROCS` nor `GOMEMLIMIT` reduces it — the linker is largely serial
+already and its footprint is not Go heap. So on a machine under ~16 GB, **do not link at
+all**: use `make check` as your gate and let CI produce the binaries. `make build` and
+`make build-all` are for a large host.
 
 They set `GOMAXPROCS=1`, `GOMEMLIMIT=6GiB` and `-p 1` by default, and every value is
 overridable on a bigger machine (`make test GO_MAXPROCS=8 GO_TEST_PARALLEL=4` — note the
@@ -63,17 +77,19 @@ A memory kill produces **no compiler diagnostic**. What you see instead:
 - in a sandbox, the whole turn or process group disappearing mid-build.
 
 If that happens, **do not retry the same command** — it will fail the same way, and
-repeated attempts are how agents burn an entire session here. Switch to `make check`
-(or `make build` for just the binary), and if you need the full compile, run
-`make build-all` with the caps rather than a bare `go build ./...`.
+repeated attempts are how agents burn an entire session here. Switch to `make check`. If
+it was `make build` or `make build-all` that died, do not reach for a bigger cap: the link
+is the floor (see the table above), so on this machine the answer is to stop linking and
+let CI do it, not to retry with different flags.
 
 ## Prefer `go vet` over `go build` as your gate
 
 `go build ./...` does **not** compile test packages, so it silently accepts changes that
 break `_test.go` files — adding a method to an interface, for example, leaves every fake
 in the test tree unimplementing it and the build still passes. `go vet ./...`
-(`make check`) type-checks tests too, and it is cheaper than building every package's
-object code. Make it your default full-repo check.
+(`make check`) type-checks tests too, and it is dramatically cheaper — 2.3 GB against
+12.9 GB for a link — because it never produces object code or a binary. Make it your
+default full-repo check.
 
 ## Build & test tooling
 

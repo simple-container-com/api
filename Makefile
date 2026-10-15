@@ -17,6 +17,19 @@
 # status of 137/143 with no compiler diagnostic at all. It looks like a hang, a
 # toolchain bug or a flake. It is memory. See CLAUDE.md.
 #
+# Measured on this module (Go 1.x, linux/amd64, caps below applied):
+#
+#   go vet ./...          2.3 GB peak    ~3 min    <- `check`, the only one that
+#                                                     comfortably fits 12 GB
+#   link ./cmd/sc        12.9 GB peak    ~2 min    <- `build`, compiles cached
+#   go build ./...       14.2 GB peak   ~76 min    <- `build-all`, from cold
+#
+# Note what that says: the caps bound the COMPILE phase, but the LINK of
+# ./cmd/sc needs ~13 GB on its own and neither GOMAXPROCS nor GOMEMLIMIT
+# reduces it (the linker is largely serial already, and its footprint is not
+# Go heap). So on a machine under ~16 GB, do NOT link — use `check` as your
+# gate and let CI produce the binaries.
+#
 # Every cap below is a soft default — override it on a machine with the RAM:
 #
 #   make test GO_MAXPROCS=8 GO_TEST_PARALLEL=4
@@ -50,10 +63,10 @@ CAP = GOMAXPROCS=$(GO_MAXPROCS) GOMEMLIMIT=$(GO_MEMLIMIT)
 help:
 	@echo "Memory-capped Go entrypoints (see the comments at the top of this file)."
 	@echo
-	@echo "  make build       build the sc binary into dist/ (narrow — what CI builds)"
-	@echo "  make check       go vet ./... — type-checks tests too, cheapest full gate"
+	@echo "  make check       go vet ./... — START HERE. ~2.3 GB, type-checks tests too"
+	@echo "  make build       link the sc binary into dist/ — needs ~13 GB, see above"
 	@echo "  make test        go test ./... serialised, with GOMEMLIMIT"
-	@echo "  make build-all   go build ./... serialised (the expensive full compile)"
+	@echo "  make build-all   go build ./... serialised — ~14 GB peak, ~76 min cold"
 	@echo "  make test-race   go test -race ./... UNCAPPED — needs a large machine"
 	@echo "  make lint        golangci-lint (bin/, provisioned by 'welder run tools')"
 	@echo "  make fmt tidy    gofumpt -w ./ ; go mod tidy"
@@ -61,8 +74,9 @@ help:
 	@echo "Caps: GOMAXPROCS=$(GO_MAXPROCS) GOMEMLIMIT=$(GO_MEMLIMIT) -p $(GO_TEST_PARALLEL)"
 	@echo "Override on a big machine, e.g.: make test GO_MAXPROCS=8 GO_TEST_PARALLEL=4"
 
-# The single binary most changes need. CI builds per-command rather than ./...
-# for the same reason these caps exist (see .github/workflows/push.yaml).
+# Narrower than build-all, but NOT cheap: the link alone peaks near 13 GB and
+# the caps do not reduce it. Prefer `check` unless you actually need a binary.
+# CI builds per-command rather than ./... (see .github/workflows/push.yaml).
 build:
 	$(CAP) go build -trimpath -buildvcs=false -o $(DIST)/sc ./cmd/sc
 
@@ -75,7 +89,8 @@ check:
 test:
 	$(CAP) go test -p $(GO_TEST_PARALLEL) ./...
 
-# The full compile. Needed far less often than `check`; prefer that first.
+# The full compile AND link of every main package: the most expensive target
+# here (~14 GB, ~76 min cold even serialised). Rarely what you want locally.
 build-all:
 	$(CAP) go build -p $(GO_TEST_PARALLEL) ./...
 
