@@ -35,6 +35,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/googleapis/gax-go/v2 v2.22.0
 	github.com/howeyc/gopass v0.0.0-20210920133722-c8aef6fb66ef
+	github.com/klauspost/compress v1.18.7
 	github.com/mitchellh/go-homedir v1.1.0
 	github.com/moby/moby/api v1.54.2
 	github.com/moby/moby/client v0.4.1
@@ -299,7 +300,6 @@ require (
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/kisielk/errcheck v1.9.0 // indirect
 	github.com/kkHAIKE/contextcheck v1.1.6 // indirect
-	github.com/klauspost/compress v1.18.7 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/kulti/thelper v0.6.3 // indirect
 	github.com/kunwardeep/paralleltest v1.0.10 // indirect
