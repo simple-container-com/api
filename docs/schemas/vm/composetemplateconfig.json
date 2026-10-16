@@ -1,0 +1,48 @@
+{
+  "name": "ComposeTemplateConfig",
+  "type": "resource",
+  "provider": "vm",
+  "description": "VM composetemplate configuration",
+  "goPackage": "pkg/clouds/vm/",
+  "goStruct": "ComposeTemplateConfig",
+  "resourceType": "vm-compose",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "dockerRegistryPassword": {
+            "type": "string"
+          },
+          "dockerRegistryURL": {
+            "type": "string"
+          },
+          "dockerRegistryUsername": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "imageDelivery": {
+        "type": "string"
+      },
+      "keepImages": {
+        "type": "integer"
+      },
+      "strategy": {
+        "type": "string"
+      },
+      "vmResource": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "",
+      "vmResource"
+    ],
+    "type": "object"
+  }
+}

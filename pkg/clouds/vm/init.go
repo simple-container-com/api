@@ -19,6 +19,20 @@ const ProviderType = "vm"
 
 func init() {
 	api.RegisterProviderConfig(api.ConfigRegisterMap{
-		ResourceTypeVm: ReadVmConfig,
+		ResourceTypeVm:        ReadVmConfig,
+		TemplateTypeVmCompose: ReadComposeTemplateConfig,
+	})
+
+	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{
+		TemplateTypeVmCompose: ToVmComposeConfig,
+	})
+
+	// Both converters, because the first stack this path has to carry (forge-atrium) is
+	// `type: single-image`, not `cloud-compose`. A template that registered only the
+	// compose converter would fail that stack at deploy time with "no converter for
+	// template type", which reads like a broken installation rather than a missing
+	// feature.
+	api.RegisterCloudSingleImageConverter(api.CloudSingleImageConfigRegister{
+		TemplateTypeVmCompose: ToVmComposeSingleImageConfig,
 	})
 }

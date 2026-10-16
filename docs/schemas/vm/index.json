@@ -3,6 +3,16 @@
   "provider": "vm",
   "resources": [
     {
+      "name": "ComposeTemplateConfig",
+      "type": "resource",
+      "provider": "vm",
+      "description": "VM composetemplate configuration",
+      "goPackage": "pkg/clouds/vm/",
+      "goStruct": "ComposeTemplateConfig",
+      "resourceType": "vm-compose",
+      "schema": {}
+    },
+    {
       "name": "VmConfig",
       "type": "resource",
       "provider": "vm",
