@@ -33,6 +33,7 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/mongodb"
 	_ "github.com/simple-container-com/api/pkg/clouds/slack"
 	_ "github.com/simple-container-com/api/pkg/clouds/telegram"
+	_ "github.com/simple-container-com/api/pkg/clouds/vm"
 	"github.com/simple-container-com/api/pkg/clouds/yandex"
 )
 
@@ -525,6 +526,11 @@ func (sg *SchemaGenerator) guessProviderFromResourceType(resourceType string) st
 		return "cloudflare"
 	case has("fs", "passphrase"):
 		return "fs"
+	// Ahead of "compose" on purpose: the vm delivery path's template type is
+	// "vm-compose", which carries both tokens and belongs with the vm resource, not
+	// in the compose/ directory.
+	case has("vm"):
+		return "vm"
 	case has("compose"):
 		return "compose"
 	case has("docker"):
