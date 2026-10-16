@@ -1,0 +1,1 @@
+[thinking] # Architect Handoff — S3: Redact Pulumi secret-envelope values in `procDiagnosticEvent`
