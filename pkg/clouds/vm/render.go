@@ -8,9 +8,10 @@ import (
 	"strconv"
 	"strings"
 
+	"gopkg.in/yaml.v3"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
-	"gopkg.in/yaml.v3"
 
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 )

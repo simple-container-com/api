@@ -103,6 +103,36 @@ func TestHostKeyCallbackPinsAGivenKey(t *testing.T) {
 	Expect(cb("203.0.113.10:22", addr, otherKey)).To(HaveOccurred())
 }
 
+// What an operator will actually paste. `ssh-keyscan` prints known_hosts format —
+// `<address> <type> <base64>` — not the authorized_keys line this field documents, and
+// both this package and pulumi-command parse the value with ssh.ParseAuthorizedKey. It
+// is accepted, because the leading field falls through to ParseAuthorizedKey's
+// options-parsing branch; this test is here so the tolerance the docs rely on is
+// asserted rather than assumed.
+//
+// The second half is the part that matters: the leading address is DISCARDED, not
+// verified. Pinning host A's key under host B's address pins the key and says nothing
+// about the address — the comparison is on key material alone.
+func TestHostKeyCallbackAcceptsRawSshKeyscanOutput(t *testing.T) {
+	RegisterTestingT(t)
+
+	_, authorized := testKeyPair("")
+	pinned, _, _, _, err := ssh.ParseAuthorizedKey([]byte(authorized))
+	Expect(err).To(BeNil())
+	addr := &net.TCPAddr{IP: net.ParseIP("203.0.113.10"), Port: 22}
+
+	for _, form := range []string{
+		"203.0.113.10 " + authorized,               // ssh-keyscan <address>
+		"[203.0.113.10]:2222 " + authorized,        // ssh-keyscan -p 2222
+		"203.0.113.10,vm.example.ru " + authorized, // several names for one machine
+		"198.51.100.7 " + authorized,               // a DIFFERENT address, same key
+	} {
+		cb, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", HostKey: form})
+		Expect(err).To(BeNil(), form)
+		Expect(cb("203.0.113.10:22", addr, pinned)).To(BeNil(), form)
+	}
+}
+
 func TestHostKeyCallbackRefusesAnUnparseablePin(t *testing.T) {
 	RegisterTestingT(t)
 

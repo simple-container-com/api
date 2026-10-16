@@ -77,6 +77,25 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 		// stack and reads these outputs. Exported as a secret — which is also what
 		// encrypts it in the checkpoint — and never logged.
 		ctx.Export(ToHostPrivateKeyExport(input.Descriptor.Name, i), sdk.ToSecret(h.PrivateKey))
+		// Exported even though it is empty for every key SC itself would generate.
+		// An operator's existing deploy key may be an encrypted PEM, and without
+		// this the parent stack's own readiness check would connect while every
+		// child deploy failed to decrypt the same key — a split that would read as
+		// "the machine is fine but deploys don't work".
+		ctx.Export(ToHostPrivateKeyPasswordExport(input.Descriptor.Name, i), sdk.ToSecret(h.PrivateKeyPassword))
+		// The host key crosses the same boundary and for the same reason — the
+		// template that ships images and writes env files onto this machine runs in
+		// the child stack. Exported in the clear: it is the machine's public key.
+		ctx.Export(ToHostKeyExport(input.Descriptor.Name, i), sdk.String(h.HostKey))
+		if h.HostKey == "" {
+			// Said once, here, rather than on every command that connects. It is
+			// also the only place that knows the host was declared without one.
+			params.Log.Warn(ctx.Context(),
+				"vm %q host %q has no `hostKey`: SSH cannot verify the machine's identity, so the deploy key "+
+					"and every secret of every stack deployed onto it go to whoever answers on that address. "+
+					"Pin it with the output of `ssh-keyscan -t ed25519 <address>`",
+				input.Descriptor.Name, h.Name)
+		}
 	}
 	ctx.Export(ToHostCountExport(input.Descriptor.Name), sdk.Int(len(hosts)))
 	ctx.Export(ToIngressEnabledExport(input.Descriptor.Name), sdk.Bool(cfg.IngressEnabled()))
@@ -106,6 +125,14 @@ func ToHostPortExport(vmName string, idx int) string {
 
 func ToHostPrivateKeyExport(vmName string, idx int) string {
 	return fmt.Sprintf("%s-vm-host-%d-private-key", vmName, idx)
+}
+
+func ToHostPrivateKeyPasswordExport(vmName string, idx int) string {
+	return fmt.Sprintf("%s-vm-host-%d-private-key-password", vmName, idx)
+}
+
+func ToHostKeyExport(vmName string, idx int) string {
+	return fmt.Sprintf("%s-vm-host-%d-host-key", vmName, idx)
 }
 
 func ToIngressEnabledExport(vmName string) string {
