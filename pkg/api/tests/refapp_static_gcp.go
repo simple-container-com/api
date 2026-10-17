@@ -70,17 +70,14 @@ var ResolvedRefappStaticGCPServerDescriptor = &api.ServerDescriptor{
 			}},
 		},
 	},
-	Variables: map[string]api.VariableDescriptor{},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: ResolvedCommonServerDescriptor.Resources.Registrar,
 		Resources: map[string]api.PerEnvResourcesDescriptor{
 			"staging": {
-				Template:  "static-website",
-				Resources: map[string]api.ResourceDescriptor{},
+				Template: "static-website",
 			},
 			"prod": {
-				Template:  "static-website",
-				Resources: map[string]api.ResourceDescriptor{},
+				Template: "static-website",
 			},
 		},
 	},

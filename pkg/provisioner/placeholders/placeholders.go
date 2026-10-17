@@ -371,6 +371,28 @@ func (p *placeholders) applyTemplatesRecursive(copy, original reflect.Value, opt
 
 	// If it is a slice we create a new slice and translate each element
 	case reflect.Slice:
+		// A nil slice stays nil. reflect.MakeSlice always returns a NON-nil slice, so
+		// the obvious version of this walk silently rewrites every unset slice in
+		// every parsed config to an empty-but-present one — and a config field whose
+		// zero value means "not configured, apply the default" loses that meaning
+		// the moment placeholders run, which is before anything reads it.
+		//
+		// That is not hypothetical. k3s-cluster distinguishes `disable` unset
+		// (default: turn traefik off, because SC's edge is its own Caddy) from
+		// `disable: []` (the escape hatch for an operator who wants traefik after
+		// all) — see clouds/pulumi/k3s/cluster.go:211. With the nil flattened to
+		// empty, the default never applied: every cluster SC provisioned kept the
+		// bundled traefik, holding ports 80/443, so the first `type: LoadBalancer`
+		// Service deployed onto it sat `<pending>` forever behind a klipper-lb pod
+		// that could not bind them. Live-caught on the first k3s smoke, 2026-10-18 —
+		// precisely the failure the comment at clouds/k3s/cluster.go:46 warns about.
+		//
+		// `copy` is freshly allocated by the caller, so its zero value is already nil
+		// and returning leaves it that way. Same for the map below; the Ptr branch
+		// above has always done this.
+		if original.IsNil() {
+			return
+		}
 		copy.Set(reflect.MakeSlice(original.Type(), original.Len(), original.Cap()))
 		for i := 0; i < original.Len(); i += 1 {
 			p.applyTemplatesRecursive(copy.Index(i), original.Index(i), opts)
@@ -378,6 +400,9 @@ func (p *placeholders) applyTemplatesRecursive(copy, original reflect.Value, opt
 
 	// If it is a map we create a new map and translate each value
 	case reflect.Map:
+		if original.IsNil() {
+			return
+		}
 		copy.Set(reflect.MakeMap(original.Type()))
 		for _, key := range original.MapKeys() {
 			originalValue := original.MapIndex(key)
