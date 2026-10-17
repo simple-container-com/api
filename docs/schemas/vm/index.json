@@ -1,0 +1,16 @@
+{
+  "description": "JSON Schema definitions for Vm resources and templates",
+  "provider": "vm",
+  "resources": [
+    {
+      "name": "VmConfig",
+      "type": "resource",
+      "provider": "vm",
+      "description": "VM vm configuration",
+      "goPackage": "pkg/clouds/vm/",
+      "goStruct": "VmConfig",
+      "resourceType": "vm",
+      "schema": {}
+    }
+  ]
+}
