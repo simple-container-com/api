@@ -1,0 +1,1 @@
+[thinking] # PM Handoff — `api-repo-branch-protection-blocks-sdlc-automerge` — Live Positive-Path Proof
