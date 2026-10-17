@@ -1,0 +1,1 @@
+[thinking] # Architect Handoff — `api-repo-branch-protection-blocks-sdlc-automerge` — Design confirmation for live positive-path proof
