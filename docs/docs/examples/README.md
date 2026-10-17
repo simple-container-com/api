@@ -37,6 +37,9 @@ This directory contains production-tested Simple Container configurations based 
 - **ai-development**: High-resource code execution environment
 - **zero-downtime**: Advanced deployment configurations
 
+### Compose on a VM (`vm-compose/`)
+- **byo-host**: one machine created by hand in a cloud console, running a `single-image` stack as a generated docker compose project over SSH — no Kubernetes and no registry required
+
 ### Advanced Configurations (`advanced-configs/`)
 - **mixed-environments**: Different deployment types per environment
 - **high-resource**: 32GB memory, 16 CPU configurations

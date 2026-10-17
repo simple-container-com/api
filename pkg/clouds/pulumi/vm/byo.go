@@ -47,6 +47,10 @@ func (byoDriver) Hosts(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConf
 			// optional.
 			PrivateKey:         secretString(h.PrivateKey),
 			PrivateKeyPassword: secretString(h.PrivateKeyPassword),
+			// Public key material: deliberately NOT secret-wrapped. Marking it
+			// secret would redact it from the one place it is useful — a diff an
+			// operator reads to see which machine identity a deploy now trusts.
+			HostKey: h.HostKey,
 			// A byo host is always a compose host for now; k3s on a byo host is the
 			// next slice (roadmap item sc-k3s-cluster-resource, K.0) and will pass
 			// its own role in.

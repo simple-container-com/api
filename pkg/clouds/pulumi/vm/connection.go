@@ -24,7 +24,7 @@ const (
 // above it (compose, k3s) goes through here, so the secret marking and the dial
 // tuning cannot be forgotten at one call site.
 func connectionArgs(h HostFacts) *remote.ConnectionArgs {
-	return &remote.ConnectionArgs{
+	args := &remote.ConnectionArgs{
 		Host: h.Address,
 		User: sdk.StringPtr(h.User),
 		Port: sdk.Float64Ptr(float64(h.Port)),
@@ -35,4 +35,13 @@ func connectionArgs(h HostFacts) *remote.ConnectionArgs {
 		DialErrorLimit:     sdk.IntPtr(dialErrorLimit),
 		PerDialTimeout:     sdk.IntPtr(perDialTimeoutSeconds),
 	}
+	// Set only when pinned: the SDK's contract is "if not provided, the host key will
+	// be ignored", so passing an empty string risks being read as "provided, and it is
+	// the empty key" — a failure on every connection rather than the documented
+	// fallback. Unset is insecure and warned about once, at provision time; it is not
+	// hidden behind a connection that silently fails.
+	if h.HostKey != "" {
+		args.HostKey = sdk.StringPtr(h.HostKey)
+	}
+	return args
 }
