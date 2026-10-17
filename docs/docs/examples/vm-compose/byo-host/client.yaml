@@ -20,13 +20,22 @@ stacks:
       secrets:
         MONGO_URI: ${secret:staging-portal-mongo-uri}
 
-      # `domain:` is deliberately absent. Until the Caddy/TLS slice lands, SC publishes
-      # the stack on a deterministic high port of the machine and tells you the URL in
-      # the `<stack>-vm-compose-url` stack output; a `domain:` here would warn that no
-      # DNS record is created and no certificate is issued. Point a DNS A record at the
-      # machine yourself if you need a name before then — and note that `domainProxied`
-      # is refused outright on this template, because a Cloudflare-proxied domain breaks
-      # the ACME challenge the machine has to answer itself.
+      # Served over HTTPS by the machine's own Caddy, which requires `ingress.enable:
+      # true` on the `vm` resource this template points at. With both in place the stack
+      # publishes NO host port — 443 is the only way in — and `<stack>-vm-compose-url`
+      # becomes `https://portal.example.com`.
+      #
+      # You still create the DNS record yourself: an A record at the machine's address,
+      # **not** proxied. Cloudflare's orange cloud breaks the ACME challenge the machine
+      # has to answer itself, which is why `domainProxied` is refused outright here
+      # rather than accepted and ignored.
+      #
+      # Drop this line (or leave the ingress off) and SC publishes the stack on a
+      # deterministic high port of the machine instead, reported in the same stack
+      # output. Setting one without the other is warned about and deployed on the host
+      # port — the stack answers either way, and the warning is what keeps "my
+      # certificate never appeared" from being silent.
+      domain: portal.example.com
 
   # A worker-only stack on the same machine is fine, and so is a second application
   # stack: they share the machine, each gets its own compose project, its own env file

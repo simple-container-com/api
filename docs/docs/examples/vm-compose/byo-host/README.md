@@ -90,14 +90,44 @@ secret output). `sc deploy` then:
    command line or a log,
 3. gets the image onto the machine (`ssh-tar` streams it; `registry` logs in and pulls),
 4. renders a compose project and brings up the inactive slot,
-5. gates on the ingress service being healthy, then stops the slot that was serving,
+5. gates on the ingress service being healthy, points the machine's Caddy at the new
+   slot (or, with the ingress off, publishes it on the host port), then stops the slot
+   that was serving,
 6. prunes images beyond `keepImages`.
 
 ## Where the stack is reachable
 
-Until the Caddy/TLS slice lands, the ingress service is published on a deterministic
-host port in the 20000–30000 range, derived from the stack and environment name, and
-exported as `<stack>-vm-compose-url`:
+Two cases, and `ingress.enable` on the `vm` resource decides which.
+
+**With the ingress on** and a `domain:` on the client stack, the machine's Caddy
+terminates TLS and the stack publishes **no host port at all** — 443 is the only way in,
+`<stack>-vm-compose-url` is the `https://` URL, and the last step of a deploy is
+rewriting one file in Caddy's `conf.d` and reloading it:
+
+```bash
+sc stack outputs -s portal -e staging | jq -r '."portal-vm-compose-url"'
+# https://portal.example.com
+curl -sS https://portal.example.com   # valid certificate, issued on the first deploy
+```
+
+The DNS A record has to point at the machine and must **not** be proxied: Cloudflare's
+orange cloud breaks the ACME challenge the machine answers itself, which is also why
+`domainProxied` is refused outright. Caddy runs as a container in its own compose project
+(`sc-caddy`) owned by the **`vm` resource**, not by any stack — one machine has one port
+443, and a Caddy living inside a stack's project would be destroyed by the very deploy
+that is flipping traffic away from it. Its ACME account key and issued certificates live
+in named volumes that no teardown removes, because Let's Encrypt allows 50 certificates
+per domain per week.
+
+Because a stack's deploy owns exactly one file in `conf.d` plus a reload, two stacks on
+one machine can deploy concurrently without a lock. The reverse of that: `conf.d` is
+loaded as a single config, so a bad site file would break the reload for *every* stack
+behind the ingress — the new file is therefore validated against the global Caddyfile
+before the reload, and the previous one is restored if either step fails.
+
+**With the ingress off** (the default), the ingress service is published on a
+deterministic host port in the 20000–30000 range, derived from the stack and environment
+name:
 
 ```bash
 sc stack outputs -s portal -e staging | jq -r '."portal-vm-compose-url"'
@@ -108,6 +138,13 @@ curl -sS http://203.0.113.10:29763   # answers the application
 Two stacks on one machine get different ports, and a collision is detected at deploy
 time when docker refuses to bind — reported with both stack names, not left to be
 discovered later.
+
+A `domain:` with no ingress, or an ingress with no `domain:`, is **warned about and
+deployed anyway** on the host port: the stack genuinely answers there, and the warning
+exists because "my certificate never appeared" otherwise leaves no local evidence. A
+bare `prefix:` without a `domain:` cannot be served on a VM at all — on Kubernetes a
+prefix is grafted onto an aggregator site that already owns a host name, and one machine
+has no such site.
 
 ## What this template refuses
 

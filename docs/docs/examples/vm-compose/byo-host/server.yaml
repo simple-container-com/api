@@ -77,3 +77,48 @@ resources:
                 # before you trust it — reading it off the network is what it protects
                 # you from.
                 hostKey: "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLE00"
+            # The front door: a Caddy container in its own compose project, terminating
+            # TLS for every stack on this machine. It belongs to the resource and not to
+            # a template because one machine has one port 443 — and because a stack's
+            # own compose project is destroyed and recreated by each deploy, so a Caddy
+            # inside it would go down with the slot it is meant to route away from.
+            #
+            # A stack opts in by setting `domain:`; its deploy then owns exactly one file
+            # in Caddy's conf.d plus a reload, which is why two stacks can deploy at the
+            # same time without a lock.
+            #
+            # Open ports 80 AND 443 on the machine: 80 is where the ACME challenge is
+            # answered, so TLS never provisions without it. Caddy also publishes 443/udp
+            # for HTTP/3 — a firewall that passes only TCP costs you QUIC, which browsers
+            # fall back from, and nothing else.
+            #
+            # Leave this out and stacks are published on a high host port instead
+            # (see client.yaml). Changing it needs `sc provision`, not `sc deploy`.
+            ingress:
+              enable: true
+              # The ACME account address. Required — no CA issues without one. Expiry
+              # notices go here.
+              email: ops@example.com
+              # Everything below is optional.
+              #
+              # Pin the Caddy build. Defaults to the same `simplecontainer/caddy` tag
+              # the Kubernetes edge runs, which carries the plugins (`rate_limit`,
+              # certmagic storage) that the official image does not — so
+              # `lbConfig.siteExtraHelpers` means the same thing on both paths. Point it
+              # at a mirror if the machine cannot reach Docker Hub.
+              # image: registry.example.ru/mirror/caddy:2.11
+              #
+              # A certificate authority other than Let's Encrypt. This exists for the
+              # Russian market: a `.ru` domain opened from inside Russia in a browser
+              # without foreign roots wants a Russian Trusted CA certificate, and Let's
+              # Encrypt may not be reachable from a closed network at all. Whether that
+              # CA speaks ACME is UNVERIFIED — the field is here so there is an option,
+              # not because the path is known to work.
+              # acmeCa: https://acme.example-ca.ru/directory
+              #
+              # External Account Binding, which a private or enterprise ACME CA
+              # generally requires and Let's Encrypt does not. Both or neither, and only
+              # alongside `acmeCa`. The MAC key is a credential: it never appears in the
+              # rendered Caddyfile, reaching the machine in the ingress env file.
+              # acmeEabKeyId: "kid-from-your-ca"
+              # acmeEabMacKey: ${secret:PORTAL_VM_ACME_EAB_MAC_KEY}
