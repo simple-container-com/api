@@ -45,7 +45,7 @@ permissions:
 
 jobs:
   generate-code:
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
 
     steps:

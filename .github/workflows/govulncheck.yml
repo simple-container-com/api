@@ -76,7 +76,7 @@ jobs:
     # PR touches `*.go`/`go.mod`/`go.sum`, and every run since the pacing was
     # added had skipped. So this was a latent failure, not a regression — the
     # first PR to change `go.mod` was the first to pay for it.
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 30
     env:
       # Kept as a belt-and-braces soft cap on Go's heap, not as the fix — the
