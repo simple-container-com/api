@@ -29,6 +29,7 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/fs"
 	_ "github.com/simple-container-com/api/pkg/clouds/gcloud"
 	_ "github.com/simple-container-com/api/pkg/clouds/github"
+	_ "github.com/simple-container-com/api/pkg/clouds/k3s"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	_ "github.com/simple-container-com/api/pkg/clouds/mongodb"
 	_ "github.com/simple-container-com/api/pkg/clouds/slack"
@@ -518,6 +519,13 @@ func (sg *SchemaGenerator) guessProviderFromResourceType(resourceType string) st
 		return "aws"
 	case has("gcp", "gcloud", "gke", "cloudrun", "artifact", "pubsub"):
 		return "gcp"
+	// Ahead of the kubernetes case, and its own provider rather than part of it: the
+	// directory follows the config's ProviderType(), and k3s has its own
+	// (pkg/clouds/k3s/init.go explains why it cannot share the vm one). Without a
+	// case here the resource lands in "unknown" and generation fails outright on a
+	// directory that is never created — which is how this was caught.
+	case has("k3s"):
+		return "k3s"
 	case has("k8s", "kubernetes", "caddy"):
 		return "kubernetes"
 	case has("mongodb", "atlas"):

@@ -43,7 +43,7 @@ func ensureReady(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig, h 
 	script := readinessScript(drv.Capabilities().CloudInit, h.User)
 
 	cmd, err := remote.NewCommand(ctx, input.ToResName(h.Name+"-ready"), &remote.CommandArgs{
-		Connection: connectionArgs(h),
+		Connection: ConnectionArgs(h),
 		Create:     sdk.String(script),
 		// Without Triggers the command does not re-run once it has succeeded, and a
 		// later `sc deploy` reports green having checked nothing — including against

@@ -22,6 +22,13 @@ type VmOutput struct {
 	// Ready is the readiness gate per host, in the same order as Hosts. A template
 	// that runs anything on a machine must DependsOn the matching entry.
 	Ready []*remote.Command
+	// IngressEnabled is cfg.IngressEnabled(), carried in the output because another
+	// resource in the same parent stack has to know it and only has this resource's
+	// name. Specifically k3s: one machine has one port 80 and one port 443, so a
+	// cluster standing up on a host whose compose ingress already holds them must
+	// not also install klipper-lb — it would bind nothing and leave every
+	// LoadBalancer Service pending forever (pkg/clouds/pulumi/k3s/cluster.go).
+	IngressEnabled bool
 }
 
 // Vm provisions the machines of one `type: vm` resource and gates them on readiness.
@@ -61,7 +68,7 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 		return nil, errors.Errorf("driver %q produced no hosts for vm %q", drv.Name(), input.Descriptor.Name)
 	}
 
-	out := &VmOutput{Hosts: hosts}
+	out := &VmOutput{Hosts: hosts, IngressEnabled: cfg.IngressEnabled()}
 	for i, h := range hosts {
 		ready, err := ensureReady(ctx, input, cfg, h, drv, params)
 		if err != nil {

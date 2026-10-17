@@ -1,0 +1,16 @@
+{
+  "description": "JSON Schema definitions for K3s resources and templates",
+  "provider": "k3s",
+  "resources": [
+    {
+      "name": "K3sClusterConfig",
+      "type": "resource",
+      "provider": "k3s",
+      "description": "K3S k3scluster configuration",
+      "goPackage": "pkg/clouds/k3s/",
+      "goStruct": "K3sClusterConfig",
+      "resourceType": "k3s-cluster",
+      "schema": {}
+    }
+  ]
+}

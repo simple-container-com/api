@@ -156,7 +156,7 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 			in.VmResource, stackName, hostPort)
 	}
 
-	conn := connectionArgs(host)
+	conn := ConnectionArgs(host)
 	// Shared by every command: Pulumi's own default is to log a remote command's
 	// output, and AddPreviousOutputInEnv would put the last run's stdout into this
 	// run's environment — harmless for `echo prepared`, and a way for a secret that
