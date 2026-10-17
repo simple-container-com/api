@@ -33,10 +33,25 @@ func ConnectionArgs(h HostFacts) *remote.ConnectionArgs {
 		Port: sdk.Float64Ptr(float64(h.Port)),
 		// Already secret-wrapped by the driver (HostFacts.PrivateKey). Passing a raw
 		// string here is a bug, not a style choice.
-		PrivateKey:         h.PrivateKey.ToStringPtrOutput(),
-		PrivateKeyPassword: h.PrivateKeyPassword.ToStringPtrOutput(),
-		DialErrorLimit:     sdk.IntPtr(dialErrorLimit),
-		PerDialTimeout:     sdk.IntPtr(perDialTimeoutSeconds),
+		PrivateKey: h.PrivateKey.ToStringPtrOutput(),
+		// Nil — not "" — when the key is not an encrypted PEM, which is every key SC
+		// generates and almost every deploy key an operator brings.
+		//
+		// The provider hands whatever it is given to ssh.ParsePrivateKeyWithPassphrase,
+		// and that function answers `ssh: key is not password protected` for an
+		// unencrypted key. An empty string is still *provided*, so passing it fails
+		// EVERY connection to such a host — the readiness check included, so the whole
+		// byo path (compose and k3s alike) errored out on the first remote command with
+		// a message that reads like the key is wrong. Live-caught on the first smoke,
+		// 2026-10-18. Same reasoning as HostKey below, which got it right.
+		PrivateKeyPassword: h.PrivateKeyPassword.ApplyT(func(p string) *string {
+			if p == "" {
+				return nil
+			}
+			return &p
+		}).(sdk.StringPtrOutput),
+		DialErrorLimit: sdk.IntPtr(dialErrorLimit),
+		PerDialTimeout: sdk.IntPtr(perDialTimeoutSeconds),
 	}
 	// Set only when pinned: the SDK's contract is "if not provided, the host key will
 	// be ignored", so passing an empty string risks being read as "provided, and it is

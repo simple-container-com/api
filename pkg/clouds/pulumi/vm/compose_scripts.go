@@ -118,6 +118,34 @@ func readStateScript(stack, env string) string {
 // slots and a data project cannot be any one project's `default`, and a volume
 // inside a project is deleted by `docker compose down -v` of the slot that is being
 // retired.
+// composePreflightScript asserts the machine can actually run a compose deploy.
+//
+// This used to live in the vm resource's readiness gate (ready.go), where it was
+// wrong in one direction only: it also fired for a machine that was never going to
+// run docker. A byo host declared for a `k3s-cluster` has containerd and no docker,
+// and failed its readiness check on `docker is not installed` before the k3s install
+// — which DependsOn that gate — ever ran. Readiness is a property of the machine;
+// docker is a property of this deploy path, so the check belongs here, as the first
+// step of the chain.
+//
+// Nothing is lost by checking later: the step runs before anything touches docker,
+// and it is still the thing that turns `docker: command not found` four commands
+// deeper into a sentence naming what to install.
+func composePreflightScript(user string) string {
+	return strings.Join([]string{
+		`set -eu`,
+		fail(`command -v docker >/dev/null 2>&1`,
+			"docker is not installed on this host; install Docker Engine with the compose v2 plugin, "+
+				"or let SC create the machine with a cloud vm provider"),
+		fail(`docker version >/dev/null 2>&1`,
+			fmt.Sprintf("user %q cannot talk to the docker daemon; add it to the docker group "+
+				"(usermod -aG docker %s) and reconnect", user, user)),
+		fail(`docker compose version >/dev/null 2>&1`,
+			"the docker compose v2 plugin is missing; `docker-compose` v1 is not supported"),
+		`echo preflight-ok`,
+	}, "\n") + "\n"
+}
+
 func prepareScript(stack, env string, volumes []string) string {
 	lines := []string{
 		"set -eu",
@@ -126,12 +154,14 @@ func prepareScript(stack, env string, volumes []string) string {
 	}
 	for _, v := range volumes {
 		name := vm.ExternalVolumeName(stack, env, v)
-		lines = append(lines,
+		lines = append(
+			lines,
 			fmt.Sprintf("docker volume inspect %s >/dev/null 2>&1 || docker volume create %s >/dev/null",
 				shellQuote(name), shellQuote(name)),
 		)
 	}
-	lines = append(lines,
+	lines = append(
+		lines,
 		fmt.Sprintf("install -d -m 0750 %s", shellQuote(vm.StackDir(stack, env))),
 		fmt.Sprintf("install -d -m 0750 %s", shellQuote(vm.TextVolumeDir(stack, env))),
 		fmt.Sprintf("install -d -m 0750 %s", shellQuote(vm.StateDir+"/state")),
@@ -152,7 +182,8 @@ func ensureNetwork(name string) string {
 	return fmt.Sprintf(
 		"docker network inspect %s >/dev/null 2>&1 || docker network create %s >/dev/null 2>&1 || true\n"+
 			"docker network inspect %s >/dev/null 2>&1 || { echo \"failed to create docker network %s\" >&2; exit 1; }",
-		q, q, q, name)
+		q, q, q, name,
+	)
 }
 
 // registryLoginScript authenticates the machine against the image registry. The
@@ -299,7 +330,8 @@ func upScript(s upSpec) string {
 	case s.Recreate:
 		fmt.Fprintf(b, "  echo %s >&2\n", shellQuote(
 			"strategy is `recreate`, so the previous containers were replaced in place: "+
-				"there is no second copy to fall back to and this stack-env is DOWN until a deploy succeeds"))
+				"there is no second copy to fall back to and this stack-env is DOWN until a deploy succeeds",
+		))
 	case s.StopOtherFirst:
 		fmt.Fprintf(b, "  sc_rm %s\n", shellQuote(s.SlotProject))
 		fmt.Fprintf(b, "  if [ -f %s ]; then\n", shellQuote(otherFile))
@@ -308,12 +340,14 @@ func upScript(s upSpec) string {
 			shellQuote(otherProject), shellQuote(otherFile))
 		b.WriteString("  else\n")
 		fmt.Fprintf(b, "    echo %s >&2\n", shellQuote(
-			"there is no previous slot to restore: this stack-env is DOWN until a deploy succeeds"))
+			"there is no previous slot to restore: this stack-env is DOWN until a deploy succeeds",
+		))
 		b.WriteString("  fi\n")
 	default:
 		fmt.Fprintf(b, "  echo %s >&2\n", shellQuote(fmt.Sprintf(
 			"slot %q is still serving traffic; the failed slot %q is left running for diagnosis "+
-				"(`docker compose -p %s logs`)", s.OtherSlot, s.Slot, s.SlotProject)))
+				"(`docker compose -p %s logs`)", s.OtherSlot, s.Slot, s.SlotProject,
+		)))
 	}
 	b.WriteString("}\n\n")
 
@@ -345,7 +379,8 @@ func upScript(s upSpec) string {
 		fmt.Fprintf(b, "echo %s >&2\n", shellQuote(fmt.Sprintf(
 			"stopping slot %q before starting %q: the ingress publishes a fixed host port, "+
 				"so the two slots cannot run at once (brief downtime; Caddy removes this in P5.3)",
-			s.OtherSlot, s.Slot)))
+			s.OtherSlot, s.Slot,
+		)))
 		fmt.Fprintf(b, "sc_rm %s\n", shellQuote(otherProject))
 	}
 	fmt.Fprintf(b, "docker compose -p %s -f %s up -d --remove-orphans || { sc_rollback; exit 1; }\n",
@@ -451,7 +486,8 @@ func teardownScript(stack, env string) string {
 		shellQuote(vm.InternalNetworkName(stack, env)))
 	fmt.Fprintf(b, "echo %s\n", shellQuote(fmt.Sprintf(
 		"removed the compose projects and configuration of %s/%s; named volumes and %s were kept",
-		stack, env, vm.IngressNetwork)))
+		stack, env, vm.IngressNetwork,
+	)))
 	return b.String()
 }
 
@@ -496,7 +532,8 @@ func routeScript(s routeSpec) string {
 		shellQuote(fmt.Sprintf(
 			"the machine has no %q container, so there is nothing to serve %q. Run `sc provision` for the parent "+
 				"stack — the ingress belongs to the `%s` resource, not to this stack",
-			vm.CaddyContainer, s.Domain, vm.ResourceTypeVm)))
+			vm.CaddyContainer, s.Domain, vm.ResourceTypeVm,
+		)))
 
 	fmt.Fprintf(b, "install -d -m 0750 %s\n", shellQuote(vm.CaddyConfDir()))
 	// cp rather than mv: the previous route must stay live while the new one is being
@@ -516,7 +553,8 @@ func routeScript(s routeSpec) string {
 		shellQuote(vm.CaddyContainer), shellQuote(vm.CaddyContainerConfigDir+"/Caddyfile"))
 	fmt.Fprintf(b, "  echo %s >&2\n", shellQuote(fmt.Sprintf(
 		"the generated Caddy site for %s/%s is not a valid configuration; the previous route is left in place",
-		s.Stack, s.Env)))
+		s.Stack, s.Env,
+	)))
 	b.WriteString(indentLines(restore, "  "))
 	b.WriteString("  exit 1\nfi\n")
 

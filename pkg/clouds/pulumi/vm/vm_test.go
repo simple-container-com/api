@@ -270,6 +270,54 @@ func TestVm_ConnectionIsSecretAtTheCommand(t *testing.T) {
 	Expect(key.StringValue()).To(Equal(testPrivateKey))
 }
 
+// An unencrypted deploy key must send NO password, not an empty one.
+//
+// The provider passes whatever it receives to ssh.ParsePrivateKeyWithPassphrase,
+// which answers `ssh: key is not password protected` for a key that has no
+// passphrase — so an empty string fails every connection to the host, readiness
+// included, with a message that reads like the key itself is wrong. Live-caught on
+// the first byo smoke, 2026-10-18.
+func TestVm_UnencryptedKeySendsNoKeyPassword(t *testing.T) {
+	RegisterTestingT(t)
+
+	mocks := newVmMocks()
+	_, err := provisionVm(byoConfig(), mocks)
+	Expect(err).To(BeNil())
+
+	inputs := mocks.inputsOf(tokenRemoteCommand)
+	Expect(inputs).NotTo(BeNil(), "no readiness command was created")
+	conn, _ := unwrapSecret(inputs["connection"])
+
+	pass, present := conn.ObjectValue()["privateKeyPassword"]
+	if present {
+		unwrapped, _ := unwrapSecret(pass)
+		Expect(unwrapped.IsNull()).To(BeTrue(),
+			"privateKeyPassword must be absent or null for an unencrypted key, got %v", unwrapped)
+	}
+}
+
+// The other half of the same contract: a key that IS an encrypted PEM must still
+// have its passphrase delivered, and delivered as a secret.
+func TestVm_EncryptedKeySendsItsPassword(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := byoConfig()
+	cfg.Hosts[0].PrivateKeyPassword = "hunter2"
+
+	mocks := newVmMocks()
+	_, err := provisionVm(cfg, mocks)
+	Expect(err).To(BeNil())
+
+	inputs := mocks.inputsOf(tokenRemoteCommand)
+	Expect(inputs).NotTo(BeNil(), "no readiness command was created")
+	conn, _ := unwrapSecret(inputs["connection"])
+
+	pass, present := conn.ObjectValue()["privateKeyPassword"]
+	Expect(present).To(BeTrue(), "privateKeyPassword is missing for an encrypted key")
+	unwrapped, _ := unwrapSecret(pass)
+	Expect(unwrapped.StringValue()).To(Equal("hunter2"))
+}
+
 func TestVm_ConnectionCarriesHostFacts(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -338,16 +386,26 @@ func TestReadinessScript_ByoChecksPreconditions(t *testing.T) {
 
 	script := readinessScript(false, "ubuntu")
 
-	Expect(script).To(ContainSubstring("command -v docker"))
-	Expect(script).To(ContainSubstring("docker compose version"))
 	Expect(script).To(ContainSubstring("sudo -n true"))
-	Expect(script).To(ContainSubstring("usermod -aG docker ubuntu"))
 	Expect(script).To(ContainSubstring("install -d -m 0750 -o ubuntu -g ubuntu " + vm.ConfigDir + " " + vm.StateDir))
 	// Must NOT install anything: the host belongs to the operator.
 	Expect(script).ToNot(ContainSubstring("get.docker.com"))
 	Expect(script).ToNot(ContainSubstring("apt-get"))
 	// Every check is a guard with a message, so a failure explains itself.
-	Expect(strings.Count(script, ">&2")).To(BeNumerically(">=", 4))
+	Expect(strings.Count(script, ">&2")).To(BeNumerically(">=", 1))
+}
+
+// The gate is a property of the MACHINE, and a k3s node is a ready machine with no
+// docker on it. Pinned because the whole k3s byo path hangs off it: the k3s install
+// DependsOn this command, so a docker check here fails a cluster that was never
+// going to run docker (live-caught 2026-10-18). The checks live in
+// composePreflightScript instead.
+func TestReadinessScript_ByoDoesNotRequireDocker(t *testing.T) {
+	RegisterTestingT(t)
+
+	script := readinessScript(false, "ubuntu")
+
+	Expect(script).ToNot(ContainSubstring("docker"))
 }
 
 // For a machine SC created, readiness is the marker cloud-init writes last — not

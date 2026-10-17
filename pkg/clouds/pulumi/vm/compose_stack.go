@@ -199,6 +199,13 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 		return cmd, nil
 	}
 
+	// First, before anything runs `docker`: the preconditions this path needs from
+	// the machine. See composePreflightScript for why they are not in the vm
+	// resource's readiness gate.
+	if _, err := step("preflight", composePreflightScript(host.User), nil, false); err != nil {
+		return nil, err
+	}
+
 	if _, err := step("prepare", prepareScript(stackName, env, in.ExternalVolumes()), nil, false); err != nil {
 		return nil, err
 	}
@@ -237,7 +244,8 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	// Hashed, never triggered on directly: a Trigger is stored in the checkpoint in
 	// the clear, and this content is every secret the stack has.
 	envHash := hashOf(envContent)
-	if _, err := step("write-env",
+	if _, err := step(
+		"write-env",
 		writeFileScript(vm.EnvFilePath(stackName, env), vm.EnvFileMode),
 		secretString(envContent).ToStringPtrOutput(), true,
 		sdk.String(envHash),
@@ -247,7 +255,8 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 
 	for _, f := range vm.TextVolumeFiles(in, stackName, env) {
 		file := f
-		if _, err := step("write-vol-"+sanitizeResName(file.MountPath),
+		if _, err := step(
+			"write-vol-"+sanitizeResName(file.MountPath),
 			writeFileScript(file.Path, file.Mode),
 			secretString(file.Content).ToStringPtrOutput(), true,
 			sdk.String(hashOf(file.Content)),
@@ -260,7 +269,8 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	if in.EffectiveImageDelivery() == vm.ImageDeliveryRegistry {
 		pull = pullRequired
 		if in.RegistryRequiresAuth() {
-			if _, err := step("registry-login",
+			if _, err := step(
+				"registry-login",
 				registryLoginScript(lo.FromPtr(in.DockerRegistryURL), lo.FromPtr(in.DockerRegistryUsername)),
 				secretString(lo.FromPtr(in.DockerRegistryPassword)).ToStringPtrOutput(), true,
 			); err != nil {
@@ -498,7 +508,8 @@ func hostFromParent(
 		return HostFacts{}, false, errors.Errorf(
 			"parent stack %q has no `type: %s` resource named %q (its host-count output is %v). "+
 				"Check `vmResource` in the `%s` template against the resource name in the parent's server.yaml",
-			parentRef, vm.ResourceTypeVm, vmResource, countRaw, vm.TemplateTypeVmCompose)
+			parentRef, vm.ResourceTypeVm, vmResource, countRaw, vm.TemplateTypeVmCompose,
+		)
 	}
 	if count > 1 {
 		params.Log.Warn(ctx.Context(),
@@ -519,7 +530,8 @@ func hostFromParent(
 	}
 	if privateKey == "" {
 		return HostFacts{}, false, errors.Errorf(
-			"vm %q in parent stack %q exported no deploy key; re-run `sc provision` for the parent stack", vmResource, parentRef)
+			"vm %q in parent stack %q exported no deploy key; re-run `sc provision` for the parent stack", vmResource, parentRef,
+		)
 	}
 	keyPassword, err := pApi.GetValueFromStack[string](ctx, refName("key-password"), parentRef,
 		ToHostPrivateKeyPasswordExport(vmResource, 0), true)
