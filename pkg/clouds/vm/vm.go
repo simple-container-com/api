@@ -108,6 +108,23 @@ type VmHost struct {
 	PrivateKey string `json:"privateKey,omitempty" yaml:"privateKey,omitempty"`
 	// PrivateKeyPassword decrypts PrivateKey when it is an encrypted PEM.
 	PrivateKeyPassword string `json:"privateKeyPassword,omitempty" yaml:"privateKeyPassword,omitempty"`
+	// HostKey pins the machine's SSH host key as one authorized_keys line
+	// (`ssh-ed25519 AAAA…`). The output of `ssh-keyscan -t ed25519 <address>` can be
+	// pasted verbatim too — it is known_hosts format, one field wider, and the
+	// leading address is discarded rather than checked (see
+	// imageship.TestHostKeyCallbackAcceptsRawSshKeyscanOutput).
+	//
+	// Optional, and the one optional field here whose absence has a real cost. A
+	// deploy onto a VM carries the stack's entire env file, every `${secret:...}` in
+	// it, and the deploy key itself; without a pinned host key the SSH client has
+	// nothing to check the machine against, so all of that goes to whoever answers on
+	// that address (compose-on-vm.md §5.5). CI cannot fall back to known_hosts the way
+	// a workstation does — a runner's is empty — so there is no safe implicit default
+	// and the provisioning tier warns loudly when this is unset.
+	//
+	// Not a secret: it is the machine's PUBLIC key, and keeping it readable is what
+	// lets an operator compare it against the console by eye.
+	HostKey string `json:"hostKey,omitempty" yaml:"hostKey,omitempty"`
 }
 
 // EffectiveUser resolves the login name: the host's own, else the resource-level

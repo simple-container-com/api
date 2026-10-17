@@ -37,6 +37,16 @@ type HostFacts struct {
 	PrivateKey sdk.StringOutput
 	// PrivateKeyPassword is empty unless the key is an encrypted PEM; also secret.
 	PrivateKeyPassword sdk.StringOutput
+	// HostKey is the machine's public SSH host key as an authorized_keys line, or
+	// empty when the operator did not pin one.
+	//
+	// A plain string, not an Output, unlike Address: a machine SC creates will not
+	// learn its host key from the cloud API either (no cloud returns it), so the
+	// future answer there is to GENERATE the host key in cloud-init and know it
+	// before the machine boots — which is also a plain string. Making it an Output
+	// would additionally make "is it set?" unknowable while the graph is being
+	// built, and that question decides whether the connection verifies anything.
+	HostKey string
 	// Role is what the machine is being prepared for.
 	Role vm.HostRole
 	// DependsOn are the resources that must exist before anything connects. Empty

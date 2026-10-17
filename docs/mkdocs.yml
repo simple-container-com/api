@@ -72,6 +72,7 @@ nav:
     - Lambda Functions: examples/lambda-functions/index.md
     - GKE Autopilot: examples/gke-autopilot/index.md
     - Kubernetes Native: examples/kubernetes-native/index.md
+    - Compose on a VM: examples/vm-compose/index.md
     - Advanced Configs: examples/advanced-configs/index.md
     - Parent Stacks: examples/parent-stacks/index.md
   - Reference:

@@ -1,0 +1,33 @@
+schemaVersion: 1.0
+stacks:
+  staging:
+    # The same `single-image` client stack that deploys to Lambda or to a Yandex
+    # Serverless Container. Nothing in it is VM-specific: the template in the parent
+    # stack decides where it lands, and SC projects this into a one-service compose
+    # project on the machine.
+    type: single-image
+    template: compose-on-vm
+    parent: mycompany/mycompany
+    config:
+      image:
+        dockerfile: ${git:root}/Dockerfile
+      # SC passes PORT=8080 to the container, which is what both Lambda and YC
+      # Serverless Container already do — an image that runs on either needs no change.
+      # Nothing has to be declared here.
+      maxMemory: 512
+      env:
+        ENV: staging
+      secrets:
+        MONGO_URI: ${secret:staging-portal-mongo-uri}
+
+      # `domain:` is deliberately absent. Until the Caddy/TLS slice lands, SC publishes
+      # the stack on a deterministic high port of the machine and tells you the URL in
+      # the `<stack>-vm-compose-url` stack output; a `domain:` here would warn that no
+      # DNS record is created and no certificate is issued. Point a DNS A record at the
+      # machine yourself if you need a name before then — and note that `domainProxied`
+      # is refused outright on this template, because a Cloudflare-proxied domain breaks
+      # the ACME challenge the machine has to answer itself.
+
+  # A worker-only stack on the same machine is fine, and so is a second application
+  # stack: they share the machine, each gets its own compose project, its own env file
+  # and its own pair of blue/green slots.
