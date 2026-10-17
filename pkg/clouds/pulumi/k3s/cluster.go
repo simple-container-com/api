@@ -170,6 +170,20 @@ func K3sCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	// changes at all.
 	ctx.Export(pulumiKubernetes.ToKubeconfigExport(clusterName), kubeconfigValue)
 
+	// The other half of the same contract, and the one a child stack only discovers it
+	// needed once a workload declares a `domain`: both KubeRun (kube_run.go:181) and
+	// GkeAutopilotStack (gke_autopilot_stack.go:206) read ToIngressIpExport to decide
+	// what the DNS A record points at. On a managed cluster that is a reserved
+	// load-balancer address; here the node *is* the edge, so it is the machine's own
+	// address — specifically host.Address and not `endpoint`, because an operator who
+	// sets `endpoint` to a DNS name would otherwise have SC write that name into the
+	// value of an A record.
+	//
+	// Exported unconditionally. A cluster with no domain-bearing workload today gets
+	// one tomorrow, and the cost of the export missing is paid in the CHILD stack's
+	// deploy, a repo away from this line.
+	ctx.Export(pulumiKubernetes.ToIngressIpExport(clusterName), host.Address)
+
 	return &api.ResourceOutput{Ref: &K3sOutput{
 		Kubeconfig: kubeconfigValue,
 		Endpoint:   endpoint,

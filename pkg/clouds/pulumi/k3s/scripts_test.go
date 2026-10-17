@@ -116,4 +116,8 @@ func TestKubeconfigExportNameMatchesTheGkeContract(t *testing.T) {
 	RegisterTestingT(t)
 
 	Expect(pulumiKubernetes.ToKubeconfigExport("my-cluster")).To(Equal("my-cluster-kubeconfig"))
+	// The second export of the pair. A child stack reads it only when one of its
+	// workloads declares a `domain`, which is why its absence is the kind of thing
+	// that ships green and surfaces weeks later in somebody else's deploy.
+	Expect(pulumiKubernetes.ToIngressIpExport("my-cluster")).To(Equal("my-cluster-ingress-ip"))
 }
