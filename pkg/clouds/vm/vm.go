@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
 )
 
@@ -95,6 +96,30 @@ type VmIngress struct {
 	// Email is the ACME account address. Required when Enable is set, because a
 	// certificate authority will not issue without one.
 	Email string `json:"email,omitempty" yaml:"email,omitempty"`
+	// Image is the Caddy image to run. Defaults to the same `simplecontainer/caddy`
+	// tag the Kubernetes edge uses, which is what makes `lbConfig.siteExtraHelpers`
+	// mean the same thing on both paths — the plugins (`rate_limit`, certmagic
+	// storage) are in that image and not in the official one. Override to pin a tag
+	// or to run a local mirror.
+	Image string `json:"image,omitempty" yaml:"image,omitempty"`
+	// AcmeCa points Caddy at a certificate authority other than Let's Encrypt.
+	//
+	// This field exists because of the Russian market specifically
+	// (compose-on-vm.md §8.3): a `.ru` domain opened from inside Russia in a browser
+	// without foreign roots wants a certificate from the Russian Trusted CA, and
+	// Let's Encrypt may not even be reachable from a closed network. Whether that CA
+	// speaks ACME is UNVERIFIED — the field is here because without it there is no
+	// option at all, not because the path is known to work.
+	AcmeCa string `json:"acmeCa,omitempty" yaml:"acmeCa,omitempty"`
+	// AcmeEabKeyID / AcmeEabMacKey are External Account Binding, which a private or
+	// enterprise ACME CA generally requires and Let's Encrypt does not.
+	//
+	// AcmeEabMacKey is a credential: write it as `${secret:...}`. It never appears in
+	// the rendered Caddyfile — both values are delivered in the ingress env file
+	// (0600, over stdin) and referenced as `{$...}` placeholders, so they stay out of
+	// the Pulumi checkpoint and out of a file an operator might paste into a ticket.
+	AcmeEabKeyID  string `json:"acmeEabKeyId,omitempty" yaml:"acmeEabKeyId,omitempty"`
+	AcmeEabMacKey string `json:"acmeEabMacKey,omitempty" yaml:"acmeEabMacKey,omitempty"`
 }
 
 // VmHost is one machine the operator brought — the whole input of DriverByo.
@@ -218,6 +243,41 @@ func (r *VmConfig) IngressEnabled() bool {
 	return r.Ingress != nil && r.Ingress.Enable
 }
 
+// IngressImage is the Caddy image to run, defaulted. Same expression the Kubernetes
+// edge uses (kubernetes/caddy.go), so the two paths run the same build of Caddy with
+// the same plugin set unless an operator deliberately pins one of them elsewhere.
+func (r *VmConfig) IngressImage() string {
+	if r.Ingress != nil && r.Ingress.Image != "" {
+		return r.Ingress.Image
+	}
+	return fmt.Sprintf("simplecontainer/caddy:%s", build.Version)
+}
+
+// validateIngress holds the ingress rules shared by the byo and cloud paths. One
+// function rather than the same two checks in both, because the pair of them drifted
+// once already: `acmeEabKeyId` without `acmeEabMacKey` is accepted by Caddy's parser
+// and then fails at first issuance, which surfaces as "no certificate" days later.
+func (r *VmConfig) validateIngress() error {
+	if !r.IngressEnabled() {
+		return nil
+	}
+	if r.Ingress.Email == "" {
+		return errors.Errorf("`ingress.enable: true` requires `ingress.email` (the ACME account address)")
+	}
+	if (r.Ingress.AcmeEabKeyID == "") != (r.Ingress.AcmeEabMacKey == "") {
+		return errors.Errorf(
+			"`ingress.acmeEabKeyId` and `ingress.acmeEabMacKey` must be set together: External Account " +
+				"Binding needs both, and half of it is accepted by the config parser and then fails at the " +
+				"first certificate request")
+	}
+	if r.Ingress.AcmeEabKeyID != "" && r.Ingress.AcmeCa == "" {
+		return errors.Errorf(
+			"`ingress.acmeEabKeyId` is set without `ingress.acmeCa`: External Account Binding is for a " +
+				"private or enterprise CA, and Let's Encrypt (the default) does not accept it")
+	}
+	return nil
+}
+
 // Validate enforces the rule that makes this DSL safe to extend: **either support a
 // field or refuse it**. A field accepted and silently ignored is a future incident
 // in which the operator is certain the setting applied (compose-on-vm.md §2.2, D4).
@@ -311,10 +371,7 @@ func (r *VmConfig) validateByo() error {
 			return errors.Errorf("hosts[%d] (%s) has an invalid `port`: %d", i, h.Address, h.Port)
 		}
 	}
-	if r.IngressEnabled() && r.Ingress.Email == "" {
-		return errors.Errorf("`ingress.enable: true` requires `ingress.email` (the ACME account address)")
-	}
-	return nil
+	return r.validateIngress()
 }
 
 // validateCloud holds the invariants of every driver that creates a machine. No such
@@ -330,10 +387,7 @@ func (r *VmConfig) validateCloud() error {
 	if r.Region == "" {
 		return errors.Errorf("`provider: %s` requires `region`", r.Driver)
 	}
-	if r.IngressEnabled() && r.Ingress.Email == "" {
-		return errors.Errorf("`ingress.enable: true` requires `ingress.email` (the ACME account address)")
-	}
-	return nil
+	return r.validateIngress()
 }
 
 // KnownDrivers lists every `provider:` value a vm resource accepts, implemented or

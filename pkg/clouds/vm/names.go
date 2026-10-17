@@ -20,6 +20,98 @@ import (
 // project and must survive a reboot and a `docker compose down` of either slot.
 const IngressNetwork = "sc-ingress"
 
+// The ingress (Caddy) names. One Caddy per machine, in its own compose project,
+// owned by the `vm` RESOURCE rather than by any stack — several stacks share one
+// port 443, so the thing that holds it cannot belong to one of them
+// (compose-on-vm.md §3, D15).
+const (
+	// CaddyProject is the compose project. It carries no stack-env prefix, which is
+	// the one documented exception to the rule in NamePrefix: there is exactly one
+	// of it per machine and its name is what an operator types.
+	CaddyProject = "sc-caddy"
+	// CaddyContainer is also `container_name`, because the blue-green flip reloads
+	// Caddy with `docker exec sc-caddy …` and a generated container name would make
+	// that command depend on the project's numbering.
+	CaddyContainer = "sc-caddy"
+	// CaddyDataVolume holds the ACME account key and every issued certificate.
+	//
+	// A named volume, NOT a path inside the config tree, and this is the single most
+	// consequential choice in P5.3: Let's Encrypt allows 50 certificates per domain
+	// per week, so an ingress that loses /data on every recreate burns through the
+	// quota and then serves a site with no certificate at all. The config tree is
+	// mounted read-only, which is also incompatible with Caddy writing into it —
+	// compose-on-vm.md §3.1 draws `data/` under /etc/sc/caddy, and that part of the
+	// drawing is wrong (§8.3 point 3 is the rule).
+	CaddyDataVolume = "sc-caddy-data"
+	// CaddyConfigVolume is Caddy's own config/autosave directory.
+	CaddyConfigVolume = "sc-caddy-config"
+	// CaddyContainerConfigDir is where the config tree is mounted INSIDE the
+	// container. The paths written into the generated Caddyfile are container paths,
+	// so they must not be derived from CaddyDir.
+	CaddyContainerConfigDir = "/etc/caddy"
+)
+
+// CaddyDir is the ingress configuration tree on the machine, mounted read-only at
+// CaddyContainerConfigDir.
+func CaddyDir() string {
+	return ConfigDir + "/caddy"
+}
+
+// CaddyfilePath is the generated global Caddyfile: the ACME configuration, the shared
+// snippet library, and an `import` of everything in conf.d.
+func CaddyfilePath() string {
+	return CaddyDir() + "/Caddyfile"
+}
+
+// CaddyConfDir holds one file per stack-env. A deploy writes its own file and reloads;
+// it never edits a file another stack owns, which is what lets two stacks deploy
+// concurrently without a lock (compose-on-vm.md §8.2).
+func CaddyConfDir() string {
+	return CaddyDir() + "/conf.d"
+}
+
+// CaddyPagesDir holds the error pages the `handle_server_error` snippet serves. Same
+// files as the Kubernetes edge — they come from the same embedded asset tree.
+func CaddyPagesDir() string {
+	return CaddyDir() + "/pages"
+}
+
+// CaddyComposePath is the ingress's own compose file.
+func CaddyComposePath() string {
+	return CaddyDir() + "/docker-compose.yaml"
+}
+
+// CaddyEnvPath is the ingress env file (0600): the ACME External Account Binding
+// credential, when there is one. It exists even when empty, because compose fails a
+// project whose `env_file` is missing.
+func CaddyEnvPath() string {
+	return CaddyDir() + "/env"
+}
+
+// CaddySitePath is one stack-env's file in conf.d.
+func CaddySitePath(stack, env string) string {
+	return fmt.Sprintf("%s/%s.caddy", CaddyConfDir(), NamePrefix(stack, env))
+}
+
+// CaddyDefaultSitePath is the catch-all, written once when the ingress is created.
+//
+// It answers an unknown Host with a 503 — the same decision, and for the same reason,
+// as the Kubernetes edge's default entry (kubernetes/caddy.go): without it `import
+// conf.d/*.caddy` on a machine with no stacks yet matches nothing, and Caddy refuses a
+// config with no site at all. The `00-` prefix only keeps it first in the glob for a
+// human reading the directory; Caddy does not care about order here.
+func CaddyDefaultSitePath() string {
+	return CaddyConfDir() + "/00-default.caddy"
+}
+
+// The ingress env file's variable names. They are referenced from the generated
+// Caddyfile as `{$...}` placeholders so that the credential lives only in a 0600 file
+// delivered over stdin, and not in a config file an operator may paste into a ticket.
+const (
+	EnvAcmeEabKeyID  = "SC_ACME_EAB_KEY_ID"
+	EnvAcmeEabMacKey = "SC_ACME_EAB_MAC_KEY"
+)
+
 // The two blue-green slots. A stack-env occupies one of them at a time; a deploy
 // brings up the other and flips Caddy to it (compose-on-vm.md §9.1).
 const (
