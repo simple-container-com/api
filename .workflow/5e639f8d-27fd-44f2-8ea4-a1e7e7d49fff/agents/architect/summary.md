@@ -1,0 +1,1 @@
+[thinking] # Architect Handoff — sc-ingress-drops-visitor-host: Design confirmation + audit execution plan

@@ -51,7 +51,7 @@ inputs:
     required: false
     default: ''
   skip-refresh:
-    description: 'Skip Pulumi refresh operation before deployment'
+    description: 'Skip the Pulumi refresh inside the update'
     required: false
     default: 'false'
 

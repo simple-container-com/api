@@ -26,14 +26,15 @@ func validateImage(image string) error {
 func NewImageCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "image",
-		Short: "Container image security operations",
-		Long:  `Perform security operations on container images including signing and verification`,
+		Short: "Container image operations",
+		Long:  `Sign, verify and scan container images, and ship them to a machine without a registry`,
 	}
 
 	// Add subcommands
 	cmd.AddCommand(NewSignCmd())
 	cmd.AddCommand(NewVerifyCmd())
 	cmd.AddCommand(NewScanCmd())
+	cmd.AddCommand(NewShipCmd())
 
 	return cmd
 }
