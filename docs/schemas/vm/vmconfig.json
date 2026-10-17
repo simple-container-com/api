@@ -63,11 +63,23 @@
       "ingress": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
+          "acmeCa": {
+            "type": "string"
+          },
+          "acmeEabKeyId": {
+            "type": "string"
+          },
+          "acmeEabMacKey": {
+            "type": "string"
+          },
           "email": {
             "type": "string"
           },
           "enable": {
             "type": "boolean"
+          },
+          "image": {
+            "type": "string"
           }
         },
         "required": [

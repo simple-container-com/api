@@ -99,34 +99,61 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 		params.Log.Warn(ctx.Context(), "stack %q on vm %q: %s", stackName, in.VmResource, w)
 	}
 
-	// The ingress host port. In P5.2 it is always published, whatever `ingress.enable`
-	// says, because the thing that would otherwise front it does not exist yet.
+	// Whether the machine's Caddy serves this stack. One predicate, defined next to
+	// the renderer that depends on it, because three things downstream have to agree
+	// about the answer: whether a host port is published, whether the two slots may
+	// run at once, and what the stack's URL is.
+	servesDomain := vm.ServesDomain(in, ingressEnabled)
+
+	// The ingress host port is published only when Caddy is NOT in front. That is not
+	// a tidiness choice: a published port is a singleton, and it is the one thing that
+	// prevents both slots from running at once (see stopOtherFirst below). Setting it
+	// to zero is what makes the deploy blue-green.
 	hostPort := 0
-	if in.Deployment.IngressContainer != nil {
-		hostPort = vm.IngressHostPort(stackName, env)
-		if ingressEnabled {
-			params.Log.Warn(ctx.Context(),
-				"vm %q has `ingress.enable: true`, but Caddy and TLS arrive with the next slice (P5.3): "+
-					"publishing %q directly on host port %d instead. Expect plain HTTP and no certificate until then",
-				in.VmResource, in.Deployment.IngressContainer.Name, hostPort)
-		} else {
-			params.Log.Info(ctx.Context(), "publishing ingress service %q of stack %q on host port %d",
-				in.Deployment.IngressContainer.Name, stackName, hostPort)
-		}
-	} else {
+	switch {
+	case in.Deployment.IngressContainer == nil:
 		params.Log.Warn(ctx.Context(),
 			"stack %q declares no ingress service, so nothing is reachable from outside the machine", stackName)
+	case servesDomain:
+		params.Log.Info(ctx.Context(),
+			"vm %q serves %q of stack %q on https://%s — no host port is published, and the deploy flips slots "+
+				"with a Caddy reload",
+			in.VmResource, in.Deployment.IngressContainer.Name, stackName, stackConfig.Domain)
+	default:
+		hostPort = vm.IngressHostPort(stackName, env)
+		params.Log.Info(ctx.Context(), "publishing ingress service %q of stack %q on host port %d",
+			in.Deployment.IngressContainer.Name, stackName, hostPort)
 	}
-	if stackConfig.Domain != "" {
-		// Refusing would be the other defensible choice. Warning wins because the
-		// stack is genuinely deployed and genuinely works on the host port — and
-		// because the client.yaml that names a domain is the same one P5.3 will
-		// serve unchanged, so making operators delete and re-add the field would be
-		// churn with no safety gained.
+
+	// The two ways a stack can name a domain and not get it. Warned about rather than
+	// refused, because the stack is genuinely deployed and genuinely answers on the
+	// host port — but said out loud, because "my certificate never appeared" is
+	// otherwise a silent failure with no local evidence.
+	if stackConfig.Domain != "" && !servesDomain {
+		switch {
+		case !ingressEnabled:
+			params.Log.Warn(ctx.Context(),
+				"stack %q sets `domain: %s`, but vm %q does not have `ingress.enable: true`: no certificate is "+
+					"issued and nothing listens on 443. Reach the stack on http://<host>:%d, or enable the ingress "+
+					"in the parent stack's `type: %s` resource and re-provision",
+				stackName, stackConfig.Domain, in.VmResource, hostPort, vm.ResourceTypeVm)
+		case in.Deployment.IngressContainer == nil:
+			params.Log.Warn(ctx.Context(),
+				"stack %q sets `domain: %s` but declares no ingress service, so there is nothing for the machine's "+
+					"Caddy to proxy to. Mark the service that serves HTTP with `ingress: true`",
+				stackName, stackConfig.Domain)
+		}
+	}
+	if stackConfig.Domain == "" && ingressEnabled && in.Deployment.IngressContainer != nil {
+		// The `prefix`-without-`domain` case, among others. On the Kubernetes path a
+		// prefix is grafted onto an aggregator site that already owns a domain; on a
+		// single VM there is no such site, so there is no host name to attach it to.
+		// hostPort is already set by the switch above — this branch only reaches the
+		// operator, it does not change the deploy.
 		params.Log.Warn(ctx.Context(),
-			"stack %q sets `domain: %s`, but this slice does not serve domains: no DNS record is created and no "+
-				"certificate is issued. Reach the stack on http://<host>:%d until Caddy lands (P5.3)",
-			stackName, stackConfig.Domain, hostPort)
+			"vm %q runs Caddy, but stack %q sets no `domain`, so it cannot be served over HTTPS: there is no "+
+				"aggregator site on a VM to attach a bare `prefix` to. Publishing on host port %d instead",
+			in.VmResource, stackName, hostPort)
 	}
 
 	conn := connectionArgs(host)
@@ -266,11 +293,11 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	}).(sdk.StringOutput)
 
 	// A published host port is a singleton, so the two slots cannot both be up while
-	// one of them holds it: the new slot's `up` fails with "port is already
-	// allocated". Until Caddy fronts the stack (P5.3) and the port stops being
-	// published, the only correct order is to stop the old slot first and accept a
-	// few seconds of downtime. Not a deviation we chose — a consequence of blue-green
-	// without a reverse proxy, recorded in the design doc so that P5.3 can delete it.
+	// one of them holds it: the new slot's `up` fails with "port is already allocated",
+	// and the only correct order is to stop the old slot first and accept a few seconds
+	// of downtime. That is a consequence of blue-green without a reverse proxy, which
+	// is why the condition is `hostPort > 0` rather than a flag: when Caddy fronts the
+	// stack no port is published, and this relaxes itself.
 	stopOtherFirst := hostPort > 0 && !recreate
 
 	// Everything from here needs the slot, and the slot is an Output — so the script
@@ -329,6 +356,48 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 		return nil, errors.Wrapf(err, "failed to bring stack %q up on vm %q", stackName, in.VmResource)
 	}
 
+	// The flip. Between `up` (both slots running, old one serving) and `finalize`
+	// (which retires the old slot) — and it has to be exactly there: routing before
+	// the health gate would send traffic to a slot that may never come up, and routing
+	// after the old slot is stopped is a gap in which the domain 502s.
+	routeDeps := []sdk.Resource{up}
+	if servesDomain {
+		routeOut := slotOut.ApplyT(func(slot string) (string, error) {
+			site, err := vm.RenderCaddySite(in, vm.RenderOptions{
+				Stack:   stackName,
+				Env:     env,
+				Slot:    slot,
+				Version: version,
+			})
+			if err != nil {
+				return "", errors.Wrapf(err, "failed to render the Caddy site of stack %q slot %q", stackName, slot)
+			}
+			return routeScript(routeSpec{
+				Stack:   stackName,
+				Env:     env,
+				Slot:    slot,
+				Domain:  stackConfig.Domain,
+				Content: site,
+			}), nil
+		}).(sdk.StringOutput)
+
+		route, err := remote.NewCommand(ctx, input.ToResName(stackName+"-vmc-route"), baseArgs(&remote.CommandArgs{
+			Create: routeOut,
+			Update: routeOut,
+			// The script carries the rendered site file, so it changes whenever the
+			// slot, the domain, the upstream port or any lbConfig option does. No
+			// Delete: the route is removed by teardownScript along with the rest of
+			// the stack, in one place, so that a replacement of THIS resource cannot
+			// delete the route moments after writing it.
+			Triggers: sdk.Array{host.Address, routeOut},
+		}), sdk.DependsOn([]sdk.Resource{up}))
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to route %q to stack %q on vm %q",
+				stackConfig.Domain, stackName, in.VmResource)
+		}
+		routeDeps = []sdk.Resource{route}
+	}
+
 	finalizeOut := slotOut.ApplyT(func(slot string) string {
 		stopSlot := ""
 		if !recreate {
@@ -349,7 +418,7 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 		Create:   finalizeOut,
 		Update:   finalizeOut,
 		Triggers: sdk.Array{host.Address, sdk.String(version), finalizeOut},
-	}), sdk.DependsOn([]sdk.Resource{up})); err != nil {
+	}), sdk.DependsOn(routeDeps)); err != nil {
 		return nil, errors.Wrapf(err, "failed to finalize deploy of stack %q on vm %q", stackName, in.VmResource)
 	}
 
@@ -366,7 +435,14 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 		return nil, errors.Wrapf(err, "failed to register teardown of stack %q on vm %q", stackName, in.VmResource)
 	}
 
+	// The URL an operator (and `sc deploy`'s own summary) should use. Not derived from
+	// whether a domain is configured but from whether it is actually SERVED — a stack
+	// whose domain was ignored for one of the reasons warned about above must not
+	// export an https:// URL that answers nothing.
 	url := sdk.Sprintf("http://%s:%d", host.Address, hostPort)
+	if servesDomain {
+		url = sdk.String("https://" + stackConfig.Domain).ToStringOutput()
+	}
 	ctx.Export(toComposeSlotExport(stackName), slotOut)
 	ctx.Export(toComposeURLExport(stackName), url)
 

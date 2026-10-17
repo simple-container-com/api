@@ -69,6 +69,26 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 		}
 		out.Ready = append(out.Ready, ready)
 
+		// The ingress, if the machine runs one. Installed by the RESOURCE rather than
+		// by any stack's template, and that is the decision the whole TLS path rests
+		// on: one machine has one port 443, so a Caddy inside a stack's compose
+		// project would fail to bind the moment a second stack was deployed onto the
+		// same host — and would be destroyed and recreated by every blue-green flip
+		// it is supposed to be performing (compose-on-vm.md §3, D15).
+		if cfg.IngressEnabled() {
+			if err := ensureIngress(ctx, input, cfg, h, params, ready); err != nil {
+				return nil, err
+			}
+		} else if h.Role == vm.RoleCompose {
+			// Said once, here. Without the ingress a stack is reachable only on a
+			// host port, which is a supported mode (`ingress.enable: false`) but not
+			// one anybody chooses by accident.
+			params.Log.Info(ctx.Context(),
+				"vm %q host %q has no ingress: stacks deployed onto it publish a host port and are served over "+
+					"plain HTTP. Set `ingress.enable: true` and `ingress.email` for HTTPS",
+				input.Descriptor.Name, h.Name)
+		}
+
 		ctx.Export(ToHostAddressExport(input.Descriptor.Name, i), h.Address)
 		ctx.Export(ToHostUserExport(input.Descriptor.Name, i), sdk.String(h.User))
 		ctx.Export(ToHostPortExport(input.Descriptor.Name, i), sdk.Int(h.Port))

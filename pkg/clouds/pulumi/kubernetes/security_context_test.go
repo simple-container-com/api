@@ -6,10 +6,11 @@ package kubernetes
 import (
 	"testing"
 
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 )

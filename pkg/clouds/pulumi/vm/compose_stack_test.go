@@ -42,6 +42,7 @@ const (
 	testHostKeyValue = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAI-TEST"
 	testEnvSecret    = "s3cr3t-mongo-uri"
 	testRegistryPass = "s3cr3t-registry-password"
+	testDomain       = "atrium.example.ru"
 )
 
 // composeMocks serves the parent stack's outputs and records what was created.
@@ -109,6 +110,24 @@ func (m *composeMocks) commands() map[string]resource.PropertyMap {
 	return out
 }
 
+// dependsOn returns the URNs one step was registered with. Asserting ordering off the
+// recorded sequence would be asserting about goroutine scheduling — independent
+// resources register in whatever order their inputs resolve. The dependency edge is
+// the thing the deploy actually honours.
+func (m *composeMocks) dependsOn(step string) []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, a := range m.created {
+		if a.TypeToken != tokenRemoteCommand || a.RegisterRPC == nil {
+			continue
+		}
+		if strings.Contains(a.Name, "-vmc-"+step) {
+			return a.RegisterRPC.GetDependencies()
+		}
+	}
+	return nil
+}
+
 func composeInput() *vm.VmComposeInput {
 	port := 8080
 	// The converters set IngressContainer from the compose label (or, for
@@ -147,6 +166,17 @@ func composeInput() *vm.VmComposeInput {
 func (f *composeFixture) withRegistryAuth() *composeFixture {
 	f.in.DockerRegistryUsername = lo.ToPtr("ci")
 	f.in.DockerRegistryPassword = lo.ToPtr(testRegistryPass)
+	return f
+}
+
+// withIngress models the machine an operator provisioned with `ingress.enable: true`
+// and a stack that declares a domain. Both halves are required — the ingress is a
+// property of the vm RESOURCE (read back off the parent stack) and the domain a
+// property of this stack — and getting one without the other is a supported state
+// that produces a warning, not a route.
+func (f *composeFixture) withIngress() *composeFixture {
+	f.mocks.outputs[resource.PropertyKey(ToIngressEnabledExport(testVmResource))] = resource.NewBoolProperty(true)
+	f.in.Deployment.StackConfig.Domain = testDomain
 	return f
 }
 
@@ -345,8 +375,9 @@ func TestVmCompose_PinnedHostKeyReachesTheConnection(t *testing.T) {
 	Expect(hostKey.StringValue()).To(Equal(testHostKeyValue))
 }
 
-// The URL and the slot are what the operator reads off the deploy, and in this slice
-// the URL is a host port because Caddy has not landed yet.
+// The URL and the slot are what the operator reads off the deploy. The fixture's
+// parent has no ingress, which is the `ingress.enable: false` escape hatch: the stack
+// publishes a host port and is served over plain HTTP.
 func TestVmCompose_ExportsThePortAndStartsAtSlotA(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -359,4 +390,128 @@ func TestVmCompose_ExportsThePortAndStartsAtSlotA(t *testing.T) {
 	// read-state returns nothing under the mocks, which is the case a first deploy
 	// hits for real: no state file on the machine yet, so slot a.
 	Expect(f.slot).To(Equal(vm.SlotA))
+
+	// No route is written when the machine has no ingress — there would be no Caddy to
+	// reload, and the command would fail every deploy.
+	Expect(f.mocks.commands()).ToNot(HaveKey("route"))
+}
+
+// With Caddy in front, the stack stops publishing a host port altogether: the proxy
+// reaches it over the shared docker network, and NOT publishing is what makes the flip
+// possible — two slots cannot bind the same host port, so `stopOtherFirst` only relaxes
+// to blue-green when nothing is published.
+func TestVmCompose_WithIngressPublishesNoHostPortAndServesHttps(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComposeFixture().withIngress()
+	_, err := f.run()
+	Expect(err).To(BeNil())
+
+	Expect(f.url).To(Equal("https://" + testDomain))
+
+	cmds := f.mocks.commands()
+	Expect(cmds).To(HaveKey("route"))
+
+	// The compose project the machine brings up must not contain a published port. The
+	// rendered file travels inside the `up` script, so this reads it back out of there
+	// rather than re-rendering it.
+	up, _ := unwrapSecret(cmds["up"]["create"])
+	blobs := decodedBlobs(up.StringValue())
+	// Guard: without this the loop below passes on an empty slice, which is exactly
+	// what a renamed delivery mechanism would produce.
+	Expect(blobs).To(ContainElement(ContainSubstring("services:")))
+	hostPortMapping := fmt.Sprintf("%d:", vm.IngressHostPort(testComposeStack, testEnv))
+	for _, blob := range blobs {
+		Expect(blob).ToNot(ContainSubstring(hostPortMapping),
+			"a published host port makes the second slot unschedulable and breaks the flip")
+	}
+}
+
+// The ordering is the whole no-502 property, and it is only expressible as a
+// dependency: the route must be written after BOTH slots are up (earlier and it points
+// at a container that may never start) and before finalize (later and the old slot is
+// already gone, which is the 502 this slice exists to avoid).
+func TestVmCompose_RouteIsSequencedBetweenUpAndFinalize(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComposeFixture().withIngress()
+	_, err := f.run()
+	Expect(err).To(BeNil())
+
+	Expect(f.mocks.dependsOn("route")).To(ContainElement(ContainSubstring("-vmc-up")))
+	Expect(f.mocks.dependsOn("finalize")).To(ContainElement(ContainSubstring("-vmc-route")))
+	// And finalize no longer waits on `up` directly — if it did, Pulumi would be free
+	// to retire the old slot concurrently with the route being written.
+	Expect(f.mocks.dependsOn("finalize")).ToNot(ContainElement(ContainSubstring("-vmc-up")))
+}
+
+// The route command carries the slot, so it must re-run on every deploy that flips —
+// and it must have an Update, because a replacement would delete the route it just
+// wrote. Checked separately from the blanket assertion at the top of this file, which
+// runs without an ingress and so never sees this command.
+func TestVmCompose_RouteHasTriggersAndAnUpdate(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComposeFixture().withIngress()
+	_, err := f.run()
+	Expect(err).To(BeNil())
+
+	route := f.mocks.commands()["route"]
+	create, _ := unwrapSecret(route["create"])
+	update, _ := unwrapSecret(route["update"])
+	triggers, _ := unwrapSecret(route["triggers"])
+
+	Expect(update.StringValue()).To(Equal(create.StringValue()))
+	Expect(triggers.ArrayValue()).ToNot(BeEmpty())
+	// The slot is in the script, so the content IS the trigger: a flip from a to b
+	// changes it and the route is rewritten.
+	Expect(create.StringValue()).To(ContainSubstring(vm.CaddySitePath(testComposeStack, testEnv)))
+	// No Delete: the route is removed exactly once, by the teardown command, so a
+	// replacement of this command cannot delete a route moments after writing it.
+	Expect(route["delete"].V).To(BeNil())
+}
+
+// A domain declared against a machine with no ingress is the most likely misconfig in
+// this slice, and the one that would otherwise present as "my domain doesn't work"
+// with nothing in the deploy output. It is a warning, not an error: the stack still
+// deploys and is still reachable on its host port.
+func TestVmCompose_DomainWithoutIngressStillPublishesTheHostPort(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComposeFixture()
+	f.in.Deployment.StackConfig.Domain = testDomain
+	_, err := f.run()
+	Expect(err).To(BeNil())
+
+	Expect(f.url).To(Equal(fmt.Sprintf("http://%s:%d", testHostAddress, vm.IngressHostPort(testComposeStack, testEnv))))
+	Expect(f.mocks.commands()).ToNot(HaveKey("route"))
+}
+
+// The mirror case: an ingress is there but the stack declares no domain. There is no
+// aggregator site on a VM to graft a `prefix` onto, so there is nothing for Caddy to
+// serve this stack as — it falls back to the host port.
+func TestVmCompose_IngressWithoutADomainFallsBackToTheHostPort(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComposeFixture().withIngress()
+	f.in.Deployment.StackConfig.Domain = ""
+	_, err := f.run()
+	Expect(err).To(BeNil())
+
+	Expect(f.url).To(Equal(fmt.Sprintf("http://%s:%d", testHostAddress, vm.IngressHostPort(testComposeStack, testEnv))))
+	Expect(f.mocks.commands()).ToNot(HaveKey("route"))
+}
+
+// Teardown removes the route whether or not this stack was ever served by Caddy: the
+// conf.d file outlives the containers it points at, and a stale one answers for the
+// domain with a 502 forever while renewing a certificate for it.
+func TestVmCompose_TeardownRemovesTheRoute(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComposeFixture().withIngress()
+	_, err := f.run()
+	Expect(err).To(BeNil())
+
+	del, _ := unwrapSecret(f.mocks.commands()["teardown"]["delete"])
+	Expect(del.StringValue()).To(ContainSubstring(vm.CaddySitePath(testComposeStack, testEnv)))
 }

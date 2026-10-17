@@ -437,11 +437,93 @@ func teardownScript(stack, env string) string {
 	fmt.Fprintf(b, "sc_rm %s\n", shellQuote(vm.DataProjectName(stack, env)))
 	fmt.Fprintf(b, "rm -rf %s\n", shellQuote(vm.StackDir(stack, env)))
 	fmt.Fprintf(b, "rm -f %s\n", shellQuote(vm.StatePath(stack, env)))
+	// The ingress route goes unconditionally, whether or not this deploy was the one
+	// that wrote it. A site file left behind in conf.d outlives the containers it
+	// points at, so the machine's Caddy keeps answering for that domain — with a 502
+	// forever, and with a cert it keeps renewing. `rm -f` is a no-op for a stack that
+	// was never served by Caddy, and the reload is skipped when there is no Caddy.
+	fmt.Fprintf(b, "rm -f %s\n", shellQuote(vm.CaddySitePath(stack, env)))
+	fmt.Fprintf(b, "if docker inspect %s >/dev/null 2>&1; then\n", shellQuote(vm.CaddyContainer))
+	fmt.Fprintf(b, "  { docker exec %s caddy reload --config %s --adapter caddyfile || true; } >&2 2>&1\n",
+		shellQuote(vm.CaddyContainer), shellQuote(vm.CaddyContainerConfigDir+"/Caddyfile"))
+	b.WriteString("fi\n")
 	fmt.Fprintf(b, "docker network rm %s >/dev/null 2>&1 || true\n",
 		shellQuote(vm.InternalNetworkName(stack, env)))
 	fmt.Fprintf(b, "echo %s\n", shellQuote(fmt.Sprintf(
 		"removed the compose projects and configuration of %s/%s; named volumes and %s were kept",
 		stack, env, vm.IngressNetwork)))
+	return b.String()
+}
+
+// routeSpec is everything routeScript needs. Assembled inside an apply, because the
+// site file names the slot and the slot is read off the machine.
+type routeSpec struct {
+	Stack, Env string
+	Slot       string
+	Domain     string
+	// Content is the rendered `conf.d/<stack>-<env>.caddy`, not its path: the path is
+	// derived from Stack/Env, so the file written and the file that is validated
+	// cannot disagree.
+	Content string
+}
+
+// routeScript points the machine's Caddy at the slot this deploy just brought up.
+//
+// This IS the blue-green flip. Both slots are running at this point (the host port is
+// not published when Caddy fronts the stack, so nothing forces them apart), the old
+// one is still serving traffic, and a single `caddy reload` moves every new connection
+// to the new slot without dropping an in-flight one. Nothing else in the deploy
+// switches traffic (compose-on-vm.md §8.2, §9.1).
+//
+// The back-up-and-restore around it is not defensive padding. conf.d is shared by
+// every stack on the machine and Caddy loads it as ONE config: a site file this stack
+// renders badly does not break this stack, it makes the reload fail for everyone, and
+// a validate-then-reload without a restore leaves the bad file on disk for the next
+// unrelated deploy — or the next reboot — to load. So: write, validate the whole tree
+// as Caddy will actually read it, and put the previous file back before failing.
+func routeScript(s routeSpec) string {
+	sitePath := vm.CaddySitePath(s.Stack, s.Env)
+	b := &strings.Builder{}
+	b.WriteString("set -eu\n")
+	// Named up front so the restore in reloadLines' failure branch can use them.
+	fmt.Fprintf(b, "site=%s\n", shellQuote(sitePath))
+	fmt.Fprintf(b, "backup=%s\n", shellQuote(sitePath+".prev"))
+	// A missing Caddy is reported here rather than let `docker exec` fail obscurely:
+	// this script only runs when the parent stack said `ingress.enable: true`, so
+	// Caddy not being there means the parent was never provisioned with it.
+	fmt.Fprintf(b, "docker inspect %s >/dev/null 2>&1 || { echo %s >&2; exit 1; }\n",
+		shellQuote(vm.CaddyContainer),
+		shellQuote(fmt.Sprintf(
+			"the machine has no %q container, so there is nothing to serve %q. Run `sc provision` for the parent "+
+				"stack — the ingress belongs to the `%s` resource, not to this stack",
+			vm.CaddyContainer, s.Domain, vm.ResourceTypeVm)))
+
+	fmt.Fprintf(b, "install -d -m 0750 %s\n", shellQuote(vm.CaddyConfDir()))
+	// cp rather than mv: the previous route must stay live while the new one is being
+	// validated, because a validate failure means traffic keeps going where it was.
+	b.WriteString(`if [ -f "$site" ]; then cp -p "$site" "$backup"; else rm -f "$backup"; fi` + "\n")
+	fmt.Fprintf(b, "printf %%s %s | base64 -d > \"$site.new\"\n", shellQuote(encodeFile(s.Content)))
+	b.WriteString(`chmod 0640 "$site.new"` + "\n")
+	b.WriteString(`mv -f "$site.new" "$site"` + "\n")
+
+	// The restore, used by both failure branches below.
+	restore := `if [ -f "$backup" ]; then mv -f "$backup" "$site"; else rm -f "$site"; fi` + "\n"
+
+	// Validated inside the container, against the global Caddyfile, because that is
+	// the only thing that reads conf.d the way Caddy will: validating the site file on
+	// its own would reject every `import` of a snippet the global file defines.
+	fmt.Fprintf(b, "if ! docker exec %s caddy validate --config %s --adapter caddyfile >&2 2>&1; then\n",
+		shellQuote(vm.CaddyContainer), shellQuote(vm.CaddyContainerConfigDir+"/Caddyfile"))
+	fmt.Fprintf(b, "  echo %s >&2\n", shellQuote(fmt.Sprintf(
+		"the generated Caddy site for %s/%s is not a valid configuration; the previous route is left in place",
+		s.Stack, s.Env)))
+	b.WriteString(indentLines(restore, "  "))
+	b.WriteString("  exit 1\nfi\n")
+
+	b.WriteString(reloadLines(restore))
+	b.WriteString(`rm -f "$backup"` + "\n")
+	fmt.Fprintf(b, "echo %s\n", shellQuote(fmt.Sprintf("%s now routes to slot %q of %s/%s",
+		s.Domain, s.Slot, s.Stack, s.Env)))
 	return b.String()
 }
 
