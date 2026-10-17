@@ -29,6 +29,15 @@ const ProviderType = "k3s"
 
 func init() {
 	api.RegisterProviderConfig(api.ConfigRegisterMap{
-		ResourceTypeK3sCluster: ReadK3sClusterConfig,
+		ResourceTypeK3sCluster:  ReadK3sClusterConfig,
+		TemplateTypeK3sCloudrun: ReadK3sCloudrunTemplateConfig,
+	})
+
+	// cloud-compose only, matching kubernetes-cloudrun (pkg/clouds/k8s/init.go). A
+	// `single-image` client stack has no converter for any Kubernetes template today,
+	// so adding one here would make k3s the odd flavour out rather than closing a gap;
+	// the first smoke workload is a one-service compose file instead.
+	api.RegisterCloudComposeConverter(api.CloudComposeConfigRegister{
+		TemplateTypeK3sCloudrun: ToK3sCloudrunConfig,
 	})
 }

@@ -25,6 +25,35 @@ type KubeRunOutput struct {
 	SimpleContainer *SimpleContainer
 }
 
+// KubeRunOpts carries the few things that differ between the Kubernetes flavours
+// deploying through KubeRunWithProvider. Everything else about the deploy — images,
+// the SimpleContainer, the DNS record, the Caddy patch — is identical, which is the
+// whole reason the body below is shared rather than copied.
+type KubeRunOpts struct {
+	// IngressIPExport names the parent-stack output holding the address a
+	// domain-bearing workload's A record must point at. Empty means
+	// ToIngressIpExport(<parent stack name>), which is what kubernetes-cloudrun has
+	// always asked for.
+	//
+	// It is an option rather than a constant because the two existing readers of that
+	// output do NOT agree on the name: GkeAutopilotStack asks for
+	// ToIngressIpExport(ToClusterName(input, clusterResource)) — the cluster resource
+	// plus env suffix, which is what caddy.go and adopt_gke_autopilot.go actually
+	// export — while the default here asks for the bare parent stack name. A flavour
+	// whose cluster exports under the resource-name spelling (k3s does) has to say so,
+	// or the lookup misses and every domain-bearing workload fails at deploy with an
+	// empty IP. Left as-is for kubernetes-cloudrun on purpose: changing the name a
+	// live fleet reads is a separate change with its own smoke.
+	IngressIPExport string
+}
+
+func (o KubeRunOpts) ingressIPExport(parentStack string) string {
+	if o.IngressIPExport != "" {
+		return o.IngressIPExport
+	}
+	return ToIngressIpExport(parentStack)
+}
+
 func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != k8s.TemplateTypeKubernetesCloudrun {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
@@ -35,6 +64,28 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		return nil, errors.Errorf("failed to convert kubernetes run config for %q", input.Descriptor.Type)
 	}
 
+	return KubeRunWithProvider(ctx, stack, input, params, kubeRunInput, KubeRunOpts{})
+}
+
+// KubeRunWithProvider is KubeRun's body, reachable by a flavour that has already
+// resolved its own kubeconfig and built its own *sdkK8s.Provider — it deploys through
+// params.Provider and kubeRunInput as given, and type-checks neither. k3s-cloudrun is
+// the first such caller: its kubeconfig arrives as a parent-stack output rather than
+// as a literal in the template, so it cannot reach the provider-from-credentials path
+// that kubernetes-cloudrun uses.
+//
+// Callers MUST set params.Provider to a *sdkK8s.Provider (ProvisionParams is a value,
+// so assigning to the field is local to the caller) and kubeRunInput.Kubeconfig to the
+// matching kubeconfig — the Caddy patch at the end reads both, and a mismatch there
+// patches a different cluster than the one just deployed to.
+func KubeRunWithProvider(
+	ctx *sdk.Context,
+	stack api.Stack,
+	input api.ResourceInput,
+	params pApi.ProvisionParams,
+	kubeRunInput *k8s.KubeRunInput,
+	opts KubeRunOpts,
+) (*api.ResourceOutput, error) {
 	// Debug logging at the very start to see what we receive
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: KubeRun function called")
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment: %+v", kubeRunInput.Deployment)
@@ -178,7 +229,7 @@ func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params 
 		} else {
 			params.Log.Info(ctx.Context(), "Using provisioned cluster IP address for domain %q", domain)
 			suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
-			clusterIPAddress, err = pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ip", stackName, input.StackParams.Environment, suffix), fullParentReference, ToIngressIpExport(parentStack), false)
+			clusterIPAddress, err = pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ip", stackName, input.StackParams.Environment, suffix), fullParentReference, opts.ingressIPExport(parentStack), false)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
 			}

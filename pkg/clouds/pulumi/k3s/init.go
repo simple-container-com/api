@@ -10,7 +10,9 @@ import (
 
 func init() {
 	api.RegisterProvider(k3s.ProviderType, Provider)
+	// Resources and templates share this map — see pkg/clouds/pulumi/yandex/init.go:27.
 	api.RegisterResources(map[string]api.ProvisionFunc{
-		k3s.ResourceTypeK3sCluster: K3sCluster,
+		k3s.ResourceTypeK3sCluster:  K3sCluster,
+		k3s.TemplateTypeK3sCloudrun: K3sCloudrun,
 	})
 }

@@ -26,7 +26,7 @@
       "description": "Github cloud provider resources and templates"
     },
     "k3s": {
-      "count": 1,
+      "count": 2,
       "description": "K3s cloud provider resources and templates"
     },
     "kubernetes": {

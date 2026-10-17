@@ -517,15 +517,20 @@ func (sg *SchemaGenerator) guessProviderFromResourceType(resourceType string) st
 	switch {
 	case has("aws", "s3", "ecr", "rds", "ecs", "lambda", "fargate"):
 		return "aws"
-	case has("gcp", "gcloud", "gke", "cloudrun", "artifact", "pubsub"):
-		return "gcp"
-	// Ahead of the kubernetes case, and its own provider rather than part of it: the
-	// directory follows the config's ProviderType(), and k3s has its own
-	// (pkg/clouds/k3s/init.go explains why it cannot share the vm one). Without a
-	// case here the resource lands in "unknown" and generation fails outright on a
-	// directory that is never created — which is how this was caught.
+	// Ahead of BOTH the gcp and the kubernetes case, and its own provider rather than
+	// part of either: the directory follows the config's ProviderType(), and k3s has
+	// its own (pkg/clouds/k3s/init.go explains why it cannot share the vm one).
+	// Without a case here the resource lands in "unknown" and generation fails
+	// outright on a directory that is never created — which is how this was caught.
+	//
+	// Ahead of gcp specifically because "k3s-cloudrun" tokenises to [k3s, cloudrun],
+	// and `cloudrun` is a gcp token — so below it, the k3s template would generate
+	// into docs/schemas/gcp/ and pass, silently filing k3s's own schema under another
+	// provider.
 	case has("k3s"):
 		return "k3s"
+	case has("gcp", "gcloud", "gke", "cloudrun", "artifact", "pubsub"):
+		return "gcp"
 	case has("k8s", "kubernetes", "caddy"):
 		return "kubernetes"
 	case has("mongodb", "atlas"):
