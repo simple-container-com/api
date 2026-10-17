@@ -381,8 +381,12 @@ func provisionCaddyACMEStorage(ctx *sdk.Context, clusterName, projectID, cluster
 	return bucket, credentialsJSON, nil
 }
 
+// toKubeconfigExport is kept as a package-local alias of the shared helper rather
+// than inlined at its four call sites: the name is now a contract between this
+// package and every other cluster implementation (k3s, next), and the shared
+// definition is the only copy allowed to know the format.
 func toKubeconfigExport(clusterName string) string {
-	return fmt.Sprintf("%s-kubeconfig", clusterName)
+	return pulumiKubernetes.ToKubeconfigExport(clusterName)
 }
 
 func generateKubeconfig(cluster *container.Cluster, gkeInput *gcloud.GkeAutopilotResource) sdk.StringOutput {

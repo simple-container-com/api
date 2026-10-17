@@ -263,7 +263,7 @@ func TestVm_ConnectionIsSecretAtTheCommand(t *testing.T) {
 	inputs := mocks.inputsOf(tokenRemoteCommand)
 	Expect(inputs).NotTo(BeNil(), "no readiness command was created")
 	Expect(inputs["connection"].ContainsSecrets()).To(BeTrue(),
-		"pulumi-command no longer marks the SSH connection secret; mark it in connectionArgs")
+		"pulumi-command no longer marks the SSH connection secret; mark it in ConnectionArgs")
 
 	conn, _ := unwrapSecret(inputs["connection"])
 	key, _ := unwrapSecret(conn.ObjectValue()["privateKey"])

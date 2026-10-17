@@ -18,12 +18,15 @@ const (
 	perDialTimeoutSeconds = 10
 )
 
-// connectionArgs builds the SSH connection to one host.
+// ConnectionArgs builds the SSH connection to one host.
 //
 // Single place on purpose: every remote.Command in this package and in the ones
 // above it (compose, k3s) goes through here, so the secret marking and the dial
-// tuning cannot be forgotten at one call site.
-func connectionArgs(h HostFacts) *remote.ConnectionArgs {
+// tuning cannot be forgotten at one call site. Exported for the last of those:
+// pkg/clouds/pulumi/k3s runs its install commands over the connection of a host
+// this package produced, and a second copy of this function is how one of the two
+// ends up passing an unwrapped private key.
+func ConnectionArgs(h HostFacts) *remote.ConnectionArgs {
 	args := &remote.ConnectionArgs{
 		Host: h.Address,
 		User: sdk.StringPtr(h.User),

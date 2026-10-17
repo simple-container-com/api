@@ -1,0 +1,46 @@
+{
+  "name": "K3sCloudrunTemplate",
+  "type": "template",
+  "provider": "k3s",
+  "description": "K3S deployment template configuration",
+  "goPackage": "pkg/clouds/k3s/",
+  "goStruct": "K3sCloudrunTemplate",
+  "resourceType": "k3s-cloudrun",
+  "templateType": "k3s-cloudrun",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "dockerRegistryPassword": {
+            "type": "string"
+          },
+          "dockerRegistryURL": {
+            "type": "string"
+          },
+          "dockerRegistryUsername": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "caddyResource": {
+        "type": "string"
+      },
+      "k3sClusterResource": {
+        "type": "string"
+      },
+      "useSSL": {
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "",
+      "",
+      "k3sClusterResource"
+    ],
+    "type": "object"
+  }
+}

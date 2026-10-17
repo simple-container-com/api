@@ -74,7 +74,7 @@ func ensureIngress(
 	envContent := vm.RenderCaddyEnvFile(cfg)
 
 	base := func(a *remote.CommandArgs) *remote.CommandArgs {
-		a.Connection = connectionArgs(h)
+		a.Connection = ConnectionArgs(h)
 		a.AddPreviousOutputInEnv = sdk.Bool(false)
 		return a
 	}
