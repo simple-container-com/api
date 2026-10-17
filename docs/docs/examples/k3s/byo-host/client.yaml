@@ -36,10 +36,22 @@ stacks:
       # domain: portal.example.ru
 
       cloudExtras:
-        # Binds the node's own ports through k3s's bundled LoadBalancer
-        # implementation (klipper-lb). It works because `ingress` is left off the vm
-        # resource, so nothing else holds 80/443 — if you turn the compose Caddy on,
-        # SC disables klipper-lb and this Service sits `<pending>` instead.
+        # Binds the node's own ports through k3s's bundled LoadBalancer implementation
+        # (klipper-lb, k3s's `servicelb`). Two things have to be true for an address to
+        # arrive, and both are satisfied by the parent stack as written:
+        #
+        #  * `servicelb` is enabled — it is, because `ingress` is left off the vm
+        #    resource. Turn the compose Caddy on and SC disables it instead, at which
+        #    point this Service sits `<pending>` forever.
+        #  * nothing ELSE already holds ports 80/443 on the node. klipper-lb runs a pod
+        #    per LoadBalancer Service that binds the host port directly, so a second
+        #    holder does not produce an error — the pod stays `Pending` and the Service
+        #    keeps reporting `EXTERNAL-IP <pending>` with nothing naming the conflict.
+        #    k3s's own bundled traefik is exactly such a holder, which is why SC
+        #    disables it by default (`disable:` in the parent stack).
+        #
+        # If an address never arrives, look for a Pending `svclb-<service>` pod before
+        # anything else: `kubectl get pods -A | grep svclb`.
         serviceType: LoadBalancer
 
       # A single node is a single failure domain, so say so rather than letting
