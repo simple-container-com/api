@@ -54,6 +54,26 @@ func (o KubeRunOpts) ingressIPExport(parentStack string) string {
 	return ToIngressIpExport(parentStack)
 }
 
+// stackConfigFacts reads the two optional client-stack fields the deploy needs before
+// it has anything to attach them to.
+//
+// Both are optional, and `size:` being absent is the ordinary case — so
+// StackConfig.Size is nil for any cloud-compose stack that does not declare one, and
+// reading `.Ephemeral` straight through it panicked the whole deploy with a bare
+// SIGSEGV before a single resource was touched. It had done so since #185
+// (2026-03-23); only stacks that happen to declare `size:` escaped. The GKE flavour
+// was given this exact guard (gcp/gke_autopilot_stack.go:125) and the shared body it
+// was copied from never got it. Live-caught on the first k3s deploy smoke, 2026-10-18.
+func stackConfigFacts(cfg *api.StackConfigCompose) (domain, ephemeralSize string) {
+	if cfg == nil {
+		return "", ""
+	}
+	if cfg.Size != nil {
+		ephemeralSize = cfg.Size.Ephemeral
+	}
+	return cfg.Domain, ephemeralSize
+}
+
 func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != k8s.TemplateTypeKubernetesCloudrun {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
@@ -147,7 +167,9 @@ func KubeRunWithProvider(
 	out.Images = images
 
 	params.Log.Info(ctx.Context(), "Configure simple container deployment for stack %q in %q", stackName, environment)
-	domain := kubeRunInput.Deployment.StackConfig.Domain
+
+	stackCfg := kubeRunInput.Deployment.StackConfig
+	domain, ephemeralSize := stackConfigFacts(stackCfg)
 
 	if domain != "" && lo.FromPtr(caddyConfig).UsePrefixes {
 		return nil, errors.Errorf("caddy is configured to use prefixes, but domain for service is specified")
@@ -158,9 +180,9 @@ func KubeRunWithProvider(
 	kubeconfig := kubeRunInput.Kubeconfig
 
 	var nodeSelector map[string]string
-	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.StackConfig.CloudExtras: %+v", kubeRunInput.Deployment.StackConfig.CloudExtras)
-	if kubeRunInput.Deployment.StackConfig.CloudExtras != nil {
-		if cExtras, err := api.ConvertDescriptor(kubeRunInput.Deployment.StackConfig.CloudExtras, &k8s.CloudExtras{}); err != nil {
+	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeRunInput.Deployment.StackConfig.CloudExtras: %+v", lo.FromPtr(stackCfg).CloudExtras)
+	if lo.FromPtr(stackCfg).CloudExtras != nil {
+		if cExtras, err := api.ConvertDescriptor(stackCfg.CloudExtras, &k8s.CloudExtras{}); err != nil {
 			params.Log.Error(ctx.Context(), "failed to convert cloud extras to k8s.CloudExtras: %v", err)
 		} else {
 			params.Log.Info(ctx.Context(), "using node selector from cloudExtras: %v", cExtras.NodeSelector)
@@ -202,7 +224,7 @@ func KubeRunWithProvider(
 		StartupProbe:          kubeRunInput.Deployment.StartupProbe,          // Pass global startup probe configuration
 		ServiceType:           kubeRunInput.Deployment.ServiceType,           // Pass Service type override (e.g. LoadBalancer for UDP)
 		ExternalTrafficPolicy: kubeRunInput.Deployment.ExternalTrafficPolicy, // e.g. Local, required for WebRTC return media
-		EphemeralSize:         lo.FromPtr(kubeRunInput.Deployment.StackConfig).Size.Ephemeral,
+		EphemeralSize:         ephemeralSize,
 	}
 
 	params.Log.Info(ctx.Context(), "🔍 DEBUG: kubeArgs.Affinity passed to DeploySimpleContainer: %+v", kubeArgs.Affinity)
@@ -223,9 +245,9 @@ func KubeRunWithProvider(
 		}
 		var clusterIPAddress string
 
-		if lo.FromPtr(kubeRunInput.Deployment.StackConfig.ClusterIPAddress) != "" {
-			params.Log.Info(ctx.Context(), "Using specified cluster IP address for domain %q (%q)", domain, lo.FromPtr(kubeRunInput.Deployment.StackConfig.ClusterIPAddress))
-			clusterIPAddress = lo.FromPtr(kubeRunInput.Deployment.StackConfig.ClusterIPAddress)
+		if lo.FromPtr(stackCfg.ClusterIPAddress) != "" {
+			params.Log.Info(ctx.Context(), "Using specified cluster IP address for domain %q (%q)", domain, lo.FromPtr(stackCfg.ClusterIPAddress))
+			clusterIPAddress = lo.FromPtr(stackCfg.ClusterIPAddress)
 		} else {
 			params.Log.Info(ctx.Context(), "Using provisioned cluster IP address for domain %q", domain)
 			suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
@@ -236,8 +258,8 @@ func KubeRunWithProvider(
 		}
 		// Determine if domain should be proxied - defaults to true if not explicitly set to false
 		domainProxied := true
-		if kubeRunInput.Deployment.StackConfig.DomainProxied != nil {
-			domainProxied = *kubeRunInput.Deployment.StackConfig.DomainProxied
+		if stackCfg.DomainProxied != nil {
+			domainProxied = *stackCfg.DomainProxied
 		}
 
 		_, err = params.Registrar.NewRecord(ctx, api.DnsRecord{
