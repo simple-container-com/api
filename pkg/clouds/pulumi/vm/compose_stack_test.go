@@ -621,12 +621,15 @@ func TestVmCompose_ShipAndUpTriggerOnImageContentNotItsTag(t *testing.T) {
 	}
 }
 
-// The commands that only READ the machine must run on every deploy, and they are
-// the only ones that may. The allow-list is written out rather than derived: a new
-// command is a deliberate decision about which half of the rule it falls under
-// (nonce.go), and a test that inferred the answer could not fail.
+// Which commands run on every deploy, and why each one of them does.
 //
-// Live-caught 2026-10-18, twice and both green:
+// The set is written out rather than derived, with a reason per entry: a new command
+// is a deliberate decision about which of the three cases in nonce.go it falls under,
+// and a test that inferred the answer could not fail. The reasons are not decoration
+// either — a per-run command that does NOT satisfy its case is the expensive
+// direction of this mistake (see TestIngress_TeardownIsNotOnAReplaceableCommand).
+//
+// Live-caught 2026-10-18, three times and all three green:
 //   - read-state, triggered by the host address and the script hash — both invariant
 //     — ran once, and every later deploy took the active slot out of the checkpoint
 //     instead of off the machine. The first deploy had cached `""` (nothing deployed
@@ -636,35 +639,56 @@ func TestVmCompose_ShipAndUpTriggerOnImageContentNotItsTag(t *testing.T) {
 //     once per stack lifetime. Its own doc comment promised the opposite: that it is
 //     "still the thing that turns `docker: command not found` four commands deeper
 //     into a sentence naming what to install" — true on the first deploy only.
-func TestVmCompose_OnlyTheReadsRunOnEveryDeploy(t *testing.T) {
+//   - prepare, which creates the `sc-ingress` network, the external volumes and the
+//     stack directory. A `docker system prune` between deploys removes them without
+//     moving any input here, so the deploy that would put them back was the one
+//     deploy that skipped — surfacing one command later as a compose error about a
+//     network that SC is supposed to own.
+func TestVmCompose_TheRightCommandsRunOnEveryDeploy(t *testing.T) {
 	RegisterTestingT(t)
 
-	reads := []string{"read-state", "preflight"}
+	perRun := map[string]string{
+		"preflight":  "reads only: asserts docker, the daemon and the user's group membership",
+		"prepare":    "guarded change: every line is inspect-or-create, and the drift it repairs is invisible to its inputs",
+		"read-state": "reads only: the active slot, which only the machine knows",
+		"route":      "guarded change: an identical rewrite plus a graceful reload, and it is the only thing that puts this stack on the machine's ingress — a conf.d wiped by an ingress rebuild is invisible to its inputs under strategy: recreate",
+	}
 
 	f := newComposeFixture().withIngress()
 	_, err := f.run()
 	Expect(err).To(BeNil())
 
 	cmds := f.mocks.commands()
-	for _, name := range reads {
+	for name, why := range perRun {
 		Expect(cmds).To(HaveKey(name), "the fixture produced no %q command", name)
 		triggers, _ := unwrapSecret(cmds[name]["triggers"])
 		Expect(triggers.String()).To(ContainSubstring(runNonce),
-			"%q only reads the machine, so without a per-run trigger it answers later "+
-				"deploys from the checkpoint having checked nothing", name)
+			"%q is not triggered per run, and it has to be — %s", name, why)
+
+		// A per-run trigger and no Update is a replacement on every deploy, which
+		// pulumi-command performs as delete-then-create. For `prepare` that would be
+		// a teardown of the network it had just created.
+		update, _ := unwrapSecret(cmds[name]["update"])
+		create, _ := unwrapSecret(cmds[name]["create"])
+		Expect(update.StringValue()).To(Equal(create.StringValue()),
+			"%q is triggered per run and has no Update equal to its Create", name)
+		Expect(cmds[name]).ToNot(HaveKey(resource.PropertyKey("delete")),
+			"%q is triggered per run and carries a Delete: a replacement runs it moments "+
+				"after the Create, destroying what the Create just did", name)
 	}
 
 	for name, inputs := range cmds {
-		if lo.Contains(reads, name) {
+		if _, ok := perRun[name]; ok {
 			continue
 		}
 		other, _ := unwrapSecret(inputs["triggers"])
-		// A nonce on a command that CHANGES the machine would make every deploy a
-		// full redeploy of everything — including, on a stack with a published host
-		// port, a stop-start of the serving container for a deploy that changed
-		// nothing.
+		// A nonce on a command that changes the machine and cannot tell whether it
+		// has to would make every deploy a full redeploy of everything — including,
+		// on a stack with a published host port, a stop-start of the serving
+		// container for a deploy that changed nothing.
 		Expect(other.String()).ToNot(ContainSubstring(runNonce),
-			"command %q changes the machine and is triggered per run; only the reads may be", name)
+			"command %q is triggered per run but is not in the set above; if that is right, add it "+
+				"with its reason and check the three preconditions in TriggersForGuardedChange", name)
 	}
 }
 

@@ -114,11 +114,17 @@ func K3sCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 		// The script text covers every input that changes what gets installed,
 		// because it is rendered from all of them.
 		//
-		// No nonce, deliberately: this command CHANGES the machine, and a per-run
-		// trigger here would hand the install script to a live control plane on
-		// every deploy (pkg/clouds/pulumi/vm/nonce.go). The two reads below are the
-		// other half of that rule.
-		Triggers:               pulumiVm.TriggersForChange(installScript, host.Address),
+		// The per-run nonce on top of that, because InstallScript's first act is to
+		// ask the machine whether it is already running this version with these
+		// arguments and exit 0 if it is (the ArgsMarkerPath guard) — the
+		// guarded-change case in pkg/clouds/pulumi/vm/nonce.go. What it buys is the
+		// one deploy that matters: a node whose k3s died, was stopped, or was
+		// reinstalled by hand has drifted without any input here moving, so a
+		// change-only trigger set skips the install and leaves the node-ready read
+		// below to fail the provision with no way to repair it but editing the
+		// config. Live-caught 2026-10-18, against a node stopped out of band: install
+		// skipped, "no k3s node became Ready within 300s".
+		Triggers:               pulumiVm.TriggersForGuardedChange(installScript, host.Address),
 		Logging:                remote.LoggingNone.ToLoggingPtrOutput(),
 		AddPreviousOutputInEnv: sdk.Bool(false),
 	}, sdk.DependsOn([]sdk.Resource{vmOut.Ready[0]}))

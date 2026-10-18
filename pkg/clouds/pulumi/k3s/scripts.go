@@ -96,6 +96,30 @@ func InstallScript(version, installURL, serverArgs string) string {
 		// should be one flag.
 		fmt.Sprintf(`sudo env INSTALL_K3S_VERSION="$WANT_VERSION" sh %s $WANT_ARGS`, InstallerPath),
 		fmt.Sprintf(`rm -f %s`, InstallerPath),
+		// The installer does NOT guarantee a running service, and this is the line
+		// that cost a provision: get.k3s.io diffs the unit and env files it would
+		// write against what is on disk and, when they match, enables the unit and
+		// prints
+		//
+		//	[INFO]  No change detected so skipping service start
+		//
+		// then exits 0. Its idempotence is unit-file-shaped, not service-shaped — so
+		// against a machine whose k3s was stopped, killed or k3s-killall'd with an
+		// otherwise correct config, the installer repairs nothing and reports
+		// success, and the readiness gate 300 s later is the first thing that says
+		// so. `enable --now` is the repair: a no-op on a running unit, a start on a
+		// stopped one, and it cannot mask a genuine failure because `set -e` takes
+		// the script down before the args marker below is written.
+		//
+		// Reaching this line at all means the skip condition above was false, i.e.
+		// something really is wrong — on a first install the installer has already
+		// started k3s and this is the no-op case.
+		//
+		// Live-caught 2026-10-18 on the RU smoke stand: the install re-ran (the
+		// per-run trigger worked), printed the line above, wrote the marker, exited
+		// 0 — and k3s stayed down, with nothing in its journal between the stop two
+		// hours earlier and the failed gate.
+		`sudo systemctl enable --now k3s`,
 		// Written only after a successful install, so a failed one does not leave a
 		// marker claiming the machine is configured.
 		fmt.Sprintf(`printf '%%s' "$WANT_ARGS" | sudo tee %s >/dev/null`, ArgsMarkerPath),

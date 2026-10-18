@@ -64,6 +64,34 @@ func TestInstallScriptIsIdempotentOnConfigAndNotJustOnVersion(t *testing.T) {
 	Expect(script).NotTo(ContainSubstring("| sudo sh"))
 }
 
+// The installer's idempotence is unit-file-shaped, not service-shaped: when the unit
+// and env files it would write already match what is on disk it enables the unit,
+// prints "No change detected so skipping service start" and exits 0. So on a machine
+// whose k3s is stopped with an otherwise correct config — killed, k3s-killall'd,
+// stopped by an operator — the install repairs nothing, reports success, and the
+// readiness gate 300 s later is the first sign. Measured on the RU smoke stand,
+// 2026-10-18.
+//
+// Reaching the start at all means the skip condition was false, so this costs a
+// healthy cluster nothing; and it has to come BEFORE the args marker, or a machine
+// that cannot start k3s ends up with a marker saying it is configured.
+func TestInstallScriptStartsTheServiceTheInstallerDeclinedToStart(t *testing.T) {
+	RegisterTestingT(t)
+
+	script := InstallScript("v1.36.5+k3s1", cfgK3s.DefaultInstallScriptURL, "server --tls-san a")
+
+	Expect(script).To(ContainSubstring(`sudo systemctl enable --now k3s`))
+
+	installAt := strings.Index(script, "sudo env INSTALL_K3S_VERSION")
+	startAt := strings.Index(script, "sudo systemctl enable --now k3s")
+	markerAt := strings.Index(script, "| sudo tee "+ArgsMarkerPath)
+	Expect(startAt).To(BeNumerically(">", installAt),
+		"the service start has to follow the installer, which writes the unit file it starts")
+	Expect(markerAt).To(BeNumerically(">", startAt),
+		"the args marker has to follow the start: a machine where k3s will not start must not "+
+			"be left claiming it is configured")
+}
+
 func TestKubeconfigScriptAssertsTheRewriteHappened(t *testing.T) {
 	RegisterTestingT(t)
 

@@ -214,7 +214,15 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 		return nil, err
 	}
 
-	if _, err := step("prepare", prepareScript(stackName, env, in.ExternalVolumes()), nil, false); err != nil {
+	// runNonce again, this time for a command that DOES change the machine — every
+	// line of prepareScript is inspect-or-create, and the drift it repairs (a pruned
+	// `sc-ingress` network, a removed external volume, a deleted stack directory) is
+	// invisible to every input this command has. Without the nonce the deploy that
+	// would put them back is the one deploy that is skipped, and the failure surfaces
+	// one step later as a compose error about a missing network. See
+	// TriggersForGuardedChange for the three preconditions this satisfies.
+	if _, err := step("prepare", prepareScript(stackName, env, in.ExternalVolumes()), nil, false,
+		sdk.String(runNonce)); err != nil {
 		return nil, err
 	}
 
@@ -430,7 +438,22 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 			// Delete: the route is removed by teardownScript along with the rest of
 			// the stack, in one place, so that a replacement of THIS resource cannot
 			// delete the route moments after writing it.
-			Triggers: sdk.Array{host.Address, routeOut},
+			//
+			// Guarded change on top of that (the no-Delete above is precondition 3 of
+			// three; the other two hold: the script writes identical bytes and
+			// reloads gracefully). Under `blue-green` the rendered site file names
+			// the slot, so it already changed on every deploy and the nonce adds
+			// nothing — it is `recreate` and the drift cases that need it. This file
+			// is the ONE thing that puts a stack on the machine's ingress, and it
+			// lives in a tree the vm resource owns: rebuilding the ingress removes
+			// /etc/sc/caddy and every stack's route with it, and so does an operator
+			// who cleans up by hand. Without the nonce a `recreate` stack whose route
+			// file is gone is served by nobody, and its next deploy — which changes
+			// nothing, so it re-runs nothing — reports success and leaves it that
+			// way. Live-caught 2026-10-18: a teardown took /etc/sc/caddy with it, the
+			// re-provision brought Caddy back with only its catch-all, and the stack's
+			// domain answered 503 on :80 and nothing at all on :443.
+			Triggers: TriggersForGuardedChange(host.Address, routeOut),
 		}), sdk.DependsOn([]sdk.Resource{up}))
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to route %q to stack %q on vm %q",
