@@ -1,0 +1,1 @@
+[thinking] # PM Handoff — `aws-provider-key-in-deploy-log` (redact.go AWS key patterns)
