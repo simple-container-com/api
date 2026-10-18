@@ -13,10 +13,15 @@ import (
 	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
+	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/vm"
 )
+
+// devVersionPrefix is what welder's `rebuild` task stamps into build.Version
+// (`0.0.0-pre<timestamp>`), and also what an unset `${env:VERSION}` falls back to.
+const devVersionPrefix = "0.0.0"
 
 const (
 	// reloadWaitAttempts × reloadWaitInterval is how long `caddy reload` gets to find
@@ -178,6 +183,31 @@ func ingressConfigScript(s ingressConfigSpec) string {
 	return b.String()
 }
 
+// ingressImageMissingMessage explains an ingress image the machine does not have.
+//
+// The generic advice is the right advice when the tag was pinned or the machine has
+// no route to Docker Hub. It is actively misleading for the one case that produces a
+// tag which was never published and never could be: `IngressImage()` defaults to
+// `simplecontainer/caddy:<build.Version>`, and the Caddy image is tagged with
+// exactly `${project:version}` at release (welder.yaml), so the default resolves for
+// a released `sc` and for an unstamped `go build` (`build.Version` is `latest`, which
+// is published) — but welder's `rebuild` task stamps `0.0.0-pre<timestamp>`, so every
+// locally-rebuilt binary asks for an image that does not exist. The Kubernetes edge
+// defaults the same way and fails the same way; the difference is that this path is
+// the one in the byo-host example, which is run from a local build by definition.
+//
+// Live-caught 2026-10-18, after the readiness gate and the compose render had already
+// passed — i.e. at the point where the remaining explanations all sound plausible.
+func ingressImageMissingMessage(image string) string {
+	msg := fmt.Sprintf("the ingress image %q is not on the machine and could not be pulled; ", image)
+	if strings.HasPrefix(build.Version, devVersionPrefix) && strings.HasSuffix(image, ":"+build.Version) {
+		return msg + fmt.Sprintf("this `sc` is a local build, so the default tag is its own version "+
+			"string (%q) and no such image was published — pin `ingress.image` to a released tag "+
+			"(see the tags of `simplecontainer/caddy`) or load an image by hand (`docker load`)", build.Version)
+	}
+	return msg + "load it by hand (`docker load`) or point `ingress.image` at a registry this machine can reach"
+}
+
 // ingressUpScript brings Caddy up and makes the current configuration live.
 //
 // `up -d` then `reload`, and both are needed. `up -d` creates or recreates the
@@ -197,8 +227,7 @@ func ingressUpScript(image string) string {
 	fmt.Fprintf(b, "{ docker pull %s || true; } >&2 2>&1\n", shellQuote(image))
 	fmt.Fprintf(b, "docker image inspect %s >/dev/null 2>&1 || { echo %s >&2; exit 1; }\n",
 		shellQuote(image),
-		shellQuote(fmt.Sprintf("the ingress image %q is not on the machine and could not be pulled; "+
-			"load it by hand (`docker load`) or point `ingress.image` at a registry this machine can reach", image)))
+		shellQuote(ingressImageMissingMessage(image)))
 	fmt.Fprintf(b, "docker compose -p %s -f %s up -d --remove-orphans\n",
 		shellQuote(vm.CaddyProject), shellQuote(vm.CaddyComposePath()))
 	// The same gate every stack service gets: running, and healthy if it declares a

@@ -9,6 +9,7 @@ import (
 
 	. "github.com/onsi/gomega"
 
+	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/clouds/vm"
 )
 
@@ -184,4 +185,57 @@ func TestTeardownScript_RemovesTheIngressRoute(t *testing.T) {
 	// other stacks on the machine are behind it.
 	Expect(script).ToNot(ContainSubstring("sc_rm " + shellQuote(vm.CaddyProject)))
 	Expect(script).ToNot(ContainSubstring("rm -rf " + shellQuote(vm.CaddyDir())))
+}
+
+// The dev-build branch exists because the generic advice ("point it at a registry
+// this machine can reach") is wrong for a tag that was never published, and that is
+// exactly the tag every locally-rebuilt `sc` asks for.
+func TestIngressImageMissingMessage(t *testing.T) {
+	RegisterTestingT(t)
+
+	orig := build.Version
+	defer func() { build.Version = orig }()
+
+	t.Run("a local build is told its tag does not exist", func(t *testing.T) {
+		RegisterTestingT(t)
+		build.Version = "0.0.0-pre2026.10.18.11.12.36"
+
+		msg := ingressImageMissingMessage("simplecontainer/caddy:" + build.Version)
+		Expect(msg).To(ContainSubstring("local build"))
+		Expect(msg).To(ContainSubstring("no such image was published"))
+		// The generic advice would send the reader looking for a network fault.
+		Expect(msg).ToNot(ContainSubstring("a registry this machine can reach"))
+	})
+
+	t.Run("a pinned tag gets the generic advice even on a local build", func(t *testing.T) {
+		RegisterTestingT(t)
+		build.Version = "0.0.0-pre2026.10.18.11.12.36"
+
+		// Not the default tag, so the version string is irrelevant to why it is absent.
+		msg := ingressImageMissingMessage("registry.example.ru/mirror/caddy:2.11")
+		Expect(msg).To(ContainSubstring("a registry this machine can reach"))
+		Expect(msg).ToNot(ContainSubstring("local build"))
+	})
+
+	t.Run("a released build gets the generic advice", func(t *testing.T) {
+		RegisterTestingT(t)
+		// Release stamps the CalVer that `simplecontainer/caddy` is tagged with, so an
+		// absent image here really is a registry or network problem.
+		build.Version = "2026.10.24"
+
+		msg := ingressImageMissingMessage("simplecontainer/caddy:" + build.Version)
+		Expect(msg).To(ContainSubstring("a registry this machine can reach"))
+		Expect(msg).ToNot(ContainSubstring("local build"))
+	})
+
+	t.Run("an unstamped go build resolves `latest` and gets the generic advice", func(t *testing.T) {
+		RegisterTestingT(t)
+		// internal/build defaults Version to "latest", which IS a published tag — so
+		// this is not the broken case and must not claim to be.
+		build.Version = "latest"
+
+		msg := ingressImageMissingMessage("simplecontainer/caddy:latest")
+		Expect(msg).To(ContainSubstring("a registry this machine can reach"))
+		Expect(msg).ToNot(ContainSubstring("local build"))
+	})
 }

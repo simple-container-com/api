@@ -429,7 +429,21 @@ func (i *VmComposeInput) finalize() error {
 				// distroless or scratch image. The check then fails, the deploy is
 				// gated and the operator is told to declare a real one — which is the
 				// right failure direction.
-				Test:        []string{"CMD-SHELL", fmt.Sprintf("nc -z localhost %d || exit 1", port)},
+				//
+				// The addresses are literals, and BOTH of them, because `localhost` is
+				// a resolver question with the wrong answer: in an Alpine container
+				// `getent hosts localhost` returns `::1` first, so `nc -z localhost`
+				// dials [::1] — while `listen 8080;` in nginx, and every other
+				// IPv4-only bind, is not there. The gate then never passes, for a
+				// container that is serving perfectly well on 0.0.0.0. v4 first
+				// because it is the common case; the v6 arm costs one failed connect
+				// and catches a service bound only to the v6 loopback.
+				//
+				// Live-caught 2026-10-18 with nginx on a byo host: 120 s of `running /
+				// unhealthy`, then a rolled-back deploy, with the container answering
+				// on 127.0.0.1:8080 the whole time.
+				Test: []string{"CMD-SHELL", fmt.Sprintf(
+					"nc -z 127.0.0.1 %d || nc -z ::1 %d || exit 1", port, port)},
 				Interval:    "10s",
 				Timeout:     "3s",
 				StartPeriod: "20s",

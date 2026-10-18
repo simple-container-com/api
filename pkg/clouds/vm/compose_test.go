@@ -159,3 +159,30 @@ func TestStatefulServicesAndVolumes(t *testing.T) {
 	// A tmpfs is never a named volume, so it never becomes an external docker volume.
 	Expect(input.MountsOfVolume("")).To(BeEmpty())
 }
+
+// provision.go's initProvider casts every descriptor config — templates included —
+// to api.AuthConfig before it provisions anything. Nothing in this package references
+// that interface, so a compile-time assertion is the only thing that keeps the deploy
+// path from breaking again the next time these types are reshaped.
+var (
+	_ api.AuthConfig = (*ComposeTemplateConfig)(nil)
+	// Promoted through the embedded ComposeTemplateConfig. This is the type the
+	// converters actually hand to the provisioning tier, and the one the live failure
+	// named.
+	_ api.AuthConfig = (*VmComposeInput)(nil)
+)
+
+func TestComposeTemplateConfig_AuthConfig(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Must be the key pkg/clouds/pulumi/vm registers its Provider under, or the cast
+	// succeeds and the lookup fails one line later with "unsupported provider type".
+	Expect((&ComposeTemplateConfig{}).ProviderType()).To(Equal(ProviderType))
+	Expect((&ComposeTemplateConfig{}).ProjectIdValue()).To(Equal("n/a"))
+
+	// `{}` and not "", so a cloud driver's api.ConvertAuth gets valid JSON to fail its
+	// own required-field checks on. Empty is the normal case for `byo`.
+	Expect((&ComposeTemplateConfig{}).CredentialsValue()).To(Equal("{}"))
+	withAuth := &ComposeTemplateConfig{Credentials: api.Credentials{Credentials: `{"token":"x"}`}}
+	Expect(withAuth.CredentialsValue()).To(Equal(`{"token":"x"}`))
+}

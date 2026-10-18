@@ -81,7 +81,7 @@ func DialSSH(ctx context.Context, t SshTarget) (*SshRemote, error) {
 	if err != nil {
 		return nil, err
 	}
-	verifyHost, err := hostKeyCallback(t)
+	verifyHost, hostKeyAlgos, err := hostKeyCallback(t)
 	if err != nil {
 		return nil, err
 	}
@@ -94,10 +94,14 @@ func DialSSH(ctx context.Context, t SshTarget) (*SshRemote, error) {
 		return nil, errors.Wrapf(err, "cannot reach %s", addr)
 	}
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, &ssh.ClientConfig{
-		User:            t.User,
-		Auth:            []ssh.AuthMethod{auth},
-		HostKeyCallback: verifyHost,
-		Timeout:         t.Timeout,
+		User: t.User,
+		Auth: []ssh.AuthMethod{auth},
+		// HostKeyAlgorithms has to agree with the pinned key or the pin can never
+		// match — see hostKeyAlgorithms. Nil (every supported algorithm, client
+		// preference) is correct for the known_hosts and skip-check paths.
+		HostKeyCallback:   verifyHost,
+		HostKeyAlgorithms: hostKeyAlgos,
+		Timeout:           t.Timeout,
 	})
 	if err != nil {
 		_ = conn.Close()
@@ -182,36 +186,65 @@ func authMethod(t SshTarget) (ssh.AuthMethod, error) {
 	return ssh.PublicKeys(signer), nil
 }
 
-func hostKeyCallback(t SshTarget) (ssh.HostKeyCallback, error) {
+// hostKeyAlgorithms restricts the handshake to the algorithm of a pinned host key.
+//
+// ssh.FixedHostKey compares the key the server presents against the pinned one
+// byte-for-byte, so the server has to be asked for a key of that type. With
+// HostKeyAlgorithms unset the client offers its whole supported list in ITS OWN
+// preference order, which puts the ECDSA algorithms ahead of ssh-ed25519 — so a host
+// that has both (every stock sshd) presents its ECDSA key, and an ed25519 pin can
+// never match. The failure is `ssh: host key mismatch`, which reads as "this is not
+// the machine you pinned" — i.e. exactly the alarm the pin exists to raise, for a
+// machine that is in fact the right one.
+//
+// Live-caught 2026-10-18: the byo-host README's own recipe is
+// `ssh-keyscan -t ed25519`, so the documented path produced an unusable pin and the
+// error told the operator their host might be impersonated.
+func hostKeyAlgorithms(key ssh.PublicKey) []string {
+	// An RSA host key verifies under any of the three; which one a server picks is
+	// about the SIGNATURE hash, not the key, and a server with SHA-1 disabled (the
+	// default for years) refuses a bare `ssh-rsa` offer. All three marshal to the
+	// same bytes, so FixedHostKey is satisfied either way.
+	if key.Type() == ssh.KeyAlgoRSA {
+		return []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
+	}
+	return []string{key.Type()}
+}
+
+// hostKeyCallback returns the host verifier and, when a key is pinned, the host-key
+// algorithms the handshake must be restricted to (nil otherwise).
+func hostKeyCallback(t SshTarget) (ssh.HostKeyCallback, []string, error) {
 	if t.InsecureSkipHostKeyCheck {
 		t.Log("WARNING: not verifying the host key of %s — the deploy key and every secret in this "+
 			"transfer go to whoever answers on that address", t.Address)
-		return ssh.InsecureIgnoreHostKey(), nil //nolint:gosec // explicitly opted into by the caller
+		return ssh.InsecureIgnoreHostKey(), nil, nil //nolint:gosec // explicitly opted into by the caller
 	}
 	if t.HostKey != "" {
 		key, _, _, _, err := ssh.ParseAuthorizedKey([]byte(t.HostKey))
 		if err != nil {
-			return nil, errors.Wrapf(err, "cannot parse the pinned host key for %s", t.Address)
+			return nil, nil, errors.Wrapf(err, "cannot parse the pinned host key for %s", t.Address)
 		}
-		return ssh.FixedHostKey(key), nil
+		return ssh.FixedHostKey(key), hostKeyAlgorithms(key), nil
 	}
 
 	path := t.KnownHostsFile
 	if path == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
-			return nil, errors.Wrap(err, "cannot locate the home directory to read known_hosts")
+			return nil, nil, errors.Wrap(err, "cannot locate the home directory to read known_hosts")
 		}
 		path = filepath.Join(home, ".ssh", "known_hosts")
 	}
 	cb, err := knownhosts.New(path)
 	if err != nil {
-		return nil, errors.Wrapf(err,
+		return nil, nil, errors.Wrapf(err,
 			"cannot verify the identity of %s from %s; pin the key with the host-key option "+
 				"(`ssh-keyscan -t ed25519 %s`), or skip the check explicitly",
 			t.Address, path, t.Address)
 	}
-	return cb, nil
+	// No restriction: known_hosts may hold several keys for this host, of different
+	// types, and any of them is a valid match.
+	return cb, nil, nil
 }
 
 // oneLine flattens a remote command's stderr for an error message: `docker load`

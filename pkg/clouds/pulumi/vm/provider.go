@@ -30,6 +30,20 @@ import (
 // Validate runs: an operator with a typo should hear about the typo, not about a
 // provider that could not be built.
 func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	// A `vm-compose` stack arrives here too, because initProvider is called for
+	// templates as well as resources. It needs the command provider and nothing else:
+	// the machine already exists, every host fact including the deploy key is read from
+	// the parent stack, and there is no cloud API in a delivery that is only SSH. Which
+	// cloud created the machine is therefore not knowable here and not needed — the
+	// `vm` resource in the parent stack is where a driver is dispatched.
+	if _, ok := input.Descriptor.Config.Config.(*vm.VmComposeInput); ok {
+		provider, err := command.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &command.ProviderArgs{})
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to init command provider for stack %q", input.Descriptor.Name)
+		}
+		return &api.ResourceOutput{Ref: provider}, nil
+	}
+
 	cfg, ok := input.Descriptor.Config.Config.(*vm.VmConfig)
 	if !ok {
 		return nil, errors.Errorf("failed to cast config to vm.VmConfig for %q (given %T)",

@@ -36,6 +36,8 @@ import (
 //   - a secret in the command string is stored in the checkpoint in the clear
 const (
 	tokenStackReference = "pulumi:pulumi:StackReference"
+	tokenLocalCommand   = "command:local:Command"
+	tokenDockerImage    = "docker:index/image:Image"
 
 	testVmResource   = "portal-vm"
 	testComposeStack = "atrium"
@@ -52,10 +54,17 @@ type composeMocks struct {
 	// outputs is the parent stack's export map. Overridden per test to model a parent
 	// that was never provisioned, or one with no host key.
 	outputs resource.PropertyMap
+	// repoDigest is what a built docker.Image reports back. Under SkipPush that is
+	// the LOCAL image id, which is the only output of a build that moves when the
+	// build's result does — the image name does not. Varied by a test to model the
+	// same stack rebuilt after a code change.
+	repoDigest string
 }
 
+const testRepoDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+
 func newComposeMocks() *composeMocks {
-	return &composeMocks{outputs: resource.PropertyMap{
+	return &composeMocks{repoDigest: testRepoDigest, outputs: resource.PropertyMap{
 		resource.PropertyKey(ToHostCountExport(testVmResource)):      resource.NewNumberProperty(1),
 		resource.PropertyKey(ToHostAddressExport(testVmResource, 0)): resource.NewStringProperty(testHostAddress),
 		resource.PropertyKey(ToHostUserExport(testVmResource, 0)):    resource.NewStringProperty(vm.DefaultSshUser),
@@ -81,6 +90,15 @@ func (m *composeMocks) NewResource(args pulumi.MockResourceArgs) (string, resour
 			"outputs": resource.NewObjectProperty(m.outputs),
 		}, nil
 	}
+	if args.TypeToken == tokenDockerImage {
+		// repoDigest is an OUTPUT of the build, so it has to be added here: echoing
+		// the inputs back (what every other resource gets) would leave it empty, and
+		// a test that asserts on triggers would then be asserting about "" on both
+		// sides of the comparison it is making.
+		state := args.Inputs.Copy()
+		state["repoDigest"] = resource.NewStringProperty(m.repoDigest)
+		return args.Name + "-id", state, nil
+	}
 	return args.Name + "-id", args.Inputs, nil
 }
 
@@ -105,6 +123,27 @@ func (m *composeMocks) commands() map[string]resource.PropertyMap {
 			name = name[i+len("-vmc-"):]
 		}
 		name = strings.TrimSuffix(name, "--"+testEnv)
+		out[name] = a.Inputs
+	}
+	return out
+}
+
+// localCommands returns the recorded LOCAL commands — the image ships — keyed by the
+// same suffix convention. A separate map from commands() because the ship runs on the
+// runner, not on the machine, and an assertion that means to be about one of those two
+// places must not silently be about the other.
+func (m *composeMocks) localCommands() map[string]resource.PropertyMap {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := map[string]resource.PropertyMap{}
+	for _, a := range m.created {
+		if a.TypeToken != tokenLocalCommand {
+			continue
+		}
+		name := strings.TrimSuffix(a.Name, "--"+testEnv)
+		if i := strings.LastIndex(name, "-"); i >= 0 {
+			name = name[i+1:]
+		}
 		out[name] = a.Inputs
 	}
 	return out
@@ -161,6 +200,19 @@ func composeInput() *vm.VmComposeInput {
 			IngressContainer: &app,
 		},
 	}
+}
+
+// withSshTarBuild models the DEFAULT delivery mode, which the registry fixture above
+// does not reach: a service SC builds itself and streams to the machine over SSH.
+// Giving the container a build context is what sends buildImages down that branch —
+// a container with only an `image:` is a third-party image and is never built.
+func (f *composeFixture) withSshTarBuild() *composeFixture {
+	f.in.ImageDelivery = vm.ImageDeliverySshTar
+	f.in.RegistryCredentials = docker.RegistryCredentials{}
+	built := api.ContainerImage{Dockerfile: "Dockerfile", Context: "."}
+	f.in.Deployment.Containers[0].Image = built
+	f.in.Deployment.IngressContainer.Image = built
+	return f
 }
 
 func (f *composeFixture) withRegistryAuth() *composeFixture {
@@ -514,4 +566,114 @@ func TestVmCompose_TeardownRemovesTheRoute(t *testing.T) {
 
 	del, _ := unwrapSecret(f.mocks.commands()["teardown"]["delete"])
 	Expect(del.StringValue()).To(ContainSubstring(vm.CaddySitePath(testComposeStack, testEnv)))
+}
+
+// A trigger set that is non-empty is not the same thing as a trigger set that
+// DISCRIMINATES, and the test above only asserts the former. This one asserts the
+// latter for the default delivery mode: rebuild the same stack, at the same version,
+// after a code change, and every command whose job depends on the image content must
+// see a different trigger set than it did before.
+//
+// Live-caught 2026-10-18. The ssh-tar ship was triggered by the local tag, the deploy
+// version, the host address and the image NAME — four strings that are identical on
+// every deploy of a given stack, the version included, because `sc deploy` with no
+// `--version` uses the constant `latest`. So a redeploy after an edit built the new
+// image on the runner, shipped nothing, restarted nothing, and reported
+// `1 updated, 10 unchanged` with the machine still serving the previous build.
+func TestVmCompose_ShipAndUpTriggerOnImageContentNotItsTag(t *testing.T) {
+	RegisterTestingT(t)
+
+	before := newComposeFixture().withSshTarBuild().withIngress()
+	_, err := before.run()
+	Expect(err).To(BeNil())
+
+	after := newComposeFixture().withSshTarBuild().withIngress()
+	// The ONLY difference: the same Dockerfile produced a different image. Same
+	// stack, same version, same host, same env — so the local tag, which is what the
+	// compose file references, is byte for byte what it was.
+	after.mocks.repoDigest = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
+	_, err = after.run()
+	Expect(err).To(BeNil())
+
+	ship := before.mocks.localCommands()["ship"]
+	Expect(ship).ToNot(BeNil(), "the ssh-tar fixture did not produce a ship command")
+	shipAfter := after.mocks.localCommands()["ship"]
+
+	// First establish that the tag really is the same, or the assertions below would
+	// pass for the uninteresting reason.
+	Expect(ship["create"].String()).To(Equal(shipAfter["create"].String()),
+		"the ship SCRIPT is expected to be identical — it addresses the image by tag; "+
+			"if this fails the test no longer proves what it claims")
+
+	for _, c := range []struct {
+		name   string
+		inputs [2]resource.PropertyMap
+	}{
+		{"ship", [2]resource.PropertyMap{ship, shipAfter}},
+		{"up", [2]resource.PropertyMap{before.mocks.commands()["up"], after.mocks.commands()["up"]}},
+		{"finalize", [2]resource.PropertyMap{before.mocks.commands()["finalize"], after.mocks.commands()["finalize"]}},
+	} {
+		a, _ := unwrapSecret(c.inputs[0]["triggers"])
+		b, _ := unwrapSecret(c.inputs[1]["triggers"])
+		Expect(a.String()).ToNot(Equal(b.String()),
+			"command %q has the same triggers before and after a rebuild, so it will not re-run "+
+				"and the deploy will report success while the machine serves the old image", c.name)
+	}
+}
+
+// The state read is the one command that must run on every deploy, and the only one.
+//
+// Live-caught 2026-10-18: triggered by the host address and the script hash — both
+// invariant — it ran once and every later deploy took the active slot out of the
+// checkpoint instead of off the machine. The first deploy had cached `""` (nothing
+// deployed yet), so OtherSlot kept returning SlotA and `strategy: blue-green` would
+// have recreated the serving slot in place rather than flipping to the other one.
+func TestVmCompose_OnlyTheStateReadRunsOnEveryDeploy(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComposeFixture().withIngress()
+	_, err := f.run()
+	Expect(err).To(BeNil())
+
+	cmds := f.mocks.commands()
+	triggers, _ := unwrapSecret(cmds["read-state"]["triggers"])
+	Expect(triggers.String()).To(ContainSubstring(runNonce),
+		"read-state is not triggered per run, so it will answer later deploys from the checkpoint")
+
+	for name, inputs := range cmds {
+		if name == "read-state" {
+			continue
+		}
+		other, _ := unwrapSecret(inputs["triggers"])
+		// A nonce on a command that CHANGES the machine would make every deploy a
+		// full redeploy of everything — including, on a stack with a published host
+		// port, a stop-start of the serving container for a deploy that changed
+		// nothing.
+		Expect(other.String()).ToNot(ContainSubstring(runNonce),
+			"command %q is triggered per run; only the state read may be", name)
+	}
+}
+
+// The ship is a LOCAL command, so it is invisible to the secret sweep above, which
+// walks remote commands only — and it is the command that carries the deploy key.
+func TestVmCompose_TheShipKeepsTheDeployKeyOffTheCommandLine(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComposeFixture().withSshTarBuild()
+	_, err := f.run()
+	Expect(err).To(BeNil())
+
+	ship := f.mocks.localCommands()["ship"]
+	Expect(ship).ToNot(BeNil())
+	for _, field := range []resource.PropertyKey{"create", "update", "triggers", "environment"} {
+		plain, _ := unwrapSecret(ship[field])
+		Expect(plain.String()).ToNot(ContainSubstring("TEST-KEY-MATERIAL"),
+			"the ship leaks the deploy key in %q, where Pulumi stores it in the clear", field)
+	}
+	stdin, secret := unwrapSecret(ship["stdin"])
+	Expect(secret).To(BeTrue(), "the deploy key must reach the ship marked secret")
+	Expect(stdin.StringValue()).To(Equal(testPrivateKey))
+	logging, _ := unwrapSecret(ship["logging"])
+	Expect(logging.StringValue()).To(Equal("none"),
+		"the ship streams a customer image over a connection authenticated by the key on stdin")
 }

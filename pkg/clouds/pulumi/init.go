@@ -11,6 +11,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/clouds/fs"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	// Register all the providers
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/aws"
@@ -53,4 +54,5 @@ func init() {
 	}
 	pApi.RegisterInitStateStore(ProvisionerTypePulumi, setPulumiCloudAccessToken)
 	pApi.RegisterInitStateStore(BackendTypePulumiCloud, setPulumiCloudAccessToken)
+	pApi.RegisterInitStateStore(fs.StateStorageTypeFileSystem, initFileSystemStateStore)
 }

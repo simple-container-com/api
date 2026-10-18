@@ -225,8 +225,11 @@ func TestToVmComposeConfigSynthesizesIngressHealthCheck(t *testing.T) {
 	Expect(err).ToNot(HaveOccurred())
 	input := toInput(got)
 
+	// Literal loopback addresses and not `localhost`: in an Alpine container
+	// `localhost` resolves to ::1 first, where an IPv4-only listener is not, so the
+	// gate never passed (live-caught 2026-10-18).
 	Expect(input.HealthChecks["backend"]).To(Equal(VmHealthCheck{
-		Test:        []string{"CMD-SHELL", "nc -z localhost 8080 || exit 1"},
+		Test:        []string{"CMD-SHELL", "nc -z 127.0.0.1 8080 || nc -z ::1 8080 || exit 1"},
 		Interval:    "10s",
 		Timeout:     "3s",
 		StartPeriod: "20s",
