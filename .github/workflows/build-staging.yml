@@ -16,6 +16,7 @@ jobs:
   build-staging:
     name: Build Staging Image
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     permissions:
       contents: read
       id-token: write       # OIDC for keyless cosign + attest-build-provenance
