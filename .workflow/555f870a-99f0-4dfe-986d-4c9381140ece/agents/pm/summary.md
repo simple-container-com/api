@@ -1,0 +1,1 @@
+[thinking] # PM Handoff — slice `sc-fs-state-dir-not-gitignored`
