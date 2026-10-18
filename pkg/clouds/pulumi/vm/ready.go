@@ -32,13 +32,22 @@ const (
 //   - a machine SC created runs cloud-init, so readiness is waiting for the marker
 //     file cloud-init writes last;
 //   - a machine the operator created has already booted, so readiness is checking
-//     the preconditions and creating SC's directories — never installing docker on
+//     the preconditions and creating SC's directories — never installing anything on
 //     a host SC does not own.
 //
-// Why a gate at all: SSH answers before docker exists. A deploy that waits only for
-// SSH fails intermittently on `docker: command not found` — success reported before
-// readiness, the same class of fault as a green YC deploy with zero revisions
-// (vm-matrix.md §3.1, §3.4).
+// Why a gate at all: SSH answers before a machine SC created has finished booting. A
+// deploy that waits only for SSH fails intermittently on a half-built host — success
+// reported before readiness, the same class of fault as a green YC deploy with zero
+// revisions (vm-matrix.md §3.1, §3.4).
+//
+// What this gate deliberately does NOT check is docker. Readiness here is a property
+// of the MACHINE, and a k3s node is a perfectly ready machine with no docker on it
+// (k3s brings its own containerd). The docker and compose-v2 preconditions moved to
+// the compose path — composePreflightScript, run as its first step — which is both
+// where they are actually required and the only place that knows they will be. Before
+// that split, a byo host declared for a k3s cluster failed its vm readiness check on
+// `docker is not installed`, and the k3s install never ran: it DependsOn this gate.
+// Live-caught on the first smoke, 2026-10-18.
 func ensureReady(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig, h HostFacts, drv Driver, params pApi.ProvisionParams) (*remote.Command, error) {
 	script := readinessScript(drv.Capabilities().CloudInit, h.User)
 
@@ -90,16 +99,12 @@ func readinessScript(cloudInit bool, user string) string {
 	// this runs against a machine SC did not build and cannot fix: the alternative
 	// to a specific message is `exit 1` from a remote command, which tells them
 	// nothing.
+	//
+	// Only what every use of the machine needs: passwordless sudo, and SC's own
+	// directories. Anything a particular workload needs is that workload's preflight
+	// (see the doc comment on ensureReady).
 	return strings.Join([]string{
 		`set -eu`,
-		fail(`command -v docker >/dev/null 2>&1`,
-			"docker is not installed on this host; install Docker Engine with the compose v2 plugin, "+
-				"or let SC create the machine with a cloud vm provider"),
-		fail(`docker version >/dev/null 2>&1`,
-			fmt.Sprintf("user %q cannot talk to the docker daemon; add it to the docker group "+
-				"(usermod -aG docker %s) and reconnect", user, user)),
-		fail(`docker compose version >/dev/null 2>&1`,
-			"the docker compose v2 plugin is missing; `docker-compose` v1 is not supported"),
 		fail(`sudo -n true >/dev/null 2>&1`,
 			fmt.Sprintf("user %q needs passwordless sudo to create %s and %s", user, vm.ConfigDir, vm.StateDir)),
 		// Created, not assumed: these are SC's own directories on a host SC does not

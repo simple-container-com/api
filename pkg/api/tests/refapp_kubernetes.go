@@ -78,12 +78,9 @@ var ResolvedRefappKubernetesServerResources = map[string]api.ResourceDescriptor{
 				Kubeconfig: "<kube-config>",
 			},
 			CaddyConfig: &k8s.CaddyConfig{
-				Enable:                    lo.ToPtr(true),
-				Namespace:                 lo.ToPtr("caddy"),
-				Replicas:                  lo.ToPtr(2),
-				TrustedProxies:            []string{}, // placeholder resolution converts nil → empty slice
-				PodAnnotations:            map[string]string{},
-				TopologySpreadConstraints: []k8s.TopologySpreadConstraint{},
+				Enable:    lo.ToPtr(true),
+				Namespace: lo.ToPtr("caddy"),
+				Replicas:  lo.ToPtr(2),
 			},
 		}},
 	},
@@ -113,7 +110,6 @@ var ResolvedRefappKubernetesServerDescriptor = &api.ServerDescriptor{
 			Inherit: api.Inherit{},
 		},
 	},
-	Variables: map[string]api.VariableDescriptor{},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: ResolvedCommonServerDescriptor.Resources.Registrar,
 		Resources: map[string]api.PerEnvResourcesDescriptor{

@@ -16,7 +16,10 @@ func TestFileSystemStateStorage(t *testing.T) {
 
 	s := &FileSystemStateStorage{Path: "/var/state/sc"}
 
-	Expect(s.StorageUrl()).To(Equal("/var/state/sc"))
+	// Pulumi's DIY backend rejects a bare path (`has an illegal prefix; expected one
+	// of: azblob, file, gs, postgres, s3`), and a bare path is what every example of
+	// this state storage writes — so the scheme is added rather than demanded.
+	Expect(s.StorageUrl()).To(Equal("file:///var/state/sc"))
 	Expect(s.IsProvisionEnabled()).To(BeFalse())
 	Expect(s.CredentialsValue()).To(Equal("n/a"))
 	Expect(s.ProjectIdValue()).To(Equal("n/a"))
@@ -32,6 +35,17 @@ func TestFileSystemStateStorage_EmptyPath(t *testing.T) {
 	// All other getters return constants regardless of state.
 	Expect(s.ProviderType()).To(Equal(StateStorageTypeFileSystem))
 	Expect(s.IsProvisionEnabled()).To(BeFalse())
+}
+
+// A path that already carries a scheme is passed through: a config that spells
+// `file://` keeps working, and so does one that points this at a remote backend.
+func TestFileSystemStateStorage_SchemeIsNotDoubled(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect((&FileSystemStateStorage{Path: "file:///var/state/sc"}).StorageUrl()).
+		To(Equal("file:///var/state/sc"))
+	Expect((&FileSystemStateStorage{Path: "s3://bucket/prefix"}).StorageUrl()).
+		To(Equal("s3://bucket/prefix"))
 }
 
 func TestPassphraseSecretsProvider(t *testing.T) {
@@ -81,7 +95,8 @@ func TestInit_RegistersReadersUnderTheirTypeKeys(t *testing.T) {
 		Expect(err).ToNot(HaveOccurred())
 		s, ok := out.Config.(*FileSystemStateStorage)
 		Expect(ok).To(BeTrue(), "the fs key must resolve to FileSystemStateStorage, not the passphrase provider")
-		Expect(s.StorageUrl()).To(Equal("/var/state/sc"))
+		Expect(s.Path).To(Equal("/var/state/sc"))
+		Expect(s.StorageUrl()).To(Equal("file:///var/state/sc"))
 	})
 
 	t.Run("passphrase secrets provider", func(t *testing.T) {

@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 // The default has to stay exactly what kubernetes-cloudrun has always asked for. The
@@ -32,4 +34,33 @@ func TestKubeRunOptsIngressIPExportOverrideIsUsedVerbatim(t *testing.T) {
 
 	opts := KubeRunOpts{IngressIPExport: "ru-cluster--staging-ingress-ip"}
 	Expect(opts.ingressIPExport("my-parent")).To(Equal("ru-cluster--staging-ingress-ip"))
+}
+
+// A cloud-compose client stack that omits `size:` leaves StackConfig.Size nil, and
+// reading the ephemeral size straight through it used to panic the deploy with a bare
+// SIGSEGV before any resource was touched.
+func TestStackConfigFacts_NilSizeIsNotADereference(t *testing.T) {
+	RegisterTestingT(t)
+
+	domain, ephemeral := stackConfigFacts(&api.StackConfigCompose{Domain: "app.example.ru"})
+	Expect(domain).To(Equal("app.example.ru"))
+	Expect(ephemeral).To(BeEmpty())
+}
+
+func TestStackConfigFacts_NilConfigIsNotADereference(t *testing.T) {
+	RegisterTestingT(t)
+
+	domain, ephemeral := stackConfigFacts(nil)
+	Expect(domain).To(BeEmpty())
+	Expect(ephemeral).To(BeEmpty())
+}
+
+func TestStackConfigFacts_SizeIsCarriedWhenPresent(t *testing.T) {
+	RegisterTestingT(t)
+
+	domain, ephemeral := stackConfigFacts(&api.StackConfigCompose{
+		Size: &api.StackConfigComposeSize{Ephemeral: "2Gi"},
+	})
+	Expect(domain).To(BeEmpty())
+	Expect(ephemeral).To(Equal("2Gi"))
 }

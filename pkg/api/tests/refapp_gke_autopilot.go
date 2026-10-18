@@ -115,7 +115,6 @@ var ResolvedRefappGkeAutopilotServerDescriptor = &api.ServerDescriptor{
 			Inherit: api.Inherit{},
 		},
 	},
-	Variables: map[string]api.VariableDescriptor{},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: ResolvedCommonServerDescriptor.Resources.Registrar,
 		Resources: map[string]api.PerEnvResourcesDescriptor{
