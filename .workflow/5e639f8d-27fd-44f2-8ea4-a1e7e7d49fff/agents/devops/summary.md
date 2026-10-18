@@ -1,0 +1,1 @@
+QA correctly ruled the black-box audit **inconclusive by construction** and told the next turn not to re-probe the 15 domains hoping for a different answer. I didn't. Re-running an inconclusive probe produces nothing.

@@ -47,7 +47,7 @@ jobs:
 
   build-setup:
     name: Build Setup (clean, tools, schemas, lint, fmt)
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     needs: prepare
     outputs:
       cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
@@ -131,7 +131,7 @@ jobs:
 
   build-platforms:
     name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     needs: [prepare, build-setup]
     permissions:
       contents: read
@@ -330,7 +330,7 @@ jobs:
 
   build-binaries:
     name: Build ${{ matrix.target }}
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     needs: [prepare, build-setup]
     strategy:
       matrix:
@@ -372,7 +372,7 @@ jobs:
 
   test:
     name: Run tests
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     needs: [prepare, build-setup]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -423,7 +423,7 @@ jobs:
 
   docker-build:
     name: Docker build and push ${{ matrix.image }}
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs]
     permissions:
       contents: read
@@ -713,7 +713,7 @@ jobs:
 
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs, docker-build]
     permissions:
       contents: write    # `welder run tag-release` pushes the release git tag

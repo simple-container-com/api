@@ -11,7 +11,7 @@ mkdocs-mermaid2-plugin~=1.2.3
 # versions. Both deps are reachable through mkdocs-material's plugin
 # chain at docs-build time only.
 requests>=2.33.0
-urllib3>=2.7.0
+urllib3>=2.8.0
 
 # Second Scorecard round (2026-08), same rationale as above:
 #   - PYSEC-2026-2132 (CVE-2026-7246)      - click < 8.3.3

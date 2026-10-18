@@ -1,0 +1,282 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
+// Package scoped implements the additive per-scope secret store
+// (secrets.<scope>.yaml): committed-encrypted files whose values are sealed to a
+// per-scope recipient set, so a pull_request-triggered CI job can be given a key
+// that opens only the "pr" scope rather than the whole-file store. It reuses the
+// sibling ciphers package (RSA-OAEP + X25519 sealed box); recipients are SSH
+// public keys, values are bound to their (scope,key) via associated data. Old
+// binaries never read these files (see the fail-closed schemaVersion guard on the
+// legacy store); the whole-file store in the parent package is untouched.
+package scoped
+
+import (
+	"os"
+	"regexp"
+	"sort"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/pkg/errors"
+)
+
+// CurrentScopesSchemaVersion is the highest scopes.yaml / secrets.<scope>.yaml
+// schema version this build understands. A store declaring a higher version is
+// refused (fail-closed) — mirrors the whole-file store guard so a newer file is
+// never read as empty and then clobbered.
+const CurrentScopesSchemaVersion = 1
+
+// ScopesFileName is the governance file at the .sc config root.
+const ScopesFileName = "scopes.yaml"
+
+var (
+	// ErrRecipientNotAllowed indicates the decrypting key is not a recipient of a
+	// value (as opposed to the value being corrupt or the wrong scope).
+	ErrRecipientNotAllowed = errors.New("key is not a recipient of this scoped secret")
+	// ErrScopesVersionUnsupported is fatal on every read path (fail-closed).
+	ErrScopesVersionUnsupported = errors.New("unsupported scoped secrets schema version")
+
+	// scopeNameRe / secretKeyRe restrict names to a NUL-free charset: the AAD
+	// binding (valueAAD) uses NUL separators, and these are also used as filename
+	// components, so control characters and separators are rejected.
+	scopeNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
+	secretKeyRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	// stackNameRe is a single directory name under the stacks dir: no separator,
+	// and never "." or "..".
+	stackNameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
+)
+
+// Fingerprint returns the stable SHA256 SSH fingerprint of an authorized public
+// key ("SHA256:…"), the identifier used to key recipients inside a scope file.
+func Fingerprint(authorizedKey string) (string, error) {
+	return recipientFingerprint(authorizedKey)
+}
+
+// SameRecipients reports, as an error, whether two recipient lists denote the same
+// set of recipients — compared by recipient ID (SSH fingerprint or normalized
+// KMS URL (awskms:// or gcpkms://)) so ordering and comments do not matter. Used to detect drift
+// between a scope file and scopes.yaml.
+func SameRecipients(a, b []string) error {
+	fps := func(list []string) (map[string]struct{}, error) {
+		m := make(map[string]struct{}, len(list))
+		for _, r := range list {
+			fp, err := recipientID(r)
+			if err != nil {
+				return nil, err
+			}
+			m[fp] = struct{}{}
+		}
+		return m, nil
+	}
+	am, err := fps(a)
+	if err != nil {
+		return err
+	}
+	bm, err := fps(b)
+	if err != nil {
+		return err
+	}
+	if len(am) != len(bm) {
+		return errors.Errorf("recipient count differs (%d vs %d)", len(am), len(bm))
+	}
+	for fp := range am {
+		if _, ok := bm[fp]; !ok {
+			return errors.Errorf("recipient %s not present in both sets", fp)
+		}
+	}
+	return nil
+}
+
+// ValidateScopeName rejects scope names that are unsafe as a filename component or
+// AAD field.
+func ValidateScopeName(scope string) error {
+	if !scopeNameRe.MatchString(scope) {
+		return errors.Errorf("invalid scope name %q (allowed: %s)", scope, scopeNameRe.String())
+	}
+	return nil
+}
+
+// ValidateStackName rejects a stack name that is not one directory under the
+// stacks dir, so a scope file can only be written where it will be read.
+func ValidateStackName(stack string) error {
+	if !stackNameRe.MatchString(stack) {
+		return errors.Errorf("invalid stack name %q (allowed: %s)", stack, stackNameRe.String())
+	}
+	return nil
+}
+
+// normalizeRecipient trims the surrounding whitespace a pasted key carries, and
+// refuses a value spanning several lines: only its first key would be sealed to,
+// while scopes.yaml would list them all.
+func normalizeRecipient(recipient string) (string, error) {
+	r := strings.TrimSpace(recipient)
+	if strings.ContainsAny(r, "\r\n") {
+		return "", errors.New("a recipient must be one key on one line")
+	}
+	return r, nil
+}
+
+// AuthKeyPrefix marks a scope entry that holds an auth descriptor (what sits under
+// one name in a secrets.yaml `auth:` map, as YAML) instead of a ${secret:} value.
+// It lets a deploy that cannot open the whole-file store still get its ${auth:}
+// entries, sealed and bound exactly like values. ':' is outside secretKeyRe, so an
+// auth entry can never collide with a value key.
+const AuthKeyPrefix = "auth:"
+
+// ValidateScopedKey accepts a value key or AuthKeyPrefix followed by one.
+func ValidateScopedKey(key string) error {
+	if name, ok := strings.CutPrefix(key, AuthKeyPrefix); ok {
+		return errors.Wrapf(ValidateSecretKey(name), "invalid auth entry %q", key)
+	}
+	return ValidateSecretKey(key)
+}
+
+// ValidateSecretKey rejects secret keys that are unsafe as an AAD field.
+func ValidateSecretKey(key string) error {
+	if !secretKeyRe.MatchString(key) {
+		return errors.Errorf("invalid secret key %q (allowed: %s)", key, secretKeyRe.String())
+	}
+	return nil
+}
+
+// Scopes is the .sc/scopes.yaml governance file: the authoritative per-scope
+// recipient set. It is CODEOWNERS-gated at the repo level; `sc secrets lint`
+// independently verifies each scope file's recipients against it so a scope file
+// edited out-of-band (bypassing review) is still caught.
+type Scopes struct {
+	SchemaVersion int              `yaml:"schemaVersion"`
+	Scopes        map[string]Scope `yaml:"scopes"`
+}
+
+// Scope is one named recipient set.
+type Scope struct {
+	Description string   `yaml:"description,omitempty"`
+	Recipients  []string `yaml:"recipients"`
+}
+
+// LoadScopes reads and validates scopes.yaml. A missing file is not an error —
+// it returns an empty, usable *Scopes (no scopes defined yet).
+func LoadScopes(path string) (*Scopes, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return &Scopes{SchemaVersion: CurrentScopesSchemaVersion, Scopes: map[string]Scope{}}, nil
+	}
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to read %s", path)
+	}
+	var s Scopes
+	if err := yaml.Unmarshal(data, &s); err != nil {
+		return nil, errors.Wrapf(err, "failed to parse %s", path)
+	}
+	if s.SchemaVersion > CurrentScopesSchemaVersion {
+		return nil, errors.Wrapf(ErrScopesVersionUnsupported, "%s declares version %d, this build supports up to %d", path, s.SchemaVersion, CurrentScopesSchemaVersion)
+	}
+	if s.Scopes == nil {
+		s.Scopes = map[string]Scope{}
+	}
+	for name := range s.Scopes {
+		if err := ValidateScopeName(name); err != nil {
+			return nil, errors.Wrapf(err, "in %s", path)
+		}
+	}
+	return &s, nil
+}
+
+// Recipients returns the authoritative recipient set for a scope, or an error if
+// the scope is not declared (a value can only be encrypted to a governed set).
+func (s *Scopes) Recipients(scope string) ([]string, error) {
+	sc, ok := s.Scopes[scope]
+	if !ok {
+		return nil, errors.Errorf("scope %q is not declared in %s", scope, ScopesFileName)
+	}
+	if len(sc.Recipients) == 0 {
+		return nil, errors.Errorf("scope %q has no recipients in %s", scope, ScopesFileName)
+	}
+	return sc.Recipients, nil
+}
+
+// Allow adds a recipient to a scope (creating the scope if needed) and returns
+// whether it was newly added.
+func (s *Scopes) Allow(scope, recipient string) (bool, error) {
+	if err := ValidateScopeName(scope); err != nil {
+		return false, err
+	}
+	recipient, err := normalizeRecipient(recipient)
+	if err != nil {
+		return false, err
+	}
+	if _, err := recipientID(recipient); err != nil {
+		return false, err
+	}
+	if err := validateEncryptableRecipient(recipient); err != nil {
+		return false, err
+	}
+	if s.Scopes == nil {
+		s.Scopes = map[string]Scope{}
+	}
+	sc := s.Scopes[scope]
+	fp, _ := recipientID(recipient)
+	for _, existing := range sc.Recipients {
+		if efp, _ := recipientID(existing); efp == fp {
+			return false, nil
+		}
+	}
+	sc.Recipients = append(sc.Recipients, recipient)
+	sort.Strings(sc.Recipients)
+	s.Scopes[scope] = sc
+	return true, nil
+}
+
+// Disallow removes a recipient from a scope and returns whether it was present.
+// Removing a recipient does NOT revoke access to values already committed in
+// history — callers must warn to rotate those values.
+func (s *Scopes) Disallow(scope, recipient string) (bool, error) {
+	sc, ok := s.Scopes[scope]
+	if !ok {
+		return false, errors.Errorf("scope %q is not declared", scope)
+	}
+	recipient, err := normalizeRecipient(recipient)
+	if err != nil {
+		return false, err
+	}
+	fp, err := recipientID(recipient)
+	if err != nil {
+		return false, err
+	}
+	// Fresh slice — never filter in place: sc is a struct copy but shares the map
+	// value's backing array, so sc.Recipients[:0] would corrupt any retained slice.
+	kept := make([]string, 0, len(sc.Recipients))
+	removed := false
+	for _, existing := range sc.Recipients {
+		if efp, _ := recipientID(existing); efp == fp {
+			removed = true
+			continue
+		}
+		kept = append(kept, existing)
+	}
+	sc.Recipients = kept
+	s.Scopes[scope] = sc
+	return removed, nil
+}
+
+// DropsRecipients reports whether going from the recipient set from to the set to
+// removes anyone, compared by fingerprint. Whoever is dropped can still read the
+// values already committed, so the caller warns to rotate them.
+func DropsRecipients(from, to []string) bool {
+	kept := map[string]bool{}
+	for _, r := range to {
+		if id, err := recipientID(r); err == nil {
+			kept[id] = true
+		}
+	}
+	for _, r := range from {
+		// A recipient that cannot be identified counts as dropped: warn rather
+		// than miss a removal.
+		if id, err := recipientID(r); err != nil || !kept[id] {
+			return true
+		}
+	}
+	return false
+}

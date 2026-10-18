@@ -6,9 +6,8 @@ package k8s
 import (
 	"testing"
 
-	. "github.com/onsi/gomega"
-
 	"github.com/compose-spec/compose-go/types"
+	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -288,4 +287,51 @@ func TestFindIngressContainer(t *testing.T) {
 		// Auto-selection only happens for exactly one port.
 		Expect(ic).To(BeNil())
 	})
+}
+
+// A service that declares `image:` and no build context must keep that reference:
+// the Kubernetes path used to drop it and substitute the compose SERVICE name, which
+// silently deployed a nonexistent image whenever the two differed. The ECS converter
+// has always carried it; this pins the Kubernetes one to the same behaviour.
+func TestConvertComposeToContainers_CarriesImageReference(t *testing.T) {
+	RegisterTestingT(t)
+
+	composeCfg := compose.Config{Project: &types.Project{
+		WorkingDir: "/work",
+		Services: []types.ServiceConfig{
+			{Name: "api", Image: "nginx:1.27-alpine", Ports: []types.ServicePortConfig{{Target: 80}}},
+			{Name: "mongodb", Image: "mongo:7"},
+		},
+	}}
+	stackCfg := &api.StackConfigCompose{Runs: []string{"api", "mongodb"}}
+
+	containers, err := ConvertComposeToContainers(composeCfg, stackCfg)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(containers).To(HaveLen(2))
+	Expect(containers[0].Image.Name).To(Equal("nginx:1.27-alpine"))
+	Expect(containers[1].Image.Name).To(Equal("mongo:7"))
+	// Nothing to build, so the build-side fields stay empty and the deploy takes the
+	// no-build branch of BuildAndPushImages.
+	Expect(containers[0].Image.Context).To(BeEmpty())
+	Expect(containers[0].Image.Dockerfile).To(BeEmpty())
+}
+
+// A built service carries no image name: the reference is whatever the build pushed,
+// and leaving `image:` on it would let a stale tag win over the freshly built one.
+func TestConvertComposeToContainers_BuiltServiceKeepsBuildFields(t *testing.T) {
+	RegisterTestingT(t)
+
+	composeCfg := compose.Config{Project: &types.Project{
+		WorkingDir: "/work",
+		Services: []types.ServiceConfig{
+			{Name: "api", Build: &types.BuildConfig{Context: "./api"}},
+		},
+	}}
+	stackCfg := &api.StackConfigCompose{Runs: []string{"api"}}
+
+	containers, err := ConvertComposeToContainers(composeCfg, stackCfg)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(containers[0].Image.Name).To(BeEmpty())
+	Expect(containers[0].Image.Context).To(Equal("./api"))
+	Expect(containers[0].Image.Dockerfile).To(Equal("Dockerfile"))
 }

@@ -954,10 +954,16 @@ resources:
             deletionProtection: true                     # Enable deletion protection (optional)
             queryInsightsEnabled: false                  # Enable query insights (optional)
             queryStringLength: 1024                      # Query string length limit (optional)
+            privateNetwork: "projects/my-gcp-project/global/networks/my-vpc"  # Private IP on this VPC (optional, restarts an existing instance)
+            privateServicesAccessRange: "10.30.0.0/20"   # SC creates Private Services Access on privateNetwork (optional)
+            proxyPrivateIp: true                         # proxy dials the private IP, public IP stays on (optional)
+            publicIpEnabled: true                        # false removes the public IP; implies proxyPrivateIp (optional)
             usersProvisionRuntime:                       # User provisioning runtime (optional)
               type: "kubernetes"
               resourceName: "postgres-job-runner"
 ```
+
+**Private IP:** `privateNetwork` needs Private Services Access on the VPC. With `privateServicesAccessRange` (an RFC 1918 CIDR, /24 or larger) SC reserves the range and creates the servicenetworking peering before the instance; leave it unset if the VPC already has one. The peering is one per VPC, so set the range on at most one resource per network, and treat it as immutable: removing it or destroying the stack keeps the range and the peering (delete them with `gcloud services vpc-peerings delete` and `gcloud compute addresses delete` once no instance uses them). Not supported with `adopt: true`. Adding a private IP to an existing instance restarts it; the proxy keeps using the public IP until `proxyPrivateIp: true` (or `publicIpEnabled: false`). To move an existing fleet without a cutover, set `proxyPrivateIp: true` first, and only after the instance shows a `PRIVATE` address (`gcloud sql instances describe <instance> --format='value(ipAddresses)'`): a client deployed earlier gets a proxy with nothing to dial. Each client stack switches on its next deploy while the public IP still serves the rest. Before turning the public IP off, confirm no proxy still lacks the flag: `kubectl get pods -A -o json | jq -r '.items[] | select(any(.spec.initContainers[]?, .spec.containers[]?; .name == "cloudsql-proxy" and (.args | index("--private-ip") | not))) | .metadata.namespace + "/" + .metadata.name'` must print nothing.
 
 **Database flag removal semantics:** on freshly provisioned instances, deleting an entry from `databaseFlags` reverts that flag to its engine default on the next update (static flags restart the instance). On **adopted** instances (`adopt: true`), flags are only managed while `databaseFlags` is set — deleting the whole block re-enters drift protection and leaves the last-applied flags in place; to disable a flag, set it to its off value (e.g. `"off"`) instead of removing the line.
 
@@ -1064,8 +1070,43 @@ auth:
     type: gcp-service-account
     config:
       projectId: "my-gcp-project"
-      serviceAccountKey: "${env:GCP_SERVICE_ACCOUNT_KEY}"
+      credentials: "${env:GCP_SERVICE_ACCOUNT_KEY}"   # service-account key JSON
 ```
+
+**Ambient credentials (no key).** Leave `credentials` empty and every GCP client uses
+Application Default Credentials instead: in GitHub Actions, the file that
+`google-github-actions/auth` writes after exchanging the job's OIDC token through Workload
+Identity Federation; elsewhere, a metadata server or `gcloud auth application-default login`.
+No long-lived key exists to leak. A configured value must still be a service-account key.
+
+```yaml
+auth:
+  gcloud:
+    type: gcp-service-account
+    config:
+      projectId: "my-gcp-project"
+      credentials: ""                                   # use ADC
+      serviceAccount: deployer@my-gcp-project.iam.gserviceaccount.com  # static websites only
+```
+
+`serviceAccount` is read only in ambient mode, and only by resources that grant the deploying
+identity access to themselves (a static website's bucket write binding), which otherwise take
+the email from the key.
+
+In ambient mode, inside GitHub Actions:
+
+- The credentials file stays available when the job has no checkout step. The action clones
+  the repository itself and replaces the workspace, so it first copies credential files it
+  finds there (`GOOGLE_APPLICATION_CREDENTIALS`, `CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE`,
+  `GOOGLE_GHA_CREDS_PATH`) to a private directory and points the variables at the copies.
+- gcloud is signed in with that file (`gcloud auth login --cred-file`), because GKE
+  kubeconfigs authenticate through `gke-gcloud-auth-plugin`, which asks gcloud, and gcloud
+  does not read Application Default Credentials. The sign-in uses a gcloud configuration
+  private to the run (`CLOUDSDK_CONFIG`), so later steps of the job keep their account.
+  Outside GitHub Actions gcloud is left as the user configured it.
+- With `provision: true` on the state storage, the identity reads the state bucket's
+  metadata (`storage.buckets.get`). Without it, the bucket is taken to exist and its
+  lifecycle is not checked; it is created only when Cloud Storage reports it missing.
 
 #### **GCP Secrets Manager** (`gcp-secrets-manager`)
 

@@ -8,16 +8,20 @@ import (
 	"fmt"
 	"strings"
 
+	"k8s.io/apimachinery/pkg/util/validation"
+
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
 	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
+	// Aliased: DeployCaddyService takes a parameter named `caddy`, which would
+	// shadow the package inside the one function that needs it.
+	caddyassets "github.com/simple-container-com/api/pkg/clouds/caddy"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
@@ -103,7 +107,10 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		return nil, err
 	}
 	kubeProvider, err := sdkK8s.NewProvider(ctx, fmt.Sprintf("%s-caddy-kubeprovider", input.ToResName(input.Descriptor.Name)), &sdkK8s.ProviderArgs{
-		Kubeconfig: kubeconfig,
+		// Marked here rather than at each caller so every path into Caddy —
+		// the k8s resource below, and gke_autopilot.go's derived kubeconfig —
+		// crosses the provider boundary secret. See SecretKubeconfig.
+		Kubeconfig: SecretKubeconfigOutput(kubeconfig),
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q",
@@ -124,7 +131,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 
 	// Prepare Caddy volumes (embedded config)
 	var caddyVolumes []k8s.SimpleTextVolume
-	caddyVolumes, err = EmbedFSToTextVolumes(caddyVolumes, Caddyconfig, "embed/caddy", "/etc/caddy")
+	caddyVolumes, err = EmbedFSToTextVolumes(caddyVolumes, caddyassets.FS, caddyassets.AssetsDir, "/etc/caddy")
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to read embedded caddy config files")
 	}
@@ -143,7 +150,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	//
 	// Why file_server (not respond with inlined HTML):
 	// - Symmetric with the existing `handle_bucket_error` / `handle_server_error`
-	//   snippets in embed/caddy/Caddyfile, which serve {404,500,502}.html the
+	//   snippets in pkg/clouds/caddy/assets/Caddyfile, which serve {404,500,502}.html the
 	//   same way for per-Service error fallbacks. One pattern for every status
 	//   page in this codebase.
 	// - file_server emits Content-Type automatically from the file extension,

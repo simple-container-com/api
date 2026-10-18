@@ -24,7 +24,7 @@ jobs:
     # Same runner class the repo uses for `go test ./...` (branch.yaml): this
     # dependency graph (Pulumi SDK is linked transitively even by pkg/api) is
     # too heavy to compile on the 2-core GitHub-hosted ubuntu-latest.
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     permissions:
       contents: read
       pull-requests: write   # post/update the sticky PR comment

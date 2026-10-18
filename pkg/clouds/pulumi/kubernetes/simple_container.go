@@ -4,7 +4,6 @@
 package kubernetes
 
 import (
-	"embed"
 	"encoding/base64"
 	"fmt"
 	"regexp"
@@ -12,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/dustin/go-humanize"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
@@ -27,24 +25,15 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	caddyassets "github.com/simple-container-com/api/pkg/clouds/caddy"
 	"github.com/simple-container-com/api/pkg/clouds/docker"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
 
-//go:embed embed/caddy/*
-var Caddyconfig embed.FS
-
 const (
 	AppTypeSimpleContainer = "simple-container"
-
-	// defaultRequestBufferBytes is the default reverse_proxy request_buffers
-	// size (see api.SimpleContainerLBConfig.RequestBufferSize for the contract);
-	// maxRequestBufferBytes caps per-stack overrides because the buffer is held
-	// in shared-edge memory per in-flight request.
-	defaultRequestBufferBytes = 1 << 20  // 1MiB
-	maxRequestBufferBytes     = 16 << 20 // 16MiB
 
 	AnnotationCaddyfileEntry = "simple-container.com/caddyfile-entry"
 	AnnotationParentStack    = "simple-container.com/parent-stack"
@@ -787,16 +776,9 @@ ${proto}://${domain} {
 		// user-controlled reaches the shared Caddyfile, and a parsed 0 omits
 		// the line entirely (escape hatch for pre-2.6.0 Caddy images).
 		lbc := lo.FromPtr(args.LbConfig)
-		requestBufferBytes := uint64(defaultRequestBufferBytes)
-		if v := lbc.RequestBufferSize; v != "" {
-			n, err := humanize.ParseBytes(v)
-			if err != nil {
-				return nil, errors.Wrapf(err, "invalid lbConfig.requestBufferSize %q", v)
-			}
-			if n > maxRequestBufferBytes {
-				return nil, errors.Errorf("lbConfig.requestBufferSize %q exceeds the %s cap (buffered in shared edge memory per in-flight request)", v, humanize.IBytes(maxRequestBufferBytes))
-			}
-			requestBufferBytes = n
+		requestBufferBytes, err := caddyassets.RequestBufferBytes(lbc.RequestBufferSize)
+		if err != nil {
+			return nil, err
 		}
 		requestBuffersStr := ""
 		if requestBufferBytes > 0 {

@@ -1,0 +1,124 @@
+schemaVersion: 1.0
+
+# A parent stack whose only infrastructure is one machine somebody created by hand.
+#
+# `fs` + `passphrase` keep this example runnable with no cloud account at all: the
+# Pulumi state lives next to the checkout and secrets are encrypted with a passphrase.
+# Swap in `s3-bucket`/`gcp-bucket` + a KMS secrets provider once more than one person
+# deploys this stack.
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: fs
+      config:
+        path: ${git:root}/.sc/state
+    secrets-provider:
+      type: passphrase
+      config:
+        passPhrase: ${secret:SC_STATE_PASSPHRASE}
+
+templates:
+  # Delivery behaviour ONLY. Everything about the machine — provider, size, image,
+  # sshUser, ingress — belongs to the `vm` resource this references by name, exactly as
+  # gcp-gke-autopilot references gkeClusterResource. That split is what lets several
+  # stacks share one machine and lets the delivery strategy change without touching the
+  # machine description.
+  compose-on-vm:
+    type: vm-compose
+    config:
+      vmResource: portal-vm
+      # The default, and the reason this delivery path exists: `sc image ship` streams
+      # the built image over the same SSH connection, so no registry has to be reachable
+      # from the machine. Use `registry` (plus `dockerRegistryURL`, and the username and
+      # password when it is private) if you already have one.
+      imageDelivery: ssh-tar
+      # `blue-green` (default) brings the new slot up beside the old one and gates on its
+      # health before stopping the old one. `recreate` stops first — a few seconds of 502
+      # in exchange for not running both slots at once, which is the honest choice on a
+      # machine with 2 GB of RAM.
+      strategy: blue-green
+      # Previous versions kept on the machine for rollback. The image is already there,
+      # which is what makes rollback on a VM faster than in Kubernetes.
+      keepImages: 3
+
+resources:
+  resources:
+    staging:
+      template: compose-on-vm
+      resources:
+        portal-vm:
+          type: vm
+          config:
+            # `byo` is the zeroth cloud: SC does not create the machine, it only connects
+            # to one you created in the console (Cloud.ru, VK Cloud, MWS, a rack — it does
+            # not matter). The cloud-specific drivers (`cloudru-vm`, `yc-vm`, …) create the
+            # machine themselves and refuse `hosts:`.
+            provider: byo
+            hosts:
+              - address: 203.0.113.10
+                # Defaults to `sc`. Use the image's stock account (`ubuntu`, `debian`) if
+                # you have not created a dedicated one yet.
+                user: ubuntu
+                port: 22
+                # The deploy key. SC never writes it into a command line — it reaches the
+                # SSH client as a secret input and is encrypted in the Pulumi checkpoint.
+                # Password and ssh-agent authentication are not supported.
+                privateKey: ${secret:PORTAL_VM_DEPLOY_KEY}
+                # Pin the machine's identity. Optional, and the one optional field whose
+                # absence has a real cost: a deploy carries the stack's whole env file,
+                # every `${secret:...}` in it, and the deploy key itself, so without this
+                # all of that goes to whoever answers on that address. A CI runner has no
+                # known_hosts to fall back on, which is why there is no implicit default.
+                #
+                # Paste the output of `ssh-keyscan -t ed25519 203.0.113.10` verbatim (the
+                # leading address is ignored, not verified), or just the
+                # `ssh-ed25519 AAAA…` part. Compare it against the machine's console
+                # before you trust it — reading it off the network is what it protects
+                # you from.
+                hostKey: "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLE00"
+            # The front door: a Caddy container in its own compose project, terminating
+            # TLS for every stack on this machine. It belongs to the resource and not to
+            # a template because one machine has one port 443 — and because a stack's
+            # own compose project is destroyed and recreated by each deploy, so a Caddy
+            # inside it would go down with the slot it is meant to route away from.
+            #
+            # A stack opts in by setting `domain:`; its deploy then owns exactly one file
+            # in Caddy's conf.d plus a reload, which is why two stacks can deploy at the
+            # same time without a lock.
+            #
+            # Open ports 80 AND 443 on the machine: 80 is where the ACME challenge is
+            # answered, so TLS never provisions without it. Caddy also publishes 443/udp
+            # for HTTP/3 — a firewall that passes only TCP costs you QUIC, which browsers
+            # fall back from, and nothing else.
+            #
+            # Leave this out and stacks are published on a high host port instead
+            # (see client.yaml). Changing it needs `sc provision`, not `sc deploy`.
+            ingress:
+              enable: true
+              # The ACME account address. Required — no CA issues without one. Expiry
+              # notices go here.
+              email: ops@example.com
+              # Everything below is optional.
+              #
+              # Pin the Caddy build. Defaults to the same `simplecontainer/caddy` tag
+              # the Kubernetes edge runs, which carries the plugins (`rate_limit`,
+              # certmagic storage) that the official image does not — so
+              # `lbConfig.siteExtraHelpers` means the same thing on both paths. Point it
+              # at a mirror if the machine cannot reach Docker Hub.
+              # image: registry.example.ru/mirror/caddy:2.11
+              #
+              # A certificate authority other than Let's Encrypt. This exists for the
+              # Russian market: a `.ru` domain opened from inside Russia in a browser
+              # without foreign roots wants a Russian Trusted CA certificate, and Let's
+              # Encrypt may not be reachable from a closed network at all. Whether that
+              # CA speaks ACME is UNVERIFIED — the field is here so there is an option,
+              # not because the path is known to work.
+              # acmeCa: https://acme.example-ca.ru/directory
+              #
+              # External Account Binding, which a private or enterprise ACME CA
+              # generally requires and Let's Encrypt does not. Both or neither, and only
+              # alongside `acmeCa`. The MAC key is a credential: it never appears in the
+              # rendered Caddyfile, reaching the machine in the ingress env file.
+              # acmeEabKeyId: "kid-from-your-ca"
+              # acmeEabMacKey: ${secret:PORTAL_VM_ACME_EAB_MAC_KEY}

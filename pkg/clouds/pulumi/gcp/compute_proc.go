@@ -33,6 +33,12 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	if !ok {
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
 	}
+	// Clients read the parent's config straight from server.yaml, so an invalid
+	// one (proxyPrivateIp without privateNetwork) must fail here too, not only on
+	// the parent's provision.
+	if err := pgCfg.Validate(); err != nil {
+		return nil, err
+	}
 
 	// For export lookups, always use the configuration-based name (what parent stack exports)
 	configBasedName := toPostgresName(input, input.Descriptor.Name)
@@ -97,7 +103,7 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 		}
 		kubeProviderName := fmt.Sprintf("%s-%s-computeproc-kubeconfig", input.ToResName(input.Descriptor.Name), clusterName)
 		kubeProvider, err = sdkK8s.NewProvider(ctx, kubeProviderName, &sdkK8s.ProviderArgs{
-			Kubeconfig: sdk.String(kubeConfig),
+			Kubeconfig: kubernetes.SecretKubeconfig(kubeConfig),
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to provision kubeconfig provider for %q/%q in %q",

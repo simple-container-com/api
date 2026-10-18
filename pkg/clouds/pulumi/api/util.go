@@ -10,6 +10,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
+	"github.com/simple-container-com/api/pkg/api"
+
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -25,8 +27,7 @@ func ExpandStackReference(parentStack string, organization string, projectName s
 }
 
 func CollapseStackReference(stackRef string) string {
-	stackRefParts := strings.SplitN(stackRef, "/", 3)
-	return stackRefParts[len(stackRefParts)-1]
+	return api.ParentStackName(stackRef)
 }
 
 func StackNameInEnv(stackName string, environment string) string {

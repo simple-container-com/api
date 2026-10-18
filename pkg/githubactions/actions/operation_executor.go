@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/secrets"
 )
 
@@ -155,6 +156,14 @@ func (e *Executor) logOperationStart(ctx context.Context, config OperationConfig
 
 // setupRepositoryAndConfig handles repository cloning and SC config creation
 func (e *Executor) setupRepositoryAndConfig(ctx context.Context, config OperationConfig) error {
+	preserved, failed := PreserveWorkspaceCredentialFiles()
+	for name, path := range preserved {
+		e.logger.Info(ctx, "%s preserved outside the workspace at %s", name, path)
+	}
+	for name, err := range failed {
+		e.logger.Warn(ctx, "%s could not be preserved outside the workspace: %v", name, err)
+	}
+
 	// For client operations, clone parent repository
 	if config.Scope == ScopeClient {
 		if err := e.cloneParentRepository(ctx); err != nil {
@@ -483,7 +492,8 @@ func (e *Executor) getFailureMessage(config OperationConfig, err error, duration
 	}
 
 	// Get intelligently truncated error message
-	errorMsg := e.truncateErrorMessage(err.Error(), 1500) // Leave room for prefix
+	// Redact before truncating: a cut can drop the BEGIN line of a key.
+	errorMsg := e.truncateErrorMessage(logger.Redact(err.Error()), 1500) // Leave room for prefix
 
 	if duration > 0 {
 		return fmt.Sprintf("%s of %s%s failed after %v: %s", action, scope, config.StackName, duration, errorMsg)

@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
 package ciphers
 
 import (
@@ -9,9 +12,10 @@ import (
 	"io"
 	"testing"
 
-	. "github.com/onsi/gomega"
 	"golang.org/x/crypto/chacha20poly1305"
 	"golang.org/x/crypto/hkdf"
+
+	. "github.com/onsi/gomega"
 )
 
 func TestX25519_RoundTrip(t *testing.T) {

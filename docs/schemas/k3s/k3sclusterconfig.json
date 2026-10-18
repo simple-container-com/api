@@ -1,0 +1,61 @@
+{
+  "name": "K3sClusterConfig",
+  "type": "resource",
+  "provider": "k3s",
+  "description": "K3S k3scluster configuration",
+  "goPackage": "pkg/clouds/k3s/",
+  "goStruct": "K3sClusterConfig",
+  "resourceType": "k3s-cluster",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "credentials": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "credentials"
+        ],
+        "type": "object"
+      },
+      "disable": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "endpoint": {
+        "type": "string"
+      },
+      "extraServerArgs": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "installScriptUrl": {
+        "type": "string"
+      },
+      "tlsSans": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "version": {
+        "type": "string"
+      },
+      "vmResource": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "vmResource"
+    ],
+    "type": "object"
+  }
+}

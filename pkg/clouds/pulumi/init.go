@@ -16,7 +16,9 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/aws"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/cloudflare"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
+	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/k3s"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/mongodb"
+	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/yandex"
 )
 

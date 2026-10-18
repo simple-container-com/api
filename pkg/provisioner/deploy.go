@@ -97,6 +97,11 @@ func (p *provisioner) initProvisioner(ctx context.Context, params api.StackParam
 	if err := p.resolvePlaceholders(); err != nil {
 		return nil, nil, nil, errors.Wrapf(err, "failed to resolve placeholders for %q in %q", params.StackName, params.Environment)
 	}
+	if params.Environment != "" && !params.Parent {
+		if err := p.checkUnresolvedPlaceholders(ctx, params); err != nil {
+			return nil, nil, nil, err
+		}
+	}
 	stack, ok := p.stacks[params.StackName]
 	if !ok {
 		return nil, nil, nil, errors.Errorf("stack %q is not configured", params.StackName)
@@ -124,17 +129,22 @@ func (p *provisioner) initProvisionerForDeploy(ctx context.Context, params api.S
 }
 
 func (p *provisioner) getStacksDir(cfg *api.ConfigFile, providedDir string) string {
-	stacksDir := providedDir
+	return ResolveStacksDir(p.rootDir, cfg, providedDir)
+}
 
-	if stacksDir == "" {
+// ResolveStacksDir is the single source of truth for where stack descriptors live:
+// the --dir value, else the config file's stacksDir, else DefaultStacksRootDir.
+// Relative results are anchored at rootDir (the git workdir), not the cwd.
+func ResolveStacksDir(rootDir string, cfg *api.ConfigFile, providedDir string) string {
+	stacksDir := providedDir
+	if stacksDir == "" && cfg != nil {
 		stacksDir = cfg.StacksDir
 	}
-
 	if stacksDir == "" {
 		stacksDir = DefaultStacksRootDir
 	}
 	if filepath.IsAbs(stacksDir) {
 		return stacksDir
 	}
-	return filepath.Join(p.rootDir, stacksDir)
+	return filepath.Join(rootDir, stacksDir)
 }

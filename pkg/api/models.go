@@ -39,6 +39,13 @@ var (
 	ReadIgnoreNoAnyCfg              = ReadOpts{IgnoreSecretsMissing: true, IgnoreServerMissing: true, IgnoreClientMissing: true}
 )
 
+// ParentStackName returns the stack name of a client's parent reference, which is
+// either the bare name, "org/name" or "org/project/name".
+func ParentStackName(ref string) string {
+	parts := strings.SplitN(ref, "/", 3)
+	return parts[len(parts)-1]
+}
+
 func (m *StacksMap) ReconcileForDeploy(params StackParams) (*StacksMap, error) {
 	current := *m
 	iterMap := lo.Assign(current)
@@ -55,8 +62,7 @@ func (m *StacksMap) ReconcileForDeploy(params StackParams) (*StacksMap, error) {
 		if !ok {
 			return nil, errors.Errorf("client stack %q is not configured for %q", stackName, params.Environment)
 		}
-		parentStackParts := strings.SplitN(clientDesc.ParentStack, "/", 3)
-		parentStackName := parentStackParts[len(parentStackParts)-1]
+		parentStackName := ParentStackName(clientDesc.ParentStack)
 		if parentStack, ok := current[parentStackName]; ok {
 			stack.Server = parentStack.Server.Copy()
 			stack.Secrets = parentStack.Secrets.Copy()

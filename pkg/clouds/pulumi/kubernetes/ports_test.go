@@ -7,10 +7,11 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
+
 	corev1 "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes/core/v1"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"

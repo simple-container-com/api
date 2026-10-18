@@ -17,6 +17,9 @@
             "properties": {
               "projectId": {
                 "type": "string"
+              },
+              "serviceAccount": {
+                "type": "string"
               }
             },
             "required": [

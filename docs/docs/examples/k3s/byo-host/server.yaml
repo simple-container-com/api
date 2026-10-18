@@ -1,0 +1,147 @@
+schemaVersion: 1.0
+
+# A parent stack that stands up a single-node Kubernetes cluster on one machine
+# somebody created by hand, and deploys client stacks onto it.
+#
+# This is the same machine the vm-compose example uses, declared the same way. The
+# difference is one extra resource — `k3s-cluster` — and the template type. Everything
+# above the kubeconfig (the Deployment, the Service, cloudExtras, probes, the Caddy
+# edge, the helm operators) is the ordinary Kubernetes path, unchanged.
+#
+# `fs` + `passphrase` keep this runnable with no cloud account at all. Swap in
+# `s3-bucket`/`gcp-bucket` + a KMS secrets provider once more than one person deploys it.
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: fs
+      config:
+        path: ${git:root}/.sc/state
+    secrets-provider:
+      type: passphrase
+      config:
+        passPhrase: ${secret:SC_STATE_PASSPHRASE}
+
+templates:
+  # Deploys onto the k3s cluster below. It names the cluster resource rather than
+  # carrying a kubeconfig, which is the whole reason this template type exists next to
+  # `kubernetes-cloudrun`: a cluster SC provisions has no kubeconfig until it has been
+  # provisioned, so the value can only arrive as a parent-stack output. Same shape as
+  # `gcp-gke-autopilot`'s `gkeClusterResource`.
+  k3s-run:
+    type: k3s-cloudrun
+    config:
+      k3sClusterResource: ru-cluster
+      # Required, and there is no alternative on this path: a kubelet can only PULL an
+      # image. The vm-compose path can push one over SSH with `imageDelivery: ssh-tar`;
+      # Kubernetes cannot. Point this at a registry the machine can actually reach — in
+      # a closed network that means a mirror or your own registry, not Docker Hub.
+      dockerRegistryURL: registry.example.ru/mycompany
+      dockerRegistryUsername: ${secret:RU_REGISTRY_USERNAME}
+      dockerRegistryPassword: ${secret:RU_REGISTRY_PASSWORD}
+      # Optional. `useSSL: false` is the honest setting while you are still reaching the
+      # cluster on a host port and have no certificate.
+      useSSL: true
+
+resources:
+  resources:
+    staging:
+      template: k3s-run
+      resources:
+        # The machine. Identical to the vm-compose example — see
+        # ../../vm-compose/byo-host/server.yaml for the full annotation of every field,
+        # including why `hostKey` is the one optional field whose absence has a real cost.
+        cluster-vm:
+          type: vm
+          config:
+            provider: byo
+            hosts:
+              - address: 203.0.113.10
+                user: ubuntu
+                port: 22
+                privateKey: ${secret:CLUSTER_VM_DEPLOY_KEY}
+                hostKey: "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLE00"
+            # Deliberately absent here: `ingress`.
+            #
+            # On the vm-compose path, `ingress.enable: true` runs a Caddy container that
+            # holds ports 80 and 443 for every stack on the machine. A k3s node wants
+            # those same ports for its own ingress. One machine has one 443, so pick one
+            # owner:
+            #
+            #  * No `ingress` (this file) — k3s owns 80/443. The cluster's own
+            #    LoadBalancer implementation (klipper-lb, k3s's `servicelb`) is left
+            #    enabled and binds them on the node.
+            #  * `ingress.enable: true` — the compose Caddy owns them, and SC then
+            #    disables `servicelb` automatically, because a `LoadBalancer` Service
+            #    that can never get a port would otherwise sit `<pending>` forever with
+            #    nothing saying why.
+            #
+            # You do not have to remember which: the `k3s-cluster` resource reads the
+            # machine's ingress setting and adjusts. This comment is about which
+            # arrangement you want, not about having to coordinate it by hand.
+
+        ru-cluster:
+          type: k3s-cluster
+          config:
+            # The machine, or machines, to install on. Named, not described — the same
+            # split every other SC cluster resource uses. The resource is provisioned
+            # after the vm resource it names, and reads the host facts from its output.
+            vmResource: cluster-vm
+
+            # Pinned on purpose. k3s's installer resolves a RELEASE CHANNEL at install
+            # time, so leaving this to the default would mean the control-plane version
+            # depends on the day the deploy ran. SC pins a known version instead; set
+            # this to move it deliberately.
+            # version: v1.36.5+k3s1
+
+            # The address the EXPORTED kubeconfig points at. Defaults to the machine's
+            # own address, which is correct for a byo host with a public IP.
+            #
+            # Set it to a DNS name if the machine's address can change, or to an
+            # internal address if the deploys run inside the same network — the
+            # kubeconfig has to work from wherever `sc deploy` runs, which for CI is the
+            # runner and not the machine. Whatever you put here is added to the API
+            # server's certificate SANs automatically.
+            # endpoint: k8s.example.ru
+
+            # Extra names/addresses in the API server certificate. The endpoint and the
+            # machine's address are always included; add anything else you will reach
+            # the cluster by (a second DNS name, a VPN address, a load balancer).
+            # tlsSans:
+            #   - k8s-internal.example.ru
+            #   - 10.0.0.10
+
+            # Bundled components to leave out. SC's default is `traefik`: the Caddy edge
+            # SC already knows how to run is the ingress on every other cloud, and two
+            # ingress controllers on one node is a port fight.
+            #
+            # Setting this REPLACES the default rather than adding to it — an explicit
+            # empty list means "disable nothing", which is how you get Traefik back.
+            # Valid entries: traefik, servicelb, local-storage, metrics-server.
+            # disable:
+            #   - traefik
+
+            # Passed through to `k3s server` verbatim. For things SC has no opinion
+            # about; a flag SC manages itself (--tls-san, --disable, --write-kubeconfig*)
+            # is refused here rather than silently fighting.
+            # extraServerArgs:
+            #   - --kube-apiserver-arg=v=2
+
+        # Not here, and worth knowing why before you plan around it.
+        #
+        # The in-cluster Caddy edge — the `kubernetes-caddy` resource the
+        # managed-Kubernetes clouds run — takes its kubeconfig as a LITERAL string in
+        # its own config (k8s.CaddyResource embeds k8s.KubernetesConfig). A cluster SC
+        # provisioned in this same stack has no kubeconfig until it has been
+        # provisioned, so there is currently no way to point that resource at
+        # `ru-cluster`: the same limitation that `k3s-cloudrun` exists to work around
+        # for the deploy path, still open for the edge.
+        #
+        # So on a k3s stand today the front door is the node itself. Leave `ingress`
+        # off the vm resource (as above), let k3s keep 80/443, and expose a workload
+        # with `cloudExtras.serviceType: LoadBalancer` — klipper-lb binds the node's
+        # ports — or reach it on a node port while smoking. A compose-side Caddy on the
+        # same machine is the other option, and is what the vm-compose example does.
+        #
+        # Once the edge is wired, a client stack points at it through the template's
+        # `caddyResource` and nothing else changes.

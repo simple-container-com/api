@@ -11,14 +11,14 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
-	"github.com/pulumi/pulumi/sdk/v3/go/auto/optpreview"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
 )
 
-func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.ProvisionParams) (*api.PreviewResult, error) {
+func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, _ api.ProvisionParams) (*api.PreviewResult, error) {
 	s, err := p.validateStateAndGetStack(ctx)
 	if err != nil {
 		return nil, err
@@ -28,21 +28,8 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
-	if !params.SkipRefresh {
-		p.logger.Info(ctx, "%s", color.GreenFmt("Refreshing parent stack %q...", stackSource.Name()))
-		refreshResult, err := stackSource.Refresh(ctx)
-		if err != nil {
-			return nil, err
-		}
-		p.logger.Info(ctx, "%s", color.GreenFmt("Refresh parent summary: %q", p.toRefreshResult(refreshResult)))
-	}
-
 	p.logger.Info(ctx, "Preview parent stack %q...", stackSource.Name())
-	previewResult, err := stackSource.Preview(
-		ctx,
-		optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))),
-		optpreview.Diff(), // Enable detailed diff output for better visibility into changes
-	)
+	previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, true)...)
 	if err != nil {
 		return nil, err
 	}
@@ -66,11 +53,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 		return nil, err
 	}
 	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child stack %q...", stackSource.Name()))
-	previewResult, err := stackSource.Preview(
-		ctx,
-		optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))),
-		optpreview.Diff(), // Enable detailed diff output for better visibility into changes
-	)
+	previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, true)...)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +108,7 @@ func (p *pulumi) toUpdateResult(stackName string, result auto.UpResult) *api.Upd
 	}
 	return &api.UpdateResult{
 		StackName:  stackName,
-		Summary:    result.StdOut,
+		Summary:    logger.Redact(result.StdOut),
 		Operations: changes,
 	}
 }
@@ -133,7 +116,7 @@ func (p *pulumi) toUpdateResult(stackName string, result auto.UpResult) *api.Upd
 func (p *pulumi) toPreviewResult(stackName string, result auto.PreviewResult) *api.PreviewResult {
 	return &api.PreviewResult{
 		StackName: stackName,
-		Summary:   result.StdOut,
+		Summary:   logger.Redact(result.StdOut),
 		Operations: lo.MapKeys(result.ChangeSummary, func(value int, key apitype.OpType) string {
 			return string(key)
 		}),

@@ -146,11 +146,11 @@ func PushRemoteImageToRegistry(ctx *sdk.Context, args RemoteImageArgs) (*RemoteI
 		Build:     buildArgs,
 		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: sdk.Sprintf("%s/%s:%s", pushRegistryURL, args.Image.Name, version),
-		Registry: docker.RegistryArgs{
+		Registry: pDocker.SecretRegistry(docker.RegistryArgs{
 			Server:   pushRegistryURL,
 			Password: sdk.String(gcpCreds.Password),
 			Username: sdk.String(gcpCreds.Username),
-		},
+		}),
 	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to push image %q in stack %q env %q", args.Image.Name, args.Stack.Name, args.Input.StackParams.Environment)

@@ -105,6 +105,17 @@ func main() {
 			log.Debug(ctx, "🔍 Repository incomplete, will attempt cloning")
 		}
 
+		// Cloning replaces the workspace's contents, and with them any credential
+		// file an earlier step wrote there, such as a Workload Identity Federation
+		// config from google-github-actions/auth.
+		preserved, failed := actions.PreserveWorkspaceCredentialFiles()
+		for name, path := range preserved {
+			log.Info(ctx, "%s preserved outside the workspace at %s", name, path)
+		}
+		for name, err := range failed {
+			log.Warn(ctx, "%s could not be preserved and the clone will remove it: %v", name, err)
+		}
+
 		// Clone the repository like actions/checkout does
 		log.Debug(ctx, "🔧 Starting repository cloning process...")
 		if err := cloneRepository(ctx, log, workDir); err != nil {
@@ -181,10 +192,10 @@ func main() {
 	if execErr != nil {
 		if ctx.Err() != nil {
 			log.Warn(ctx, "Action cancelled: %s, error: %v", actionType, execErr)
-			fmt.Fprintf(os.Stderr, "Action cancelled: %v\n", execErr)
+			fmt.Fprint(os.Stderr, logger.Redact(fmt.Sprintf("Action cancelled: %v\n", execErr)))
 		} else {
 			log.Error(ctx, "Action failed: %s, error: %v", actionType, execErr)
-			fmt.Fprintf(os.Stderr, "Action failed: %v\n", execErr)
+			fmt.Fprint(os.Stderr, logger.Redact(fmt.Sprintf("Action failed: %v\n", execErr)))
 		}
 		os.Exit(1)
 	}

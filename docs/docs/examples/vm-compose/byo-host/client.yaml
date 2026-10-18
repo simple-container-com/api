@@ -1,0 +1,42 @@
+schemaVersion: 1.0
+stacks:
+  staging:
+    # The same `single-image` client stack that deploys to Lambda or to a Yandex
+    # Serverless Container. Nothing in it is VM-specific: the template in the parent
+    # stack decides where it lands, and SC projects this into a one-service compose
+    # project on the machine.
+    type: single-image
+    template: compose-on-vm
+    parent: mycompany/mycompany
+    config:
+      image:
+        dockerfile: ${git:root}/Dockerfile
+      # SC passes PORT=8080 to the container, which is what both Lambda and YC
+      # Serverless Container already do — an image that runs on either needs no change.
+      # Nothing has to be declared here.
+      maxMemory: 512
+      env:
+        ENV: staging
+      secrets:
+        MONGO_URI: ${secret:staging-portal-mongo-uri}
+
+      # Served over HTTPS by the machine's own Caddy, which requires `ingress.enable:
+      # true` on the `vm` resource this template points at. With both in place the stack
+      # publishes NO host port — 443 is the only way in — and `<stack>-vm-compose-url`
+      # becomes `https://portal.example.com`.
+      #
+      # You still create the DNS record yourself: an A record at the machine's address,
+      # **not** proxied. Cloudflare's orange cloud breaks the ACME challenge the machine
+      # has to answer itself, which is why `domainProxied` is refused outright here
+      # rather than accepted and ignored.
+      #
+      # Drop this line (or leave the ingress off) and SC publishes the stack on a
+      # deterministic high port of the machine instead, reported in the same stack
+      # output. Setting one without the other is warned about and deployed on the host
+      # port — the stack answers either way, and the warning is what keeps "my
+      # certificate never appeared" from being silent.
+      domain: portal.example.com
+
+  # A worker-only stack on the same machine is fine, and so is a second application
+  # stack: they share the machine, each gets its own compose project, its own env file
+  # and its own pair of blue/green slots.

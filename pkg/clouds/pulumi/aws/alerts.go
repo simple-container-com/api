@@ -24,6 +24,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	awsApi "github.com/simple-container-com/api/pkg/clouds/aws/helpers"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	pDocker "github.com/simple-container-com/api/pkg/clouds/pulumi/docker"
 )
 
 type alertCfg struct {
@@ -140,11 +141,11 @@ func pushHelpersImageToECR(ctx *sdk.Context, cfg helperCfg) (*docker.Image, erro
 		// permanent phantom `skipPush: update` diff.
 		SkipPush:  sdk.Bool(ctx.DryRun()),
 		ImageName: imageFullUrl,
-		Registry: docker.RegistryArgs{
+		Registry: pDocker.SecretRegistry(docker.RegistryArgs{
 			Server:   ecrRepo.Repository.RepositoryUrl,
 			Username: sdk.String("AWS"), // Use 'AWS' for ECR registry authentication
 			Password: ecrRepo.Password,
-		},
+		}),
 	}, append(cfg.opts, sdk.IgnoreChanges([]string{"skipPush"}))...)
 	if err != nil {
 		return nil, err

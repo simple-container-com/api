@@ -1,0 +1,62 @@
+schemaVersion: 1.0
+stacks:
+  staging:
+    # `cloud-compose`, and that is not a free choice: `k3s-cloudrun` registers a
+    # cloud-compose converter only, matching `kubernetes-cloudrun`. No Kubernetes
+    # template in SC accepts a `single-image` client stack today, so a one-service
+    # compose file is how a single-container workload reaches a cluster.
+    type: cloud-compose
+    template: k3s-run
+    parent: mycompany/mycompany
+    config:
+      dockerComposeFile: ${git:root}/docker-compose.yaml
+      # Which compose services actually run in the cluster. Services left out are
+      # treated as local-development dependencies and ignored — the usual rule on every
+      # cloud-compose path.
+      runs:
+        - api
+
+      maxMemory: 512
+      env:
+        ENV: staging
+      secrets:
+        MONGO_URI: ${secret:staging-portal-mongo-uri}
+
+      # Reachability on a bare k3s stand.
+      #
+      # `domain:` here behaves exactly as it does on GKE: SC creates an A record
+      # pointing at the cluster's ingress address, which for a single-node k3s cluster
+      # is the node's own address. It needs a registrar configured in the parent stack,
+      # and — because the node answers the ACME challenge itself — a record that is NOT
+      # proxied. Cloudflare's orange cloud breaks it.
+      #
+      # While smoking, leave this out and reach the Service directly instead. There is
+      # no edge in the parent stack above (see its comments for why), so routing by host
+      # name has nothing to route it.
+      # domain: portal.example.ru
+
+      cloudExtras:
+        # Binds the node's own ports through k3s's bundled LoadBalancer implementation
+        # (klipper-lb, k3s's `servicelb`). Two things have to be true for an address to
+        # arrive, and both are satisfied by the parent stack as written:
+        #
+        #  * `servicelb` is enabled — it is, because `ingress` is left off the vm
+        #    resource. Turn the compose Caddy on and SC disables it instead, at which
+        #    point this Service sits `<pending>` forever.
+        #  * nothing ELSE already holds ports 80/443 on the node. klipper-lb runs a pod
+        #    per LoadBalancer Service that binds the host port directly, so a second
+        #    holder does not produce an error — the pod stays `Pending` and the Service
+        #    keeps reporting `EXTERNAL-IP <pending>` with nothing naming the conflict.
+        #    k3s's own bundled traefik is exactly such a holder, which is why SC
+        #    disables it by default (`disable:` in the parent stack).
+        #
+        # If an address never arrives, look for a Pending `svclb-<service>` pod before
+        # anything else: `kubectl get pods -A | grep svclb`.
+        serviceType: LoadBalancer
+
+      # A single node is a single failure domain, so say so rather than letting
+      # `scale` imply otherwise. Nothing below stops you running 3 replicas on one
+      # node; it stops you believing they buy availability.
+      scale:
+        min: 1
+        max: 1

@@ -210,25 +210,28 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 		Type: "github-actions",
 		Config: api.Config{Config: &github.GitHubActionsCiCdConfig{
 			Organization: "simple-container-org",
+			// Unset stays unset: placeholder resolution no longer rewrites a nil
+			// slice/map to an empty-but-present one, so these match the
+			// unresolved fixture above field for field.
 			Environments: map[string]github.GitHubEnvironmentConfig{
 				"staging": {
 					Type:        "staging",
 					Runner:      "",
 					Protection:  false,
-					Reviewers:   []string{},
-					Secrets:     []string{},
-					Variables:   map[string]string{},
-					DeployFlags: []string{},
+					Reviewers:   nil,
+					Secrets:     nil,
+					Variables:   nil,
+					DeployFlags: nil,
 					AutoDeploy:  false,
 				},
 				"production": {
 					Type:        "production",
 					Runner:      "",
 					Protection:  false,
-					Reviewers:   []string{},
-					Secrets:     []string{},
-					Variables:   map[string]string{},
-					DeployFlags: []string{},
+					Reviewers:   nil,
+					Secrets:     nil,
+					Variables:   nil,
+					DeployFlags: nil,
 					AutoDeploy:  false,
 				},
 			},
@@ -297,9 +300,7 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 				},
 			}},
 		},
-		Resources: map[string]api.PerEnvResourcesDescriptor{},
 	},
-	Variables: map[string]api.VariableDescriptor{},
 }
 
 var mongodbAtlasResourceConfig = api.ResourceDescriptor{
@@ -483,10 +484,6 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
 							Version: "14.5",
 							Project: "refapp",
-							// Resolved fixtures carry {} not nil: placeholder
-							// resolution rebuilds maps via reflect.MakeMap
-							// (placeholders.go).
-							DatabaseFlags: map[string]string{},
 							Credentials: gcloud.Credentials{
 								Credentials: api.Credentials{
 									Credentials: "<gcloud-service-account-email>",
@@ -506,9 +503,8 @@ var ResolvedRefappServerDescriptor = &api.ServerDescriptor{
 					"postgres": {
 						Type: gcloud.ResourceTypePostgresGcpCloudsql,
 						Config: api.Config{Config: &gcloud.PostgresGcpCloudsqlConfig{
-							Version:       "14.5",
-							Project:       "refapp",
-							DatabaseFlags: map[string]string{},
+							Version: "14.5",
+							Project: "refapp",
 							Credentials: gcloud.Credentials{
 								Credentials: api.Credentials{
 									Credentials: "<gcloud-service-account-email>",

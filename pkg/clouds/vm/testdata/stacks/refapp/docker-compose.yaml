@@ -1,0 +1,44 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    labels:
+      simple-container.com/ingress: "true"
+    ports:
+      - "8080"
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mailer:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+    volumes:
+      - type: tmpfs
+        target: /scratch
+        tmpfs:
+          size: 67108864
+
+  mongo:
+    image: mongo:7
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.runCommand('ping')"]
+
+  worker:
+    build:
+      context: ./worker
+    volumes:
+      - mongo-data:/data/db:ro
+
+  # Not in `runs`: it must contribute neither a mount nor a dependency, and the
+  # backend's depends_on edge to it must be dropped with a warning.
+  mailer:
+    image: mailhog/mailhog:latest
+
+volumes:
+  mongo-data:

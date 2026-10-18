@@ -504,6 +504,16 @@ func ConvertComposeToContainers(composeCfg compose.Config, stackCfg *api.StackCo
 			Command: svc.Entrypoint,
 			Args:    svc.Command,
 			Image: api.ContainerImage{
+				// A service that only declares `image:` is deployed from that
+				// reference — the Kubernetes path used to drop it and substitute the
+				// SERVICE NAME as the image (see the no-build branch of
+				// pulumi/kubernetes/images_build.go), which resolves only when the two
+				// happen to coincide and silently deploys a nonexistent image when they
+				// don't: `mongodb: {image: mongo:7}` became image `mongodb`. The ECS
+				// converter has always carried it (aws/ecs_fargate.go:278), so k8s was
+				// the outlier. Live-caught on the first k3s smoke, 2026-10-18, where a
+				// `image: nginx:1.27-alpine` service tried to pull `api`.
+				Name:       svc.Image,
 				Context:    context,
 				Platform:   api.ImagePlatformLinuxAmd64,
 				Dockerfile: dockerFile,
