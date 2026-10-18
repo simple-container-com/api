@@ -41,10 +41,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
           go-version: '1.24'
+          cache: false
 
       - name: Set version for build
         id: version

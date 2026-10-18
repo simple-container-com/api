@@ -57,10 +57,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
           go-version: '1.25'
+          cache: false
       - name: install sc + welder tools
         uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: prepare secrets for build
@@ -150,10 +151,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
           go-version: '1.25'
+          cache: false
       - name: create build directories
         run: |
           mkdir -p dist
@@ -345,10 +347,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
           go-version: '1.25'
+          cache: false
       - name: create build directories
         run: |
           mkdir -p dist
@@ -378,10 +381,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
           go-version: '1.25'
+          cache: false
       - name: test
         run: |
           go test ./...
