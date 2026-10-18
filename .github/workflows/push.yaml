@@ -48,6 +48,7 @@ jobs:
   build-setup:
     name: Build Setup (clean, tools, schemas, lint, fmt)
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: prepare
     outputs:
       cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
@@ -57,10 +58,16 @@ jobs:
         with:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: install sc + welder tools
         uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: prepare secrets for build
@@ -132,6 +139,7 @@ jobs:
   build-platforms:
     name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup]
     permissions:
       contents: read
@@ -150,10 +158,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: create build directories
         run: |
           mkdir -p dist
@@ -224,10 +238,27 @@ jobs:
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
+          # Retry: on the self-hosted fleet the Actions OIDC fetch can hit a
+          # transient `i/o timeout` (egress is a fake-IP hijack), and cosign then
+          # falls back to INTERACTIVE device flow and dies with `expired_token` —
+          # a confusing failure for what is just a blip. Both hosts and the guest
+          # reach the OIDC endpoint, Fulcio and Rekor fine when retried, so one
+          # attempt is simply too few. This step is continue-on-error, so without
+          # a retry a blip silently produces an UNSIGNED release artifact.
           for tarball in "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" "sc-${GOOS}-${GOARCH}.tar.gz"; do
-            cosign sign-blob --yes \
-              --bundle "${tarball}.cosign-bundle" \
-              "${tarball}"
+            for attempt in 1 2 3; do
+              if cosign sign-blob --yes \
+                   --bundle "${tarball}.cosign-bundle" \
+                   "${tarball}"; then
+                break
+              fi
+              if [ "$attempt" = 3 ]; then
+                echo "::error::cosign sign-blob failed 3x for ${tarball} — artifact is UNSIGNED"
+                exit 1
+              fi
+              echo "::warning::cosign sign-blob attempt ${attempt} failed for ${tarball}; retrying"
+              sleep $((attempt * 10))
+            done
           done
       - name: SLSA build provenance for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: slsa_tarball
@@ -331,6 +362,7 @@ jobs:
   build-binaries:
     name: Build ${{ matrix.target }}
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup]
     strategy:
       matrix:
@@ -345,10 +377,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: create build directories
         run: |
           mkdir -p dist
@@ -373,15 +411,22 @@ jobs:
   test:
     name: Run tests
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: test
         run: |
           go test ./...
@@ -424,6 +469,7 @@ jobs:
   docker-build:
     name: Docker build and push ${{ matrix.image }}
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs]
     permissions:
       contents: read
@@ -714,6 +760,7 @@ jobs:
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs, docker-build]
     permissions:
       contents: write    # `welder run tag-release` pushes the release git tag
@@ -855,9 +902,21 @@ jobs:
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
-          cosign sign-blob --yes \
-            --bundle sc.sh.cosign-bundle \
-            sc.sh
+          # Retry — see the tarball signing step. This one is NOT
+          # continue-on-error, so a transient OIDC timeout hard-fails the release.
+          for attempt in 1 2 3; do
+            if cosign sign-blob --yes \
+                 --bundle sc.sh.cosign-bundle \
+                 sc.sh; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::cosign sign-blob failed 3x for sc.sh"
+              exit 1
+            fi
+            echo "::warning::cosign sign-blob attempt ${attempt} failed for sc.sh; retrying"
+            sleep $((attempt * 10))
+          done
       - name: Run tag-release task after images are built
         env:
           VERSION: ${{ needs.prepare.outputs.version }}

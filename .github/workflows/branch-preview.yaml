@@ -51,6 +51,7 @@ jobs:
   build-setup:
     name: Build Setup (clean, tools, schemas, lint, fmt)
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: prepare
     outputs:
       cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
@@ -60,10 +61,16 @@ jobs:
         with:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: install sc + welder tools
         uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: prepare secrets for build
@@ -130,6 +137,7 @@ jobs:
   build-platforms:
     name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup]
     permissions:
       contents: read
@@ -148,10 +156,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: create build directories
         run: |
           mkdir -p dist
@@ -209,7 +223,22 @@ jobs:
           set -euo pipefail
           cd .sc/stacks/dist/bundle
           tarball="sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz"
-          cosign sign-blob --yes --bundle "${tarball}.cosign-bundle" "${tarball}"
+          # Retry: on the self-hosted fleet the Actions OIDC fetch can hit a
+          # transient `i/o timeout` (egress is a fake-IP hijack), after which
+          # cosign falls back to INTERACTIVE device flow and dies with
+          # `expired_token`. This step is continue-on-error, so a single attempt
+          # means a blip silently produces an UNSIGNED artifact.
+          for attempt in 1 2 3; do
+            if cosign sign-blob --yes --bundle "${tarball}.cosign-bundle" "${tarball}"; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::cosign sign-blob failed 3x for ${tarball} — artifact is UNSIGNED"
+              exit 1
+            fi
+            echo "::warning::cosign sign-blob attempt ${attempt} failed; retrying"
+            sleep $((attempt * 10))
+          done
       - name: SLSA build provenance for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: slsa_tarball
         continue-on-error: true
@@ -241,6 +270,7 @@ jobs:
   build-binaries:
     name: Build ${{ matrix.target }} binary
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup]
     strategy:
       matrix:
@@ -255,10 +285,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: create build directories
         run: |
           mkdir -p dist
@@ -278,15 +314,22 @@ jobs:
   test:
     name: Run tests
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: test
         run: |
           go test ./...
@@ -294,6 +337,7 @@ jobs:
   docker-build:
     name: Docker build and push preview ${{ matrix.target }} image
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup, build-binaries, test]
     permissions:
       contents: read
@@ -436,6 +480,7 @@ jobs:
   publish-sc-preview:
     name: Publish preview SC binaries to dist
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     # Does not need docker-build — SC binary publishing is independent of the Docker image.
     # Runs in parallel with publish-git-tag.
     needs: [prepare, build-setup, build-platforms, test]
@@ -500,6 +545,7 @@ jobs:
   publish-git-tag:
     name: Create release commit and push git tag
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     # Only needs docker-build — the tag must point to a commit referencing a published Docker image.
     # Does not need build-platforms or publish-sc-preview. Runs in parallel with publish-sc-preview.
     needs: [prepare, docker-build]
