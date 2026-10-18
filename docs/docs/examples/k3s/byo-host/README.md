@@ -95,7 +95,7 @@ The kubeconfig is a secret stack output of the **parent** stack:
 
 ```bash
 umask 077
-sc stack outputs -s mycompany > /tmp/k3s-outputs.txt
+sc stack outputs -s mycompany --show-secrets > /tmp/k3s-outputs.txt
 ```
 
 Three things about that command, each of which costs a round trip to discover:
@@ -103,9 +103,11 @@ Three things about that command, each of which costs a round trip to discover:
 - It is `sc stack outputs`, not `sc outputs`.
 - **Omit `-e`.** Passing an environment switches it to the child-stack reader, which
   then fails looking for `client.yaml` in the parent stack's directory.
-- There is no `--show-secrets` and no `-o`. Secret-marked outputs are printed **in the
-  clear**, always — hence the `umask` above. Redirect to a file you control and keep it
-  out of your scrollback, your shell history and any handoff.
+- Secret-marked outputs are **masked by default**, printed as `<secret:redacted>`.
+  Pass `--show-secrets` to get the real value — which is what you need here, since
+  the kubeconfig is one of them. There is no `-o`. The `umask` above still applies
+  whenever you pass the flag: redirect to a file you control and keep it out of your
+  scrollback, your shell history and any handoff.
 
 Then pull the kubeconfig out of it (the key is `<cluster-resource>--<env>-kubeconfig`,
 so `ru-cluster--staging-kubeconfig` here) into its own file:

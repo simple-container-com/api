@@ -8,6 +8,8 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 func NewOutputsCmd(sCmd *stackCmd) *cobra.Command {
@@ -26,5 +28,10 @@ func NewOutputsCmd(sCmd *stackCmd) *cobra.Command {
 			return nil
 		},
 	}
+	// Registered here rather than in root_cmd.RegisterStackFlags: that registrar is
+	// shared with deploy/cancel/secret-get, and masking output is only meaningful
+	// for this command. Same shape as cmd_cancel.go's `--parent`.
+	cmd.Flags().BoolVar(&sCmd.Params.ShowSecrets, "show-secrets", sCmd.Params.ShowSecrets,
+		"Print secret-marked outputs in the clear instead of "+api.SecretOutputPlaceholder)
 	return cmd
 }

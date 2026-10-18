@@ -79,13 +79,32 @@ func (p *pulumi) OutputsStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get outputs")
 	}
-	return p.toOutputsResult(stackSource.Name(), res), nil
+	return p.toOutputsResult(stackSource.Name(), res, params.ShowSecrets), nil
 }
 
-func (p *pulumi) toOutputsResult(stackName string, result auto.OutputMap) *api.OutputsResult {
+// toOutputsResult flattens Pulumi's output map into the shape `sc stack outputs`
+// prints, masking anything Pulumi marked secret unless showSecrets is set.
+//
+// The mask is keyed on value.Secret — Pulumi's own secret tracking, set when the
+// program wraps an output in sdk.ToSecret (k3s/cluster.go does exactly that for the
+// admin kubeconfig via kubernetes.SecretKubeconfigOutput) — and NOT on
+// logger.Redact. Redact is a pattern matcher for PEM blocks and private-key JSON;
+// a kubeconfig bearer token or a k3s join token matches none of its regexes, so
+// routing this through Redact would mask nothing while looking like it did.
+//
+// The check comes before the type switch deliberately. The leak this closes was
+// that every branch below resolves the secret's own bytes into res — including the
+// value.Secret branch, which marshalled the whole OutputValue with Value embedded
+// in the clear. A cluster-admin kubeconfig and a join token were both observed
+// unmasked in the 2026-10-18 k3s smoke (forge
+// docs/roadmap/items/sc-stack-outputs-leaks-secrets-in-clear.md).
+func (p *pulumi) toOutputsResult(stackName string, result auto.OutputMap, showSecrets bool) *api.OutputsResult {
 	return &api.OutputsResult{
 		StackName: stackName,
 		Outputs: lo.MapValues(result, func(value auto.OutputValue, key string) any {
+			if value.Secret && !showSecrets {
+				return api.SecretOutputPlaceholder
+			}
 			var res string
 			if s, ok := value.Value.(string); ok {
 				res = s

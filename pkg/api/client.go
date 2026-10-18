@@ -298,6 +298,10 @@ type StackParams struct {
 	Version      string   `json:"version" yaml:"version"`
 	Timeouts     Timeouts `json:",inline" yaml:",inline"`
 	Parent       bool     `json:"parent" yaml:"parent"`
+	// ShowSecrets opts into printing secret-marked stack outputs in the clear.
+	// Default false, so `sc stack outputs` masks them — see
+	// pulumi.toOutputsResult. Only `sc stack outputs` binds a flag to it.
+	ShowSecrets bool `json:"showSecrets" yaml:"showSecrets"`
 }
 
 type Timeouts struct {
@@ -327,6 +331,14 @@ type OutputsResult struct {
 	StackName string         `json:"stackName" yaml:"stackName"`
 	Outputs   map[string]any `json:"outputs" yaml:"outputs"`
 }
+
+// SecretOutputPlaceholder stands in for a secret-marked stack output whenever the
+// caller has not opted into seeing it via StackParams.ShowSecrets.
+//
+// It lives here, next to OutputsResult, rather than in pkg/clouds/pulumi where the
+// masking happens: the CLI help text names it, and pkg/cmd must not import the
+// Pulumi provider SDKs (see CLAUDE.md on this module's compile footprint).
+const SecretOutputPlaceholder = "<secret:redacted>"
 
 func (r *UpdateResult) String() string {
 	res, _ := json.Marshal(r)
