@@ -221,7 +221,22 @@ jobs:
           set -euo pipefail
           cd .sc/stacks/dist/bundle
           tarball="sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz"
-          cosign sign-blob --yes --bundle "${tarball}.cosign-bundle" "${tarball}"
+          # Retry: on the self-hosted fleet the Actions OIDC fetch can hit a
+          # transient `i/o timeout` (egress is a fake-IP hijack), after which
+          # cosign falls back to INTERACTIVE device flow and dies with
+          # `expired_token`. This step is continue-on-error, so a single attempt
+          # means a blip silently produces an UNSIGNED artifact.
+          for attempt in 1 2 3; do
+            if cosign sign-blob --yes --bundle "${tarball}.cosign-bundle" "${tarball}"; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::cosign sign-blob failed 3x for ${tarball} — artifact is UNSIGNED"
+              exit 1
+            fi
+            echo "::warning::cosign sign-blob attempt ${attempt} failed; retrying"
+            sleep $((attempt * 10))
+          done
       - name: SLSA build provenance for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: slsa_tarball
         continue-on-error: true

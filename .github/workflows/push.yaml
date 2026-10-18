@@ -236,10 +236,27 @@ jobs:
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
+          # Retry: on the self-hosted fleet the Actions OIDC fetch can hit a
+          # transient `i/o timeout` (egress is a fake-IP hijack), and cosign then
+          # falls back to INTERACTIVE device flow and dies with `expired_token` —
+          # a confusing failure for what is just a blip. Both hosts and the guest
+          # reach the OIDC endpoint, Fulcio and Rekor fine when retried, so one
+          # attempt is simply too few. This step is continue-on-error, so without
+          # a retry a blip silently produces an UNSIGNED release artifact.
           for tarball in "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" "sc-${GOOS}-${GOARCH}.tar.gz"; do
-            cosign sign-blob --yes \
-              --bundle "${tarball}.cosign-bundle" \
-              "${tarball}"
+            for attempt in 1 2 3; do
+              if cosign sign-blob --yes \
+                   --bundle "${tarball}.cosign-bundle" \
+                   "${tarball}"; then
+                break
+              fi
+              if [ "$attempt" = 3 ]; then
+                echo "::error::cosign sign-blob failed 3x for ${tarball} — artifact is UNSIGNED"
+                exit 1
+              fi
+              echo "::warning::cosign sign-blob attempt ${attempt} failed for ${tarball}; retrying"
+              sleep $((attempt * 10))
+            done
           done
       - name: SLSA build provenance for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: slsa_tarball
@@ -879,9 +896,21 @@ jobs:
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
-          cosign sign-blob --yes \
-            --bundle sc.sh.cosign-bundle \
-            sc.sh
+          # Retry — see the tarball signing step. This one is NOT
+          # continue-on-error, so a transient OIDC timeout hard-fails the release.
+          for attempt in 1 2 3; do
+            if cosign sign-blob --yes \
+                 --bundle sc.sh.cosign-bundle \
+                 sc.sh; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::cosign sign-blob failed 3x for sc.sh"
+              exit 1
+            fi
+            echo "::warning::cosign sign-blob attempt ${attempt} failed for sc.sh; retrying"
+            sleep $((attempt * 10))
+          done
       - name: Run tag-release task after images are built
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
