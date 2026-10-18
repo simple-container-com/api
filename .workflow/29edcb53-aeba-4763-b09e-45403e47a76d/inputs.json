@@ -1,0 +1,9 @@
+{
+  "brief": "\u003credacted\u003e",
+  "workflowTriggerAncestors": [
+    "aff5efa4-42cf-4a8a-bc14-6ef86c984f79"
+  ],
+  "workflowTriggerDepth": 1,
+  "workflowTriggerParentRunId": "e0cc2c61-49c3-406c-afb6-1fd6f61c46a3",
+  "workflowTriggerRootRunId": "e0cc2c61-49c3-406c-afb6-1fd6f61c46a3"
+}
