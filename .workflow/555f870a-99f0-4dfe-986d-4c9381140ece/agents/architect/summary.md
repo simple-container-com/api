@@ -1,0 +1,3 @@
+- Commit SHA: `4408f9363c1ccc85344ea9795522d93981a0666e`
+- Branch: `forge/workflow/99171cbe-7c27-4976-a999-931b834b5d62/run/555f870a-99f0-4dfe-986d-4c9381140ece`
+- Verified via `list_repository_commits` (path-scoped) — this is the HEAD commit on the branch, authored by `simple-container-forge[bot]` (the write tool's commit identity), subject `docs: design doc for sc-fs-state-dir-not-gitignored`, and I re-read the committed blob at that SHA to confirm its content matches what I intended to write (full byte-for-byte match, 12057 bytes).
