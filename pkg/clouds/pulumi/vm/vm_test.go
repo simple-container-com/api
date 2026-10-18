@@ -363,9 +363,26 @@ func TestVm_CommandHasSafeDefaults(t *testing.T) {
 	// Without Triggers the command never re-runs once it has succeeded: a later
 	// `sc deploy` reports green having checked nothing, including against a host
 	// that was rebuilt in the meantime.
+	//
+	// Non-empty is NOT the property that matters, and asserting only that is how
+	// this shipped broken: the host address, user, port and script are all invariant
+	// between two deploys of one stack, so the four of them together behaved exactly
+	// like no triggers. The gate only reads the machine, so it takes the per-run
+	// nonce (nonce.go), and that is what is asserted.
 	triggers, _ := unwrapSecret(inputs["triggers"])
 	Expect(triggers.IsArray()).To(BeTrue(), "the readiness command has no Triggers")
 	Expect(triggers.ArrayValue()).ToNot(BeEmpty())
+	Expect(triggers.String()).To(ContainSubstring(runNonce),
+		"the readiness gate is not triggered per run, so after the first deploy of a stack it "+
+			"reports ready without asking the host")
+
+	// Update, same value as Create. Without it a trigger change is a REPLACEMENT,
+	// and with a per-run nonce above that means replacing this resource on every
+	// deploy — while the commands that DependsOn it are gated on it.
+	update, _ := unwrapSecret(inputs["update"])
+	create, _ := unwrapSecret(inputs["create"])
+	Expect(update.StringValue()).To(Equal(create.StringValue()),
+		"the readiness command has no explicit Update, so every deploy replaces it")
 
 	logging, _ := unwrapSecret(inputs["logging"])
 	Expect(logging.StringValue()).To(Equal("none"))

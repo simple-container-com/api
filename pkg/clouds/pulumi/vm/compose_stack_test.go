@@ -621,27 +621,41 @@ func TestVmCompose_ShipAndUpTriggerOnImageContentNotItsTag(t *testing.T) {
 	}
 }
 
-// The state read is the one command that must run on every deploy, and the only one.
+// The commands that only READ the machine must run on every deploy, and they are
+// the only ones that may. The allow-list is written out rather than derived: a new
+// command is a deliberate decision about which half of the rule it falls under
+// (nonce.go), and a test that inferred the answer could not fail.
 //
-// Live-caught 2026-10-18: triggered by the host address and the script hash — both
-// invariant — it ran once and every later deploy took the active slot out of the
-// checkpoint instead of off the machine. The first deploy had cached `""` (nothing
-// deployed yet), so OtherSlot kept returning SlotA and `strategy: blue-green` would
-// have recreated the serving slot in place rather than flipping to the other one.
-func TestVmCompose_OnlyTheStateReadRunsOnEveryDeploy(t *testing.T) {
+// Live-caught 2026-10-18, twice and both green:
+//   - read-state, triggered by the host address and the script hash — both invariant
+//     — ran once, and every later deploy took the active slot out of the checkpoint
+//     instead of off the machine. The first deploy had cached `""` (nothing deployed
+//     yet), so OtherSlot kept returning SlotA and `strategy: blue-green` would have
+//     recreated the serving slot in place rather than flipping to the other one.
+//   - preflight, whose script depends on nothing but the ssh user, asserted docker
+//     once per stack lifetime. Its own doc comment promised the opposite: that it is
+//     "still the thing that turns `docker: command not found` four commands deeper
+//     into a sentence naming what to install" — true on the first deploy only.
+func TestVmCompose_OnlyTheReadsRunOnEveryDeploy(t *testing.T) {
 	RegisterTestingT(t)
+
+	reads := []string{"read-state", "preflight"}
 
 	f := newComposeFixture().withIngress()
 	_, err := f.run()
 	Expect(err).To(BeNil())
 
 	cmds := f.mocks.commands()
-	triggers, _ := unwrapSecret(cmds["read-state"]["triggers"])
-	Expect(triggers.String()).To(ContainSubstring(runNonce),
-		"read-state is not triggered per run, so it will answer later deploys from the checkpoint")
+	for _, name := range reads {
+		Expect(cmds).To(HaveKey(name), "the fixture produced no %q command", name)
+		triggers, _ := unwrapSecret(cmds[name]["triggers"])
+		Expect(triggers.String()).To(ContainSubstring(runNonce),
+			"%q only reads the machine, so without a per-run trigger it answers later "+
+				"deploys from the checkpoint having checked nothing", name)
+	}
 
 	for name, inputs := range cmds {
-		if name == "read-state" {
+		if lo.Contains(reads, name) {
 			continue
 		}
 		other, _ := unwrapSecret(inputs["triggers"])
@@ -650,7 +664,7 @@ func TestVmCompose_OnlyTheStateReadRunsOnEveryDeploy(t *testing.T) {
 		// port, a stop-start of the serving container for a deploy that changed
 		// nothing.
 		Expect(other.String()).ToNot(ContainSubstring(runNonce),
-			"command %q is triggered per run; only the state read may be", name)
+			"command %q changes the machine and is triggered per run; only the reads may be", name)
 	}
 }
 

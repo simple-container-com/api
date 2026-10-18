@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -23,17 +22,6 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/vm"
 )
-
-// runNonce makes a command re-run once per `sc deploy`, no matter what else is
-// equal. One value per process, so that two stacks deployed by one invocation agree.
-//
-// Needed exactly once (the state read — see VmComposeStack) and deliberately not a
-// convenience: a nonce on any command that CHANGES the machine would turn every
-// deploy into a full redeploy of everything, which is the opposite failure from the
-// one it is here to prevent. The consequence it does have is intended: a `sc deploy`
-// that changes nothing still re-reads the active slot, and therefore still flips to
-// the other one. A deploy that was asked for deploys.
-var runNonce = time.Now().UTC().Format(time.RFC3339Nano)
 
 // VmComposeOutput is what a vm-compose deploy hands back.
 type VmComposeOutput struct {
@@ -214,7 +202,15 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	// First, before anything runs `docker`: the preconditions this path needs from
 	// the machine. See composePreflightScript for why they are not in the vm
 	// resource's readiness gate.
-	if _, err := step("preflight", composePreflightScript(host.User), nil, false); err != nil {
+	//
+	// runNonce because this command only READS. Its script depends on nothing but
+	// the ssh user, so its default trigger set never moves: without the nonce it
+	// checks the machine on the first deploy of a stack and is reported unchanged
+	// forever after, which is precisely the case it exists to catch (docker removed,
+	// the daemon down, the user dropped from the docker group — all of them happen
+	// to a host SC does not own, and all of them between deploys, never before the
+	// first one).
+	if _, err := step("preflight", composePreflightScript(host.User), nil, false, sdk.String(runNonce)); err != nil {
 		return nil, err
 	}
 

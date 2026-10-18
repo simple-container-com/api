@@ -65,8 +65,7 @@ func ServerArgs(cfg *k3s.K3sClusterConfig, sans []string, disable []string) stri
 // Everything it does is conditional on the machine not already being in the wanted
 // state, and the condition is checked on the machine: Pulumi's own Triggers decide
 // whether the command RUNS, this decides whether running it changes anything. Both
-// are needed — without Triggers a changed script never runs at all (pulumi-command
-// has no Update: see the comments in pkg/clouds/pulumi/vm/ready.go), and without the
+// are needed — without Triggers a changed script never runs at all, and without the
 // marker a re-run with an unchanged config would restart the API server of a live
 // cluster for nothing.
 func InstallScript(version, installURL, serverArgs string) string {
