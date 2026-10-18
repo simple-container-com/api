@@ -15,6 +15,26 @@ type WithCopy[T any] interface {
 	Copy() T
 }
 
+// mapValues is lo.MapValues with the nil-vs-empty distinction kept.
+//
+// lo.MapValues always allocates, so an absent map comes back empty-but-present and a
+// copy stops comparing equal to its original. That is not cosmetic: Copy is the
+// parent-descriptor inheritance path (ChildStack), so a config field whose nil means
+// "unset, apply the default" would arrive at every child stack already set to nothing
+// — the same failure the placeholder walker used to cause for every parsed config
+// (provisioner/placeholders/placeholders.go).
+//
+// Not every map here can preserve nil: Templates, Secrets.Values and Client.Defaults
+// are all written to AFTER a copy (api/models.go:126, api/read.go:316,
+// provisioner/provision.go:259, api/client.go:81), and a nil map is not writable.
+// Those deliberately keep allocating; the ones below have no such writer.
+func mapValues[K comparable, V, R any](in map[K]V, fn func(V, K) R) map[K]R {
+	if in == nil {
+		return nil
+	}
+	return lo.MapValues(in, fn)
+}
+
 func (s *SecretsDescriptor) Copy() SecretsDescriptor {
 	return SecretsDescriptor{
 		SchemaVersion: s.SchemaVersion,
@@ -43,7 +63,7 @@ func (sd *ServerDescriptor) Copy() ServerDescriptor {
 			return value.Copy()
 		}),
 		Resources: sd.Resources.Copy(),
-		Variables: lo.MapValues(sd.Variables, func(value VariableDescriptor, key string) VariableDescriptor {
+		Variables: mapValues(sd.Variables, func(value VariableDescriptor, key string) VariableDescriptor {
 			return value.Copy()
 		}),
 	}
@@ -66,18 +86,12 @@ func (s *StackDescriptor) Copy() StackDescriptor {
 }
 
 func (s *PerStackResourcesDescriptor) Copy() PerStackResourcesDescriptor {
-	// lo.MapValues turns a nil map into an empty one, which would make a copied
-	// descriptor unequal to the original for every stack that declares no registrars
-	var registrars map[string]RegistrarDescriptor
-	if s.Registrars != nil {
-		registrars = lo.MapValues(s.Registrars, func(value RegistrarDescriptor, key string) RegistrarDescriptor {
-			return value.Copy()
-		})
-	}
 	return PerStackResourcesDescriptor{
-		Registrar:  s.Registrar.Copy(),
-		Registrars: registrars,
-		Resources: lo.MapValues(s.Resources, func(value PerEnvResourcesDescriptor, key string) PerEnvResourcesDescriptor {
+		Registrar: s.Registrar.Copy(),
+		Registrars: mapValues(s.Registrars, func(value RegistrarDescriptor, key string) RegistrarDescriptor {
+			return value.Copy()
+		}),
+		Resources: mapValues(s.Resources, func(value PerEnvResourcesDescriptor, key string) PerEnvResourcesDescriptor {
 			return value.Copy()
 		}),
 	}
@@ -86,7 +100,7 @@ func (s *PerStackResourcesDescriptor) Copy() PerStackResourcesDescriptor {
 func (s *PerEnvResourcesDescriptor) Copy() PerEnvResourcesDescriptor {
 	return PerEnvResourcesDescriptor{
 		Template: s.Template,
-		Resources: lo.MapValues(s.Resources, func(value ResourceDescriptor, key string) ResourceDescriptor {
+		Resources: mapValues(s.Resources, func(value ResourceDescriptor, key string) ResourceDescriptor {
 			return value.Copy()
 		}),
 		Inherit: s.Inherit,

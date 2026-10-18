@@ -33,6 +33,7 @@ cannot be written into a config file, which is the whole reason for the second o
 |---|---|---|
 | `server.yaml` | `.sc/stacks/mycompany/server.yaml` | the parent stack: a `type: vm` resource (`byo`), a `k3s-cluster` on it, and the `k3s-cloudrun` template |
 | `client.yaml` | `.sc/stacks/portal/client.yaml` | the application stack — an ordinary `type: cloud-compose` config |
+| `docker-compose.yaml` | the repo root | the workload itself, the same compose file you run locally |
 
 The directory name is the stack name (`-s mycompany`, `-s portal`); the keys under
 `stacks:` in `client.yaml` are environments (`-e staging`).
@@ -90,17 +91,32 @@ image-pull time.
 
 ## Checking the cluster by hand
 
-The kubeconfig is a secret stack output. To use it:
+The kubeconfig is a secret stack output of the **parent** stack:
 
 ```bash
-sc outputs -s mycompany -e staging --show-secrets -o json \
-  | jq -r '.["ru-cluster--staging-kubeconfig"]' > /tmp/k3s.kubeconfig
+umask 077
+sc stack outputs -s mycompany > /tmp/k3s-outputs.txt
+```
+
+Three things about that command, each of which costs a round trip to discover:
+
+- It is `sc stack outputs`, not `sc outputs`.
+- **Omit `-e`.** Passing an environment switches it to the child-stack reader, which
+  then fails looking for `client.yaml` in the parent stack's directory.
+- There is no `--show-secrets` and no `-o`. Secret-marked outputs are printed **in the
+  clear**, always — hence the `umask` above. Redirect to a file you control and keep it
+  out of your scrollback, your shell history and any handoff.
+
+Then pull the kubeconfig out of it (the key is `<cluster-resource>--<env>-kubeconfig`,
+so `ru-cluster--staging-kubeconfig` here) into its own file:
+
+```bash
 chmod 600 /tmp/k3s.kubeconfig
 KUBECONFIG=/tmp/k3s.kubeconfig kubectl get nodes
 ```
 
-It is a **cluster-admin** credential with an embedded client key. Delete it when you
-are done, and do not commit it or paste it into a handoff.
+It is a **cluster-admin** credential with an embedded client key. Delete both files when
+you are done, and do not commit them or paste them into a handoff.
 
 ## The front door: one machine has one port 443
 
@@ -119,6 +135,13 @@ wants the same two.
 You do not coordinate this by hand: the `k3s-cluster` resource reads the machine's
 ingress setting from the vm resource's output and adjusts. What you choose is which
 arrangement you want.
+
+There is a third contender for those ports that is neither of the above: **k3s's own
+bundled traefik**, which SC disables by default for exactly this reason (`disable:` in
+`server.yaml`). Leave that default alone unless you mean to run traefik as your edge —
+with it installed, klipper-lb cannot bind 80/443, and the symptom is not an error but a
+`Pending` `svclb-<service>` pod and a Service reporting `EXTERNAL-IP <pending>`
+indefinitely.
 
 The in-cluster Caddy edge is a third option and is **not wireable yet** — the
 `kubernetes-caddy` resource takes its kubeconfig as a literal string, so it cannot be

@@ -86,17 +86,14 @@ var ResolvedRefappAwsServerDescriptor = &api.ServerDescriptor{
 	Templates: map[string]api.StackDescriptor{
 		"stack-per-app-aws": ResolvedCommonServerDescriptor.Templates["stack-per-app-aws"],
 	},
-	Variables: map[string]api.VariableDescriptor{},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: ResolvedCommonServerDescriptor.Resources.Registrar,
 		Resources: map[string]api.PerEnvResourcesDescriptor{
 			"staging": {
-				Template:  "stack-per-app-aws",
-				Resources: map[string]api.ResourceDescriptor{},
+				Template: "stack-per-app-aws",
 			},
 			"prod": {
-				Template:  "stack-per-app-aws",
-				Resources: map[string]api.ResourceDescriptor{},
+				Template: "stack-per-app-aws",
 			},
 		},
 	},
@@ -115,17 +112,14 @@ var ResolvedRefappAwsLambdaServerDescriptor = &api.ServerDescriptor{
 			}},
 		},
 	},
-	Variables: map[string]api.VariableDescriptor{},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: ResolvedCommonServerDescriptor.Resources.Registrar,
 		Resources: map[string]api.PerEnvResourcesDescriptor{
 			"staging": {
-				Template:  "lambda-per-app",
-				Resources: map[string]api.ResourceDescriptor{},
+				Template: "lambda-per-app",
 			},
 			"prod": {
-				Template:  "lambda-per-app",
-				Resources: map[string]api.ResourceDescriptor{},
+				Template: "lambda-per-app",
 			},
 		},
 	},
@@ -201,9 +195,6 @@ func ResolvedRefappAwsLambdaClientDescriptor() *api.ClientDescriptor {
 				Env: map[string]string{
 					"ENV": "staging",
 				},
-				Secrets:      map[string]string{},
-				Uses:         []string{},
-				Dependencies: []api.StackConfigDependencyResource{},
 			},
 		},
 	}
@@ -220,9 +211,6 @@ func ResolvedRefappAwsLambdaClientDescriptor() *api.ClientDescriptor {
 				Env: map[string]string{
 					"ENV": "prod",
 				},
-				Secrets:      map[string]string{},
-				Uses:         []string{},
-				Dependencies: []api.StackConfigDependencyResource{},
 			},
 		},
 	}

@@ -126,6 +126,27 @@ func TestWriteFileScript_QuotesAHostilePath(t *testing.T) {
 	Expect(script).NotTo(MatchRegexp(`(?m)^touch /tmp/sc-pwned`))
 }
 
+// The docker preconditions belong to this path, not to the machine. They were moved
+// out of the vm resource's readiness gate because that gate also runs for a byo host
+// declared for a k3s cluster, which has containerd and no docker — and the k3s
+// install DependsOn it, so the cluster never got installed (live-caught 2026-10-18).
+func TestComposePreflightScript_ChecksDockerAndNamesTheFix(t *testing.T) {
+	RegisterTestingT(t)
+
+	script := composePreflightScript("ubuntu")
+	shellCheck(t, script)
+
+	Expect(script).To(ContainSubstring("command -v docker"))
+	Expect(script).To(ContainSubstring("docker compose version"))
+	Expect(script).To(ContainSubstring("usermod -aG docker ubuntu"))
+	// Must NOT install anything: the host may belong to the operator.
+	Expect(script).ToNot(ContainSubstring("get.docker.com"))
+	Expect(script).ToNot(ContainSubstring("apt-get"))
+	// Every check is a guard with a message, so a failure explains itself rather
+	// than surfacing as a bare non-zero exit from a remote command.
+	Expect(strings.Count(script, ">&2")).To(BeNumerically(">=", 3))
+}
+
 func TestPrepareScript_CreatesBothNetworksAndEveryVolume(t *testing.T) {
 	RegisterTestingT(t)
 
