@@ -96,6 +96,39 @@ type ComposeTemplateConfig struct {
 	KeepImages *int `json:"keepImages,omitempty" yaml:"keepImages,omitempty"`
 }
 
+// The three api.AuthConfig methods. A template config needs them for the same
+// reason a resource config does and it is not obvious from either side: before
+// provisioning anything, provision.go's initProvider casts EVERY descriptor's config
+// — resource and template alike — to api.AuthConfig to look a Pulumi provider up by
+// ProviderType(). A template that does not implement it fails the whole deploy at
+// `failed to cast config to api.AuthConfig`, with the stack already created and
+// nothing said about templates. Live-caught 2026-10-18, on the first `sc deploy`
+// through this path.
+//
+// Every other template satisfies this by embedding a cloud's auth config
+// (k8s.CloudrunTemplate embeds KubernetesConfig, which carries a kubeconfig), so the
+// requirement has never had to be stated. This one has no cloud: the only credential
+// delivery uses is the deploy key, and that is read from the vm resource's host facts
+// in the parent stack at provision time, not from anything written here.
+
+func (c *ComposeTemplateConfig) ProviderType() string {
+	return ProviderType
+}
+
+// ProjectIdValue is "n/a" for the same reason it is on VmConfig — there is no cloud
+// project behind an SSH connection.
+func (c *ComposeTemplateConfig) ProjectIdValue() string {
+	return "n/a"
+}
+
+// CredentialsValue mirrors VmConfig.CredentialsValue: the resolved `${auth:...}` blob
+// verbatim, "{}" when none was given. Empty is the normal case here — `byo` has no
+// cloud credentials, and the registry ones (when imageDelivery is `registry`) are
+// their own fields, not this.
+func (c *ComposeTemplateConfig) CredentialsValue() string {
+	return lo.If(c.Credentials.Credentials == "", "{}").Else(c.Credentials.Credentials)
+}
+
 func (c *ComposeTemplateConfig) EffectiveImageDelivery() string {
 	return lo.If(c.ImageDelivery == "", ImageDeliverySshTar).Else(c.ImageDelivery)
 }

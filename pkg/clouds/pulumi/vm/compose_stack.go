@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -22,6 +23,17 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/vm"
 )
+
+// runNonce makes a command re-run once per `sc deploy`, no matter what else is
+// equal. One value per process, so that two stacks deployed by one invocation agree.
+//
+// Needed exactly once (the state read — see VmComposeStack) and deliberately not a
+// convenience: a nonce on any command that CHANGES the machine would turn every
+// deploy into a full redeploy of everything, which is the opposite failure from the
+// one it is here to prevent. The consequence it does have is intended: a `sc deploy`
+// that changes nothing still re-reads the active slot, and therefore still flips to
+// the other one. A deploy that was asked for deploys.
+var runNonce = time.Now().UTC().Format(time.RFC3339Nano)
 
 // VmComposeOutput is what a vm-compose deploy hands back.
 type VmComposeOutput struct {
@@ -286,7 +298,21 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	// state because the machine is the only place that knows: a stack can be
 	// deployed from two checkouts, and a container that was stopped by hand is the
 	// machine's truth, not the checkpoint's.
-	readState, err := step("read-state", readStateScript(stackName, env), nil, false)
+	//
+	// runNonce is what makes that true. Every other command in this file is
+	// triggered by what it would DO, which is right for a command that changes the
+	// machine and wrong for the one command that only asks it a question: the
+	// address and the script are both invariant, so without a per-run trigger this
+	// command runs once, ever, and every later deploy reads its answer out of the
+	// checkpoint — the one place the comment above says not to read it from.
+	//
+	// Live-caught 2026-10-18: the first deploy of the smoke stack read an empty
+	// state file (nothing deployed yet) and cached `""`. The machine then recorded
+	// `activeSlot: "a"`. The next deploy still saw `""`, so OtherSlot gave it SlotA
+	// again — i.e. `strategy: blue-green` would have recreated the slot that was
+	// serving, in place, instead of bringing the other one up beside it. Silent, and
+	// it converts the one promise of blue-green (no downtime) into a restart.
+	readState, err := step("read-state", readStateScript(stackName, env), nil, false, sdk.String(runNonce))
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +386,16 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 		// what the deploy would do: the slot, every image reference, the rendered
 		// compose files, the host port. The version is listed separately so that a
 		// forced redeploy of a byte-identical render still runs.
-		Triggers: sdk.Array{host.Address, sdk.String(version), upScriptOut, sdk.String(envHash)},
+		//
+		// But a reference is not a content identity, so plan.ContentIDs is listed
+		// too: under `ssh-tar` delivery the reference in that render is a local TAG,
+		// which is the same string before and after a rebuild. Without the content
+		// ids, a stack deployed at the default version (`latest`) renders byte for
+		// byte identically after a code change and this command does not run —
+		// see the Triggers of the ship command in compose_images.go.
+		Triggers: append(
+			sdk.Array{host.Address, sdk.String(version), upScriptOut, sdk.String(envHash)},
+			plan.triggerInputs()...),
 	}), append(plan.Opts, sdk.DependsOn(prev))...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to bring stack %q up on vm %q", stackName, in.VmResource)
@@ -425,9 +460,15 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	}).(sdk.StringOutput)
 
 	if _, err := remote.NewCommand(ctx, input.ToResName(stackName+"-vmc-finalize"), baseArgs(&remote.CommandArgs{
-		Create:   finalizeOut,
-		Update:   finalizeOut,
-		Triggers: sdk.Array{host.Address, sdk.String(version), finalizeOut},
+		Create: finalizeOut,
+		Update: finalizeOut,
+		// The content ids for the same reason as on `up`, and it matters more here:
+		// this is the command that records the active slot and retires the other
+		// one. An `up` that ran while this did not leaves the machine serving the new
+		// slot with the state file still naming the old one.
+		Triggers: append(
+			sdk.Array{host.Address, sdk.String(version), finalizeOut},
+			plan.triggerInputs()...),
 	}), sdk.DependsOn(routeDeps)); err != nil {
 		return nil, errors.Wrapf(err, "failed to finalize deploy of stack %q on vm %q", stackName, in.VmResource)
 	}

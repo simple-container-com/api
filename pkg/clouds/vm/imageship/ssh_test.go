@@ -7,8 +7,10 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/rsa"
 	"encoding/pem"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -88,7 +90,7 @@ func TestHostKeyCallbackPinsAGivenKey(t *testing.T) {
 	RegisterTestingT(t)
 
 	_, authorized := testKeyPair("")
-	cb, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", HostKey: authorized})
+	cb, _, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", HostKey: authorized})
 	Expect(err).To(BeNil())
 
 	pinned, _, _, _, err := ssh.ParseAuthorizedKey([]byte(authorized))
@@ -127,7 +129,7 @@ func TestHostKeyCallbackAcceptsRawSshKeyscanOutput(t *testing.T) {
 		"203.0.113.10,vm.example.ru " + authorized, // several names for one machine
 		"198.51.100.7 " + authorized,               // a DIFFERENT address, same key
 	} {
-		cb, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", HostKey: form})
+		cb, _, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", HostKey: form})
 		Expect(err).To(BeNil(), form)
 		Expect(cb("203.0.113.10:22", addr, pinned)).To(BeNil(), form)
 	}
@@ -136,7 +138,7 @@ func TestHostKeyCallbackAcceptsRawSshKeyscanOutput(t *testing.T) {
 func TestHostKeyCallbackRefusesAnUnparseablePin(t *testing.T) {
 	RegisterTestingT(t)
 
-	_, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", HostKey: "not-a-key"})
+	_, _, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", HostKey: "not-a-key"})
 	Expect(err).To(MatchError(ContainSubstring("cannot parse the pinned host key")))
 }
 
@@ -147,7 +149,7 @@ func TestHostKeyCallbackNamesTheWayOutWhenKnownHostsCannotBeRead(t *testing.T) {
 	RegisterTestingT(t)
 
 	missing := filepath.Join(t.TempDir(), "known_hosts")
-	_, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", KnownHostsFile: missing})
+	_, _, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", KnownHostsFile: missing})
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("ssh-keyscan"))
 	Expect(err.Error()).To(ContainSubstring(missing))
@@ -160,7 +162,7 @@ func TestHostKeyCallbackWarnsWhenVerificationIsSkipped(t *testing.T) {
 	RegisterTestingT(t)
 
 	var logged []string
-	cb, err := hostKeyCallback(SshTarget{
+	cb, _, err := hostKeyCallback(SshTarget{
 		Address:                  "203.0.113.10",
 		InsecureSkipHostKeyCheck: true,
 		Log:                      func(format string, _ ...any) { logged = append(logged, format) },
@@ -180,4 +182,47 @@ func TestOneLineFlattensAndCapsRemoteStderr(t *testing.T) {
 	Expect(oneLine("")).To(Equal("no stderr"))
 	Expect(oneLine("first\nsecond\n")).To(Equal("first; second"))
 	Expect(len(oneLine(strings.Repeat("x", 1000)))).To(BeNumerically("<=", 404))
+}
+
+// The pin is only usable if the handshake is restricted to the pinned key's
+// algorithm. Unrestricted, the client's own preference order asks an ed25519-pinned
+// host for its ECDSA key, FixedHostKey compares two different keys, and the operator
+// is told the host might be impersonated. Live-caught 2026-10-18.
+func TestHostKeyCallbackRestrictsTheHandshakeToThePinnedAlgorithm(t *testing.T) {
+	RegisterTestingT(t)
+
+	_, authorized := testKeyPair("")
+	_, algos, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", HostKey: authorized})
+	Expect(err).To(BeNil())
+	Expect(algos).To(Equal([]string{ssh.KeyAlgoED25519}))
+}
+
+func TestHostKeyAlgorithmsAcceptsEveryRsaSignatureAlgorithm(t *testing.T) {
+	RegisterTestingT(t)
+
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	Expect(err).To(BeNil())
+	pub, err := ssh.NewPublicKey(&key.PublicKey)
+	Expect(err).To(BeNil())
+
+	// An RSA host key verifies under all three, and a server with SHA-1 disabled —
+	// the default for years — refuses a bare `ssh-rsa` offer, so pinning only
+	// key.Type() would break every RSA-keyed host.
+	Expect(hostKeyAlgorithms(pub)).To(Equal([]string{
+		ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA,
+	}))
+}
+
+// known_hosts may hold several keys of different types for one host, any of which is
+// a valid match, so that path must stay unrestricted.
+func TestHostKeyCallbackDoesNotRestrictKnownHosts(t *testing.T) {
+	RegisterTestingT(t)
+
+	_, authorized := testKeyPair("")
+	path := filepath.Join(t.TempDir(), "known_hosts")
+	Expect(os.WriteFile(path, []byte("203.0.113.10 "+authorized), 0o600)).To(Succeed())
+
+	_, algos, err := hostKeyCallback(SshTarget{Address: "203.0.113.10", KnownHostsFile: path})
+	Expect(err).To(BeNil())
+	Expect(algos).To(BeNil())
 }
