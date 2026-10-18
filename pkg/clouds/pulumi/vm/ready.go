@@ -54,16 +54,31 @@ func ensureReady(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig, h 
 	cmd, err := remote.NewCommand(ctx, input.ToResName(h.Name+"-ready"), &remote.CommandArgs{
 		Connection: ConnectionArgs(h),
 		Create:     sdk.String(script),
+		// Update, same value as Create, for the reason every command in
+		// compose_stack.go sets it: without it pulumi-command turns an input change
+		// into a REPLACEMENT, performed as delete-then-create. Harmless while the
+		// triggers never moved; with a per-run nonce below it would mean this
+		// resource is replaced on every single deploy, and the resources that
+		// DependsOn it would be reading a gate that Pulumi is in the middle of
+		// recreating.
+		Update: sdk.String(script),
 		// Without Triggers the command does not re-run once it has succeeded, and a
 		// later `sc deploy` reports green having checked nothing — including against
-		// a host that was rebuilt in the meantime. The trigger set is everything
-		// that changes what "ready" means for this host.
-		Triggers: sdk.Array{
+		// a host that was rebuilt in the meantime.
+		//
+		// The host identity and the script are here to make the trigger set READ as
+		// what "ready" means, but none of them is what makes the command re-run:
+		// every one is invariant between two deploys of the same stack, so the four
+		// of them together behaved exactly like no triggers at all. runNonce is the
+		// element that moves. This is a read-only command — it asserts preconditions
+		// and creates two directories idempotently — so running it on every deploy
+		// costs one SSH round-trip and is the whole point (nonce.go).
+		Triggers: TriggersForRead(
 			h.Address,
 			sdk.String(h.User),
 			sdk.Int(h.Port),
 			sdk.String(script),
-		},
+		),
 		// Logging and AddPreviousOutputInEnv: the output of a readiness check is
 		// harmless, but every command in this package shares the same defaults, and
 		// the ones that follow (env files, k3s join tokens, kubeconfig) are not.

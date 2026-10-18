@@ -47,7 +47,8 @@ const (
 // thing. Writing the config and bringing Caddy up in one script means a half-written
 // tree is what the ingress loads; and the env file holds an ACME credential, so it
 // must travel over stdin, which is a property of a whole command rather than of a line
-// in it.
+// in it. A fourth exists only to hold the teardown, and the comment on it says why
+// that cannot live on any of the other three.
 func ensureIngress(
 	ctx *sdk.Context,
 	input api.ResourceInput,
@@ -84,10 +85,18 @@ func ensureIngress(
 		return a
 	}
 
+	// Guarded-change triggers on all three of these, and the machine state above is
+	// why: the config tree, the env file and the container are things an operator, a
+	// `docker system prune` or a previous version of SC can remove without any input
+	// here moving. Rewriting the tree is a write of identical bytes; `up -d` on an
+	// unchanged project does nothing; the reload is graceful (measured against a
+	// 20 req/s loop through Caddy: zero non-200s across eight provisions). So the
+	// nonce costs one SSH round trip each and buys a provision that repairs the
+	// machine's TLS instead of reporting green beside it.
 	config, err := remote.NewCommand(ctx, input.ToResName(h.Name+"-ingress-config"), base(&remote.CommandArgs{
 		Create:   sdk.String(configScript),
 		Update:   sdk.String(configScript),
-		Triggers: sdk.Array{h.Address, sdk.String(hashOf(configScript))},
+		Triggers: TriggersForGuardedChange(h.Address, sdk.String(hashOf(configScript))),
 	}), sdk.DependsOn([]sdk.Resource{ready}))
 	if err != nil {
 		return errors.Wrapf(err, "failed to write the ingress configuration of vm %q", input.Descriptor.Name)
@@ -99,7 +108,7 @@ func ensureIngress(
 		Create:   sdk.String(writeFileScript(vm.CaddyEnvPath(), vm.EnvFileMode)),
 		Update:   sdk.String(writeFileScript(vm.CaddyEnvPath(), vm.EnvFileMode)),
 		Stdin:    secretString(envContent).ToStringPtrOutput(),
-		Triggers: sdk.Array{h.Address, sdk.String(hashOf(envContent))},
+		Triggers: TriggersForGuardedChange(h.Address, sdk.String(hashOf(envContent))),
 		Logging:  remote.LoggingNone.ToLoggingPtrOutput(),
 	}), sdk.DependsOn([]sdk.Resource{config}))
 	if err != nil {
@@ -114,10 +123,26 @@ func ensureIngress(
 		// bind mount, so `up -d` sees nothing to do and the running Caddy keeps the
 		// old config. The reload inside this script is what applies it, and without
 		// this trigger the script would not run to do the reload.
-		Triggers: sdk.Array{h.Address, sdk.String(hashOf(upScript, configScript))},
-		Delete:   sdk.String(ingressTeardownScript()),
+		Triggers: TriggersForGuardedChange(h.Address, sdk.String(hashOf(upScript, configScript))),
 	}), sdk.DependsOn([]sdk.Resource{env})); err != nil {
 		return errors.Wrapf(err, "failed to start the ingress of vm %q", input.Descriptor.Name)
+	}
+
+	// The teardown is its own resource, with no triggers, for the reason VmComposeStack
+	// gives at its own teardown command — and this path is where that reason was
+	// learned the expensive way. It used to be `Delete` on the `up` above, which has a
+	// trigger that moves with the configuration; pulumi-command performs a replacement
+	// as create-then-delete, so a provision that changed anything in the Caddyfile ran
+	// `up`, logged "ingress is up", and then two seconds later ran this script:
+	// container removed, /etc/sc/caddy removed, nothing on 443, `sc provision` exit 0
+	// (live, 2026-10-18, a one-character change to `ingress.email`). A resource with no
+	// triggers is never replaced, so its Delete runs when the vm resource is destroyed
+	// and at no other time.
+	if _, err := remote.NewCommand(ctx, input.ToResName(h.Name+"-ingress-teardown"), base(&remote.CommandArgs{
+		Create: sdk.String("true"),
+		Delete: sdk.String(ingressTeardownScript()),
+	})); err != nil {
+		return errors.Wrapf(err, "failed to register the ingress teardown of vm %q", input.Descriptor.Name)
 	}
 
 	params.Log.Info(ctx.Context(),

@@ -110,14 +110,6 @@ func readStateScript(stack, env string) string {
 	}, "\n") + "\n"
 }
 
-// prepareScript creates what both compose projects declare as external: the shared
-// ingress network, the stack-env's internal network, the named volumes, and the
-// directories under /etc/sc and /var/lib/sc.
-//
-// External on purpose (compose-on-vm.md §6 rules 1 and 4): a network shared by two
-// slots and a data project cannot be any one project's `default`, and a volume
-// inside a project is deleted by `docker compose down -v` of the slot that is being
-// retired.
 // composePreflightScript asserts the machine can actually run a compose deploy.
 //
 // This used to live in the vm resource's readiness gate (ready.go), where it was
@@ -130,7 +122,11 @@ func readStateScript(stack, env string) string {
 //
 // Nothing is lost by checking later: the step runs before anything touches docker,
 // and it is still the thing that turns `docker: command not found` four commands
-// deeper into a sentence naming what to install.
+// deeper into a sentence naming what to install. That last sentence is only true
+// because the step carries the per-run nonce — its script depends on nothing but the
+// ssh user, so with the package's default trigger set it would assert docker on the
+// first deploy of a stack and never again (nonce.go, and the call site in
+// VmComposeStack).
 func composePreflightScript(user string) string {
 	return strings.Join([]string{
 		`set -eu`,
@@ -146,6 +142,14 @@ func composePreflightScript(user string) string {
 	}, "\n") + "\n"
 }
 
+// prepareScript creates what both compose projects declare as external: the shared
+// ingress network, the stack-env's internal network, the named volumes, and the
+// directories under /etc/sc and /var/lib/sc.
+//
+// External on purpose (compose-on-vm.md §6 rules 1 and 4): a network shared by two
+// slots and a data project cannot be any one project's `default`, and a volume
+// inside a project is deleted by `docker compose down -v` of the slot that is being
+// retired.
 func prepareScript(stack, env string, volumes []string) string {
 	lines := []string{
 		"set -eu",
