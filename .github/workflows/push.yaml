@@ -424,6 +424,13 @@ jobs:
         with:
           name: ${{ matrix.target }}-binary
           path: ${{ matrix.output }}
+          # Stripped Go binaries are effectively incompressible; default
+          # compression burns CPU on the UPLOADING runner (the fleet, whose
+          # egress is the constrained path) without shrinking the download.
+          # The artifact round-trip itself is the real cost — see roadmap item
+          # api-release-binary-roundtrip for the measured numbers and the
+          # structural fix.
+          compression-level: 0
           if-no-files-found: error
           retention-days: 1
 
@@ -1106,7 +1113,14 @@ jobs:
           echo "url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
 
       - name: Notify Telegram (success)
-        if: ${{ success() && !contains(needs.*.result, 'failure') }}
+        # Every need must have SUCCEEDED — checking only for 'failure' is the
+        # bug that sent "🚀 Released" for a release that published nothing
+        # twice over: a CANCELLED need (run 39253348066 — docker-finalize
+        # cancelled after its github-actions leg was cancelled) and a SKIPPED
+        # need (any docker-build failure skips docker-finalize) both pass
+        # `!contains(..., 'failure')` while this job's own success() is true.
+        # Cancelled and skipped are not releases.
+        if: ${{ success() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
         continue-on-error: true
         uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
@@ -1117,7 +1131,9 @@ jobs:
           link-text: 'v${{ needs.prepare.outputs.version }}'
           suffix:    ' by ${{ steps.extract_git_ref.outputs.author }}'
       - name: Notify Telegram (failure)
-        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        # Mirror of the success guard: a cancelled or skipped need is also a
+        # release that did not happen, so it gets the failure notice too.
+        if: ${{ failure() || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
         continue-on-error: true
         uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
@@ -1130,7 +1146,11 @@ jobs:
 
       - name: Build failed due to previously failed steps
         id: fail_if_needed
-        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        # Same expanded set as the notify guards: without 'cancelled'/'skipped'
+        # here, THIS JOB goes green on a cancelled release, which is how
+        # "Finalize build and deploy" showed success on run 39253348066 while
+        # nothing was published.
+        if: ${{ failure() || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
         shell: bash
         run: |-
           exit 1
