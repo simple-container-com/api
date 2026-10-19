@@ -97,6 +97,27 @@ RUN rm -rf \
 # shipped python3 3.14.5-r0 (12 HIGH) for exactly this reason while Alpine
 # already served 3.14.7-r1. Note `--no-cache` on the apk line is unrelated — it
 # governs apk's own index cache, not Docker layers.
+# Go builder stage. The binary used to arrive as a `dist/` ARTIFACT from
+# build-binaries — measured 448 s in the artifact store per ~70 MB
+# incompressible binary (run 39253348066), twice per release, re-fetching
+# bytes the pipeline had compiled minutes earlier. Building it here removes
+# the round-trip entirely, with the exact workflow flags so the binary is the
+# same build: -trimpath -buildvcs=false, CGO_ENABLED=0, same -X version stamp
+# (VERSION arrives as a build-arg from push.yaml; the 0.0.0 fallback matches
+# local builds). go.mod/go.sum key their own `go mod download` layer, cached
+# through the gha buildx cache. The .dockerignore allowlist keeps this stage
+# to cmd/pkg/internal — .sc/ (decrypted secrets post `sc secrets reveal`) and
+# everything else cannot enter the context at all.
+FROM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS gobuild
+ARG VERSION=0.0.0
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+      -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" \
+      -o /out/github-actions ./cmd/github-actions
+
 FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
 
 # python3 stays — gcloud invokes it. py3-pip / binutils / upx confined to builder.
@@ -113,7 +134,7 @@ ENV PATH="/opt/pulumi/bin:/opt/google-cloud-sdk/bin:${PATH}"
 
 WORKDIR /root/
 
-COPY dist/github-actions ./github-actions
+COPY --from=gobuild /out/github-actions ./github-actions
 # `sc` symlink so Pulumi local.Command subprocesses can invoke sc image sign/scan/sbom etc.
 RUN chmod +x ./github-actions \
     && ln -s /root/github-actions /usr/local/bin/sc

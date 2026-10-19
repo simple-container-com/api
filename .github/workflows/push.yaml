@@ -419,25 +419,11 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           go build -trimpath -buildvcs=false -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
-      - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ matrix.target }}-binary
-          path: ${{ matrix.output }}
-          # Stripped Go binaries are effectively incompressible; default
-          # compression burns CPU on the UPLOADING runner (the fleet, whose
-          # egress is the constrained path) without shrinking the download.
-          # The artifact round-trip itself is the real cost — see roadmap item
-          # api-release-binary-roundtrip for the measured numbers and the
-          # structural fix.
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 1
-
-  # Note (PR #257): the `build-github-actions-staging` job was removed
-  # alongside its sole consumer — the `github-actions-staging` matrix
-  # entry in docker-build. The `:staging` image tag is now exclusively
-  # published by build-staging.yml under the staging trust root.
+      # No artifact upload any more: the binaries' only consumer was
+      # docker-build, which now builds them in-image (see its comment). This
+      # job stays as the release-commit compile gate for ./cmd/github-actions
+      # and ./cmd/cloud-helpers — the fleet builds them fine and the hosted
+      # link OOMs (see the reverted commit in this PR's history).
 
   test:
     name: Run tests
@@ -575,18 +561,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: download github-actions binary
-        if: matrix.image == 'github-actions'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: github-actions-binary
-          path: dist
-      - name: download cloud-helpers binary
-        if: matrix.image == 'cloud-helpers-aws'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: cloud-helpers-binary
-          path: dist
+      # The github-actions / cloud-helpers-aws images no longer download a
+      # `dist/` binary artifact: their Dockerfiles build the binary in a
+      # `gobuild` stage (same flags, same -X stamp via the VERSION build-arg
+      # below). That artifact round-trip measured 448 s per ~70 MB binary
+      # (run 39253348066) and happened twice per release for bytes the
+      # pipeline had compiled minutes earlier.
       - name: install sc tool
         uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: prepare secrets for build
@@ -613,6 +593,10 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
+          # Consumed by the gobuild stages (github-actions.Dockerfile,
+          # cloud-helpers.aws.Dockerfile); an unused ARG in kubectl/caddy.
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
           # Build to a throwaway CI tag, never straight to the release tags.
           # cosign signs by digest, so the image has to exist in the registry
           # before `Sign + attest` can run; but pushing `:latest` and
