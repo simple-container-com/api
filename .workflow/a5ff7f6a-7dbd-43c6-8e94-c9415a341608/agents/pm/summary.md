@@ -1,0 +1,1 @@
+[thinking] # PM Handoff — `sc-stack-outputs-leaks-secrets-in-clear`
