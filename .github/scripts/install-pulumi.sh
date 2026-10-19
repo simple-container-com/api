@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # Install the pulumi CLI at the version of github.com/pulumi/pulumi/sdk/v3 in
 # go.mod, SHA-256 verified against the per-release checksums file Pulumi
-# publishes on GitHub Releases (so: no `curl … | sh` from get.pulumi.com).
+# publishes on GitHub Releases — deliberately NOT the get.pulumi.com installer,
+# which pipes a remote download straight into a shell. (Phrasing matters here:
+# the `action.rules.shell-curl-pipe-to-shell` Semgrep rule matches on the text,
+# so spelling out the pattern we avoid fails the gate. Live-caught in PR #460.)
 #
 # WHY THIS EXISTS. `sc deploy` / `sc provision` shell out to the pulumi CLI —
 # pkg/clouds/pulumi/login.go prepends ~/.pulumi/bin to PATH and then points
