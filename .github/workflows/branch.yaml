@@ -201,7 +201,20 @@ jobs:
 
   build-binaries:
     name: Build ${{ matrix.target }}
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    # Routed to a GitHub-hosted runner whenever the fleet shape is ACTIVE —
+    # same rationale as push.yaml's build-binaries (no secrets, no OIDC, no
+    # attestation; 3+~2 packages beyond ./cmd/sc's closure; swept onto the
+    # fleet by PR #456's blanket re-route). NOTE for the ruleset: the check
+    # NAMES this job renders ("Build github-actions", "Build cloud-helpers")
+    # are unchanged — only the runner changes.
+    #
+    # The ./cmd/github-actions link peak is near ./cmd/sc's 12.9 GB (2092 of
+    # 2095 shared packages); ubuntu-latest has 16 GB, so this was proven by
+    # this PR's own branch run rather than assumed.
+    #
+    # Tests the variable's PRESENCE, not its value; gh variable delete
+    # FORGE_CI_RUNNER restores Blacksmith here exactly as everywhere else.
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON('["ubuntu-latest"]') || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
     needs: build-setup
     strategy:
@@ -229,6 +242,16 @@ jobs:
           # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
           # we are back on Blacksmith/hosted, where it should behave as before.
           # One variable controls both routing and caching, so a revert is complete.
+          # THIRD STATE, since this job's runs-on points at ubuntu-latest on the
+          # fleet shape: hosted runner + caching OFF, because the switch is
+          # keyed on the VARIABLE, not the runner. That is deliberate —
+          # setup-go's cache would spill a 2143-package closure into the
+          # repo's 10 GB Actions cache budget, which already carries four
+          # type=gha,mode=max buildx scopes; evicting those to warm a job
+          # that is off the critical path is a net loss. A cold hosted
+          # build of ./cmd/github-actions measured ~4.6 min on
+          # blacksmith-8vcpu; both legs run in parallel and sit well
+          # inside the darwin-bound Go phase.
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: create build directories
         run: |
