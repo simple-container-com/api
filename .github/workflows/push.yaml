@@ -134,6 +134,11 @@ jobs:
         with:
           name: bin-tools
           path: bin
+          # `warn` (the default) uploads an EMPTY artifact when nothing matched and
+          # defers the failure to whoever consumes it — on the release path that is
+          # a silently missing platform/binary/image digest (see docker-finalize's
+          # Sidecar assertion for the bundle-level backstop).
+          if-no-files-found: error
           retention-days: 1
 
   build-platforms:
@@ -146,6 +151,13 @@ jobs:
       id-token: write       # OIDC for keyless cosign + attest-build-provenance
       attestations: write
     strategy:
+      # fail-fast must be false for the continue-on-error contract below to
+      # hold ACROSS legs, not just within one. With the default (true), a
+      # gate failure in one leg CANCELS the sibling legs mid-attestation —
+      # and the "complete picture of which sidecars are missing" the steps
+      # below promise is exactly what you lose, most notably during a
+      # Sigstore/Rekor outage, which hits all three platforms at once.
+      fail-fast: false
       matrix:
         include:
           - os: linux
@@ -194,7 +206,10 @@ jobs:
       # rest: the run still produces a complete picture of which sidecars are
       # missing. The trailing gate then decides whether that is publishable.
       # On this workflow it is not — see the gate step for the release policy
-      # and the break-glass variable.
+      # and the break-glass variable. (`fail-fast: false` on the strategy
+      # above is what makes this hold ACROSS legs too — with the default
+      # fail-fast, a gate failure in one leg would cancel the siblings and
+      # the complete picture is exactly what you would lose.)
       - name: SHA-256 sidecars for ${{ matrix.os }}/${{ matrix.arch }}
         id: sha256
         env:
@@ -357,6 +372,7 @@ jobs:
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.cosign-bundle
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sigstore.json
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sbom.cdx.json
+          if-no-files-found: error
           retention-days: 1
 
   build-binaries:
@@ -365,6 +381,9 @@ jobs:
     timeout-minutes: 60
     needs: [prepare, build-setup]
     strategy:
+      # Independent targets; a failure in one must not cancel the other's
+      # build. See build-platforms above for the full fail-fast rationale.
+      fail-fast: false
       matrix:
         include:
           - target: github-actions
@@ -401,6 +420,7 @@ jobs:
         with:
           name: ${{ matrix.target }}-binary
           path: ${{ matrix.output }}
+          if-no-files-found: error
           retention-days: 1
 
   # Note (PR #257): the `build-github-actions-staging` job was removed
@@ -464,6 +484,7 @@ jobs:
         with:
           name: docs-site
           path: docs/site
+          if-no-files-found: error
           retention-days: 1
 
   docker-build:
@@ -476,6 +497,14 @@ jobs:
       id-token: write       # OIDC token for keyless cosign + attest-build-provenance
       attestations: write   # required by actions/attest-build-provenance
     strategy:
+      # fail-fast: false is a CORRECTNESS requirement here, not just
+      # diagnostics: `Promote release tags` below does one registry PUT per
+      # tag (:latest, :<version>). With the default fail-fast (true), a gate
+      # failure in one image CANCELS the sibling legs mid-run — and a cancel
+      # landing between a leg's two PUTs leaves :latest and :<version>
+      # pointing at DIFFERENT digests. Also keeps per-image attestation
+      # diagnostics alive across legs (see build-platforms).
+      fail-fast: false
       matrix:
         include:
           - image: kubectl
@@ -624,6 +653,7 @@ jobs:
         with:
           name: image-digest-${{ matrix.image }}
           path: digests/${{ matrix.image }}.txt
+          if-no-files-found: error
           retention-days: 1
       # Release gate for images. Same policy as the tarball gate above, and it
       # runs BEFORE the release tags exist: see `Promote release tags` below.
@@ -828,22 +858,49 @@ jobs:
           done
       # Second line of defence: build-platforms gates per matrix leg, this one
       # gates the bundle that actually reaches the CDN. Honours the same
-      # ATTESTATION_SOFT_FAIL break-glass variable, expiry date and all.
+      # ATTESTATION_SOFT_FAIL break-glass variable, expiry date and all —
+      # EXCEPT the expected-platform check, which hard-fails unconditionally:
+      # the break-glass exists for a Sigstore/Rekor outage, and a missing
+      # platform is never that.
       - name: Sidecar assertion
         env:
           SOFT_FAIL: ${{ vars.ATTESTATION_SOFT_FAIL }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
           shopt -s nullglob
           echo "ATTESTATION_SOFT_FAIL=${SOFT_FAIL:-<unset>}"
           today="$(date -u +%F)"
-          tarballs=( sc-*.tar.gz )
-          echo "tarballs=${#tarballs[@]}"
-          if [ "${#tarballs[@]}" -eq 0 ]; then
-            echo "::error title=No tarballs to publish::dist bundle has zero tarballs"
+
+          # EXPECTED SET, not count>0. This used to error only when the bundle
+          # held zero tarballs and then verify sidecars for whatever WAS
+          # present — so a build-platforms leg that silently produced nothing
+          # shrank the bundle to the surviving platforms, every remaining
+          # tarball still had complete sidecars, and the release published
+          # WITHOUT a platform while nothing red said so. (Combined with
+          # upload-artifact's old `warn` default, which uploaded an empty
+          # artifact — now `error` on every upload step.) Same silent-drop
+          # class as the sc.sh-served-stale-v2026.3.6 incident recorded on
+          # build-platforms' upload step. Each platform must appear twice:
+          # unversioned (the `latest` pointer sc.sh fetches) and versioned.
+          platforms=( linux-amd64 darwin-arm64 darwin-amd64 )
+          missing=0
+          for platform in "${platforms[@]}"; do
+            for expected in "sc-${platform}.tar.gz" "sc-${platform}-v${VERSION}.tar.gz"; do
+              if [ ! -s "${expected}" ]; then
+                echo "::error title=Platform missing::expected ${expected} in the dist bundle"
+                missing=1
+              fi
+            done
+          done
+          if [ "${missing}" -ne 0 ]; then
+            echo "::error title=Incomplete bundle::the dist bundle is missing one or more expected platform tarballs — a build-platforms leg probably produced nothing. Refusing to publish a release without a platform. This check deliberately ignores ATTESTATION_SOFT_FAIL."
             exit 1
           fi
+
+          tarballs=( sc-*.tar.gz )
+          echo "tarballs=${#tarballs[@]}"
           # Paired per tarball, not counted in aggregate. Comparing totals let a
           # bundle pass in which one tarball carried two sidecars of a kind and
           # another carried none, which is the exact shape a half-failed matrix

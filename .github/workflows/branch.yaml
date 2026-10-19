@@ -122,6 +122,11 @@ jobs:
         with:
           name: bin-tools
           path: bin
+          # `warn` (the default) uploads an EMPTY artifact when nothing matched and
+          # defers the failure to whoever consumes it — on the release path that is
+          # a silently missing platform/binary/image digest (see docker-finalize's
+          # Sidecar assertion for the bundle-level backstop).
+          if-no-files-found: error
           retention-days: 1
 
   build-platforms:
@@ -130,6 +135,11 @@ jobs:
     timeout-minutes: 60
     needs: build-setup
     strategy:
+      # A failure in one leg must not cancel the others mid-run — see
+      # push.yaml's build-platforms for the full rationale (per-leg
+      # diagnostics across platforms) and its docker-build for the
+      # tag-promotion-consistency hazard this same default creates there.
+      fail-fast: false
       matrix:
         include:
           - os: linux
@@ -171,6 +181,7 @@ jobs:
         with:
           name: sc-${{ matrix.os }}-${{ matrix.arch }}
           path: .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+          if-no-files-found: error
           retention-days: 1
 
   build-binaries:
@@ -179,6 +190,9 @@ jobs:
     timeout-minutes: 60
     needs: build-setup
     strategy:
+      # Independent targets; a failure in one must not cancel the other's
+      # build — see push.yaml's build-platforms for the full rationale.
+      fail-fast: false
       matrix:
         include:
           - target: github-actions
@@ -214,6 +228,7 @@ jobs:
         with:
           name: ${{ matrix.target }}-binary
           path: ${{ matrix.output }}
+          if-no-files-found: error
           retention-days: 1
 
   build-github-actions-staging:
@@ -252,6 +267,7 @@ jobs:
         with:
           name: github-actions-staging-binary
           path: bin/github-actions
+          if-no-files-found: error
           retention-days: 1
 
   test:
