@@ -218,6 +218,14 @@ jobs:
 
   build-github-actions-staging:
     name: Build github-actions-staging
+    # CGO_ENABLED=0 so this required check compiles the SAME configuration that
+    # actually ships. welder's `build-github-actions-staging` task sets it (plus
+    # GOOS/GOARCH linux/amd64, "static, Alpine compatible") and the staging image
+    # is built from welder's bin/, not from this job's artifact — which has 1-day
+    # retention and no consumer. Without it, cgo is on here and the gate was
+    # validating a glibc-dynamic binary nobody runs.
+    env:
+      CGO_ENABLED: "0"
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
     needs: build-setup
