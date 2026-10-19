@@ -208,7 +208,7 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: |
-          go build -a -installsuffix cgo -ldflags "-s -w" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
+          go build -ldflags "-s -w" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
       - name: upload ${{ matrix.target }} binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
@@ -218,6 +218,14 @@ jobs:
 
   build-github-actions-staging:
     name: Build github-actions-staging
+    # CGO_ENABLED=0 so this required check compiles the SAME configuration that
+    # actually ships. welder's `build-github-actions-staging` task sets it (plus
+    # GOOS/GOARCH linux/amd64, "static, Alpine compatible") and the staging image
+    # is built from welder's bin/, not from this job's artifact — which has 1-day
+    # retention and no consumer. Without it, cgo is on here and the gate was
+    # validating a glibc-dynamic binary nobody runs.
+    env:
+      CGO_ENABLED: "0"
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
     needs: build-setup
@@ -238,7 +246,7 @@ jobs:
       - name: build github-actions-staging
         run: |
           mkdir -p bin
-          go build -ldflags "-s -w" -a -installsuffix cgo -o bin/github-actions ./cmd/github-actions
+          go build -ldflags "-s -w" -o bin/github-actions ./cmd/github-actions
       - name: upload github-actions-staging binary
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
