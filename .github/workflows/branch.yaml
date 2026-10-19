@@ -123,7 +123,24 @@ jobs:
           rm -fR docs/schemas/*
       - name: tools
         run: |
-          cat tools.go | grep _ | awk -F'"' '{print $2}' | xargs -tI % go get %
+          # NO `go get` here, deliberately. It used to run
+          #   cat tools.go | grep _ | ... | xargs -tI % go get %
+          # which resolves each tool to its LATEST version on every run. That
+          # was three separate problems, not just the obvious network cost the
+          # operator spotted:
+          #   1. ~5 network round-trips per job even with a warm GOMODCACHE;
+          #   2. it could silently BUMP golangci-lint / gofumpt — the very
+          #      tools that gate this build — so a PR could fail lint for
+          #      reasons unrelated to its diff, and the version that ran was
+          #      never the version committed;
+          #   3. a bumped tool is a different module version, so it misses the
+          #      seeded build cache and recompiles.
+          # None of it is needed: tools.go blank-imports all five tools and
+          # go.mod pins them (mockery/v2 v2.53.6, golangci-lint v1.64.8,
+          # gofumpt v0.11.0, delve v1.27.0, go-jsonschema v0.24.1), and the
+          # //go:generate lines in tools.go `go build` them from those pinned
+          # versions. `go mod download` then serves straight from the warm
+          # GOMODCACHE.
           go mod download
           go generate -tags tools
           go mod tidy

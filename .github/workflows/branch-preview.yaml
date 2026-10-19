@@ -107,7 +107,11 @@ jobs:
           rm -fR docs/schemas/*
       - name: tools
         run: |
-          cat tools.go | grep _ | awk -F'"' '{print $2}' | xargs -tI % go get %
+          # No unpinned `go get` — tools.go blank-imports all five tools and
+          # go.mod pins them, so the //go:generate lines below build the exact
+          # committed versions. See push.yaml's tools step for why resolving
+          # "latest" here was actively harmful (it could bump the linters that
+          # gate the build, and missed the seeded cache).
           go mod download
           go generate -tags tools
           go mod tidy
