@@ -50,6 +50,7 @@ jobs:
   # downstream jobs `needs: build-setup`, so they cascade-skip; the
   # `finalize` aggregator below has the same guard so it doesn't fire a
   # spurious "build failed" Telegram on the cascade.
+
   build-setup:
     name: Build Setup (clean, tools, schemas, lint, fmt)
     if: >-
@@ -132,17 +133,6 @@ jobs:
         run: |
           echo "cicd-bot-telegram-token=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
           echo "cicd-bot-telegram-chat-id=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
-      - name: upload bin directory artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: bin-tools
-          path: bin
-          # `warn` (the default) uploads an EMPTY artifact when nothing matched and
-          # defers the failure to whoever consumes it — on the release path that is
-          # a silently missing platform/binary/image digest (see docker-finalize's
-          # Sidecar assertion for the bundle-level backstop).
-          if-no-files-found: error
-          retention-days: 1
 
   build-platforms:
     name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
@@ -191,13 +181,6 @@ jobs:
           if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
           go build -ldflags "-s -w" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
           tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
-      - name: upload build artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: sc-${{ matrix.os }}-${{ matrix.arch }}
-          path: .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
-          if-no-files-found: error
-          retention-days: 1
 
   build-binaries:
     name: Build ${{ matrix.target }}
@@ -238,13 +221,6 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           go build -ldflags "-s -w" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
-      - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ matrix.target }}-binary
-          path: ${{ matrix.output }}
-          if-no-files-found: error
-          retention-days: 1
 
   build-github-actions-staging:
     name: Build github-actions-staging
@@ -277,13 +253,6 @@ jobs:
         run: |
           mkdir -p bin
           go build -ldflags "-s -w" -o bin/github-actions ./cmd/github-actions
-      - name: upload github-actions-staging binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: github-actions-staging-binary
-          path: bin/github-actions
-          if-no-files-found: error
-          retention-days: 1
 
   test:
     name: Run tests
