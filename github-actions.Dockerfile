@@ -97,6 +97,24 @@ RUN rm -rf \
 # shipped python3 3.14.5-r0 (12 HIGH) for exactly this reason while Alpine
 # already served 3.14.7-r1. Note `--no-cache` on the apk line is unrelated — it
 # governs apk's own index cache, not Docker layers.
+# BLACKSMITH TRADEOFF (read before re-enabling Blacksmith).
+# This stage replaced an artifact handoff: build-binaries compiled the binary
+# in a parallel job and docker-build downloaded it. That download measured
+# 866 s on the self-hosted fleet (run 39253348066) because the fleet's egress
+# is the bottleneck — which is what justified moving the compile in here.
+# On BLACKSMITH the arithmetic may invert: slots are plentiful, the artifact
+# store is fast, and setup-go's cache made that parallel compile ~4.6 min,
+# whereas this in-container compile cannot reuse setup-go's GOCACHE and its
+# buildkit cache mounts do not survive an ephemeral runner. So if Blacksmith
+# comes back, MEASURE this job before keeping it.
+# Revert recipe (all of it, or the image loses its binary):
+#   1. this stage out; `COPY --from=gobuild /out/<bin>` -> `COPY dist/<bin>`
+#   2. re-add `!dist` to .dockerignore (the allowlist excludes it today)
+#   3. push.yaml: restore the two `download-artifact` steps in docker-build
+#      and the `upload-artifact` steps in build-binaries
+# The conditional-stage pattern (ARG BIN_SOURCE + `FROM bin-${BIN_SOURCE}`)
+# can serve both shapes from one Dockerfile if it is ever worth the
+# complexity; it was judged not to be while only the fleet is in use.
 # Go builder stage. The binary used to arrive as a `dist/` ARTIFACT from
 # build-binaries — measured 448 s in the artifact store per ~70 MB
 # incompressible binary (run 39253348066), twice per release, re-fetching
@@ -112,9 +130,23 @@ FROM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66
 ARG VERSION=0.0.0
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+# Same cache mount as the build below, deliberately: GOMODCACHE lives at
+# /go/pkg/mod, so without the mount here this layer would populate the image
+# filesystem while the build step reads the (empty) cache mount instead —
+# downloading every module twice. With it, both steps share one store.
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
-RUN CGO_ENABLED=0 go build -trimpath -buildvcs=false \
+# Cache mounts, not a bare RUN: without them ANY source change invalidates
+# `COPY . .` and recompiles the whole ~2095-package closure inside the
+# container on every build. With them the compile is incremental on a
+# PERSISTENT builder (the fleet guests keep their dockerd and are now
+# golden-seeded). Note the limit honestly: buildkit does NOT export
+# type=cache mounts through `cache-to: type=gha`, so on an EPHEMERAL runner
+# (Blacksmith / ubuntu-latest) these mounts start empty every run — see the
+# BLACKSMITH TRADEOFF note above the gobuild stage.
+RUN --mount=type=cache,target=/root/.cache/go-build \
+    --mount=type=cache,target=/go/pkg/mod \
+    CGO_ENABLED=0 go build -trimpath -buildvcs=false \
       -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" \
       -o /out/github-actions ./cmd/github-actions
 
