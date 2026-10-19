@@ -15,6 +15,16 @@ on:
   push:
     branches: [main]
 
+# REF-keyed so a force-push supersedes the in-flight run and releases its
+# runner (see branch.yaml for the full note and the measured 40-minute
+# incident on the 2-slot CI fleet). This workflow had NO concurrency block,
+# and it is fleet-routed — a superseded coverage run held a slot the live
+# build needed. `github.ref` is stable across force-pushes to the same PR,
+# so exactly one run per ref is live at a time.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

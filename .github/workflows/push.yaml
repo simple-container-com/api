@@ -5,7 +5,11 @@ on:
     branches:
       - 'main'
 
-# allow only one concurrent build
+# allow only one concurrent build. The `cancel-in-progress: false` here is
+# DELIBERATE and is the asymmetry vs branch.yaml / coverage.yml / the scan
+# workflows, which all cancel-in-progress: this workflow publishes a release
+# — tags, images, the CDN bundle — and a release must never be cancelled
+# mid-flight by the next push. The next run simply queues behind it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false

@@ -18,6 +18,21 @@ on:
       - 'main'
       - 'staging'
 
+# REF-keyed so a force-push supersedes the in-flight run and releases its
+# runners. This workflow had NO concurrency block at all, which on the CI
+# fleet (2 usable slots) meant an abandoned commit's run kept building to
+# completion while the live run sat queued. Measured on PR #460
+# (2026-10-19): a superseded run of this workflow built its full 9-job
+# matrix to GREEN on both fleet slots for 40 minutes — on a commit that was
+# no longer on the branch — while the replacement run waited and only
+# started its first job as the dead one finished. `github.ref` for a PR is
+# refs/pull/<n>/merge, stable across force-pushes, so exactly one run per
+# PR is live at a time. A cancelled check on an abandoned sha does not gate
+# the merge: GitHub evaluates check runs on the PR's current head sha.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # Least-privilege root: every job inherits read-only unless it explicitly
 # grants more (CIS GHA 1.2). Only `finalize` actually needs `contents: write`
 # (sticky comment / notify), and it grants that itself further down.
