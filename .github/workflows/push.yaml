@@ -361,7 +361,30 @@ jobs:
 
   build-binaries:
     name: Build ${{ matrix.target }}
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    # Routed to a GitHub-hosted runner whenever the fleet shape is ACTIVE —
+    # the inverse of the sc builds' runs-on, and deliberate.
+    #
+    # This job is checkout → setup-go → go build → upload-artifact: no
+    # secrets, no OIDC, no attestation chain, no gate — it was swept onto
+    # the fleet by the blanket re-route of PR #456. On the fleet it cost 2
+    # of the 2 slots (10.6 + 1.4 min on run 39227894781) plus two runner
+    # handoffs, for ./cmd/github-actions and ./cmd/cloud-helpers — which add
+    # 3 and ~2 packages respectively on top of ./cmd/sc's 2143-package
+    # closure (`go list -deps`, 2026-10). The repo is public, so
+    # ubuntu-latest is free.
+    #
+    # MEMORY, verified by this PR's own branch run before merge: the
+    # ./cmd/github-actions link shares 2092 of its 2095 packages with
+    # ./cmd/sc (whole Pulumi provider surface), whose link peaks at 12.9 GB.
+    # ubuntu-latest has 16 GB, and govulncheck at ~13.5 GB RSS died with
+    # exit 143 there — so the link fitting was PROVEN, not assumed. If a
+    # future dependency bump OOMs this job on hosted, the fallback is
+    # reverting this one line; the fleet builds it fine.
+    #
+    # Tests the variable's PRESENCE, not its value (a future fleet-label
+    # change must not touch this line), and `gh variable delete
+    # FORGE_CI_RUNNER` restores Blacksmith here exactly as everywhere else.
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON('["ubuntu-latest"]') || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
     needs: [prepare, build-setup]
     strategy:
@@ -386,6 +409,16 @@ jobs:
           # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
           # we are back on Blacksmith/hosted, where it should behave as before.
           # One variable controls both routing and caching, so a revert is complete.
+          # THIRD STATE, since this job's runs-on points at ubuntu-latest on the
+          # fleet shape: hosted runner + caching OFF, because the switch is
+          # keyed on the VARIABLE, not the runner. That is deliberate —
+          # setup-go's cache would spill a 2143-package closure into the
+          # repo's 10 GB Actions cache budget, which already carries four
+          # type=gha,mode=max buildx scopes; evicting those to warm a job
+          # that is off the critical path is a net loss. A cold hosted
+          # build of ./cmd/github-actions measured ~4.6 min on
+          # blacksmith-8vcpu; both legs run in parallel and sit well
+          # inside the darwin-bound Go phase.
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: create build directories
         run: |
