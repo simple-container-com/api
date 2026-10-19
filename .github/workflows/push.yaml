@@ -793,7 +793,30 @@ jobs:
 
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    # Routed to a GitHub-hosted runner whenever the fleet shape is ACTIVE —
+    # the inverse of every other job's runs-on, and deliberate.
+    #
+    # This job has no fleet requirement. It compiles no Go and needs no RAM:
+    # its work is tool installs, artifact downloads, one cosign sign-blob,
+    # `welder run tag-release`, and `welder deploy -e prod` — a Pulumi `up`
+    # plus a CDN upload. That is network/IO-bound work running on the one
+    # runner class this fleet is worst at: 6 oversubscribed vCPU with egress
+    # through the fake-IP hijack the fleet design doc documents as
+    # intermittently stalling. Measured on run 39227894781: 24.0 min — 27%
+    # of the whole release, and the single largest line item. `.github/
+    # scripts/install-pulumi.sh` (PR #460) is what made it runner-agnostic.
+    #
+    # The repo is PUBLIC, so ubuntu-latest is free. Posture: this job's
+    # SC_CONFIG + Docker Hub token already went to a THIRD party (Blacksmith)
+    # before the fleet cutover, so GitHub-hosted is not a new exposure; the
+    # cosign identity is `push.yaml@refs/heads/main` — a property of the
+    # workflow and ref, not of the runner — so the documented trust root is
+    # untouched.
+    #
+    # Tests the variable's PRESENCE, not its value (a future fleet-label
+    # change must not touch this line), and `gh variable delete
+    # FORGE_CI_RUNNER` restores Blacksmith here exactly as everywhere else.
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON('["ubuntu-latest"]') || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
     needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs, docker-build]
     permissions:
