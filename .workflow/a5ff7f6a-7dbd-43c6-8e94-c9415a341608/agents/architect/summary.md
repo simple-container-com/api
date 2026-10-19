@@ -1,0 +1,1 @@
+[thinking] # Architect Handoff — `sc-stack-outputs-leaks-secrets-in-clear` (3rd dispatch)
