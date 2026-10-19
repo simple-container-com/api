@@ -775,6 +775,11 @@ jobs:
         uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: Install attestation tools (cosign for sc.sh sign-blob)
         uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
+      # `welder deploy` below runs `sc deploy`, which shells out to the pulumi
+      # CLI. The Blacksmith/hosted image shipped one; the self-hosted fleet does
+      # not — see .github/scripts/install-pulumi.sh for the full story.
+      - name: install pulumi CLI (go.mod-pinned)
+        run: .github/scripts/install-pulumi.sh
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
