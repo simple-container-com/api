@@ -298,7 +298,16 @@ tasks:
     script:
       - welder run generate-schemas
       - if [ "${SKIP_EMBEDDINGS}" != 'true' ]; then welder run generate-embeddings; else echo "Skipping embeddings"; fi
-      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=$(date '+0.0.0-pre%Y.%m.%d.%H.%M.%S')" -o ${project:root}/bin/sc ./cmd/sc && mkdir -p ~/.local/bin &&  cp -f ./bin/sc ~/.local/bin/sc
+      # Version is derived from the COMMIT, not the clock. A timestamp changed on
+      # every invocation, which made the final link of ./cmd/sc a guaranteed
+      # cache miss — and that link is the 12.9 GB-peak, multi-minute step, so a
+      # re-run of an unchanged commit paid it again in full. Per-commit means a
+      # re-run (or a second job on the same commit) links from cache.
+      # The `0.0.0` prefix is load-bearing and preserved: pkg/clouds/pulumi/vm/
+      # caddy.go keys `strings.HasPrefix(build.Version, devVersionPrefix)` off it
+      # to explain the unpublished-ingress-image failure. Falls back to a
+      # timestamp outside a git checkout.
+      - go build -ldflags "-s -w -X=${arg:package}/internal/build.Version=0.0.0-pre$(git rev-parse --short=12 HEAD 2>/dev/null || date '+%Y%m%d%H%M%S')" -o ${project:root}/bin/sc ./cmd/sc && mkdir -p ~/.local/bin &&  cp -f ./bin/sc ~/.local/bin/sc
   build-github-actions-staging:
     runOn: host
     env:

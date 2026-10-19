@@ -92,15 +92,25 @@ jobs:
         id: get-openai-key
         run: |
           echo "openai-key=$(sc stack secret-get -s dist openai-api-key 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
-      - name: prepare sc tool (rebuild)
+      # `welder run rebuild` used to run here. It is gone, deliberately: on THIS
+      # workflow nothing consumed what it produced.
+      #   - its `bin/sc` was used only by `get telegram secrets` below, and the
+      #     RELEASED sc from setup-sc-tooling already serves that — `get openai
+      #     key` above has always called bare `sc stack secret-get`.
+      #   - its `generate-schemas` is redundant with the dedicated step below.
+      #   - the `bin-tools` artifact it fed was removed earlier in this PR (no
+      #     workflow downloaded it).
+      # What it cost: a full link of ./cmd/sc — the 12.9 GB-peak step, ~5-8 min
+      # warm and 23+ min cold, on every PR.
+      # push.yaml KEEPS its rebuild: docker-finalize deploys the dist stack with
+      # `bin/sc` built from the commit being released, which is a deliberate
+      # self-test and must not be swapped for a released binary.
+      # `gh auth setup-git` stays — the `tools` step's `go get` needs it.
+      - name: configure git auth for module fetches
         shell: bash
         env:
-          OPENAI_API_KEY: ${{ steps.get-openai-key.outputs.openai-key }}
-          SKIP_EMBEDDINGS: "true"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |-
-          gh auth setup-git
-          welder run rebuild
+        run: gh auth setup-git
       - name: clean
         run: |
           mkdir -p dist
@@ -131,8 +141,10 @@ jobs:
       - name: get telegram secrets
         id: telegram-secrets
         run: |
-          echo "cicd-bot-telegram-token=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
-          echo "cicd-bot-telegram-chat-id=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
+          # Released `sc` from setup-sc-tooling, not a from-source build — see
+          # the note where `welder run rebuild` was removed.
+          echo "cicd-bot-telegram-token=$(sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
+          echo "cicd-bot-telegram-chat-id=$(sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
 
   build-platforms:
     name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
