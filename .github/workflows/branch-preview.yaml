@@ -504,6 +504,11 @@ jobs:
         run: chmod +x bin/*
       - name: install sc tool
         uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
+      # `sc deploy` below shells out to the pulumi CLI. The Blacksmith/hosted
+      # image shipped one; the self-hosted fleet does not — see
+      # .github/scripts/install-pulumi.sh for the full story.
+      - name: install pulumi CLI (go.mod-pinned)
+        run: .github/scripts/install-pulumi.sh
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
