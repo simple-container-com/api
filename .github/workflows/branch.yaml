@@ -51,12 +51,47 @@ jobs:
   # `finalize` aggregator below has the same guard so it doesn't fire a
   # spurious "build failed" Telegram on the cascade.
 
+  # Docs-only gate. The required checks all live in this workflow, so a
+  # workflow-level `paths-ignore` would leave them "Expected - Waiting for
+  # status" forever and block the merge. Instead this cheap hosted-runner job
+  # classifies the PR and the heavy jobs are skipped via `if`; a skipped job
+  # satisfies a required check. Only root-level *.md / LICENSE count as
+  # docs-only: docs/ is go:embed-ed and tested, so it always runs the build.
+  changes:
+    name: Detect code changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - name: Classify changed files
+        id: diff
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$PR" ]; then echo "code=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename')"
+          if [ -z "$files" ] || printf '%s\n' "$files" | grep -qvE '^([^/]+\.md|LICENSE)$'; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "code=false" >> "$GITHUB_OUTPUT"
+            echo "Root-level docs only; skipping build/test jobs."
+          fi
+
   build-setup:
     name: Build Setup (clean, tools, schemas, lint, fmt)
+    needs: changes
     if: >-
-      github.event_name != 'pull_request' ||
-      github.event.pull_request.user.login != 'dependabot[bot]' ||
-      contains(github.event.pull_request.labels.*.name, 'ci-run')
+      needs.changes.outputs.code == 'true' &&
+      (
+        github.event_name != 'pull_request' ||
+        github.event.pull_request.user.login != 'dependabot[bot]' ||
+        contains(github.event.pull_request.labels.*.name, 'ci-run')
+      )
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
     outputs:
@@ -362,6 +397,7 @@ jobs:
     # for a pipeline that was intentionally never run.
     if: >-
       always() &&
+      needs.changes.outputs.code == 'true' &&
       (
         github.event_name != 'pull_request' ||
         github.event.pull_request.user.login != 'dependabot[bot]' ||
@@ -370,6 +406,7 @@ jobs:
     permissions:
       contents: write
     needs:
+      - changes
       - build-setup
       - build-platforms
       - build-binaries
