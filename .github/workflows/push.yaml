@@ -406,51 +406,23 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  build-binaries:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
-    timeout-minutes: 60
-    needs: [prepare, build-setup]
-    strategy:
-      # Independent targets; a failure in one must not cancel the other's
-      # build. See build-platforms above for the full fail-fast rationale.
-      fail-fast: false
-      matrix:
-        include:
-          - target: github-actions
-            cmd: github-actions
-            output: dist/github-actions
-          - target: cloud-helpers
-            cmd: cloud-helpers
-            output: dist/cloud-helpers
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
-        with:
-          go-version-file: go.mod
-          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
-          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
-          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
-          # we are back on Blacksmith/hosted, where it should behave as before.
-          # One variable controls both routing and caching, so a revert is complete.
-          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
-      - name: create build directories
-        run: |
-          mkdir -p dist
-      - name: build ${{ matrix.target }}
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-          CGO_ENABLED: "0"
-        run: |
-          go build -trimpath -buildvcs=false -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
-      # No artifact upload any more: the binaries' only consumer was
-      # docker-build, which now builds them in-image (see its comment). This
-      # job stays as the release-commit compile gate for ./cmd/github-actions
-      # and ./cmd/cloud-helpers — the fleet builds them fine and the hosted
-      # link OOMs (see the reverted commit in this PR's history).
+  # build-binaries was REMOVED here (it stays in branch.yaml, where "Build
+  # github-actions" and "Build cloud-helpers" are two of the seven
+  # ruleset-required checks and are the only compile of those packages).
+  #
+  # On THIS workflow it had become pure duplicate work: the in-image `gobuild`
+  # stages earlier in this PR made docker-build compile ./cmd/github-actions
+  # and ./cmd/cloud-helpers itself, and that same change removed this job's
+  # upload steps — so it compiled both binaries and threw them away. It was not
+  # even a useful compile gate, because the image build compiles the same
+  # packages and fails on the same error.
+  #
+  # The binaries ship nowhere else: their only distribution is the
+  # simplecontainer/github-actions and simplecontainer/cloud-helpers images
+  # (github-actions is also symlinked as `sc` inside its image). The released
+  # tarballs are ./cmd/sc only.
+  #
+  # Saves two fleet jobs per release — the compiles plus their runner handoffs.
 
   test:
     name: Run tests
@@ -537,7 +509,7 @@ jobs:
     # FORGE_CI_RUNNER` restores Blacksmith here exactly as everywhere else.
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON('["ubuntu-latest"]') || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
-    needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs]
+    needs: [prepare, build-setup, build-platforms, test, build-docs]
     permissions:
       contents: read
       id-token: write       # OIDC token for keyless cosign + attest-build-provenance
@@ -858,7 +830,7 @@ jobs:
     # FORGE_CI_RUNNER` restores Blacksmith here exactly as everywhere else.
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON('["ubuntu-latest"]') || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
-    needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs, docker-build]
+    needs: [prepare, build-setup, build-platforms, test, build-docs, docker-build]
     permissions:
       contents: write    # `welder run tag-release` pushes the release git tag
       id-token: write    # OIDC for keyless cosign sign-blob of sc.sh
