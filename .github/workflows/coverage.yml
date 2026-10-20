@@ -12,7 +12,15 @@ name: Coverage
 on:
   pull_request:
     branches: [main]
-    paths-ignore: ['*.md', 'LICENSE']
+    paths-ignore:
+      - '*.md'
+      - 'LICENSE'
+      - 'CODEOWNERS'
+      - '.gitignore'
+      - '.agents/**'
+      - '.workflow/**'
+      - '.github/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
   push:
     branches: [main]
 
