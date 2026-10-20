@@ -67,6 +67,7 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.diff.outputs.code }}
+      integration: ${{ steps.diff.outputs.integration }}
     steps:
       - name: Classify changed files
         id: diff
@@ -74,13 +75,34 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
         run: |
-          if [ -z "$PR" ]; then echo "code=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          # Two independent verdicts:
+          #   code        — anything but root-level docs (gates the build jobs)
+          #   integration — the Pulumi engine/provider surface or the dependency
+          #                 set moved (gates `Run integration tests`)
+          if [ -z "$PR" ]; then
+            echo "code=true" >> "$GITHUB_OUTPUT"
+            echo "integration=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           files="$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename')"
           if [ -z "$files" ] || printf '%s\n' "$files" | grep -qvE '^([^/]+\.md|LICENSE|CODEOWNERS|\.gitignore|\.agents/.*|\.workflow/.*|\.github/[^/]+\.md|\.github/ISSUE_TEMPLATE/.*)$'; then
             echo "code=true" >> "$GITHUB_OUTPUT"
           else
             echo "code=false" >> "$GITHUB_OUTPUT"
             echo "Root-level docs only; skipping build/test jobs."
+          fi
+          # `Run integration tests` spins the real Pulumi engine (30 min
+          # timeout) and is NOT a required check, but it was running on every
+          # PR — including CI- and docs-only ones — and holding one of the
+          # fleet's scarce RAM-capable slots for work no gate reads. It is
+          # path-gated rather than deleted: a PR touching the engine still
+          # gets it. Dependency moves count, because the engine's behaviour
+          # comes largely from the pulumi SDK version.
+          if [ -z "$files" ] || printf '%s\n' "$files" | grep -qE '^(pkg/clouds/pulumi/|go\.mod$|go\.sum$)'; then
+            echo "integration=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "integration=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::No pkg/clouds/pulumi or dependency changes — integration tests skipped. Add the 'run-integration' label to force them."
           fi
 
   build-setup:
@@ -227,13 +249,19 @@ jobs:
       # tag-promotion-consistency hazard this same default creates there.
       fail-fast: false
       matrix:
+          # darwin/amd64 was DROPPED 2026-10-20 (operator decision, CI capacity).
+          # Consequence to keep in mind: Rosetta 2 runs amd64 on Apple Silicon
+          # but NOT arm64 on Intel, so there is no working `sc` for a pre-2020
+          # Mac. sc.sh fails with an explicit message rather than a bare 404.
+          # Re-adding it means: this matrix, the expected-platform list in
+          # docker-finalize, verify-attestations.yml, scripts/verify-preview.sh,
+          # AND the required-check list in ruleset 9144757 (a required check
+          # whose job no longer exists blocks every merge, and vice versa).
         include:
           - os: linux
             arch: amd64
           - os: darwin
             arch: arm64
-          - os: darwin
-            arch: amd64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -362,7 +390,14 @@ jobs:
     name: Run integration tests
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
-    needs: build-setup
+    needs: [changes, build-setup]
+    # Path-gated — see the `integration` verdict in `changes` for why. The
+    # label is the escape hatch: branch.yaml already listens to `labeled`, so
+    # adding `run-integration` to a PR re-runs the workflow with this job on
+    # without needing a code push.
+    if: >-
+      needs.changes.outputs.integration == 'true' ||
+      contains(github.event.pull_request.labels.*.name, 'run-integration')
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:

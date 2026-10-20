@@ -223,13 +223,19 @@ jobs:
       # Sigstore/Rekor outage, which hits all three platforms at once.
       fail-fast: false
       matrix:
+          # darwin/amd64 was DROPPED 2026-10-20 (operator decision, CI capacity).
+          # Consequence to keep in mind: Rosetta 2 runs amd64 on Apple Silicon
+          # but NOT arm64 on Intel, so there is no working `sc` for a pre-2020
+          # Mac. sc.sh fails with an explicit message rather than a bare 404.
+          # Re-adding it means: this matrix, the expected-platform list in
+          # docker-finalize, verify-attestations.yml, scripts/verify-preview.sh,
+          # AND the required-check list in ruleset 9144757 (a required check
+          # whose job no longer exists blocks every merge, and vice versa).
         include:
           - os: linux
             arch: amd64
           - os: darwin
             arch: arm64
-          - os: darwin
-            arch: amd64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -1079,7 +1085,7 @@ jobs:
           # class as the sc.sh-served-stale-v2026.3.6 incident recorded on
           # build-platforms' upload step. Each platform must appear twice:
           # unversioned (the `latest` pointer sc.sh fetches) and versioned.
-          platforms=( linux-amd64 darwin-arm64 darwin-amd64 )
+          platforms=( linux-amd64 darwin-arm64 )
           missing=0
           for platform in "${platforms[@]}"; do
             for expected in "sc-${platform}.tar.gz" "sc-${platform}-v${VERSION}.tar.gz"; do

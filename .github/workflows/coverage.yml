@@ -9,20 +9,25 @@ name: Coverage
 #
 # Explicit branch lists (no wildcards) per the push.yaml / branch.yaml history
 # (PR #272): wildcard push/PR triggers fan out runs on every branch.
+# PR runs were REMOVED 2026-10-20. This workflow is observe-only by design (no
+# regression gate, see the note above) and is not a required check, yet it was
+# taking one of the CI fleet's five RAM-capable slots on every PR for ~36 min:
+# `go test -coverprofile -covermode=atomic ./...` compiles and runs the whole
+# suite instrumented. Measured consequence: with coverage plus the integration
+# tests resident, only 3 of 5 slots were available to the 7 jobs that actually
+# gate a merge.
+#
+# `main` pushes still run, which is where the baseline artifact other tooling
+# diffs against is produced — so the number keeps moving, just not per-PR.
+#
+# Re-enabling is this block alone: restore the `pull_request` trigger below.
+# The PR-comment step further down is intentionally LEFT IN PLACE and guarded
+# by `if: github.event_name == 'pull_request'`, so it becomes live again with
+# no other edit.
 on:
-  pull_request:
-    branches: [main]
-    paths-ignore:
-      - '*.md'
-      - 'LICENSE'
-      - 'CODEOWNERS'
-      - '.gitignore'
-      - '.agents/**'
-      - '.workflow/**'
-      - '.github/*.md'
-      - '.github/ISSUE_TEMPLATE/**'
   push:
     branches: [main]
+  workflow_dispatch:
 
 # REF-keyed so a force-push supersedes the in-flight run and releases its
 # runner (see branch.yaml for the full note and the measured 40-minute

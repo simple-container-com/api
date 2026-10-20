@@ -266,7 +266,7 @@ jobs:
             preview) variants=( "-v${VERSION}" ) ;;
             *)       variants=( ) ;;
           esac
-          for plat in linux-amd64 darwin-arm64 darwin-amd64; do
+          for plat in linux-amd64 darwin-arm64; do
             for variant in "${variants[@]}"; do
               tarball="sc-${plat}${variant}.tar.gz"
               url="${DIST_BASE}/${tarball}"

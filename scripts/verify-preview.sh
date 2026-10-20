@@ -187,7 +187,7 @@ echo "[4] Tarball attestation"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
-for plat in linux-amd64 darwin-arm64 darwin-amd64; do
+for plat in linux-amd64 darwin-arm64; do
   T="sc-$plat-v$VERSION.tar.gz"
   ok=1
   for ext in "" .sha256 .cosign-bundle .sigstore.json .sbom.cdx.json; do
