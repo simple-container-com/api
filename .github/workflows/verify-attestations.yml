@@ -74,7 +74,7 @@ jobs:
           persist-credentials: false
 
       - name: Install attestation tools
-        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-attest-tools@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
 
       - name: Resolve trust root
         id: trust

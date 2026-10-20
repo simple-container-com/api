@@ -114,7 +114,13 @@ jobs:
           # One variable controls both routing and caching, so a revert is complete.
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: install sc + welder tools
-        uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/setup-sc-tooling@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
+        with:
+          # Skip the download when the fleet's rootfs already carries these
+          # exact versions; unset variables = download latest, as before.
+          # Full rationale and the lockstep requirement: push.yaml.
+          sc-version: ${{ vars.FORGE_CI_SC_VERSION }}
+          accept-preinstalled-welder: ${{ vars.FORGE_CI_WELDER_VERSION }}
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -372,7 +378,7 @@ jobs:
           # One variable controls both routing and caching, so a revert is complete.
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: install attestation tools
-        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-attest-tools@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       # The engine tests drive the real engine: the pulumi CLI at the SDK version
       # in go.mod (the shared installer — same script the release/preview deploy
       # jobs use, so the version derivation and checksum check cannot drift
@@ -436,7 +442,7 @@ jobs:
       - name: Notify Telegram (success)
         if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/notify-telegram@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
@@ -447,7 +453,7 @@ jobs:
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/notify-telegram@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}

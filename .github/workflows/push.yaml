@@ -73,7 +73,40 @@ jobs:
           # One variable controls both routing and caching, so a revert is complete.
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: install sc + welder tools
-        uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/setup-sc-tooling@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
+        with:
+          # Pinned through variables, not literals, for the same reason
+          # FORGE_CI_RUNNER is: one place to change, and `gh variable delete`
+          # restores the previous behaviour completely.
+          #
+          # WHY PIN AT ALL. The CI fleet's guest rootfs now carries sc + welder
+          # preinstalled (forge/provisioning/firecracker-buildvm/
+          # bake-sc-welder-into-rootfs.sh), and setup-sc-tooling skips the
+          # download only when the preinstalled version matches EXACTLY.
+          # Unpinned means "latest", which never equals a preinstalled version
+          # string and so always downloads: `sc` is a 565 MB binary behind a
+          # 100 MB tarball, and this step measured 320-362 s on EVERY fleet job
+          # (api runs 39443088291, 39458652001).
+          #
+          # LOCKSTEP. These values must equal what is baked into the rootfs. A
+          # mismatch is SAFE — it falls back to downloading, exactly as today —
+          # but silently forfeits the win, so it is the first thing to check if
+          # this step becomes slow again.
+          #
+          # Note `vars.*` also resolves ORGANISATION variables (same caveat as
+          # the release gate below), and the pin applies on hosted/Blacksmith
+          # runners too: there nothing is preinstalled, so the effect is only
+          # that a known sc version is fetched instead of a floating `latest`.
+          #
+          # welder uses `accept-preinstalled-welder` rather than
+          # `welder-version` because welder CANNOT be pinned by URL — every
+          # welder.simple-container.com/releases/<version>/ path returns the
+          # dist server's HTML 404, so only `latest` resolves (verified
+          # 2026-10-20). That artifact has been byte-identical since
+          # 2024-05-13, which is what makes accepting a preinstalled copy by
+          # version safe.
+          sc-version: ${{ vars.FORGE_CI_SC_VERSION }}
+          accept-preinstalled-welder: ${{ vars.FORGE_CI_WELDER_VERSION }}
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -258,7 +291,7 @@ jobs:
                                   # sign/SBOM/SLSA steps soft-skip via their own
                                   # outcome guards and the gate below reports
                                   # every one of them at once.
-        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-attest-tools@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       - name: Generate CycloneDX SBOM for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: sbom_tarball
         continue-on-error: true
@@ -592,7 +625,7 @@ jobs:
       # (run 39253348066) and happened twice per release for bytes the
       # pipeline had compiled minutes earlier.
       - name: install sc tool
-        uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-sc@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -605,8 +638,63 @@ jobs:
       - name: Setup Docker Buildx with advanced caching
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
         with:
+          # A STABLE builder name + no teardown, which is what actually makes
+          # the gobuild stage's `RUN --mount=type=cache` Go caches survive
+          # between jobs. Without these three inputs the action generates a
+          # random builder name and REMOVES the builder in its post step, so
+          # every release recompiled the full ~2095-package closure from cold
+          # inside buildkit — the Dockerfile comment claiming an incremental
+          # compile "on a persistent builder" was simply not true.
+          #
+          # This cannot be achieved with `cache-to` instead: buildkit does NOT
+          # export `type=cache` mount contents through ANY cache exporter
+          # (gha or registry). Mount contents are builder-local state, so
+          # keeping the builder IS the only mechanism.
+          #
+          # Shared across all four matrix legs on purpose: `cmd/github-actions`
+          # and `cmd/cloud-helpers` share 2092 of ~2095 packages, so whichever
+          # runs second on a given guest gets a near-warm cache.
+          #
+          # On an EPHEMERAL runner (ubuntu-latest / Blacksmith) there is
+          # nothing to reuse and nothing to leak — the VM is discarded. So
+          # this is a no-op there, not a behaviour change.
+          name: forge-ci
+          cleanup: false
+          keep-state: true
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
+
+      # Persistent state needs a bound. The fleet guests' /cache is 60 GB with
+      # ~44 GB of golden Go cache reflinked in, leaving ~16 GB for dockerd
+      # (data-root is /cache/docker) — enough, but not enough to ignore.
+      #
+      # Deliberately NOT a buildkitd.toml gc policy: a TOML the daemon fails
+      # to parse takes down every release build, and it could not be verified
+      # locally (bootstrapping moby/buildkit timed out pulling the image).
+      # buildkit's own GC is enabled by default; this step adds an age bound
+      # plus a free-space backstop, in shell, where a mistake is visible.
+      #
+      # `--filter until=` is the one prune flag whose name has been stable
+      # across buildx versions — `--keep-storage` was REPLACED by
+      # `--max-used-space` in buildx v0.17, and the runner image upgrades
+      # buildx on its own schedule, so naming either one invites a break.
+      # continue-on-error + `|| true`: cache hygiene must never fail a release.
+      - name: Bound the persistent builder's cache
+        if: vars.FORGE_CI_RUNNER != ''
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          docker buildx du --builder forge-ci 2>/dev/null | tail -2 || true
+          docker buildx prune --builder forge-ci --force --filter until=168h 2>/dev/null || true
+          # Backstop: if the cache volume is genuinely tight, drop everything
+          # rather than let a build fail on ENOSPC. A cold compile costs
+          # minutes; a wedged guest costs the release.
+          avail=$(df -BG --output=avail /var/lib/docker 2>/dev/null | tail -1 | tr -dc '0-9')
+          echo "docker volume free: ${avail:-unknown} GB"
+          if [ -n "${avail:-}" ] && [ "${avail}" -lt 10 ]; then
+            echo "::warning::under 10 GB free for dockerd — pruning the whole build cache"
+            docker buildx prune --builder forge-ci --all --force 2>/dev/null || true
+          fi
       - name: Docker login using SC secrets
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
@@ -637,8 +725,33 @@ jobs:
           # reads: `mode=max` exports the builder stage, so a poisoned hit
           # would skip the SHA-256-verified gcloud/Pulumi downloads entirely.
           # Release builds read and write `prod-*` only.
-          cache-from: type=gha,scope=prod-${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=prod-${{ matrix.image }}
+          #
+          # TWO exporters, and the registry one is not redundant. The repo's
+          # Actions cache sits at 8 GB of its 10 GB budget across 119 entries
+          # (measured 2026-10-20), so buildx scopes are exposed to LRU
+          # eviction — and what gets evicted is the expensive builder stage
+          # (SHA-256-verified Pulumi + the ~500 MB gcloud SDK). The registry
+          # exporter has no such budget and is not evicted, so the layer cache
+          # stops depending on how much OTHER cache the repo happened to write
+          # this week. gha stays first because it is the faster read when it
+          # is warm; buildkit takes the first hit.
+          #
+          # This publishes a `:buildcache` tag to the PUBLIC Docker Hub repo.
+          # The blobs are build layers of an already-public image built from an
+          # already-public repo, so nothing becomes visible that wasn't — but
+          # it is a new outward-facing tag, which is why it is called out here
+          # rather than buried.
+          #
+          # Both exporters keep the `prod-` trust-tier prefix in their ref, for
+          # the reason above: a lower-trust build must never write something a
+          # release build reads. `mode=max` exports the builder stage, so a
+          # poisoned hit would skip the verified downloads entirely.
+          cache-from: |
+            type=gha,scope=prod-${{ matrix.image }}
+            type=registry,ref=${{ matrix.image_repo }}:prod-buildcache
+          cache-to: |
+            type=gha,mode=max,scope=prod-${{ matrix.image }}
+            type=registry,mode=max,ref=${{ matrix.image_repo }}:prod-buildcache
           # Never cache-hit the distro-upgrade layer. `runtime` is the final
           # stage in every one of these Dockerfiles; its base is digest-pinned
           # and its `apk/dnf upgrade` RUN string never changes, so with
@@ -667,7 +780,7 @@ jobs:
       - name: Sign + attest ${{ matrix.image }} (SBOM + cosign + SLSA)
         id: signattest
         if: steps.build_and_push.outcome == 'success'
-        uses: simple-container-com/actions/sign-and-attest@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/sign-and-attest@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           image-ref: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
           image-name: ${{ matrix.image }}
@@ -866,9 +979,15 @@ jobs:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
       - name: install sc + welder tools
-        uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/setup-sc-tooling@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
+        with:
+          # Skip the download when the fleet's rootfs already carries these
+          # exact versions; unset variables = download latest, as before.
+          # Full rationale and the lockstep requirement: push.yaml.
+          sc-version: ${{ vars.FORGE_CI_SC_VERSION }}
+          accept-preinstalled-welder: ${{ vars.FORGE_CI_WELDER_VERSION }}
       - name: Install attestation tools (cosign for sc.sh sign-blob)
-        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-attest-tools@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       # `welder deploy` below runs `sc deploy`, which shells out to the pulumi
       # CLI. The Blacksmith/hosted image shipped one; the self-hosted fleet does
       # not — see .github/scripts/install-pulumi.sh for the full story.
@@ -1130,7 +1249,7 @@ jobs:
         # Cancelled and skipped are not releases.
         if: ${{ success() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/notify-telegram@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
@@ -1143,7 +1262,7 @@ jobs:
         # release that did not happen, so it gets the failure notice too.
         if: ${{ failure() || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/notify-telegram@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
