@@ -507,7 +507,30 @@ jobs:
     # Tests the variable's PRESENCE, not its value (a future fleet-label
     # change must not touch this line), and `gh variable delete
     # FORGE_CI_RUNNER` restores Blacksmith here exactly as everywhere else.
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON('["ubuntu-latest"]') || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    # PER-LEG routing, because two of these legs compile Go and two do not.
+    #
+    # The `github-actions` and `cloud-helpers-aws` Dockerfiles each build their
+    # binary in a `gobuild` stage, and that link is the 12.9 GB-class peak. A
+    # GitHub-hosted runner has 16 GB and CANNOT take it: this exact build died
+    # with `compile: signal: killed` / `cannot allocate memory` on
+    # pulumi-yandex while linking ./cmd/cloud-helpers (run 39402578614,
+    # 2026-10-20) — the same OOM that already killed `build-binaries` when it
+    # was routed hosted, which is why that re-route was reverted. Moving the
+    # compile into the image moved the OOM, it did not remove it.
+    #
+    # So: legs that compile Go run on the FLEET (20 GiB guests, and their
+    # per-guest dockerd keeps the gobuild cache mounts warm across builds);
+    # `kubectl` and `caddy` compile nothing and are dominated by registry and
+    # apk/dnf egress, so they stay hosted where that egress is fast and the
+    # two run in parallel for free.
+    #
+    # `matrix.heavy_go` absent is falsy, so a new leg defaults to hosted and
+    # must opt in — the safe direction, since the failure mode of guessing
+    # wrong is an OOM nine minutes into a release.
+    runs-on: >-
+      ${{ vars.FORGE_CI_RUNNER
+          && (matrix.heavy_go && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["ubuntu-latest"]'))
+          || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
     needs: [prepare, build-setup, build-platforms, test, build-docs]
     permissions:
@@ -538,6 +561,7 @@ jobs:
               simplecontainer/caddy:latest
               simplecontainer/caddy:${{ needs.prepare.outputs.version }}
           - image: github-actions
+            heavy_go: true   # gobuild stage: needs fleet RAM, see runs-on
             dockerfile: github-actions.Dockerfile
             image_repo: simplecontainer/github-actions
             tags: |
@@ -551,6 +575,7 @@ jobs:
           # the SECURITY.md identity-regex contract — or (b) leave it unsigned,
           # so consumers following the documented verification path would fail.
           - image: cloud-helpers-aws
+            heavy_go: true   # gobuild stage: needs fleet RAM, see runs-on
             dockerfile: cloud-helpers.aws.Dockerfile
             image_repo: simplecontainer/cloud-helpers
             tags: |
