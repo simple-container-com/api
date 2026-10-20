@@ -689,8 +689,15 @@ jobs:
           # Backstop: if the cache volume is genuinely tight, drop everything
           # rather than let a build fail on ENOSPC. A cold compile costs
           # minutes; a wedged guest costs the release.
-          avail=$(df -BG --output=avail /var/lib/docker 2>/dev/null | tail -1 | tr -dc '0-9')
-          echo "docker volume free: ${avail:-unknown} GB"
+          #
+          # Ask dockerd where its data-root actually is — do NOT assume
+          # /var/lib/docker. The fleet guests put it on the persistent cache
+          # drive at /cache/docker, so a hardcoded path would `df` a
+          # non-existent directory, yield an empty string, and skip the
+          # backstop silently on the one runner class that needs it.
+          root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)
+          avail=$(df -BG --output=avail "${root:-/var/lib/docker}" 2>/dev/null | tail -1 | tr -dc '0-9')
+          echo "dockerd data-root: ${root:-unknown} — free: ${avail:-unknown} GB"
           if [ -n "${avail:-}" ] && [ "${avail}" -lt 10 ]; then
             echo "::warning::under 10 GB free for dockerd — pruning the whole build cache"
             docker buildx prune --builder forge-ci --all --force 2>/dev/null || true
