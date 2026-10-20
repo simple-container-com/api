@@ -1,0 +1,1 @@
+Verification complete. I did not re-chase what the prior two turns already established; instead I tested the three things nobody had: the `VERSION` build-arg plumbing end-to-end, whether the allowlist `.dockerignore` starves the in-image builds, and PR #461's actual CI state.
