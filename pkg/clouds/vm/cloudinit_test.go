@@ -125,6 +125,61 @@ func TestRenderCloudInitHonoursSshUserAndExtraKeys(t *testing.T) {
 	Expect(out).To(ContainSubstring("-o deployer -g deployer " + ConfigDir + " " + StateDir))
 }
 
+// `packageMirror` was accepted by the config, documented as the answer to
+// unreachable distribution mirrors, and never rendered into anything — a field
+// silently dropped, which is the exact failure mode the refuse-don't-ignore table
+// exists to prevent, and no test caught it because every test asserted on what IS
+// rendered. This one asserts on the field.
+//
+// It is expressed through cloud-init's apt module rather than a runcmd because the
+// module rewrites the sources before any package-installing module runs; by the time
+// runcmd runs, the boot has already spent its timeout on the default mirror.
+func TestRenderCloudInitHonoursPackageMirror(t *testing.T) {
+	RegisterTestingT(t)
+
+	type aptEntry struct {
+		Arches []string `yaml:"arches"`
+		URI    string   `yaml:"uri"`
+	}
+	type parsedApt struct {
+		Apt *struct {
+			Primary  []aptEntry `yaml:"primary"`
+			Security []aptEntry `yaml:"security"`
+		} `yaml:"apt"`
+	}
+
+	// Absent, not empty: a machine with no mirror configured must get no apt block at
+	// all, rather than one pointing at "".
+	var without parsedApt
+	out, err := RenderCloudInit(cloudConfig(), RoleCompose, testKeys())
+	Expect(err).ToNot(HaveOccurred())
+	Expect(yaml.Unmarshal([]byte(out), &without)).To(Succeed())
+	Expect(without.Apt).To(BeNil())
+	Expect(out).ToNot(ContainSubstring("apt:"))
+
+	cfg := cloudConfig()
+	cfg.PackageMirror = "  https://mirror.yandex.ru/ubuntu  "
+
+	var with parsedApt
+	out, err = RenderCloudInit(cfg, RoleCompose, testKeys())
+	Expect(err).ToNot(HaveOccurred())
+	Expect(yaml.Unmarshal([]byte(out), &with)).To(Succeed())
+	Expect(with.Apt).ToNot(BeNil())
+
+	// Both primary AND security, from the same value: a mirror that carries the main
+	// archive but leaves security pointing at security.ubuntu.com makes every boot
+	// wait on the host this field exists to avoid, and the machine still comes up —
+	// just slowly, which is the kind of thing nobody traces back here.
+	Expect(with.Apt.Primary).To(Equal([]aptEntry{{Arches: []string{"default"}, URI: "https://mirror.yandex.ru/ubuntu"}}))
+	Expect(with.Apt.Security).To(Equal(with.Apt.Primary))
+
+	// The docker install is NOT affected, and the comment on
+	// DefaultDockerInstallScript says so: the script curls a host of Docker's own and
+	// then installs from Docker's apt repository, neither of which an apt mirror
+	// redirects. Asserted here so the two do not drift into implying each other.
+	Expect(out).To(ContainSubstring(DefaultDockerInstallScript))
+}
+
 func TestRenderCloudInitRefusals(t *testing.T) {
 	RegisterTestingT(t)
 

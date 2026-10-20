@@ -102,6 +102,22 @@ func (m *vmMocks) inputsOf(typeToken string) resource.PropertyMap {
 	return nil
 }
 
+// allInputsOf is inputsOf for the cases where the COUNT is not the assertion — a
+// driver that creates several of one type (security-group rules) needs every one of
+// them checked, because three rules of the right shape plus one of the wrong shape
+// passes a count.
+func (m *vmMocks) allInputsOf(typeToken string) []resource.PropertyMap {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []resource.PropertyMap
+	for _, a := range m.created {
+		if a.TypeToken == typeToken {
+			out = append(out, a.Inputs)
+		}
+	}
+	return out
+}
+
 func (m *vmMocks) countOf(typeToken string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()

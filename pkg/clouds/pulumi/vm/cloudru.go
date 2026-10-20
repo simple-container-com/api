@@ -444,6 +444,14 @@ func (cloudruDriver) network(ctx *sdk.Context, input api.ResourceInput, cfg *vm.
 	return subnet.ID().ToStringPtrOutput(), []sdk.Resource{vpc, subnet}, nil
 }
 
+// ingressPort is one hole in the security group. The protocol is carried alongside
+// the number rather than assumed to be tcp, because one of the ports SC opens is
+// 443/udp and a map keyed by number alone could not hold both.
+type ingressPort struct {
+	port     int
+	protocol string
+}
+
 // securityGroup opens exactly the ports SC is going to use.
 func (cloudruDriver) securityGroup(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig, region string, resOpts []sdk.ResourceOption) (sdk.StringInput, []sdk.Resource, error) {
 	name := input.Descriptor.Name
@@ -465,15 +473,24 @@ func (cloudruDriver) securityGroup(ctx *sdk.Context, input api.ResourceInput, cf
 	// runs the ingress: a host serving stacks on a published port has no business
 	// answering on 443, and opening it anyway is what makes a later "why is this
 	// reachable" audit expensive.
-	ports := map[string]int{"ssh": vm.DefaultSshPort}
+	//
+	// 443/udp is HTTP/3, and it is here because the Caddy compose project publishes
+	// it (pkg/clouds/vm/caddy.go — `443:443/udp` alongside the TCP one). A container
+	// bound to UDP 443 behind a firewall that drops it is worse than not serving h3
+	// at all: Caddy still advertises Alt-Svc, so every browser spends a connection
+	// attempt on a port that black-holes before falling back to TCP, and Chrome
+	// remembers the broken alt-svc. The two halves have to agree, and the firewall is
+	// the half SC owns on this driver.
+	ports := map[string]ingressPort{"ssh": {port: vm.DefaultSshPort, protocol: "tcp"}}
 	if cfg.IngressEnabled() {
-		ports["http"] = 80
-		ports["https"] = 443
+		ports["http"] = ingressPort{port: 80, protocol: "tcp"}
+		ports["https"] = ingressPort{port: 443, protocol: "tcp"}
+		ports["https-h3"] = ingressPort{port: 443, protocol: "udp"}
 	}
 
 	deps := []sdk.Resource{group}
 	for _, label := range sortedKeys(ports) {
-		port := ports[label]
+		p := ports[label]
 		rule, err := sdkSbercloud.NewNetworkingSecgroupRule(ctx,
 			input.ToResName(fmt.Sprintf("%s-secgroup-%s", name, label)),
 			&sdkSbercloud.NetworkingSecgroupRuleArgs{
@@ -481,13 +498,13 @@ func (cloudruDriver) securityGroup(ctx *sdk.Context, input api.ResourceInput, cf
 				SecurityGroupId: group.ID(),
 				Direction:       sdk.String("ingress"),
 				Ethertype:       sdk.String("IPv4"),
-				Protocol:        sdk.StringPtr("tcp"),
-				PortRangeMin:    sdk.IntPtr(port),
-				PortRangeMax:    sdk.IntPtr(port),
+				Protocol:        sdk.StringPtr(p.protocol),
+				PortRangeMin:    sdk.IntPtr(p.port),
+				PortRangeMax:    sdk.IntPtr(p.port),
 				RemoteIpPrefix:  sdk.StringPtr("0.0.0.0/0"),
 			}, resOpts...)
 		if err != nil {
-			return nil, nil, errors.Wrapf(err, "failed to open port %d on vm %q", port, name)
+			return nil, nil, errors.Wrapf(err, "failed to open %s port %d on vm %q", p.protocol, p.port, name)
 		}
 		deps = append(deps, rule)
 	}

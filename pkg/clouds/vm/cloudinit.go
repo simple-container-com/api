@@ -34,8 +34,16 @@ const (
 //
 // It reaches out to get.docker.com, which is one of the four egress paths whose
 // reachability from inside Russia is being measured before anything is promised
-// about it (roadmap item sc-ru-market-readiness, B0). Where it is unreliable, the
-// answer is PackageMirror, not a retry loop.
+// about it (roadmap item sc-ru-market-readiness, B0).
+//
+// PackageMirror does NOT cover this: it rewrites apt's sources, and this is a curl to
+// a host of Docker's own. The script then adds Docker's apt repository and installs
+// from THERE, not from the distribution — so a machine that cannot reach
+// download.docker.com cannot be fixed by an apt mirror either. The two answers for
+// such a machine are an image that already ships docker (the install is skipped —
+// see InstallDocker below) or a private mirror of Docker's repository; neither is
+// expressible as a one-line field, which is why there is no flag pretending to be
+// one.
 const DefaultDockerInstallScript = "curl -fsSL https://get.docker.com | sh"
 
 // dockerLogOpts caps the json-file driver.
@@ -64,6 +72,25 @@ var dockerLogOpts = map[string]string{
 //     takes effect on the next boot otherwise, and the first deploy happens on this
 //     one.
 const cloudInitTemplate = `#cloud-config
+{{- if .PackageMirror }}
+# Rewrites the distribution's package sources before any module that installs a
+# package runs. cloud-init's apt module does this by rewriting the sources files
+# itself, which is why it is expressed here rather than as a runcmd — by the time
+# runcmd runs, package_update has already tried the default mirror and the boot has
+# already spent its timeout on it.
+#
+# Both the main archive and the security one are set, from the same value: a mirror
+# that carries one and not the other leaves every boot waiting on
+# security.ubuntu.com, which is the slow failure this field exists to avoid. Point it
+# at a mirror that carries both (mirror.yandex.ru/ubuntu does).
+apt:
+  primary:
+    - arches: [default]
+      uri: {{ quote .PackageMirror }}
+  security:
+    - arches: [default]
+      uri: {{ quote .PackageMirror }}
+{{- end }}
 users:
   - name: {{ .User }}
     sudo: ["ALL=(ALL) NOPASSWD:ALL"]
@@ -108,6 +135,7 @@ type cloudInitData struct {
 	AuthorizedKeys []string
 	HostPrivateKey string
 	HostPublicKey  string
+	PackageMirror  string
 	DaemonJSON     string
 	InstallDocker  string
 	PostInstall    string
@@ -189,6 +217,7 @@ func RenderCloudInit(cfg *VmConfig, role HostRole, keys HostKeys) (string, error
 		AuthorizedKeys: lo.Compact(authorized),
 		HostPrivateKey: strings.TrimRight(keys.HostPrivateKey, "\n"),
 		HostPublicKey:  strings.TrimSpace(keys.HostPublicKey),
+		PackageMirror:  strings.TrimSpace(cfg.PackageMirror),
 		DaemonJSON:     daemonJSON,
 		// Idempotent on purpose: an image that already ships docker (several RU
 		// marketplace images do) must not be sent through the convenience script.
