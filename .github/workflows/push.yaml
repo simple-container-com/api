@@ -5,7 +5,11 @@ on:
     branches:
       - 'main'
 
-# allow only one concurrent build
+# allow only one concurrent build. The `cancel-in-progress: false` here is
+# DELIBERATE and is the asymmetry vs branch.yaml / coverage.yml / the scan
+# workflows, which all cancel-in-progress: this workflow publishes a release
+# — tags, images, the CDN bundle — and a release must never be cancelled
+# mid-flight by the next push. The next run simply queues behind it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -104,7 +108,24 @@ jobs:
           rm -fR docs/schemas/*
       - name: tools
         run: |
-          cat tools.go | grep _ | awk -F'"' '{print $2}' | xargs -tI % go get %
+          # NO `go get` here, deliberately. It used to run
+          #   cat tools.go | grep _ | ... | xargs -tI % go get %
+          # which resolves each tool to its LATEST version on every run. That
+          # was three separate problems, not just the obvious network cost the
+          # operator spotted:
+          #   1. ~5 network round-trips per job even with a warm GOMODCACHE;
+          #   2. it could silently BUMP golangci-lint / gofumpt — the very
+          #      tools that gate this build — so a PR could fail lint for
+          #      reasons unrelated to its diff, and the version that ran was
+          #      never the version committed;
+          #   3. a bumped tool is a different module version, so it misses the
+          #      seeded build cache and recompiles.
+          # None of it is needed: tools.go blank-imports all five tools and
+          # go.mod pins them (mockery/v2 v2.53.6, golangci-lint v1.64.8,
+          # gofumpt v0.11.0, delve v1.27.0, go-jsonschema v0.24.1), and the
+          # //go:generate lines in tools.go `go build` them from those pinned
+          # versions. `go mod download` then serves straight from the warm
+          # GOMODCACHE.
           go mod download
           go generate -tags tools
           go mod tidy
@@ -118,7 +139,17 @@ jobs:
         run: |
           go mod tidy
           bin/gofumpt -l -w ./
-          bin/golangci-lint run --fix --timeout 3m -v
+          # --timeout 15m, not 3m. The 3m budget was always marginal and only
+          # passed because `welder run rebuild` happened to run first and warm
+          # the export data that golangci-lint's go/packages loader needs.
+          # With that build removed (nothing consumed it here), the loader does
+          # the work itself and measured 3m6s on 6 oversubscribed vCPU —
+          # failing with "context loading failed: context deadline exceeded",
+          # exit 4, which reads like a lint error but is a timeout.
+          # api#461 run 39318720877. Package loading is the floor for a
+          # 2143-package graph; the limit only needs to not be the thing that
+          # fails.
+          bin/golangci-lint run --fix --timeout 15m -v
       - name: get telegram secrets
         id: telegram-secrets
         run: |
@@ -134,6 +165,11 @@ jobs:
         with:
           name: bin-tools
           path: bin
+          # `warn` (the default) uploads an EMPTY artifact when nothing matched and
+          # defers the failure to whoever consumes it — on the release path that is
+          # a silently missing platform/binary/image digest (see docker-finalize's
+          # Sidecar assertion for the bundle-level backstop).
+          if-no-files-found: error
           retention-days: 1
 
   build-platforms:
@@ -146,6 +182,13 @@ jobs:
       id-token: write       # OIDC for keyless cosign + attest-build-provenance
       attestations: write
     strategy:
+      # fail-fast must be false for the continue-on-error contract below to
+      # hold ACROSS legs, not just within one. With the default (true), a
+      # gate failure in one leg CANCELS the sibling legs mid-attestation —
+      # and the "complete picture of which sidecars are missing" the steps
+      # below promise is exactly what you lose, most notably during a
+      # Sigstore/Rekor outage, which hits all three platforms at once.
+      fail-fast: false
       matrix:
         include:
           - os: linux
@@ -194,7 +237,10 @@ jobs:
       # rest: the run still produces a complete picture of which sidecars are
       # missing. The trailing gate then decides whether that is publishable.
       # On this workflow it is not — see the gate step for the release policy
-      # and the break-glass variable.
+      # and the break-glass variable. (`fail-fast: false` on the strategy
+      # above is what makes this hold ACROSS legs too — with the default
+      # fail-fast, a gate failure in one leg would cancel the siblings and
+      # the complete picture is exactly what you would lose.)
       - name: SHA-256 sidecars for ${{ matrix.os }}/${{ matrix.arch }}
         id: sha256
         env:
@@ -357,6 +403,7 @@ jobs:
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.cosign-bundle
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sigstore.json
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sbom.cdx.json
+          if-no-files-found: error
           retention-days: 1
 
   build-binaries:
@@ -365,6 +412,9 @@ jobs:
     timeout-minutes: 60
     needs: [prepare, build-setup]
     strategy:
+      # Independent targets; a failure in one must not cancel the other's
+      # build. See build-platforms above for the full fail-fast rationale.
+      fail-fast: false
       matrix:
         include:
           - target: github-actions
@@ -396,17 +446,11 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           go build -trimpath -buildvcs=false -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
-      - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ matrix.target }}-binary
-          path: ${{ matrix.output }}
-          retention-days: 1
-
-  # Note (PR #257): the `build-github-actions-staging` job was removed
-  # alongside its sole consumer — the `github-actions-staging` matrix
-  # entry in docker-build. The `:staging` image tag is now exclusively
-  # published by build-staging.yml under the staging trust root.
+      # No artifact upload any more: the binaries' only consumer was
+      # docker-build, which now builds them in-image (see its comment). This
+      # job stays as the release-commit compile gate for ./cmd/github-actions
+      # and ./cmd/cloud-helpers — the fleet builds them fine and the hosted
+      # link OOMs (see the reverted commit in this PR's history).
 
   test:
     name: Run tests
@@ -464,11 +508,34 @@ jobs:
         with:
           name: docs-site
           path: docs/site
+          if-no-files-found: error
           retention-days: 1
 
   docker-build:
     name: Docker build and push ${{ matrix.image }}
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    # Routed to a GitHub-hosted runner whenever the fleet shape is ACTIVE —
+    # the inverse of every build job's runs-on, and deliberate.
+    #
+    # No leg of this matrix has a fleet requirement. The longest leg
+    # (github-actions, 13.2 min on run 39227894781) is dominated by
+    # downloading pulumi + the ~500 MB gcloud SDK (github-actions.Dockerfile)
+    # and `type=gha` cache traffic — all GitHub/internet egress, i.e. the
+    # work is worst exactly where the fleet is worst (fake-IP hijack egress).
+    # kubectl.Dockerfile and caddy.Dockerfile consume no Go artifact at all,
+    # yet all four legs waited on the 2 fleet slots behind the Go phase.
+    # Hosted, the four legs run fully parallel and the phase is the ~13.2 min
+    # long pole instead of the measured 20.3.
+    #
+    # Posture: this job ran on Blacksmith — a third party — before the fleet
+    # cutover, so SC_CONFIG + the Docker Hub token on GitHub-hosted runners
+    # is not a new exposure; the repo is public, so ubuntu-latest is free;
+    # and the cosign identity is `push.yaml@refs/heads/main` (workflow+ref,
+    # not runner), so the documented trust root is untouched.
+    #
+    # Tests the variable's PRESENCE, not its value (a future fleet-label
+    # change must not touch this line), and `gh variable delete
+    # FORGE_CI_RUNNER` restores Blacksmith here exactly as everywhere else.
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON('["ubuntu-latest"]') || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
     needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs]
     permissions:
@@ -476,6 +543,14 @@ jobs:
       id-token: write       # OIDC token for keyless cosign + attest-build-provenance
       attestations: write   # required by actions/attest-build-provenance
     strategy:
+      # fail-fast: false is a CORRECTNESS requirement here, not just
+      # diagnostics: `Promote release tags` below does one registry PUT per
+      # tag (:latest, :<version>). With the default fail-fast (true), a gate
+      # failure in one image CANCELS the sibling legs mid-run — and a cancel
+      # landing between a leg's two PUTs leaves :latest and :<version>
+      # pointing at DIFFERENT digests. Also keeps per-image attestation
+      # diagnostics alive across legs (see build-platforms).
+      fail-fast: false
       matrix:
         include:
           - image: kubectl
@@ -513,18 +588,12 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: download github-actions binary
-        if: matrix.image == 'github-actions'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: github-actions-binary
-          path: dist
-      - name: download cloud-helpers binary
-        if: matrix.image == 'cloud-helpers-aws'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: cloud-helpers-binary
-          path: dist
+      # The github-actions / cloud-helpers-aws images no longer download a
+      # `dist/` binary artifact: their Dockerfiles build the binary in a
+      # `gobuild` stage (same flags, same -X stamp via the VERSION build-arg
+      # below). That artifact round-trip measured 448 s per ~70 MB binary
+      # (run 39253348066) and happened twice per release for bytes the
+      # pipeline had compiled minutes earlier.
       - name: install sc tool
         uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: prepare secrets for build
@@ -551,6 +620,10 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
+          # Consumed by the gobuild stages (github-actions.Dockerfile,
+          # cloud-helpers.aws.Dockerfile); an unused ARG in kubectl/caddy.
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
           # Build to a throwaway CI tag, never straight to the release tags.
           # cosign signs by digest, so the image has to exist in the registry
           # before `Sign + attest` can run; but pushing `:latest` and
@@ -624,6 +697,7 @@ jobs:
         with:
           name: image-digest-${{ matrix.image }}
           path: digests/${{ matrix.image }}.txt
+          if-no-files-found: error
           retention-days: 1
       # Release gate for images. Same policy as the tarball gate above, and it
       # runs BEFORE the release tags exist: see `Promote release tags` below.
@@ -759,7 +833,30 @@ jobs:
 
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    # Routed to a GitHub-hosted runner whenever the fleet shape is ACTIVE —
+    # the inverse of every other job's runs-on, and deliberate.
+    #
+    # This job has no fleet requirement. It compiles no Go and needs no RAM:
+    # its work is tool installs, artifact downloads, one cosign sign-blob,
+    # `welder run tag-release`, and `welder deploy -e prod` — a Pulumi `up`
+    # plus a CDN upload. That is network/IO-bound work running on the one
+    # runner class this fleet is worst at: 6 oversubscribed vCPU with egress
+    # through the fake-IP hijack the fleet design doc documents as
+    # intermittently stalling. Measured on run 39227894781: 24.0 min — 27%
+    # of the whole release, and the single largest line item. `.github/
+    # scripts/install-pulumi.sh` (PR #460) is what made it runner-agnostic.
+    #
+    # The repo is PUBLIC, so ubuntu-latest is free. Posture: this job's
+    # SC_CONFIG + Docker Hub token already went to a THIRD party (Blacksmith)
+    # before the fleet cutover, so GitHub-hosted is not a new exposure; the
+    # cosign identity is `push.yaml@refs/heads/main` — a property of the
+    # workflow and ref, not of the runner — so the documented trust root is
+    # untouched.
+    #
+    # Tests the variable's PRESENCE, not its value (a future fleet-label
+    # change must not touch this line), and `gh variable delete
+    # FORGE_CI_RUNNER` restores Blacksmith here exactly as everywhere else.
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON('["ubuntu-latest"]') || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
     needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs, docker-build]
     permissions:
@@ -833,22 +930,49 @@ jobs:
           done
       # Second line of defence: build-platforms gates per matrix leg, this one
       # gates the bundle that actually reaches the CDN. Honours the same
-      # ATTESTATION_SOFT_FAIL break-glass variable, expiry date and all.
+      # ATTESTATION_SOFT_FAIL break-glass variable, expiry date and all —
+      # EXCEPT the expected-platform check, which hard-fails unconditionally:
+      # the break-glass exists for a Sigstore/Rekor outage, and a missing
+      # platform is never that.
       - name: Sidecar assertion
         env:
           SOFT_FAIL: ${{ vars.ATTESTATION_SOFT_FAIL }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
           shopt -s nullglob
           echo "ATTESTATION_SOFT_FAIL=${SOFT_FAIL:-<unset>}"
           today="$(date -u +%F)"
-          tarballs=( sc-*.tar.gz )
-          echo "tarballs=${#tarballs[@]}"
-          if [ "${#tarballs[@]}" -eq 0 ]; then
-            echo "::error title=No tarballs to publish::dist bundle has zero tarballs"
+
+          # EXPECTED SET, not count>0. This used to error only when the bundle
+          # held zero tarballs and then verify sidecars for whatever WAS
+          # present — so a build-platforms leg that silently produced nothing
+          # shrank the bundle to the surviving platforms, every remaining
+          # tarball still had complete sidecars, and the release published
+          # WITHOUT a platform while nothing red said so. (Combined with
+          # upload-artifact's old `warn` default, which uploaded an empty
+          # artifact — now `error` on every upload step.) Same silent-drop
+          # class as the sc.sh-served-stale-v2026.3.6 incident recorded on
+          # build-platforms' upload step. Each platform must appear twice:
+          # unversioned (the `latest` pointer sc.sh fetches) and versioned.
+          platforms=( linux-amd64 darwin-arm64 darwin-amd64 )
+          missing=0
+          for platform in "${platforms[@]}"; do
+            for expected in "sc-${platform}.tar.gz" "sc-${platform}-v${VERSION}.tar.gz"; do
+              if [ ! -s "${expected}" ]; then
+                echo "::error title=Platform missing::expected ${expected} in the dist bundle"
+                missing=1
+              fi
+            done
+          done
+          if [ "${missing}" -ne 0 ]; then
+            echo "::error title=Incomplete bundle::the dist bundle is missing one or more expected platform tarballs — a build-platforms leg probably produced nothing. Refusing to publish a release without a platform. This check deliberately ignores ATTESTATION_SOFT_FAIL."
             exit 1
           fi
+
+          tarballs=( sc-*.tar.gz )
+          echo "tarballs=${#tarballs[@]}"
           # Paired per tarball, not counted in aggregate. Comparing totals let a
           # bundle pass in which one tarball carried two sidecars of a kind and
           # another carried none, which is the exact shape a half-failed matrix
@@ -1000,7 +1124,14 @@ jobs:
           echo "url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
 
       - name: Notify Telegram (success)
-        if: ${{ success() && !contains(needs.*.result, 'failure') }}
+        # Every need must have SUCCEEDED — checking only for 'failure' is the
+        # bug that sent "🚀 Released" for a release that published nothing
+        # twice over: a CANCELLED need (run 39253348066 — docker-finalize
+        # cancelled after its github-actions leg was cancelled) and a SKIPPED
+        # need (any docker-build failure skips docker-finalize) both pass
+        # `!contains(..., 'failure')` while this job's own success() is true.
+        # Cancelled and skipped are not releases.
+        if: ${{ success() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
         continue-on-error: true
         uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
@@ -1011,7 +1142,9 @@ jobs:
           link-text: 'v${{ needs.prepare.outputs.version }}'
           suffix:    ' by ${{ steps.extract_git_ref.outputs.author }}'
       - name: Notify Telegram (failure)
-        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        # Mirror of the success guard: a cancelled or skipped need is also a
+        # release that did not happen, so it gets the failure notice too.
+        if: ${{ failure() || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
         continue-on-error: true
         uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
         with:
@@ -1024,7 +1157,11 @@ jobs:
 
       - name: Build failed due to previously failed steps
         id: fail_if_needed
-        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        # Same expanded set as the notify guards: without 'cancelled'/'skipped'
+        # here, THIS JOB goes green on a cancelled release, which is how
+        # "Finalize build and deploy" showed success on run 39253348066 while
+        # nothing was published.
+        if: ${{ failure() || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
         shell: bash
         run: |-
           exit 1

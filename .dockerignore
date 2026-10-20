@@ -1,0 +1,18 @@
+# Allowlist: the docker build context is the repo root, and NOTHING else may
+# ride along. Two reasons this matters:
+#  - .sc/ holds DECRYPTED secrets after `sc secrets reveal` runs in CI — it
+#    must never enter a build context (and with the `COPY . .` Go-builder
+#    stages in github-actions.Dockerfile / cloud-helpers.aws.Dockerfile, it
+#    would land in cacheable builder layers, not just the context tarball).
+#  - the context used to ship docs/, dist/, .git/ etc. for a build that needs
+#    none of them.
+# `bin` stays allowed: github-actions-staging.Dockerfile COPYs ./bin/… (built
+# on the host by welder in build-staging.yml).
+*
+!cmd
+!pkg
+!internal
+!go.mod
+!go.sum
+!tools.go
+!bin

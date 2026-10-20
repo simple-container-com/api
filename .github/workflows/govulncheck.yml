@@ -48,8 +48,16 @@ on:
     - cron: '37 6 * * 1'  # Monday 06:37 UTC — early week, off-peak
   workflow_dispatch:
 
+# REF-keyed, not SHA-keyed, and the difference is load-bearing on the CI fleet
+# (2 usable slots). A SHA-keyed group opens a NEW group on every force-push —
+# the old run on the abandoned commit is never cancelled and keeps holding its
+# runner until it finishes. Measured on PR #460 (2026-10-19): a superseded
+# branch.yaml run built its full 9-job matrix to green on both fleet slots for
+# 40 minutes while the live run sat queued. `github.ref` is stable across
+# force-pushes to the same PR (refs/pull/<n>/merge), so the superseded run is
+# cancelled and its slot released the moment the new push lands.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
