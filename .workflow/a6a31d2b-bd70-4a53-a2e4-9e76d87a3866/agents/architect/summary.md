@@ -1,0 +1,1 @@
+[thinking] # Architect Handoff — `api-release-binary-roundtrip` verification
