@@ -1,0 +1,16 @@
+{
+  "description": "JSON Schema definitions for Cloudru resources and templates",
+  "provider": "cloudru",
+  "resources": [
+    {
+      "name": "AccountConfig",
+      "type": "auth",
+      "provider": "cloudru",
+      "description": "CLOUDRU authentication configuration",
+      "goPackage": "pkg/clouds/cloudru/",
+      "goStruct": "AccountConfig",
+      "resourceType": "cloudru-access-key",
+      "schema": {}
+    }
+  ]
+}

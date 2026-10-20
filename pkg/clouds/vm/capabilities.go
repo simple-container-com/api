@@ -75,6 +75,39 @@ var Drivers = map[string]DriverInfo{
 	DriverOpenstack: {RoadmapItem: "sc-ru-clouds-beyond-yandex"},
 	DriverVkcs:      {RoadmapItem: "sc-ru-clouds-beyond-yandex"},
 	DriverMws:       {RoadmapItem: "sc-ru-clouds-beyond-yandex"},
-	DriverCloudru:   {RoadmapItem: "sc-ru-clouds-beyond-yandex"},
-	DriverTimeweb:   {RoadmapItem: "sc-ru-clouds-beyond-yandex"},
+	DriverCloudru: {
+		Implemented: true,
+		RoadmapItem: "sc-ru-clouds-beyond-yandex",
+		Capabilities: Capabilities{
+			CloudInit: true,
+			// The image has no docker on it, so cloud-init fetches get.docker.com —
+			// from inside Cloud.ru, over the EIP. Which is why the driver binds the
+			// EIP at instance CREATION (`eip_id`, ForceNew) rather than attaching it
+			// afterwards: an instance that boots without an address runs cloud-init
+			// to completion with no egress and fails the docker install, and the
+			// readiness gate then waits out its full ten minutes on a machine that
+			// will never become ready.
+			CloudInitNeedsEgress: true,
+			PrivateNetwork:       true,
+			FloatingIP:           true,
+			SecurityGroups:       true,
+			// `sbercloud_swr_organization` / `_repository` exist in the bridged
+			// provider, so a per-stack registry inside Cloud.ru is reachable from
+			// IaC. Not yet used: image delivery on this path is `ssh-tar`.
+			ContainerRegistry: true,
+			// `sbercloud_dns_zone` + `_recordset` exist, so the ingress A record can
+			// be managed in the same stack as the machine.
+			DNSInIaC: true,
+			// Deliberately left at the zero value, which this file defines as "not
+			// measured yet" rather than "absent":
+			//
+			//   - MultiAZInRegion: the driver resolves zones from the cloud's own
+			//     `availability_zones` datasource at deploy time, so it never needs
+			//     a number compiled in — and a wrong one here would be branched on.
+			//   - BlockStorageCSI: `evs_volume`/`evs_snapshot` are bridged, but
+			//     whether a k3s cluster on Cloud.ru can run the EVS CSI driver is a
+			//     k3s question (track K), unasked and therefore unanswered.
+		},
+	},
+	DriverTimeweb: {RoadmapItem: "sc-ru-clouds-beyond-yandex"},
 }

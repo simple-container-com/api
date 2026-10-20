@@ -9,6 +9,10 @@
       "count": 1,
       "description": "Cloudflare cloud provider resources and templates"
     },
+    "cloudru": {
+      "count": 1,
+      "description": "Cloudru cloud provider resources and templates"
+    },
     "core": {
       "count": 12,
       "description": "Simple Container configuration file schemas (client.yaml, server.yaml, etc.)"

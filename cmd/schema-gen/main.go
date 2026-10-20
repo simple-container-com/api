@@ -23,6 +23,7 @@ import (
 	// Import all cloud provider packages to trigger init() functions
 	_ "github.com/simple-container-com/api/pkg/clouds/aws"
 	_ "github.com/simple-container-com/api/pkg/clouds/cloudflare"
+	_ "github.com/simple-container-com/api/pkg/clouds/cloudru"
 	_ "github.com/simple-container-com/api/pkg/clouds/compose"
 	_ "github.com/simple-container-com/api/pkg/clouds/discord"
 	_ "github.com/simple-container-com/api/pkg/clouds/docker"
@@ -561,6 +562,12 @@ func (sg *SchemaGenerator) guessProviderFromResourceType(resourceType string) st
 	// lands in "unknown" and schema generation fails on a directory that is never created.
 	case has("yc", "yandex"):
 		return "yandex"
+	// Cloud.ru Advanced. Only an auth type lives in pkg/clouds/cloudru — a machine
+	// there is a `type: vm` resource with `provider: cloudru-vm`, which tokenises to
+	// [cloudru, vm] and is caught by the `vm` case ABOVE this one, correctly: the
+	// resource schema belongs with the vm resource, not with the credential.
+	case has("cloudru"):
+		return "cloudru"
 	default:
 		return "unknown"
 	}
@@ -573,7 +580,10 @@ func (sg *SchemaGenerator) guessResourceType(resourceType string) string {
 		return "template"
 	// "service-account" is how both GCP and Yandex spell their auth entry; without it
 	// those land in "resource" while aws-token is correctly classified "auth".
-	case strings.Contains(resourceType, "auth") || strings.Contains(resourceType, "token") || strings.Contains(resourceType, "service-account") || strings.Contains(resourceType, "kubeconfig"):
+	// "access-key" is how Cloud.ru Advanced spells its auth entry (an OpenStack-style
+	// key pair, not a token); without it `cloudru-access-key` is classified as a
+	// resource and documented as one.
+	case strings.Contains(resourceType, "auth") || strings.Contains(resourceType, "token") || strings.Contains(resourceType, "service-account") || strings.Contains(resourceType, "kubeconfig") || strings.Contains(resourceType, "access-key"):
 		return "auth"
 	case strings.Contains(resourceType, "secrets"):
 		return "secrets"

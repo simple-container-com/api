@@ -50,7 +50,11 @@ func (byoDriver) Hosts(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConf
 			// Public key material: deliberately NOT secret-wrapped. Marking it
 			// secret would redact it from the one place it is useful — a diff an
 			// operator reads to see which machine identity a deploy now trusts.
-			HostKey: h.HostKey,
+			HostKey: sdk.String(h.HostKey).ToStringOutput(),
+			// On this driver the operator either pasted a key or did not, and the
+			// consequence of "did not" is theirs to accept — unlike a cloud driver,
+			// where SC creates the machine and can therefore create its identity too.
+			HostKeyPinned: h.HostKey != "",
 			// A byo host is always a compose host for now; k3s on a byo host is the
 			// next slice (roadmap item sc-k3s-cluster-resource, K.0) and will pass
 			// its own role in.
