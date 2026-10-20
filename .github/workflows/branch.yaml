@@ -291,6 +291,22 @@ jobs:
           go build -ldflags "-s -w" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
           tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
 
+  # This job absorbed `build-github-actions-staging`, removed 2026-10-20 as an
+  # exact duplicate. That job ran
+  #   CGO_ENABLED=0 go build -ldflags "-s -w" -o bin/github-actions ./cmd/github-actions
+  # and the `github-actions` leg below runs the same command to `dist/`. Its
+  # comment claimed it was the only check compiling the configuration that
+  # ships — but this matrix already sets `CGO_ENABLED: "0"` for both legs, and
+  # the job's own artifact had 1-day retention and no consumer. So it was a
+  # second required check compiling the same bytes, holding a second
+  # RAM-capable fleet slot on every PR.
+  #
+  # NOT removed, and not the same thing: welder's `build-github-actions-staging`
+  # TASK (welder.yaml) and `build-staging.yml`, which build and push the actual
+  # `:staging` image. The CI job was the duplicate; the staging pipeline is not.
+  #
+  # `Build github-actions-staging` was dropped from ruleset 9144757 in the same
+  # change — a required check whose job no longer exists blocks every merge.
   build-binaries:
     name: Build ${{ matrix.target }}
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
@@ -330,38 +346,6 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           go build -ldflags "-s -w" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
-
-  build-github-actions-staging:
-    name: Build github-actions-staging
-    # CGO_ENABLED=0 so this required check compiles the SAME configuration that
-    # actually ships. welder's `build-github-actions-staging` task sets it (plus
-    # GOOS/GOARCH linux/amd64, "static, Alpine compatible") and the staging image
-    # is built from welder's bin/, not from this job's artifact — which has 1-day
-    # retention and no consumer. Without it, cgo is on here and the gate was
-    # validating a glibc-dynamic binary nobody runs.
-    env:
-      CGO_ENABLED: "0"
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
-    timeout-minutes: 60
-    needs: build-setup
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
-        with:
-          go-version-file: go.mod
-          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
-          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
-          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
-          # we are back on Blacksmith/hosted, where it should behave as before.
-          # One variable controls both routing and caching, so a revert is complete.
-          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
-      - name: build github-actions-staging
-        run: |
-          mkdir -p bin
-          go build -ldflags "-s -w" -o bin/github-actions ./cmd/github-actions
 
   test:
     name: Run tests
@@ -452,7 +436,6 @@ jobs:
       - build-setup
       - build-platforms
       - build-binaries
-      - build-github-actions-staging
       - test
       - test-registry-integration
     steps:
