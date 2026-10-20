@@ -44,6 +44,15 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'LICENSE'
+      - 'CODEOWNERS'
+      - '.gitignore'
+      - '.agents/**'
+      - '.workflow/**'
+      - '.github/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
   schedule:
     - cron: '37 6 * * 1'  # Monday 06:37 UTC — early week, off-peak
   workflow_dispatch:
