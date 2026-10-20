@@ -814,6 +814,8 @@ github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.38.0 h1:d1OXIGJLduY0xaY690g1vXeN
 github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.38.0/go.mod h1:cAouJciUGHdOqlyvtysIUkxwDb1SGbx6QsZ7Lnkg2fE=
 github.com/pulumi/pulumi-random/sdk/v4 v4.21.0 h1:j6LtoXue77y16trYOR40iqCUxXxv8TnxvOCOP/a0zVI=
 github.com/pulumi/pulumi-random/sdk/v4 v4.21.0/go.mod h1:92+w+95clbBPdrYdi0uCajihmgol52w/pWgZJ9wT0To=
+github.com/pulumi/pulumi-tls/sdk/v5 v5.5.0 h1:oNZILwuCvNpiXMDkvagEEvdHUMEHo/UxqMKcn6aS7mg=
+github.com/pulumi/pulumi-tls/sdk/v5 v5.5.0/go.mod h1:cLzvf6CO+f/Wae6OcOaJQh9B5K6RtErETjX9TQ8XrDg=
 github.com/pulumi/pulumi/pkg/v3 v3.245.0 h1:ssZ0nHf6IuKMMnO4pxiC7E4R8OIVltXAf9V3ZN1cLYg=
 github.com/pulumi/pulumi/pkg/v3 v3.245.0/go.mod h1:YpN+v3zDFDtchlBOF7mHK3B+afSnKX/rHSUMhygomCs=
 github.com/pulumi/pulumi/sdk/v3 v3.245.0 h1:HvHDnraVlRm64xJJx38/hPNnTpfkOlfm7fHDSwyJJaE=
@@ -875,6 +877,8 @@ github.com/sergi/go-diff v1.4.0 h1:n/SP9D5ad1fORl+llWyN+D6qoUETXNZARKjyY2/KVCw=
 github.com/sergi/go-diff v1.4.0/go.mod h1:A0bzQcvG0E7Rwjx0REVgAGH58e96+X0MeOfepqsbeW4=
 github.com/shurcooL/go v0.0.0-20180423040247-9e1955d9fb6e/go.mod h1:TDJrrUr11Vxrven61rcy3hJMUqaf/CLWYhHNPmT14Lk=
 github.com/shurcooL/go-goon v0.0.0-20170922171312-37c2f522c041/go.mod h1:N5mDOmsrJOB+vfqUK+7DmDyjhSLIIBnXo9lvZJj3MWQ=
+github.com/simple-container-com/pulumi-sbercloud/sdk v0.1.0 h1:1TfPB6wQGvyunX5oddlOOiGq4SYgNDY1VCJY0cXGZgM=
+github.com/simple-container-com/pulumi-sbercloud/sdk v0.1.0/go.mod h1:kTR0kV3WVsXZYrqyNxjllNcidk31niO37hYh4LCMyDY=
 github.com/simple-container-com/pulumi-yandex/sdk v1.1.0 h1:Zlc1whXhEobn1KPNhBrm8IWNJNZB5vip8KKPaNHoQ7k=
 github.com/simple-container-com/pulumi-yandex/sdk v1.1.0/go.mod h1:DYJQe2PUXFA1bZSrnc6g3zHxMDWMGqb2rF76GAhMzMQ=
 github.com/sirupsen/logrus v1.7.0/go.mod h1:yWOB1SBYBC5VeMP7gHvWumXLIWorT60ONWic61uBYv0=
