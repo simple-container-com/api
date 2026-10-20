@@ -8,7 +8,7 @@ name: Verify published attestations
 # build: does what is actually published still verify? It fires after push.yaml
 # or branch-preview.yaml succeed, runs weekly to catch drift (a deleted
 # signature, a rotated identity, an overwritten tag), and is manually
-# dispatchable. Previews and staging builds have no gate, so here a failure is
+# dispatchable. Preview builds have no gate, so here a failure is
 # the first signal rather than the second.
 
 on:
@@ -26,7 +26,6 @@ on:
         default: 'prod'
         options:
           - prod
-          - staging
           - preview
       version:
         description: 'Version to verify (e.g. 2026.5.1 or 2026.5.1-preview.abc1234). For prod, defaults to dist/version.'
@@ -66,7 +65,6 @@ jobs:
       # see the same string. Updating any of these is a coordinated change
       # gated by CODEOWNERS on .github/workflows + SECURITY.md.
       PROD_IDENTITY_REGEX:    '^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$'
-      STAGING_IDENTITY_REGEX: '^https://github\.com/simple-container-com/api/\.github/workflows/build-staging\.yml@refs/heads/staging$'
       PREVIEW_IDENTITY_REGEX: '^https://github\.com/simple-container-com/api/\.github/workflows/branch-preview\.yaml@refs/heads/.+$'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
@@ -109,7 +107,6 @@ jobs:
           esac
           case "$root" in
             prod)    regex="$PROD_IDENTITY_REGEX";    have_tarballs=true ;;
-            staging) regex="$STAGING_IDENTITY_REGEX"; have_tarballs=false ;;
             preview) regex="$PREVIEW_IDENTITY_REGEX"; have_tarballs=true ;;
             *)       echo "::error::unknown trust root '$root'"; exit 1 ;;
           esac
@@ -168,7 +165,7 @@ jobs:
             echo "Resolved preview version from git tag: $tag"
             exit 0
           fi
-          # prod or staging: dist/version is the canonical pointer.
+          # prod: dist/version is the canonical pointer.
           ver=$(curl -fsSL "$DIST_BASE/version" 2>/dev/null | head -n1 | tr -d '\r\n[:space:]' || true)
           if [ -z "$ver" ]; then
             echo "::error title=verify-attestations::could not resolve target version from $DIST_BASE/version"
@@ -208,12 +205,6 @@ jobs:
                 refs=(
                   "simplecontainer/github-actions:${VERSION}"
                   "simplecontainer/cloud-helpers:aws-${VERSION}"
-                )
-                ;;
-              staging)
-                refs=(
-                  "simplecontainer/github-actions:staging"
-                  "simplecontainer/caddy:staging"
                 )
                 ;;
             esac
@@ -325,15 +316,15 @@ jobs:
           case "$TRUST_ROOT" in
             prod)    img="simplecontainer/github-actions:${VERSION}" ;;
             preview) img="simplecontainer/github-actions:${VERSION}" ;;
-            staging) img="simplecontainer/github-actions:staging" ;;
           esac
-          # All three regexes, paired with the label we report.
+          # Both live regexes, paired with the label we report. The retired
+          # `staging` root is deliberately NOT included: nothing can be signed
+          # under a workflow that no longer exists, so asserting that a prod or
+          # preview image fails to verify under it would pass regardless of
+          # whether the check works — a vacuous test is worse than none.
           declare -A OTHER_REGEXES
           if [ "$TRUST_ROOT" != "prod" ]; then
             OTHER_REGEXES["prod"]="$PROD_IDENTITY_REGEX"
-          fi
-          if [ "$TRUST_ROOT" != "staging" ]; then
-            OTHER_REGEXES["staging"]="$STAGING_IDENTITY_REGEX"
           fi
           if [ "$TRUST_ROOT" != "preview" ]; then
             OTHER_REGEXES["preview"]="$PREVIEW_IDENTITY_REGEX"

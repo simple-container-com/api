@@ -606,13 +606,18 @@ jobs:
             tags: |
               simplecontainer/github-actions:latest
               simplecontainer/github-actions:${{ needs.prepare.outputs.version }}
-          # The :staging tag is intentionally NOT published from this workflow.
-          # build-staging.yml (triggered on the `staging` branch) is the
-          # canonical owner of `simplecontainer/github-actions:staging` and signs
-          # it under the staging trust root. Publishing :staging here from main
-          # would either (a) double-sign with the production identity — breaking
-          # the SECURITY.md identity-regex contract — or (b) leave it unsigned,
-          # so consumers following the documented verification path would fail.
+          # The :staging tag is RETIRED, not merely unpublished here. Its
+          # owner, build-staging.yml, was removed 2026-10-20: the `staging`
+          # branch had been dead since 2026-04-19 and preview builds
+          # (branch-preview.yaml) now cover the same need, publishing
+          # github-actions + cloud-helpers under the preview trust root.
+          #
+          # Do NOT "restore" :staging by adding it to the tags above. That
+          # would either double-sign it with the production identity — breaking
+          # the SECURITY.md identity-regex contract — or leave it unsigned, so
+          # consumers following the documented verification path would fail.
+          # The pre-existing `:staging` tag is left on Docker Hub, frozen at
+          # its 2026-04-19 build.
           - image: cloud-helpers-aws
             heavy_go: true   # gobuild stage: needs fleet RAM, see runs-on
             dockerfile: cloud-helpers.aws.Dockerfile
@@ -782,14 +787,15 @@ jobs:
       # The sub-steps stay soft so that one failure does not hide the others;
       # the trailing gate turns an incomplete chain into a failed release.
       #
-      # `github-actions-staging` is intentionally skipped from attestation here.
-      # The `:staging` tag is the canonical output of build-staging.yml under
-      # the staging trust root (build-staging.yml@refs/heads/staging) and is
-      # signed there. Signing it again from push.yaml@refs/heads/main would
-      # mint a second valid signature under the production identity, which
-      # contradicts the split identity-regex contract in SECURITY.md and
-      # would cause consumer verification to flap between identities on
-      # successive main / staging pushes.
+      # Historical note, kept because the reasoning still governs any future
+      # `:staging`-like tag: `github-actions-staging` used to be skipped here
+      # because build-staging.yml owned `:staging` under its own trust root.
+      # That workflow was removed 2026-10-20 (dead `staging` branch; preview
+      # builds supersede it), so there is nothing to skip. Signing a
+      # second-channel tag from push.yaml@refs/heads/main would mint a second
+      # valid signature under the PRODUCTION identity, contradicting the split
+      # identity-regex contract in SECURITY.md — which is why a new channel
+      # gets its own workflow and trust root, not a tag added here.
       - name: Sign + attest ${{ matrix.image }} (SBOM + cosign + SLSA)
         id: signattest
         if: steps.build_and_push.outcome == 'success'

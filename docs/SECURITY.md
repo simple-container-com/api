@@ -157,13 +157,24 @@ releases and stay warn-only.
 
 Cosign keyless signatures bind the signing identity to a GitHub
 Actions OIDC subject. Consumers verify against one of two pinned
-identities; **do not mix them**.
+identities — **Production** or **Preview**; **do not mix them**. (This
+section previously documented a Staging root and omitted Preview; the
+live set is the table below, and it matches the trust roots
+`verify-attestations.yml` actually exercises.)
 
 | Trust root | Subject regex | Use for |
 |---|---|---|
 | **Production** | `^https://github\.com/simple-container-com/api/\.github/workflows/push\.yaml@refs/heads/main$` | `sc.sh` installs; production Docker images (`:latest`, `:YYYY.M.x`, `:aws-latest`, `:aws-YYYY.M.x`); release tarballs (`sc-…-vYYYY.M.x.tar.gz`) |
-| **Staging** | `^https://github\.com/simple-container-com/api/\.github/workflows/build-staging\.yml@refs/heads/staging$` | Consumers who **knowingly opt in** to `:staging` images via composite actions |
+| **Preview** | `^https://github\.com/simple-container-com/api/\.github/workflows/branch-preview\.yaml@refs/heads/.+$` | Consumers who **knowingly opt in** to per-branch preview builds: `github-actions:<version>-preview.<sha>`, `cloud-helpers:aws-<version>-preview.<sha>`, and preview tarballs |
 | OIDC issuer (both) | `https://token.actions.githubusercontent.com` | — |
+
+**Retired 2026-10-20 — do not verify against it:** the former **Staging** root
+`…/build-staging.yml@refs/heads/staging`. The `staging` branch had been dead since
+2026-04-19 and preview builds cover the same need, so `build-staging.yml` was removed.
+Nothing can be signed under that identity again. The `:staging` image tags remain on
+Docker Hub frozen at their 2026-04-19 build, still verifiable against the retired
+regex — but they will never be refreshed, so treat them as historical artifacts
+rather than a channel.
 
 If either workflow file is ever renamed, the regex above is
 bumped in the same PR. This file is the canonical reference for

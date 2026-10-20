@@ -301,9 +301,10 @@ jobs:
   # second required check compiling the same bytes, holding a second
   # RAM-capable fleet slot on every PR.
   #
-  # NOT removed, and not the same thing: welder's `build-github-actions-staging`
-  # TASK (welder.yaml) and `build-staging.yml`, which build and push the actual
-  # `:staging` image. The CI job was the duplicate; the staging pipeline is not.
+  # The whole staging pipeline followed it out in the same PR — welder's
+  # `build-github-actions-staging` task, `github-actions-staging.Dockerfile`
+  # and `build-staging.yml` — because the `staging` branch had been dead since
+  # 2026-04-19 and preview builds cover the same need.
   #
   # `Build github-actions-staging` was dropped from ruleset 9144757 in the same
   # change — a required check whose job no longer exists blocks every merge.
