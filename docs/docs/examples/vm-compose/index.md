@@ -43,6 +43,40 @@ resources:
                 hostKey: "203.0.113.10 ssh-ed25519 AAAAC3Nza…"
 ```
 
+### [A Machine SC Creates in Cloud.ru (`cloudru-vm`)](cloudru/README.md)
+
+The same delivery path with the machine created by SC: `sc provision` makes the VPC, the
+subnet, the security group, the floating address, the SSH key pair and the instance in
+**Cloud.ru Advanced** (ex-SberCloud), then connects to what it created.
+
+**Use case:** a single-machine deployment in Russia, where a managed container runtime
+either does not exist or cannot be reached from where the images are built.
+
+```yaml
+# .sc/stacks/mycompany/server.yaml  (excerpt — the template block is unchanged)
+resources:
+  resources:
+    staging:
+      template: compose-on-vm
+      resources:
+        portal-vm:
+          type: vm
+          config:
+            provider: cloudru-vm
+            credentials: ${auth:cloudru}
+            region: ru-moscow-1
+            publicIP: true             # required: SC deploys over SSH from outside
+            image: ubuntu-2404-lts
+            size: {cores: 2, memory: 4Gi, disk: 60Gi, diskType: SSD}
+            ingress:
+              enable: true
+              email: ops@example.com
+```
+
+Cloud.ru sells two unrelated estates. This driver is **Advanced** (ex-SberCloud), whose
+Terraform provider has open sources; **Evolution** is a different API with different
+credentials and no driver — use `provider: byo` there.
+
 ## How the pieces divide up
 
 The machine is described in the parent stack's `resources:`; the `vm-compose` template
@@ -53,9 +87,10 @@ description.
 
 | Belongs to the `vm` resource | Belongs to the `vm-compose` template |
 |---|---|
-| `provider`, `region`, `zones`, `image`, `size` | `vmResource` |
-| `sshUser`, `hosts`, `extraSshKeys` | `imageDelivery`, `strategy`, `keepImages` |
-| `ingress` (one machine, one port 443) | `dockerRegistryURL` / username / password |
+| `provider`, `credentials`, `region`, `zones` | `vmResource` |
+| `image`, `size`, `publicIP`, `network` | `imageDelivery`, `strategy`, `keepImages` |
+| `sshUser`, `hosts`, `extraSshKeys` | `dockerRegistryURL` / username / password |
+| `ingress` (one machine, one port 443) | |
 | `registryMirrors`, `packageMirror` | |
 
 ## Related

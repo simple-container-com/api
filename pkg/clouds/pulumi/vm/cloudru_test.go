@@ -4,10 +4,12 @@
 package vm
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 
@@ -275,7 +277,24 @@ func TestCloudruDriver_OpensIngressPortsOnlyWithIngress(t *testing.T) {
 	_, err := provisionVm(cfg, mocks)
 	Expect(err).To(BeNil())
 
-	Expect(mocks.countOf(tokenSecgroupRule)).To(Equal(3))
+	// Four, not three — and 443 appears TWICE, once per protocol. The Caddy compose
+	// project publishes `443:443/udp` alongside the TCP one (pkg/clouds/vm/caddy.go),
+	// so a firewall that opens only TCP leaves Caddy advertising Alt-Svc for a port
+	// that black-holes: every browser spends a connection attempt on it before
+	// falling back, and Chrome remembers the broken alt-svc. The container and the
+	// firewall have to agree, and this is the half SC owns.
+	opened := lo.Map(mocks.allInputsOf(tokenSecgroupRule),
+		func(in resource.PropertyMap, _ int) string {
+			return fmt.Sprintf("%s/%d", in["protocol"].StringValue(), int(in["portRangeMin"].NumberValue()))
+		})
+	Expect(opened).To(ConsistOf("tcp/22", "tcp/80", "tcp/443", "udp/443"))
+
+	// Both ends of the range, on every rule: a rule with only portRangeMin set opens
+	// a range to 65535 on this provider rather than the single port.
+	for _, in := range mocks.allInputsOf(tokenSecgroupRule) {
+		Expect(in["portRangeMax"].NumberValue()).To(Equal(in["portRangeMin"].NumberValue()))
+		Expect(in["direction"].StringValue()).To(Equal("ingress"))
+	}
 }
 
 // An explicit `size` reaches the flavour filter, and `size.disk` reaches the root
