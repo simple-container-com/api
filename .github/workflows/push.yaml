@@ -139,7 +139,17 @@ jobs:
         run: |
           go mod tidy
           bin/gofumpt -l -w ./
-          bin/golangci-lint run --fix --timeout 3m -v
+          # --timeout 15m, not 3m. The 3m budget was always marginal and only
+          # passed because `welder run rebuild` happened to run first and warm
+          # the export data that golangci-lint's go/packages loader needs.
+          # With that build removed (nothing consumed it here), the loader does
+          # the work itself and measured 3m6s on 6 oversubscribed vCPU —
+          # failing with "context loading failed: context deadline exceeded",
+          # exit 4, which reads like a lint error but is a timeout.
+          # api#461 run 39318720877. Package loading is the floor for a
+          # 2143-package graph; the limit only needs to not be the thing that
+          # fails.
+          bin/golangci-lint run --fix --timeout 15m -v
       - name: get telegram secrets
         id: telegram-secrets
         run: |

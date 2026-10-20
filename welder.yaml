@@ -94,7 +94,10 @@ tasks:
     script:
       - go mod tidy
       - ${project:root}/bin/gofumpt -l -w ./
-      - ${project:root}/bin/golangci-lint run --fix --timeout 3m -v
+      # 15m, not 3m: loading a 2143-package graph is the floor and 3m is
+      # inside the noise band on slower hardware — it fails as exit 4
+      # "context deadline exceeded", which looks like a lint error.
+      - ${project:root}/bin/golangci-lint run --fix --timeout 15m -v
   linters:
     runOn: host
     script:
