@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_image"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_provenance"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_sbom"
@@ -35,7 +36,7 @@ func Execute() {
 	)
 
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		fmt.Fprint(os.Stderr, logger.Redact(fmt.Sprintf("Error: %v\n", err)))
 		os.Exit(1)
 	}
 }

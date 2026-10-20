@@ -1,0 +1,65 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
+package vm
+
+import (
+	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+)
+
+const (
+	// dialErrorLimit and perDialTimeoutSeconds are set explicitly because the SDK
+	// defaults (10 attempts, 15s each) are sized for a machine that is already
+	// running, not for one created a second ago. 60 × 10s covers a cold boot plus a
+	// cloud-init docker install without turning a genuinely unreachable host into a
+	// ten-minute hang: a wrong security group fails on the first dial either way.
+	dialErrorLimit        = 60
+	perDialTimeoutSeconds = 10
+)
+
+// ConnectionArgs builds the SSH connection to one host.
+//
+// Single place on purpose: every remote.Command in this package and in the ones
+// above it (compose, k3s) goes through here, so the secret marking and the dial
+// tuning cannot be forgotten at one call site. Exported for the last of those:
+// pkg/clouds/pulumi/k3s runs its install commands over the connection of a host
+// this package produced, and a second copy of this function is how one of the two
+// ends up passing an unwrapped private key.
+func ConnectionArgs(h HostFacts) *remote.ConnectionArgs {
+	args := &remote.ConnectionArgs{
+		Host: h.Address,
+		User: sdk.StringPtr(h.User),
+		Port: sdk.Float64Ptr(float64(h.Port)),
+		// Already secret-wrapped by the driver (HostFacts.PrivateKey). Passing a raw
+		// string here is a bug, not a style choice.
+		PrivateKey: h.PrivateKey.ToStringPtrOutput(),
+		// Nil — not "" — when the key is not an encrypted PEM, which is every key SC
+		// generates and almost every deploy key an operator brings.
+		//
+		// The provider hands whatever it is given to ssh.ParsePrivateKeyWithPassphrase,
+		// and that function answers `ssh: key is not password protected` for an
+		// unencrypted key. An empty string is still *provided*, so passing it fails
+		// EVERY connection to such a host — the readiness check included, so the whole
+		// byo path (compose and k3s alike) errored out on the first remote command with
+		// a message that reads like the key is wrong. Live-caught on the first smoke,
+		// 2026-10-18. Same reasoning as HostKey below, which got it right.
+		PrivateKeyPassword: h.PrivateKeyPassword.ApplyT(func(p string) *string {
+			if p == "" {
+				return nil
+			}
+			return &p
+		}).(sdk.StringPtrOutput),
+		DialErrorLimit: sdk.IntPtr(dialErrorLimit),
+		PerDialTimeout: sdk.IntPtr(perDialTimeoutSeconds),
+	}
+	// Set only when pinned: the SDK's contract is "if not provided, the host key will
+	// be ignored", so passing an empty string risks being read as "provided, and it is
+	// the empty key" — a failure on every connection rather than the documented
+	// fallback. Unset is insecure and warned about once, at provision time; it is not
+	// hidden behind a connection that silently fails.
+	if h.HostKey != "" {
+		args.HostKey = sdk.StringPtr(h.HostKey)
+	}
+	return args
+}

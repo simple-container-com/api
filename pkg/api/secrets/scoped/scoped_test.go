@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
@@ -232,7 +233,7 @@ func TestScopes_AllowDisallowRecipients(t *testing.T) {
 	Expect(err).NotTo(HaveOccurred())
 	Expect(added).To(BeTrue())
 	// idempotent (same key with a different comment)
-	added, err = s.Allow("pr", authA+" my-comment")
+	added, err = s.Allow("pr", strings.TrimSpace(authA)+" my-comment")
 	Expect(err).NotTo(HaveOccurred())
 	Expect(added).To(BeFalse())
 

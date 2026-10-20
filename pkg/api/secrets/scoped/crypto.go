@@ -148,6 +148,13 @@ func encryptForRecipients(recipients []string, stack, scope, key, value string) 
 	return EncryptedValue{Ciphertext: base64.StdEncoding.EncodeToString(blob), Wraps: wraps}, nil
 }
 
+// ValidatePrivateKey reports whether privateKey is a PEM key the store can open
+// values with.
+func ValidatePrivateKey(privateKey string) error {
+	_, _, err := privateKeyFingerprint(privateKey)
+	return err
+}
+
 // privateKeyFingerprint parses an unencrypted PEM private key and returns its
 // public SSH fingerprint plus the parsed key. Passphrase-protected keys are
 // rejected with a clear error (CI scope keys are provisioned unencrypted).

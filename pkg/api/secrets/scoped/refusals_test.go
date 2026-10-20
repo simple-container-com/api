@@ -8,6 +8,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"gopkg.in/yaml.v3"
 )
 
 func wantErr(t *testing.T, name string, err error, contains string) {
@@ -40,8 +42,10 @@ func TestNewScopeFileRefusals(t *testing.T) {
 	r, _ := genEd25519Recipient(t)
 	_, err := NewScopeFile("app", "Bad Scope", []string{r})
 	wantErr(t, "bad scope", err, "invalid scope name")
-	_, err = NewScopeFile(" ", "pr", []string{r})
-	wantErr(t, "no stack", err, "no stack")
+	for _, stack := range []string{"", " ", "a/b", "..", ".", "-x", "a b"} {
+		_, err = NewScopeFile(stack, "pr", []string{r})
+		wantErr(t, "stack "+stack, err, "invalid stack name")
+	}
 	_, err = NewScopeFile("app", "pr", nil)
 	wantErr(t, "no recipients", err, "no recipients")
 }
@@ -223,7 +227,7 @@ func TestPathsAndScopesFileRefusals(t *testing.T) {
 	if err != nil || s.Scopes == nil {
 		t.Errorf("a file with no scopes: %v, %+v", err, s)
 	}
-	wantErr(t, "save under a file", s.Save(filepath.Join(blocker, "scopes.yaml")), "failed to write")
+	wantErr(t, "save under a file", s.Save(filepath.Join(blocker, "scopes.yaml")), "failed to read")
 
 	r, _ := genEd25519Recipient(t)
 	_, err = s.Recipients("absent")
@@ -295,7 +299,6 @@ func TestResolveScopedValues_LookalikesAreNotScopeFiles(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "secrets.yaml"), legacy)
 	writeTestFile(t, filepath.Join(dir, "secrets.example.yaml"), legacy)
 	writeTestFile(t, filepath.Join(dir, "secrets.backup.yaml"), "schemaVersion: 1.0\nauth:\n  aws:\n    type: aws-token\n    config:\n      account: \"1\"\nvalues:\n  K: v\n")
-	writeTestFile(t, filepath.Join(dir, "secrets.broken.yaml"), "values: [")
 
 	got, err := ResolveScopedValues(dir, []string{priv})
 	Expect(err).NotTo(HaveOccurred())
@@ -304,7 +307,7 @@ func TestResolveScopedValues_LookalikesAreNotScopeFiles(t *testing.T) {
 	scopeFiles, lookalikes, err := ScopeFilesIn(dir)
 	Expect(err).NotTo(HaveOccurred())
 	Expect(scopeFiles).To(BeEmpty())
-	Expect(lookalikes).To(HaveLen(3))
+	Expect(lookalikes).To(HaveLen(2))
 
 	f, err := NewScopeFile("myapp", "pr", []string{auth})
 	Expect(err).NotTo(HaveOccurred())
@@ -323,6 +326,113 @@ func TestResolveScopedValues_LookalikesAreNotScopeFiles(t *testing.T) {
 	_, err = ResolveScopedValues(other, []string{priv})
 	Expect(errors.Is(err, ErrScopedIntegrity)).To(BeTrue())
 	Expect(err.Error()).To(ContainSubstring("moved file?"))
+}
+
+// A secrets.<scope>.yaml that is not a readable mapping is a damaged scope file
+// (merge-conflict markers, a truncated write), never a look-alike: the read
+// fails instead of silently losing the scope.
+func TestResolveScopedValues_DamagedScopeFileFails(t *testing.T) {
+	_, priv := genEd25519Recipient(t)
+	for name, content := range map[string]string{
+		"zero bytes":  "",
+		"unparseable": "values: [",
+		"conflict":    "<<<<<<< HEAD\nscope: pr\n=======\nscope: pr\n>>>>>>> main\n",
+		"a list":      "- a\n- b\n",
+		"a scalar":    "just text\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "myapp")
+			writeTestFile(t, filepath.Join(dir, "secrets.pr.yaml"), content)
+			if _, err := ResolveScopedValues(dir, []string{priv}); !errors.Is(err, ErrScopedIntegrity) {
+				t.Errorf("err = %v; want ErrScopedIntegrity", err)
+			}
+			if ok, err := IsScopeFile(filepath.Join(dir, "secrets.pr.yaml")); err != nil || !ok {
+				t.Errorf("IsScopeFile = %v, %v; want a scope file", ok, err)
+			}
+		})
+	}
+}
+
+// A secrets.<scope>.yaml of only whitespace, comments or null has no secrets to
+// lose: it is a look-alike, so a stray placeholder does not fail every deploy of
+// its stack. LoadScopeFile still refuses it with a clear message.
+func TestResolveScopedValues_EmptyLookalikeIsIgnored(t *testing.T) {
+	_, priv := genEd25519Recipient(t)
+	for name, content := range map[string]string{
+		"whitespace only": "  \n\n",
+		"comments only":   "# placeholder, filled in later\n",
+		"null":            "~\n",
+		"document marker": "---\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := filepath.Join(t.TempDir(), "myapp")
+			p := filepath.Join(dir, "secrets.pr.yaml")
+			writeTestFile(t, p, content)
+			if ok, err := IsScopeFile(p); err != nil || ok {
+				t.Errorf("IsScopeFile = %v, %v; want a look-alike", ok, err)
+			}
+			if got, err := ResolveScopedValues(dir, []string{priv}); err != nil || len(got) != 0 {
+				t.Errorf("ResolveScopedValues = %v, %v; want nothing and no error", got, err)
+			}
+			if _, err := LoadScopeFile(p); err == nil {
+				t.Error("LoadScopeFile accepted a file with no scope in it")
+			}
+		})
+	}
+	dir := filepath.Join(t.TempDir(), "myapp")
+	writeTestFile(t, filepath.Join(dir, "secrets.pr.yaml"), "")
+	if _, err := LoadScopeFile(filepath.Join(dir, "secrets.pr.yaml")); err == nil || !strings.Contains(err.Error(), "is empty") {
+		t.Errorf("empty file error = %v; want it to say the file is empty", err)
+	}
+	writeTestFile(t, filepath.Join(dir, "secrets.qa.yaml"), "<<<<<<< HEAD\nscope: qa\n")
+	if _, err := LoadScopeFile(filepath.Join(dir, "secrets.qa.yaml")); err == nil || !strings.Contains(err.Error(), "rename it") {
+		t.Errorf("unparseable file error = %v; want the rename hint", err)
+	}
+}
+
+func TestValidateStackName(t *testing.T) {
+	for _, ok := range []string{"app", "pay_wallet", "_shared", "a.b", "A-1"} {
+		if err := ValidateStackName(ok); err != nil {
+			t.Errorf("%q refused: %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"", ".", "..", "a/b", "../x", "-a", ".hidden", "a b", strings.Repeat("a", 129)} {
+		if err := ValidateStackName(bad); err == nil {
+			t.Errorf("%q accepted", bad)
+		}
+	}
+}
+
+func TestDropsRecipients(t *testing.T) {
+	a, _ := genEd25519Recipient(t)
+	b, _ := genEd25519Recipient(t)
+	if !DropsRecipients([]string{a, b}, []string{a}) {
+		t.Error("removing b not reported")
+	}
+	if DropsRecipients([]string{a}, []string{a, b}) {
+		t.Error("adding b reported as a removal")
+	}
+	if DropsRecipients([]string{strings.TrimSpace(a) + " a comment"}, []string{a}) {
+		t.Error("a different comment on the same key reported as a removal")
+	}
+}
+
+func TestScopesAllowNormalizesRecipients(t *testing.T) {
+	a, _ := genEd25519Recipient(t)
+	b, _ := genEd25519Recipient(t)
+	s := &Scopes{Scopes: map[string]Scope{}}
+	if _, err := s.Allow("pr", "  "+strings.TrimSpace(a)+"\r\n"); err != nil {
+		t.Fatal(err)
+	}
+	if got := s.Scopes["pr"].Recipients[0]; got != strings.TrimSpace(a) {
+		t.Errorf("stored %q", got)
+	}
+	if _, err := s.Allow("pr", strings.TrimSpace(a)+"\n"+strings.TrimSpace(b)); err == nil || !strings.Contains(err.Error(), "one key on one line") {
+		t.Errorf("two keys on two lines accepted: %v", err)
+	}
+	if removed, err := s.Disallow("pr", " "+strings.TrimSpace(a)+"\r\n"); err != nil || !removed {
+		t.Errorf("disallow with surrounding whitespace: %v, %v", removed, err)
+	}
 }
 
 func TestOpenerKMSClientsAreProbedOnce(t *testing.T) {
@@ -462,5 +572,115 @@ func TestResolveScopedValues_AdminAcrossEnvironmentScopes(t *testing.T) {
 	}
 	if got["staging-db-password"] != "s" || got["prod-db-password"] != "p" || len(got) != 2 {
 		t.Errorf("got %v; want both environment-qualified values", got)
+	}
+}
+
+// A secrets.<scope>.yaml that cannot be read is an error everywhere it is
+// classified, never "no scope files".
+func TestScopeFilesIn_UnreadableFileIsAnError(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "myapp")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(dir, "missing-target"), filepath.Join(dir, "secrets.pr.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := ScopeFilesIn(dir); err == nil {
+		t.Error("ScopeFilesIn hid an unreadable scope file")
+	}
+	if _, err := IsScopeFile(filepath.Join(dir, "secrets.pr.yaml")); err == nil {
+		t.Error("IsScopeFile hid a read error")
+	}
+	if _, err := ResolveScopedValues(dir, nil); err == nil {
+		t.Error("ResolveScopedValues hid an unreadable scope file")
+	}
+}
+
+func TestIsScopeFileMarkers(t *testing.T) {
+	for content, want := range map[string]bool{
+		"stack: app\nvalues: {}\n":  true,
+		"scope: pr\n":               true,
+		"recipients: []\n":          true,
+		"values:\n  K: plaintext\n": false,
+	} {
+		p := filepath.Join(t.TempDir(), "secrets.pr.yaml")
+		writeTestFile(t, p, content)
+		if got, err := IsScopeFile(p); err != nil || got != want {
+			t.Errorf("%q: %v, %v; want %v", content, got, err, want)
+		}
+	}
+}
+
+func TestDropsRecipientsCountsUnidentifiableAsDropped(t *testing.T) {
+	a, _ := genEd25519Recipient(t)
+	if !DropsRecipients([]string{a, "not a key"}, []string{a}) {
+		t.Error("an unidentifiable recipient that goes away is not reported")
+	}
+}
+
+func TestInvalidEnvScopeKeys(t *testing.T) {
+	_, priv := genEd25519Recipient(t)
+	t.Setenv("SC_SCOPE_KEY", "junk")
+	t.Setenv("SC_KEY_MY_SCOPE", "junk")
+	t.Setenv("SC_KEY_PR", priv)
+	t.Setenv("SC_KEY_QA", "   ")          // blank: not set
+	t.Setenv("SC_KEY_FILE", "/some/path") // another tool's variable: no scope "file"
+	got := InvalidEnvScopeKeys([]string{"my-scope", "pr", "qa", "my-scope"})
+	if want := []string{"SC_KEY_MY_SCOPE", "SC_SCOPE_KEY"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v; want %v", got, want)
+	}
+	if ScopeKeyEnvName("my-scope") != "SC_KEY_MY_SCOPE" {
+		t.Errorf("ScopeKeyEnvName = %s", ScopeKeyEnvName("my-scope"))
+	}
+}
+
+// A YAML error quotes the start of the value it could not decode; for a secret
+// that is the start of the secret.
+func TestRedactYAMLErrorDropsQuotedValues(t *testing.T) {
+	var v struct{ A map[string]string }
+	err := yaml.Unmarshal([]byte("ghp_SUPERSECRETTOKEN"), &v)
+	if err == nil || !strings.Contains(err.Error(), "ghp_SUP") {
+		t.Fatalf("expected a YAML error quoting the value, got %v", err)
+	}
+	if got := RedactYAMLError(err).Error(); strings.Contains(got, "ghp_SUP") || !strings.Contains(got, "cannot unmarshal") {
+		t.Errorf("RedactYAMLError = %q", got)
+	}
+	if RedactYAMLError(nil) != nil {
+		t.Error("RedactYAMLError(nil) != nil")
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "secrets.pr.yaml")
+	if err := os.WriteFile(path, []byte("ghp_SUPERSECRETTOKEN\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadScopeFile(path); err == nil || strings.Contains(err.Error(), "ghp_SUP") {
+		t.Errorf("LoadScopeFile on a plaintext file: %v", err)
+	}
+}
+
+// Deploys read a stack directory that is a symlink, so allow, disallow and lint
+// must see its scope files too.
+func TestListScopeFilesFollowsSymlinkedStacks(t *testing.T) {
+	root := t.TempDir()
+	stacks := filepath.Join(root, "stacks")
+	real := filepath.Join(root, "real-web")
+	for _, d := range []string{stacks, real} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(real, "secrets.pr.yaml"), []byte("stack: web\nscope: pr\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(real, filepath.Join(stacks, "web")); err != nil {
+		t.Skip("symlinks unsupported:", err)
+	}
+	if err := os.WriteFile(filepath.Join(stacks, "notes.txt"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	files, err := ListScopeFiles(stacks)
+	if err != nil || len(files) != 1 {
+		t.Errorf("ListScopeFiles = %v, %v; want the file in the linked stack", files, err)
 	}
 }

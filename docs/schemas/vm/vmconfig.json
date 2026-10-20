@@ -1,0 +1,159 @@
+{
+  "name": "VmConfig",
+  "type": "resource",
+  "provider": "vm",
+  "description": "VM vm configuration",
+  "goPackage": "pkg/clouds/vm/",
+  "goStruct": "VmConfig",
+  "resourceType": "vm",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "credentials": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "credentials"
+        ],
+        "type": "object"
+      },
+      "extraSshKeys": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "hosts": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "address": {
+              "type": "string"
+            },
+            "hostKey": {
+              "type": "string"
+            },
+            "port": {
+              "type": "integer"
+            },
+            "privateKey": {
+              "type": "string"
+            },
+            "privateKeyPassword": {
+              "type": "string"
+            },
+            "user": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "address"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "image": {
+        "type": "string"
+      },
+      "ingress": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "acmeCa": {
+            "type": "string"
+          },
+          "acmeEabKeyId": {
+            "type": "string"
+          },
+          "acmeEabMacKey": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "image": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "enable"
+        ],
+        "type": "object"
+      },
+      "network": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "subnets": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "packageMirror": {
+        "type": "string"
+      },
+      "provider": {
+        "type": "string"
+      },
+      "publicIP": {
+        "type": "boolean"
+      },
+      "region": {
+        "type": "string"
+      },
+      "registryMirrors": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "size": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "cores": {
+            "type": "integer"
+          },
+          "disk": {
+            "type": "string"
+          },
+          "diskType": {
+            "type": "string"
+          },
+          "memory": {
+            "type": "string"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "sshUser": {
+        "type": "string"
+      },
+      "zones": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "",
+      "provider"
+    ],
+    "type": "object"
+  }
+}

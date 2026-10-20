@@ -35,10 +35,17 @@ func BuildAndPushImages(ctx *sdk.Context, args BuildArgs) ([]*ContainerImage, er
 	return util.MapErr(args.Deployment.Containers, func(container k8s.CloudRunContainer, _ int) (*ContainerImage, error) {
 		dockerfile := container.Image.Dockerfile
 		if dockerfile == "" && container.Image.Context == "" && container.Name != "" {
-			// do not build and return right away
+			// Nothing to build: deploy the reference the compose service declared.
+			//
+			// `container.Name` is the compose SERVICE name and is only a usable image
+			// reference by coincidence; it stays as a fallback so a container that
+			// somehow carries neither keeps its old behaviour, but a service with an
+			// `image:` now gets that image. Same precedence as the ECS path
+			// (aws/ecs_fargate.go:1013).
+			imageRef := lo.If(container.Image.Name != "", container.Image.Name).Else(container.Name)
 			return &ContainerImage{
 				Container: container,
-				ImageName: sdk.String(container.Name).ToStringOutput(),
+				ImageName: sdk.String(imageRef).ToStringOutput(),
 			}, nil
 		}
 		if !filepath.IsAbs(dockerfile) && (container.Image.Context == "" || container.Image.Context == ".") {

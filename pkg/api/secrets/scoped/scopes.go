@@ -43,6 +43,9 @@ var (
 	// components, so control characters and separators are rejected.
 	scopeNameRe = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	secretKeyRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	// stackNameRe is a single directory name under the stacks dir: no separator,
+	// and never "." or "..".
+	stackNameRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$`)
 )
 
 // Fingerprint returns the stable SHA256 SSH fingerprint of an authorized public
@@ -93,6 +96,26 @@ func ValidateScopeName(scope string) error {
 		return errors.Errorf("invalid scope name %q (allowed: %s)", scope, scopeNameRe.String())
 	}
 	return nil
+}
+
+// ValidateStackName rejects a stack name that is not one directory under the
+// stacks dir, so a scope file can only be written where it will be read.
+func ValidateStackName(stack string) error {
+	if !stackNameRe.MatchString(stack) {
+		return errors.Errorf("invalid stack name %q (allowed: %s)", stack, stackNameRe.String())
+	}
+	return nil
+}
+
+// normalizeRecipient trims the surrounding whitespace a pasted key carries, and
+// refuses a value spanning several lines: only its first key would be sealed to,
+// while scopes.yaml would list them all.
+func normalizeRecipient(recipient string) (string, error) {
+	r := strings.TrimSpace(recipient)
+	if strings.ContainsAny(r, "\r\n") {
+		return "", errors.New("a recipient must be one key on one line")
+	}
+	return r, nil
 }
 
 // AuthKeyPrefix marks a scope entry that holds an auth descriptor (what sits under
@@ -161,21 +184,6 @@ func LoadScopes(path string) (*Scopes, error) {
 	return &s, nil
 }
 
-// Save writes scopes.yaml with a stable field order.
-func (s *Scopes) Save(path string) error {
-	if s.SchemaVersion == 0 {
-		s.SchemaVersion = CurrentScopesSchemaVersion
-	}
-	data, err := yaml.Marshal(s)
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal scopes")
-	}
-	if err := writeFileAtomic(path, data, 0o644); err != nil {
-		return errors.Wrapf(err, "failed to write %s", path)
-	}
-	return nil
-}
-
 // Recipients returns the authoritative recipient set for a scope, or an error if
 // the scope is not declared (a value can only be encrypted to a governed set).
 func (s *Scopes) Recipients(scope string) ([]string, error) {
@@ -193,6 +201,10 @@ func (s *Scopes) Recipients(scope string) ([]string, error) {
 // whether it was newly added.
 func (s *Scopes) Allow(scope, recipient string) (bool, error) {
 	if err := ValidateScopeName(scope); err != nil {
+		return false, err
+	}
+	recipient, err := normalizeRecipient(recipient)
+	if err != nil {
 		return false, err
 	}
 	if _, err := recipientID(recipient); err != nil {
@@ -225,6 +237,10 @@ func (s *Scopes) Disallow(scope, recipient string) (bool, error) {
 	if !ok {
 		return false, errors.Errorf("scope %q is not declared", scope)
 	}
+	recipient, err := normalizeRecipient(recipient)
+	if err != nil {
+		return false, err
+	}
 	fp, err := recipientID(recipient)
 	if err != nil {
 		return false, err
@@ -243,4 +259,24 @@ func (s *Scopes) Disallow(scope, recipient string) (bool, error) {
 	sc.Recipients = kept
 	s.Scopes[scope] = sc
 	return removed, nil
+}
+
+// DropsRecipients reports whether going from the recipient set from to the set to
+// removes anyone, compared by fingerprint. Whoever is dropped can still read the
+// values already committed, so the caller warns to rotate them.
+func DropsRecipients(from, to []string) bool {
+	kept := map[string]bool{}
+	for _, r := range to {
+		if id, err := recipientID(r); err == nil {
+			kept[id] = true
+		}
+	}
+	for _, r := range from {
+		// A recipient that cannot be identified counts as dropped: warn rather
+		// than miss a removal.
+		if id, err := recipientID(r); err != nil || !kept[id] {
+			return true
+		}
+	}
+	return false
 }

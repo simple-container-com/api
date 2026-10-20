@@ -18,6 +18,21 @@ on:
       - 'main'
       - 'staging'
 
+# REF-keyed so a force-push supersedes the in-flight run and releases its
+# runners. This workflow had NO concurrency block at all, which on the CI
+# fleet (2 usable slots) meant an abandoned commit's run kept building to
+# completion while the live run sat queued. Measured on PR #460
+# (2026-10-19): a superseded run of this workflow built its full 9-job
+# matrix to GREEN on both fleet slots for 40 minutes — on a commit that was
+# no longer on the branch — while the replacement run waited and only
+# started its first job as the dead one finished. `github.ref` for a PR is
+# refs/pull/<n>/merge, stable across force-pushes, so exactly one run per
+# PR is live at a time. A cancelled check on an abandoned sha does not gate
+# the merge: GitHub evaluates check runs on the PR's current head sha.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 # Least-privilege root: every job inherits read-only unless it explicitly
 # grants more (CIS GHA 1.2). Only `finalize` actually needs `contents: write`
 # (sticky comment / notify), and it grants that itself further down.
@@ -35,13 +50,15 @@ jobs:
   # downstream jobs `needs: build-setup`, so they cascade-skip; the
   # `finalize` aggregator below has the same guard so it doesn't fire a
   # spurious "build failed" Telegram on the cascade.
+
   build-setup:
     name: Build Setup (clean, tools, schemas, lint, fmt)
     if: >-
       github.event_name != 'pull_request' ||
       github.event.pull_request.user.login != 'dependabot[bot]' ||
       contains(github.event.pull_request.labels.*.name, 'ci-run')
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     outputs:
       cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
       cicd-bot-telegram-chat-id: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-chat-id }}
@@ -50,10 +67,16 @@ jobs:
         with:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: install sc + welder tools
         uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
       - name: prepare secrets for build
@@ -69,15 +92,25 @@ jobs:
         id: get-openai-key
         run: |
           echo "openai-key=$(sc stack secret-get -s dist openai-api-key 2>/dev/null || echo '')" >> $GITHUB_OUTPUT
-      - name: prepare sc tool (rebuild)
+      # `welder run rebuild` used to run here. It is gone, deliberately: on THIS
+      # workflow nothing consumed what it produced.
+      #   - its `bin/sc` was used only by `get telegram secrets` below, and the
+      #     RELEASED sc from setup-sc-tooling already serves that — `get openai
+      #     key` above has always called bare `sc stack secret-get`.
+      #   - its `generate-schemas` is redundant with the dedicated step below.
+      #   - the `bin-tools` artifact it fed was removed earlier in this PR (no
+      #     workflow downloaded it).
+      # What it cost: a full link of ./cmd/sc — the 12.9 GB-peak step, ~5-8 min
+      # warm and 23+ min cold, on every PR.
+      # push.yaml KEEPS its rebuild: docker-finalize deploys the dist stack with
+      # `bin/sc` built from the commit being released, which is a deliberate
+      # self-test and must not be swapped for a released binary.
+      # `gh auth setup-git` stays — the `tools` step's `go get` needs it.
+      - name: configure git auth for module fetches
         shell: bash
         env:
-          OPENAI_API_KEY: ${{ steps.get-openai-key.outputs.openai-key }}
-          SKIP_EMBEDDINGS: "true"
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |-
-          gh auth setup-git
-          welder run rebuild
+        run: gh auth setup-git
       - name: clean
         run: |
           mkdir -p dist
@@ -90,7 +123,24 @@ jobs:
           rm -fR docs/schemas/*
       - name: tools
         run: |
-          cat tools.go | grep _ | awk -F'"' '{print $2}' | xargs -tI % go get %
+          # NO `go get` here, deliberately. It used to run
+          #   cat tools.go | grep _ | ... | xargs -tI % go get %
+          # which resolves each tool to its LATEST version on every run. That
+          # was three separate problems, not just the obvious network cost the
+          # operator spotted:
+          #   1. ~5 network round-trips per job even with a warm GOMODCACHE;
+          #   2. it could silently BUMP golangci-lint / gofumpt — the very
+          #      tools that gate this build — so a PR could fail lint for
+          #      reasons unrelated to its diff, and the version that ran was
+          #      never the version committed;
+          #   3. a bumped tool is a different module version, so it misses the
+          #      seeded build cache and recompiles.
+          # None of it is needed: tools.go blank-imports all five tools and
+          # go.mod pins them (mockery/v2 v2.53.6, golangci-lint v1.64.8,
+          # gofumpt v0.11.0, delve v1.27.0, go-jsonschema v0.24.1), and the
+          # //go:generate lines in tools.go `go build` them from those pinned
+          # versions. `go mod download` then serves straight from the warm
+          # GOMODCACHE.
           go mod download
           go generate -tags tools
           go mod tidy
@@ -104,24 +154,36 @@ jobs:
         run: |
           go mod tidy
           bin/gofumpt -l -w ./
-          bin/golangci-lint run --fix --timeout 3m -v
+          # --timeout 15m, not 3m. The 3m budget was always marginal and only
+          # passed because `welder run rebuild` happened to run first and warm
+          # the export data that golangci-lint's go/packages loader needs.
+          # With that build removed (nothing consumed it here), the loader does
+          # the work itself and measured 3m6s on 6 oversubscribed vCPU —
+          # failing with "context loading failed: context deadline exceeded",
+          # exit 4, which reads like a lint error but is a timeout.
+          # api#461 run 39318720877. Package loading is the floor for a
+          # 2143-package graph; the limit only needs to not be the thing that
+          # fails.
+          bin/golangci-lint run --fix --timeout 15m -v
       - name: get telegram secrets
         id: telegram-secrets
         run: |
-          echo "cicd-bot-telegram-token=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
-          echo "cicd-bot-telegram-chat-id=$(./bin/sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
-      - name: upload bin directory artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: bin-tools
-          path: bin
-          retention-days: 1
+          # Released `sc` from setup-sc-tooling, not a from-source build — see
+          # the note where `welder run rebuild` was removed.
+          echo "cicd-bot-telegram-token=$(sc stack secret-get -s dist cicd-bot-telegram-token)" >> $GITHUB_OUTPUT
+          echo "cicd-bot-telegram-chat-id=$(sc stack secret-get -s dist cicd-bot-telegram-chat-id)" >> $GITHUB_OUTPUT
 
   build-platforms:
     name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: build-setup
     strategy:
+      # A failure in one leg must not cancel the others mid-run — see
+      # push.yaml's build-platforms for the full rationale (per-leg
+      # diagnostics across platforms) and its docker-build for the
+      # tag-promotion-consistency hazard this same default creates there.
+      fail-fast: false
       matrix:
         include:
           - os: linux
@@ -134,10 +196,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: create build directories
         run: |
           mkdir -p dist
@@ -152,18 +220,16 @@ jobs:
           if [ "${GOOS}" = "windows" ]; then export EXT=".exe"; else export EXT=""; fi
           go build -ldflags "-s -w" -o dist/${GOOS}-${GOARCH}/sc${EXT} ./cmd/sc
           tar -czf .sc/stacks/dist/bundle/sc-${GOOS}-${GOARCH}.tar.gz -C dist/${GOOS}-${GOARCH} sc${EXT}
-      - name: upload build artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: sc-${{ matrix.os }}-${{ matrix.arch }}
-          path: .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
-          retention-days: 1
 
   build-binaries:
     name: Build ${{ matrix.target }}
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: build-setup
     strategy:
+      # Independent targets; a failure in one must not cancel the other's
+      # build — see push.yaml's build-platforms for the full rationale.
+      fail-fast: false
       matrix:
         include:
           - target: github-actions
@@ -176,10 +242,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: create build directories
         run: |
           mkdir -p dist
@@ -187,70 +259,100 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: |
-          go build -a -installsuffix cgo -ldflags "-s -w" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
-      - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ matrix.target }}-binary
-          path: ${{ matrix.output }}
-          retention-days: 1
+          go build -ldflags "-s -w" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
 
   build-github-actions-staging:
     name: Build github-actions-staging
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    # CGO_ENABLED=0 so this required check compiles the SAME configuration that
+    # actually ships. welder's `build-github-actions-staging` task sets it (plus
+    # GOOS/GOARCH linux/amd64, "static, Alpine compatible") and the staging image
+    # is built from welder's bin/, not from this job's artifact — which has 1-day
+    # retention and no consumer. Without it, cgo is on here and the gate was
+    # validating a glibc-dynamic binary nobody runs.
+    env:
+      CGO_ENABLED: "0"
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: build-setup
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: build github-actions-staging
         run: |
           mkdir -p bin
-          go build -ldflags "-s -w" -a -installsuffix cgo -o bin/github-actions ./cmd/github-actions
-      - name: upload github-actions-staging binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: github-actions-staging-binary
-          path: bin/github-actions
-          retention-days: 1
+          go build -ldflags "-s -w" -o bin/github-actions ./cmd/github-actions
 
   test:
     name: Run tests
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: build-setup
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: test
         run: |
           go test ./...
 
   test-registry-integration:
-    name: Run registry integration tests
-    runs-on: blacksmith-8vcpu-ubuntu-2204
+    name: Run integration tests
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: build-setup
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: install attestation tools
         uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
+      # The engine tests drive the real engine: the pulumi CLI at the SDK version
+      # in go.mod (the shared installer — same script the release/preview deploy
+      # jobs use, so the version derivation and checksum check cannot drift
+      # between them), plus the docker resource plugin of the SDK in go.mod.
+      # This job has setup-go, so the plugin version comes from `go list -m`,
+      # which resolves a `replace` correctly.
+      - name: install pulumi CLI
+        run: |
+          set -euo pipefail
+          PULUMI_DOCKER_PLUGIN="$(go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' github.com/pulumi/pulumi-docker/sdk/v4 | sed 's/^v//')"
+          export PULUMI_DOCKER_PLUGIN
+          .github/scripts/install-pulumi.sh
       - name: test
         run: |
           go test -tags integration -count=1 ./pkg/clouds/pulumi/docker/...
+          go test -tags integration -count=1 -timeout 30m -run '^TestEngine' ./pkg/clouds/pulumi/
 
   finalize:
     name: Finalize build in branch

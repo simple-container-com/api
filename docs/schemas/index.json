@@ -25,6 +25,10 @@
       "count": 1,
       "description": "Github cloud provider resources and templates"
     },
+    "k3s": {
+      "count": 2,
+      "description": "K3s cloud provider resources and templates"
+    },
     "kubernetes": {
       "count": 7,
       "description": "Kubernetes cloud provider resources and templates"
@@ -32,6 +36,10 @@
     "mongodb": {
       "count": 1,
       "description": "Mongodb cloud provider resources and templates"
+    },
+    "vm": {
+      "count": 2,
+      "description": "Vm cloud provider resources and templates"
     },
     "yandex": {
       "count": 8,

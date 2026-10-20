@@ -17,6 +17,9 @@
             "properties": {
               "projectId": {
                 "type": "string"
+              },
+              "serviceAccount": {
+                "type": "string"
               }
             },
             "required": [
@@ -67,8 +70,14 @@
       "privateNetwork": {
         "type": "string"
       },
+      "privateServicesAccessRange": {
+        "type": "string"
+      },
       "project": {
         "type": "string"
+      },
+      "proxyPrivateIp": {
+        "type": "boolean"
       },
       "publicIpEnabled": {
         "type": "boolean"

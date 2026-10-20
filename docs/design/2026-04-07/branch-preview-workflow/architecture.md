@@ -218,7 +218,6 @@ Uploads artifact: `sc-{os}-{arch}` containing only the versioned tarball (`sc-{o
 
 ```bash
 go build \
-  -a -installsuffix cgo \
   -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" \
   -o dist/github-actions ./cmd/github-actions
 ```

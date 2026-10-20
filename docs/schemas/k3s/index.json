@@ -1,0 +1,27 @@
+{
+  "description": "JSON Schema definitions for K3s resources and templates",
+  "provider": "k3s",
+  "resources": [
+    {
+      "name": "K3sCloudrunTemplate",
+      "type": "template",
+      "provider": "k3s",
+      "description": "K3S deployment template configuration",
+      "goPackage": "pkg/clouds/k3s/",
+      "goStruct": "K3sCloudrunTemplate",
+      "resourceType": "k3s-cloudrun",
+      "templateType": "k3s-cloudrun",
+      "schema": {}
+    },
+    {
+      "name": "K3sClusterConfig",
+      "type": "resource",
+      "provider": "k3s",
+      "description": "K3S k3scluster configuration",
+      "goPackage": "pkg/clouds/k3s/",
+      "goStruct": "K3sClusterConfig",
+      "resourceType": "k3s-cluster",
+      "schema": {}
+    }
+  ]
+}

@@ -99,9 +99,10 @@ func main() {
 	rootCmd.PersistentFlags().BoolVarP(&rootParams.Verbose, "verbose", "v", rootParams.Verbose, "Verbose mode")
 	rootCmd.PersistentFlags().StringVarP(&rootParams.Profile, "profile", "p", rootParams.Profile, "Use profile")
 
+	rootCmd.SetErr(logger.RedactingWriter(os.Stderr))
 	err := rootCmd.Execute()
 	if err != nil {
-		_, _ = os.Stderr.WriteString(color.RedFmt("Error executing command: %s\n", err.Error()))
+		_, _ = os.Stderr.WriteString(logger.Redact(color.RedFmt("Error executing command: %s\n", err.Error())))
 		os.Exit(1)
 	}
 }

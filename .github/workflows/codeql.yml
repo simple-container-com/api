@@ -30,12 +30,16 @@ on:
     - cron: '23 4 * * 0'
   workflow_dispatch:
 
-# SHA-keyed dedup so a manual rerun on the same commit supersedes the
-# in-flight one. With push restricted to main + pull_request on PRs,
-# a single commit no longer fires two events; no PR-side cancellation
-# noise.
+# REF-keyed, not SHA-keyed, and the difference is load-bearing on the CI fleet
+# (2 usable slots — see govulncheck.yml for the full note and the measured
+# 40-minute incident). A SHA-keyed group opens a NEW group on every
+# force-push, so the run on the abandoned commit is never cancelled and keeps
+# holding its runner. `github.ref` is stable across force-pushes to the same
+# PR, so a superseded run is cancelled and its slot released immediately. A
+# manual rerun on the same ref also still supersedes the in-flight run, which
+# is what the original SHA keying was for.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:

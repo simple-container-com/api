@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/api/secrets"
 )
 
@@ -491,7 +492,8 @@ func (e *Executor) getFailureMessage(config OperationConfig, err error, duration
 	}
 
 	// Get intelligently truncated error message
-	errorMsg := e.truncateErrorMessage(err.Error(), 1500) // Leave room for prefix
+	// Redact before truncating: a cut can drop the BEGIN line of a key.
+	errorMsg := e.truncateErrorMessage(logger.Redact(err.Error()), 1500) // Leave room for prefix
 
 	if duration > 0 {
 		return fmt.Sprintf("%s of %s%s failed after %v: %s", action, scope, config.StackName, duration, errorMsg)

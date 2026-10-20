@@ -33,6 +33,12 @@ func PostgresComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.Resou
 	if !ok {
 		return nil, errors.Errorf("failed to convert postgresql config for %q", input.Descriptor.Type)
 	}
+	// Clients read the parent's config straight from server.yaml, so an invalid
+	// one (proxyPrivateIp without privateNetwork) must fail here too, not only on
+	// the parent's provision.
+	if err := pgCfg.Validate(); err != nil {
+		return nil, err
+	}
 
 	// For export lookups, always use the configuration-based name (what parent stack exports)
 	configBasedName := toPostgresName(input, input.Descriptor.Name)

@@ -17,9 +17,6 @@ import (
 
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
-	"github.com/pulumi/pulumi/sdk/v3/go/auto/optpreview"
-	"github.com/pulumi/pulumi/sdk/v3/go/auto/optrefresh"
-	"github.com/pulumi/pulumi/sdk/v3/go/auto/optup"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/internal/build"
@@ -40,6 +37,9 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 	if err != nil {
 		return err
 	}
+	if err := checkRefreshCLI(stackSource.Workspace().PulumiVersion(), params.SkipRefresh); err != nil {
+		return err
+	}
 
 	if timeoutDuration, err := time.ParseDuration(params.Timeouts.ExecutionTimeout); err == nil {
 		p.logger.Info(ctx, "%s", color.YellowFmt("Setting timeout on whole execution %q...", timeoutDuration.String()))
@@ -48,44 +48,19 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		defer cancel()
 	}
 
-	if !params.SkipRefresh {
-		p.logger.Info(ctx, "Refreshing stack %q...", s.Ref().FullyQualifiedName())
-		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))
-		if err != nil {
-			return err
-		}
-		p.logger.Info(ctx, "Refresh summary: \n%s", p.toRefreshResult(refreshResult))
-	}
 	if !params.SkipPreview {
 		p.logger.Info(ctx, "%s", color.GreenFmt("Previewing stack %q...", s.Ref().FullyQualifiedName()))
 
-		previewOpts := []optpreview.Option{
-			optpreview.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextPreview))),
-		}
-
-		// Add detailed diff option if requested (default to true for better visibility)
 		if params.DetailedDiff {
-			previewOpts = append(previewOpts, optpreview.Diff())
 			p.logger.Info(ctx, "🔍 Diff enabled - showing granular changes for nested properties")
 		}
-
-		previewResult, err := stackSource.Preview(ctx, previewOpts...)
+		previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, params.DetailedDiff)...)
 		if err != nil {
 			return err
 		}
 		p.logger.Info(ctx, "%s", color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
 	}
-	upOpts := []optup.Option{
-		optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextProvision))),
-	}
-
-	// Add detailed diff option if requested
-	if params.DetailedDiff {
-		upOpts = append(upOpts, optup.Diff())
-		p.logger.Info(ctx, "🔍 Diff enabled for update operation - showing granular changes")
-	}
-
-	updateRes, err := stackSource.Up(ctx, upOpts...)
+	updateRes, err := stackSource.Up(ctx, p.upOptions(ctx, ActionContextProvision, params.SkipRefresh, params.DetailedDiff)...)
 	if err != nil {
 		return err
 	}

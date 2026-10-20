@@ -1,0 +1,32 @@
+# The file `client.yaml`'s `dockerComposeFile` points at. It lives at the repo root,
+# next to `.sc/`, and it is an ordinary compose file — the same one you use locally.
+#
+# Only the services named in `runs:` are deployed; anything else here is treated as a
+# local-development dependency and ignored. That is what lets one file serve both.
+services:
+  api:
+    # A service that declares `image:` is deployed from that reference as-is, with no
+    # build and no registry push — which is also the quickest way to get a first
+    # response out of a fresh cluster:
+    #
+    #   image: nginx:1.27-alpine
+    #
+    # Swap in `build:` (below) once you are deploying your own code. Then the template's
+    # `dockerRegistryURL` becomes load-bearing: SC builds the image where `sc deploy`
+    # runs, pushes it there, and the kubelet pulls it. A kubelet cannot be pushed to.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080"
+    environment:
+      # Values here are overridden by `env:`/`secrets:` in client.yaml. Keep local
+      # defaults in this file and per-environment values in the stack config.
+      ENV: local
+
+  # Not in `runs:`, so it never reaches the cluster — it exists for `docker compose up`
+  # on a laptop. In the cluster the same URI arrives through `secrets.MONGO_URI`.
+  mongo:
+    image: mongo:7
+    ports:
+      - "27017:27017"

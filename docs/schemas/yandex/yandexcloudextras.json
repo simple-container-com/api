@@ -55,6 +55,9 @@
       },
       "serviceAccountId": {
         "type": "string"
+      },
+      "websocket": {
+        "type": "boolean"
       }
     },
     "required": [],

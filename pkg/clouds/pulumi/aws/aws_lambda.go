@@ -11,13 +11,12 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/apigatewayv2"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/cloudwatch"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/iam"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/lambda"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
@@ -186,23 +185,53 @@ func Lambda(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params p
 		return nil, errors.Wrapf(err, "failed to create extra policy attachment for lambda role")
 	}
 
-	// SECRETS
+	// SECRETS — two modes:
+	//
+	//   - Legacy per-key (default; cloudExtras.secretsBundle nil or
+	//     disabled): one SecretsManager secret + one Lambda env var per
+	//     declared ${secret:…}. Hits the 4KB Lambda env cap at ~40
+	//     secrets (see roadmap `conductor-lambda-env-4kb-cap`).
+	//
+	//   - Bundle (cloudExtras.secretsBundle set, design 2026-10-17):
+	//     ONE SecretsManager secret with a JSON {envName → plaintext}
+	//     payload + ONE env var `FORGE_SECRETS_BUNDLE_ARN`. The
+	//     service's bootstrap calls `awsutil.LoadSecretBundle(ctx)`
+	//     (SDK) to parse + os.Setenv each key before anything reads
+	//     a secret env. ~16× budget headroom vs the per-key path.
 	var secrets []*CreatedSecret
-	ctxSecrets, err := util.MapErr(secretEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
-		return createSecret(ctx, toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, stackConfig.Version), v.Name, v.Value, tags, opts...)
-	})
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create context secrets for stack %q in %q", stack.Name, deployParams.Environment)
-	}
-	secrets = append(secrets, ctxSecrets...)
-	for name, value := range stackConfig.Secrets {
-		s, err := createSecret(ctx, toSecretName(deployParams, "values", "", name, stackConfig.Version), name, value, tags, opts...)
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to create secret")
+	if cloudExtras.SecretsBundle.IsEnabled() {
+		// Bundle mode. Build the same {envName → plaintext} set the
+		// legacy path would emit as per-key secrets, pack as one JSON
+		// SecretVersion, surface ONE ARN env.
+		ctxVars := make([]secretValue, 0, len(secretEnvVariables))
+		for _, v := range secretEnvVariables {
+			ctxVars = append(ctxVars, secretValue{Name: v.Name, Value: v.Value})
 		}
-		secrets = append(secrets, s)
+		bundle, berr := createSecretsBundle(ctx, deployParams, cloudExtras.SecretsBundle, ctxVars, stackConfig.Secrets, tags, opts...)
+		if berr != nil {
+			return nil, errors.Wrapf(berr, "failed to create secrets bundle for stack %q in %q", stack.Name, deployParams.Environment)
+		}
+		secrets = append(secrets, bundle)
+		params.Log.Info(ctx.Context(),
+			"secrets bundle mode: %d entries → 1 SecretsManager secret + 1 env var (%s) in stack %q in %q",
+			len(ctxVars)+len(stackConfig.Secrets), bundleEnvName, stack.Name, deployParams.Environment)
+	} else {
+		ctxSecrets, cerr := util.MapErr(secretEnvVariables, func(v pApi.ComputeEnvVariable, _ int) (*CreatedSecret, error) {
+			return createSecret(ctx, toSecretName(deployParams, v.ResourceType, v.ResourceName, v.Name, stackConfig.Version), v.Name, v.Value, tags, opts...)
+		})
+		if cerr != nil {
+			return nil, errors.Wrapf(cerr, "failed to create context secrets for stack %q in %q", stack.Name, deployParams.Environment)
+		}
+		secrets = append(secrets, ctxSecrets...)
+		for name, value := range stackConfig.Secrets {
+			s, serr := createSecret(ctx, toSecretName(deployParams, "values", "", name, stackConfig.Version), name, value, tags, opts...)
+			if serr != nil {
+				return nil, errors.Wrapf(serr, "failed to create secret")
+			}
+			secrets = append(secrets, s)
+		}
+		params.Log.Info(ctx.Context(), "configure secrets in SecretsManager for %d secrets in stack %q in %q...", len(secrets), stack.Name, deployParams.Environment)
 	}
-	params.Log.Info(ctx.Context(), "configure secrets in SecretsManager for %d secrets in stack %q in %q...", len(secrets), stack.Name, deployParams.Environment)
 
 	lambdaSizeMb := lo.If(stackConfig.MaxMemory == nil, 128).Else(lo.FromPtr(stackConfig.MaxMemory))
 

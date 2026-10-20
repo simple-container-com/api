@@ -10,12 +10,13 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
+	caddyassets "github.com/simple-container-com/api/pkg/clouds/caddy"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 )
 
 func TestCaddyfileEmbedHSTSPlaceholder(t *testing.T) {
 	RegisterTestingT(t)
-	content, err := Caddyconfig.ReadFile("embed/caddy/Caddyfile")
+	content, err := caddyassets.FS.ReadFile(caddyassets.CaddyfilePath)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(string(content)).To(ContainSubstring(`{$HSTS_VALUE:max-age=31536000; includeSubDomains; preload}`))
 }

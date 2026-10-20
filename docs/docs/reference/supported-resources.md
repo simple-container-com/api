@@ -954,10 +954,16 @@ resources:
             deletionProtection: true                     # Enable deletion protection (optional)
             queryInsightsEnabled: false                  # Enable query insights (optional)
             queryStringLength: 1024                      # Query string length limit (optional)
+            privateNetwork: "projects/my-gcp-project/global/networks/my-vpc"  # Private IP on this VPC (optional, restarts an existing instance)
+            privateServicesAccessRange: "10.30.0.0/20"   # SC creates Private Services Access on privateNetwork (optional)
+            proxyPrivateIp: true                         # proxy dials the private IP, public IP stays on (optional)
+            publicIpEnabled: true                        # false removes the public IP; implies proxyPrivateIp (optional)
             usersProvisionRuntime:                       # User provisioning runtime (optional)
               type: "kubernetes"
               resourceName: "postgres-job-runner"
 ```
+
+**Private IP:** `privateNetwork` needs Private Services Access on the VPC. With `privateServicesAccessRange` (an RFC 1918 CIDR, /24 or larger) SC reserves the range and creates the servicenetworking peering before the instance; leave it unset if the VPC already has one. The peering is one per VPC, so set the range on at most one resource per network, and treat it as immutable: removing it or destroying the stack keeps the range and the peering (delete them with `gcloud services vpc-peerings delete` and `gcloud compute addresses delete` once no instance uses them). Not supported with `adopt: true`. Adding a private IP to an existing instance restarts it; the proxy keeps using the public IP until `proxyPrivateIp: true` (or `publicIpEnabled: false`). To move an existing fleet without a cutover, set `proxyPrivateIp: true` first, and only after the instance shows a `PRIVATE` address (`gcloud sql instances describe <instance> --format='value(ipAddresses)'`): a client deployed earlier gets a proxy with nothing to dial. Each client stack switches on its next deploy while the public IP still serves the rest. Before turning the public IP off, confirm no proxy still lacks the flag: `kubectl get pods -A -o json | jq -r '.items[] | select(any(.spec.initContainers[]?, .spec.containers[]?; .name == "cloudsql-proxy" and (.args | index("--private-ip") | not))) | .metadata.namespace + "/" + .metadata.name'` must print nothing.
 
 **Database flag removal semantics:** on freshly provisioned instances, deleting an entry from `databaseFlags` reverts that flag to its engine default on the next update (static flags restart the instance). On **adopted** instances (`adopt: true`), flags are only managed while `databaseFlags` is set — deleting the whole block re-enters drift protection and leaves the last-applied flags in place; to disable a flag, set it to its off value (e.g. `"off"`) instead of removing the line.
 
