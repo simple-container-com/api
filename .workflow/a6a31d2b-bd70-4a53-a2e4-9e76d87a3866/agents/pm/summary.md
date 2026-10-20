@@ -1,0 +1,1 @@
+[thinking] # PM Handoff — `api-release-binary-roundtrip` verification (Main Forge SDLC)
