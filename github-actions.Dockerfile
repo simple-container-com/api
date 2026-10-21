@@ -164,8 +164,27 @@ FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec4
 # python3 stays — gcloud invokes it. py3-pip / binutils / upx confined to builder.
 # aws-cli needed by Pulumi local.Command shell-outs (e.g. `aws s3 sync` in the
 # static-website template at pkg/clouds/pulumi/aws/static_website.go).
-RUN apk update && apk upgrade --no-cache \
-    && apk add --no-cache ca-certificates git openssh-client curl jq bash python3 aws-cli \
+#
+# Retried because dl-cdn.alpinelinux.org times out when it has to share the
+# runner's egress with a large BuildKit cache import. This RUN is unavoidably
+# the one that races it: it is the runtime stage's first layer, so BuildKit
+# schedules it in parallel with the builder stage, and on a cold builder that
+# means ~287 MB of cache layers in flight at the same time (release run
+# 39571929882 — `Operation timed out` on APKINDEX at 60.11 s, while stage 17
+# was pulling at ~2.5 MB/s). apk exposes no network-timeout knob, so retrying
+# is the only lever; same shape as the `gcloud components install` retry above.
+#
+# Deliberately NOT applied to the builder stage's apk: that layer is CACHED and
+# pulumi/gcloud sit downstream of it, so editing it busts a ~500 MB download on
+# any runner whose cache mounts are cold (BuildKit never exports cache mounts).
+RUN for attempt in 1 2 3 4; do \
+        apk update && apk upgrade --no-cache \
+        && apk add --no-cache ca-certificates git openssh-client curl jq bash python3 aws-cli \
+        && break; \
+        test "${attempt}" -lt 4 || exit 1; \
+        echo "apk attempt ${attempt} failed, retrying" >&2; \
+        sleep $((attempt * 15)); \
+    done \
     && rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
 
 COPY --from=builder /opt/pulumi /opt/pulumi
