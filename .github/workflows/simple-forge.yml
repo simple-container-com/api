@@ -68,7 +68,7 @@ jobs:
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
 
       - name: Install welder
-        uses: simple-container-com/actions/install-welder@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-welder@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
 
       - name: Run Simple Forge
         uses: simple-container-com/forge-action/.github/actions/dockerless@b85c96d5f597a28e9dc7528b818c5c79e6575ad5 # v1

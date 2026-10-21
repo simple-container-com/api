@@ -97,7 +97,7 @@ docs/
 - **Actions location**: `.github/actions/[action-name]/action.yml`
 - **Workflow templates**: `pkg/clouds/github/templates.go`
 - **Executor**: `pkg/githubactions/actions/`
-- **Docker images**: Built via `github-actions.Dockerfile` and `github-actions-staging.Dockerfile`
+- **Docker images**: Built via `github-actions.Dockerfile` (the `-staging` variant was removed 2026-10-20)
 
 ### 6. Key Architecture Patterns
 

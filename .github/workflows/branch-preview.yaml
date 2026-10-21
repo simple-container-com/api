@@ -72,7 +72,13 @@ jobs:
           # One variable controls both routing and caching, so a revert is complete.
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: install sc + welder tools
-        uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/setup-sc-tooling@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
+        with:
+          # Skip the download when the fleet's rootfs already carries these
+          # exact versions; unset variables = download latest, as before.
+          # Full rationale and the lockstep requirement: push.yaml.
+          sc-version: ${{ vars.FORGE_CI_SC_VERSION }}
+          accept-preinstalled-welder: ${{ vars.FORGE_CI_WELDER_VERSION }}
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -159,13 +165,19 @@ jobs:
       attestations: write
     strategy:
       matrix:
+          # darwin/amd64 was DROPPED 2026-10-20 (operator decision, CI capacity).
+          # Consequence to keep in mind: Rosetta 2 runs amd64 on Apple Silicon
+          # but NOT arm64 on Intel, so there is no working `sc` for a pre-2020
+          # Mac. sc.sh fails with an explicit message rather than a bare 404.
+          # Re-adding it means: this matrix, the expected-platform list in
+          # docker-finalize, verify-attestations.yml, scripts/verify-preview.sh,
+          # AND the required-check list in ruleset 9144757 (a required check
+          # whose job no longer exists blocks every merge, and vice versa).
         include:
           - os: linux
             arch: amd64
           - os: darwin
             arch: arm64
-          - os: darwin
-            arch: amd64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
@@ -212,7 +224,7 @@ jobs:
       - name: Install attestation tools
         id: install_attest_tools
         continue-on-error: true
-        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-attest-tools@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       - name: Generate CycloneDX SBOM for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: sbom_tarball
         continue-on-error: true
@@ -387,7 +399,7 @@ jobs:
       - name: fix binary permissions
         run: chmod +x dist/${{ matrix.binary }}
       - name: install sc tool
-        uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-sc@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -444,7 +456,7 @@ jobs:
       - name: Sign + attest ${{ matrix.target }} (SBOM + cosign + SLSA)
         id: signattest
         if: steps.build_and_push.outcome == 'success'
-        uses: simple-container-com/actions/sign-and-attest@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/sign-and-attest@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           image-ref: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
           image-name: ${{ matrix.target }}
@@ -517,7 +529,7 @@ jobs:
       - name: fix bin tools permissions
         run: chmod +x bin/*
       - name: install sc tool
-        uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-sc@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       # `sc deploy` below shells out to the pulumi CLI. The Blacksmith/hosted
       # image shipped one; the self-hosted fleet does not — see
       # .github/scripts/install-pulumi.sh for the full story.
@@ -694,7 +706,7 @@ jobs:
           ### Install this SC version in your CI
 
           \`\`\`yaml
-          - uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
+          - uses: simple-container-com/actions/install-sc@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
             with:
               version: ${VERSION}
           \`\`\`
@@ -705,7 +717,7 @@ jobs:
       - name: Notify Telegram (success)
         if: ${{ success() && !contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/notify-telegram@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
@@ -716,7 +728,7 @@ jobs:
       - name: Notify Telegram (failure)
         if: ${{ failure() || contains(needs.*.result, 'failure') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/notify-telegram@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}

@@ -6,8 +6,12 @@
 #    would land in cacheable builder layers, not just the context tarball).
 #  - the context used to ship docs/, dist/, .git/ etc. for a build that needs
 #    none of them.
-# `bin` stays allowed: github-actions-staging.Dockerfile COPYs ./bin/… (built
-# on the host by welder in build-staging.yml).
+# `bin` is NOT allowed. It was, solely because github-actions-staging.Dockerfile
+# COPYed ./bin/github-actions built on the host by welder; both that Dockerfile
+# and build-staging.yml were removed 2026-10-20. caddy.Dockerfile's
+# `COPY --from=builder /usr/bin/caddy` is a build STAGE, not the host context,
+# so nothing needs it now — and keeping it would ship a local 565 MB bin/sc
+# into every build context.
 *
 !cmd
 !pkg
@@ -15,4 +19,3 @@
 !go.mod
 !go.sum
 !tools.go
-!bin

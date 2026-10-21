@@ -401,7 +401,9 @@ measured against, per the scope documented above.
 ## Continuous integration
 
 Tests run on every PR via `welder run test` invoked from the
-`build-staging.yml` workflow. The `Go Fuzz` workflow
+`branch.yaml` workflow (the `Run tests` required check). This
+previously named `build-staging.yml`, which was removed 2026-10-20 and
+in any case only ever ran on the `staging` branch, never on PRs. The `Go Fuzz` workflow
 (`.github/workflows/fuzz.yml`) runs the `testing.F` targets for 30
 seconds per target on each PR commit, and 10 minutes per target on
 the Monday cron.

@@ -48,12 +48,21 @@ RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 # Cache mounts, not a bare RUN: without them ANY source change invalidates
 # `COPY . .` and recompiles the whole ~2095-package closure inside the
-# container on every build. With them the compile is incremental on a
-# PERSISTENT builder (the fleet guests keep their dockerd and are now
-# golden-seeded). Note the limit honestly: buildkit does NOT export
-# type=cache mounts through `cache-to: type=gha`, so on an EPHEMERAL runner
-# (Blacksmith / ubuntu-latest) these mounts start empty every run — see the
-# BLACKSMITH TRADEOFF note above the gobuild stage.
+# container on every build.
+#
+# Whether they actually help depends ENTIRELY on the builder surviving, which
+# is a push.yaml property, not a Dockerfile one: buildkit does NOT export
+# `type=cache` mount contents through any cache exporter — not `type=gha`, not
+# `type=registry`. Mount contents are builder-local state. So these mounts pay
+# off only where the buildkit instance persists, which on the fleet is what
+# `setup-buildx-action`'s `name` + `cleanup: false` + `keep-state: true` buy
+# (added 2026-10-20 — before that the builder was torn down after every job
+# and this stage compiled from cold every release, despite an earlier version
+# of this comment asserting otherwise).
+#
+# On an EPHEMERAL runner (Blacksmith / ubuntu-latest) the VM is discarded, so
+# these mounts start empty every run regardless — see the BLACKSMITH TRADEOFF
+# note above the gobuild stage.
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 go build -trimpath -buildvcs=false \
