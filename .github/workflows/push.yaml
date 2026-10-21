@@ -482,6 +482,16 @@ jobs:
           # we are back on Blacksmith/hosted, where it should behave as before.
           # One variable controls both routing and caching, so a revert is complete.
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
+      # Branch coverage for scripts/create-github-release.sh, which has
+      # no Go test package of its own and otherwise only ever executes
+      # for real on a production tag. Drives every branch (fresh tag,
+      # existing tag → upload --clobber, unsigned-bundle refusal on
+      # both paths, preview/RC short-circuit) against a stub `gh` on
+      # PATH. Pure bash, no network, ~1s — runs before `go test` so a
+      # release-script regression fails fast.
+      - name: test release scripts
+        run: |
+          ./scripts/test-create-github-release.sh
       - name: test
         run: |
           go test ./...
