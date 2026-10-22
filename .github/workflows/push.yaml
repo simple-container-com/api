@@ -675,43 +675,170 @@ jobs:
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
 
-      # Persistent state needs a bound. The fleet guests' /cache is 60 GB with
-      # ~44 GB of golden Go cache reflinked in, leaving ~16 GB for dockerd
-      # (data-root is /cache/docker) — enough, but not enough to ignore.
+      # Persistent state needs a bound, and a COLD builder needs room to go
+      # warm again. Those are two different problems and this step does both.
       #
       # Deliberately NOT a buildkitd.toml gc policy: a TOML the daemon fails
       # to parse takes down every release build, and it could not be verified
       # locally (bootstrapping moby/buildkit timed out pulling the image).
       # buildkit's own GC is enabled by default; this step adds an age bound
-      # plus a free-space backstop, in shell, where a mistake is visible.
+      # plus a free-space floor, in shell, where a mistake is visible.
       #
       # `--filter until=` is the one prune flag whose name has been stable
       # across buildx versions — `--keep-storage` was REPLACED by
       # `--max-used-space` in buildx v0.17, and the runner image upgrades
       # buildx on its own schedule, so naming either one invites a break.
       # continue-on-error + `|| true`: cache hygiene must never fail a release.
+      #
+      # ---------------------------------------------------------------------
+      # Why the floor is 25 GB and why pruning buildkit alone cannot hold it
+      #
+      # Release run 39804179733 (2026-10-22) failed this leg TWICE with
+      # `mkdir /tmp/go-build.../: no space left on device` in `gobuild 6/6`,
+      # on two different guests, with byte-identical numbers:
+      #
+      #   pc-build-5 (cache-5, 60 GB): buildx du 0B, free 13 GB -> ENOSPC
+      #   pc-build-4 (cache-4, 60 GB): buildx du 0B, free 13 GB -> ENOSPC
+      #   pc-build-3 (cache-3, 80 GB): buildx du 19.69GB, free 31 GB -> OK
+      #
+      # Same closure, same run, same minute. The drives carry an identical
+      # ~48 GB resident set, so drive size alone decides: 60 GB leaves 13,
+      # 80 GB leaves 31. A COLD build of the ~2095-package closure needs both
+      # cache mounts (`/root/.cache/go-build` + `/go/pkg/mod`) built from
+      # scratch plus `$WORK` scratch, and 13 GB does not cover it.
+      #
+      # `buildx du` reporting 0B is the tell, and it is not random: the guest's
+      # `guest-cache-gc` runs once per boot and at >=88% usage does
+      # `rm -rf /cache/docker/*`, which destroys dockerd's data-root INCLUDING
+      # this persistent builder. That frees ~20 GB and then costs more than it
+      # freed, because the next build is cold. So on a tight guest the old
+      # backstop was a no-op exactly when it was needed: `buildx prune` on a
+      # 0B builder reclaims nothing, and the 10 GB trigger sat below the 13 GB
+      # at which the build already dies.
+      #
+      # So: escalate, cheapest-to-re-earn first, and only as far as needed.
+      # `/cache/go-build` and `/cache/go-mod` are the GUEST's Go caches — this
+      # job does not read them at all (buildkit's cache mounts live inside
+      # /cache/docker), so reclaiming them costs the NEXT Go job on this
+      # guest, never this build. Ordered by what that next job pays:
+      #   go-mod    — refetches from the host-side Athens mirror on the
+      #               bridge gateway: local, fast, cheap.
+      #   images    — refetch from the host-side registry mirror: also local.
+      #   go-build  — LAST RESORT. A cold guest-level `go build ./...` was
+      #               measured at 76 min, so this is the expensive one.
+      # Each tier re-measures and stops as soon as the floor is met, and every
+      # tier logs the free-space delta — nobody has ever measured what the
+      # ~48 GB resident set is actually made of, and these deltas say.
       - name: Bound the persistent builder's cache
         if: vars.FORGE_CI_RUNNER != ''
         continue-on-error: true
+        env:
+          # A cold gobuild of the ~2095-package closure. 13 GB is proven to
+          # fail and 31 GB proven to pass (run 39804179733); 25 GB sits above
+          # the failure with headroom and below what an 80 GB guest already
+          # has, so a healthy guest never triggers any reclaim below.
+          FLOOR_GB: "25"
         run: |
           set -uo pipefail
-          docker buildx du --builder forge-ci 2>/dev/null | tail -2 || true
-          docker buildx prune --builder forge-ci --force --filter until=168h 2>/dev/null || true
-          # Backstop: if the cache volume is genuinely tight, drop everything
-          # rather than let a build fail on ENOSPC. A cold compile costs
-          # minutes; a wedged guest costs the release.
-          #
+
           # Ask dockerd where its data-root actually is — do NOT assume
           # /var/lib/docker. The fleet guests put it on the persistent cache
           # drive at /cache/docker, so a hardcoded path would `df` a
           # non-existent directory, yield an empty string, and skip the
-          # backstop silently on the one runner class that needs it.
+          # reclaim silently on the one runner class that needs it.
           root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)
-          avail=$(df -BG --output=avail "${root:-/var/lib/docker}" 2>/dev/null | tail -1 | tr -dc '0-9')
-          echo "dockerd data-root: ${root:-unknown} — free: ${avail:-unknown} GB"
-          if [ -n "${avail:-}" ] && [ "${avail}" -lt 10 ]; then
-            echo "::warning::under 10 GB free for dockerd — pruning the whole build cache"
-            docker buildx prune --builder forge-ci --all --force 2>/dev/null || true
+          root="${root:-/var/lib/docker}"
+
+          # `|| true` on the pipeline, not just on df: the step inherits
+          # GitHub's default `bash -e {0}`, and `set -o pipefail` above turns a
+          # df failure (missing path) into a non-zero pipeline, which under
+          # -e aborts the whole step before any reclaim tier runs. Caught by
+          # the local harness, not in CI.
+          free_gb() {
+            { df -BG --output=avail "$1" 2>/dev/null | tail -1 | tr -dc '0-9'; } || true
+          }
+
+          # Reclaim a tier, then report what it bought. Never fails: a tier
+          # whose target does not exist is a no-op, not an error.
+          reclaim() {
+            label="$1"; shift
+            before=$(free_gb "${root}")
+            "$@" >/dev/null 2>&1 || true
+            after=$(free_gb "${root}")
+            echo "  ${label}: ${before:-?} GB -> ${after:-?} GB free"
+            avail="${after}"
+          }
+
+          echo "dockerd data-root: ${root}"
+
+          # Is the builder warm? A 0B total means guest-cache-gc wiped the
+          # data-root, so the tiers that prune buildkit cannot help and the
+          # ones that free the guest's Go caches are the only lever.
+          #
+          # Parsed from the human-readable total on purpose: `docker buildx du`
+          # grew a `--bytes`-style machine output only in later buildx
+          # versions, and the runner image upgrades buildx on its own
+          # schedule — the same reason `--filter until=` is used above. An
+          # unrecognised flag here would make every builder look cold.
+          #
+          # Two statements, not one pipeline: `docker buildx du` exits non-zero
+          # when the builder does not exist yet, and with pipefail + the
+          # inherited -e that would abort the step instead of reporting "cold".
+          du_raw=$(docker buildx du --builder forge-ci 2>/dev/null || true)
+          du_total=$(printf '%s\n' "${du_raw}" | awk '/^Total:/ {print $NF; exit}')
+          echo "builder cache total: ${du_total:-unknown}"
+          case "${du_total:-}" in
+            0B|0|"") echo "::notice::builder is COLD — this build compiles the ~2095-package closure from scratch" ;;
+          esac
+
+          # Tier 0 — the standing age bound, applied unconditionally.
+          reclaim "prune >168h" \
+            docker buildx prune --builder forge-ci --force --filter until=168h
+
+          if [ -z "${avail:-}" ]; then
+            echo "::warning::could not read free space for ${root} — skipping the reclaim tiers"
+            exit 0
+          fi
+
+          echo "free: ${avail} GB (floor ${FLOOR_GB} GB)"
+          [ "${avail}" -ge "${FLOOR_GB}" ] && { echo "above the floor — nothing to reclaim"; exit 0; }
+
+          echo "::warning::under ${FLOOR_GB} GB free for dockerd — escalating reclaim"
+
+          # Tier 1 — the whole buildkit cache. Reclaims nothing when cold,
+          # which is why it is no longer the only tier.
+          reclaim "prune all buildkit" \
+            docker buildx prune --builder forge-ci --all --force
+          [ "${avail:-0}" -ge "${FLOOR_GB}" ] && exit 0
+
+          # Everything below touches the guest's persistent cache drive and is
+          # meaningless anywhere else, so require that the data-root really is
+          # on it. On a hosted runner this is false and the step stops here.
+          case "${root}" in
+            /cache/*) ;;
+            *) echo "data-root is not on the guest cache drive — no further tiers"; exit 0 ;;
+          esac
+
+          # Tier 2 — images and containers. Layers come back from the
+          # host-side registry mirror on the bridge gateway.
+          reclaim "docker image prune -af" docker image prune -af
+          [ "${avail:-0}" -ge "${FLOOR_GB}" ] && exit 0
+
+          # Tier 3 — the guest's module cache. Refetches from Athens on the
+          # bridge gateway. Unused by this job; cheapest thing left to lose.
+          reclaim "drop /cache/go-mod" \
+            sh -c 'rm -rf /cache/go-mod/* /cache/go-mod/.[!.]* 2>/dev/null; mkdir -p /cache/go-mod'
+          [ "${avail:-0}" -ge "${FLOOR_GB}" ] && exit 0
+
+          # Tier 4 — the golden Go build cache. Costs the next guest-level Go
+          # job a cold compile (76 min measured), so it is strictly last and
+          # still better than failing the release.
+          echo "::warning::dropping the golden go-build cache — the next Go job on this guest compiles cold"
+          reclaim "drop /cache/go-build" \
+            sh -c 'rm -rf /cache/go-build/* /cache/go-build/.[!.]* 2>/dev/null; mkdir -p /cache/go-build'
+
+          if [ "${avail:-0}" -lt "${FLOOR_GB}" ]; then
+            echo "::error::still only ${avail:-?} GB free after every reclaim tier — this guest's cache drive is too small for a cold gobuild; grow ${root%/docker}'s backing image"
           fi
       - name: Docker login using SC secrets
         run: |
