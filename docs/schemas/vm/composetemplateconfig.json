@@ -25,6 +25,9 @@
         "required": [],
         "type": "object"
       },
+      "externalImages": {
+        "type": "string"
+      },
       "imageDelivery": {
         "type": "string"
       },

@@ -31,6 +31,30 @@ const (
 	ImageDeliverySshTar = "ssh-tar"
 )
 
+// What happens to the images SC does NOT build — a `mongo:7` or a `redis:7` that a
+// compose service only declares an `image:` for.
+//
+// The default under `ssh-tar` is ExternalImagesShip, and that is the point of the
+// setting existing at all: `ssh-tar` promises "the machine needs no registry", and
+// until these were shipped too the promise held only for a stack with no third-party
+// image in it. Everything else about the delivery was registry-free while a `mongo:7`
+// quietly required the machine to reach Docker Hub — which, inside Russia, is the
+// difference between a stack that comes up and one that does not
+// (compose-on-vm.md §5.4, §8.3).
+const (
+	// ExternalImagesShip pulls the image on the runner and streams it to the machine
+	// in the same `sc image ship` as everything else. The machine needs no registry;
+	// the RUNNER needs one. Private third-party images therefore need a `docker
+	// login` + `docker pull` in CI before `sc deploy` — the ship only fetches what is
+	// absent from the runner, so a pre-pulled image is simply shipped.
+	ExternalImagesShip = "ship"
+	// ExternalImagesPull leaves them to the machine's own `docker compose pull`. The
+	// right choice when the machine has a route (or a `registryMirrors` entry) and the
+	// runner does not, and the only choice for a private third-party registry the
+	// runner cannot log into.
+	ExternalImagesPull = "pull"
+)
+
 // How a new version replaces the running one.
 const (
 	// StrategyBlueGreen brings the new slot up next to the old one, gates on its
@@ -89,6 +113,10 @@ type ComposeTemplateConfig struct {
 	VmResource string `json:"vmResource" yaml:"vmResource"`
 	// ImageDelivery is ImageDeliverySshTar (default) or ImageDeliveryRegistry.
 	ImageDelivery string `json:"imageDelivery,omitempty" yaml:"imageDelivery,omitempty"`
+	// ExternalImages is ExternalImagesShip or ExternalImagesPull. It defaults to
+	// `ship` under `ssh-tar` and to `pull` under `registry`, where the machine is
+	// already talking to a registry and shipping would be strictly more work.
+	ExternalImages string `json:"externalImages,omitempty" yaml:"externalImages,omitempty"`
 	// Strategy is StrategyBlueGreen (default) or StrategyRecreate.
 	Strategy string `json:"strategy,omitempty" yaml:"strategy,omitempty"`
 	// KeepImages is how many previous versions to keep for rollback. Defaults to
@@ -133,6 +161,31 @@ func (c *ComposeTemplateConfig) EffectiveImageDelivery() string {
 	return lo.If(c.ImageDelivery == "", ImageDeliverySshTar).Else(c.ImageDelivery)
 }
 
+// EffectiveExternalImages resolves what to do with third-party images.
+//
+// The default follows the delivery mode rather than being a constant, because the two
+// defaults are each right for their mode and a single one would be wrong for the
+// other: under `registry` the machine is pulling from a registry anyway, so shipping a
+// `mongo:7` through the runner would move bytes for nothing.
+func (c *ComposeTemplateConfig) EffectiveExternalImages() string {
+	if c.ExternalImages != "" {
+		return c.ExternalImages
+	}
+	return lo.If(c.EffectiveImageDelivery() == ImageDeliverySshTar, ExternalImagesShip).Else(ExternalImagesPull)
+}
+
+// ShipsExternalImages reports whether this deploy streams third-party images to the
+// machine itself.
+//
+// `registry` delivery never does, even when asked: there is no `sc image ship` in that
+// mode at all, and adding one so that a third-party image could arrive by a different
+// route than the stack's own would be two delivery paths in one deploy. Validate says
+// so out loud rather than letting the setting be silently ignored.
+func (c *ComposeTemplateConfig) ShipsExternalImages() bool {
+	return c.EffectiveImageDelivery() == ImageDeliverySshTar &&
+		c.EffectiveExternalImages() == ExternalImagesShip
+}
+
 func (c *ComposeTemplateConfig) EffectiveStrategy() string {
 	return lo.If(c.Strategy == "", StrategyBlueGreen).Else(c.Strategy)
 }
@@ -156,6 +209,21 @@ func (c *ComposeTemplateConfig) Validate() error {
 	}
 	if d := c.EffectiveImageDelivery(); d != ImageDeliverySshTar && d != ImageDeliveryRegistry {
 		return errors.Errorf("unknown `imageDelivery` %q; one of: %s, %s", d, ImageDeliveryRegistry, ImageDeliverySshTar)
+	}
+	if e := c.EffectiveExternalImages(); e != ExternalImagesShip && e != ExternalImagesPull {
+		return errors.Errorf("unknown `externalImages` %q; one of: %s, %s", e, ExternalImagesShip, ExternalImagesPull)
+	}
+	// Refused rather than ignored. A config that says `externalImages: ship` and
+	// delivers by registry would otherwise report green while doing the opposite of
+	// what it was told, and the symptom — the machine pulling an image the operator
+	// believed was shipped — only shows up when the registry is unreachable, which is
+	// exactly the day nobody wants to be reading delivery code.
+	if c.ExternalImages == ExternalImagesShip && c.EffectiveImageDelivery() != ImageDeliverySshTar {
+		return errors.Errorf(
+			"`externalImages: %s` needs `imageDelivery: %s`: under `%s` the machine pulls from the registry "+
+				"and there is no ship to put a third-party image in",
+			ExternalImagesShip, ImageDeliverySshTar, ImageDeliveryRegistry,
+		)
 	}
 	if s := c.EffectiveStrategy(); s != StrategyBlueGreen && s != StrategyRecreate {
 		return errors.Errorf("unknown `strategy` %q; one of: %s, %s", s, StrategyBlueGreen, StrategyRecreate)

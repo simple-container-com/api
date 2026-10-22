@@ -30,20 +30,44 @@ var testTar = bytes.Repeat([]byte("sc-image-tar-"), 4096)
 type fakeDocker struct {
 	inspect    image.InspectResponse
 	inspectErr error
-	tar        []byte
-	saveErr    error
-	saveCalls  int
+	// byRef overrides inspect for a specific reference, for the multi-image cases.
+	byRef map[string]image.InspectResponse
+	// absent are references ImageInspect refuses until they have been pulled.
+	absent    map[string]bool
+	pullErr   error
+	tar       []byte
+	saveErr   error
+	saveCalls int
+	// saved is the ref list of each ImageSave call, in order.
+	saved  [][]string
+	pulled []string
 }
 
-func (f *fakeDocker) ImageInspect(context.Context, string) (image.InspectResponse, error) {
+func (f *fakeDocker) ImageInspect(_ context.Context, ref string) (image.InspectResponse, error) {
+	if f.absent[ref] {
+		return image.InspectResponse{}, errors.Errorf("Error: No such image: %s", ref)
+	}
 	if f.inspectErr != nil {
 		return image.InspectResponse{}, f.inspectErr
+	}
+	if res, ok := f.byRef[ref]; ok {
+		return res, nil
 	}
 	return f.inspect, nil
 }
 
-func (f *fakeDocker) ImageSave(context.Context, []string) (io.ReadCloser, error) {
+func (f *fakeDocker) ImagePull(_ context.Context, ref string) error {
+	f.pulled = append(f.pulled, ref)
+	if f.pullErr != nil {
+		return f.pullErr
+	}
+	delete(f.absent, ref)
+	return nil
+}
+
+func (f *fakeDocker) ImageSave(_ context.Context, refs []string) (io.ReadCloser, error) {
 	f.saveCalls++
+	f.saved = append(f.saved, refs)
 	if f.saveErr != nil {
 		return nil, f.saveErr
 	}
@@ -55,14 +79,30 @@ type fakeRemote struct {
 	platformErr error
 	// imageIDs answers the successive `docker image inspect` calls. An empty entry
 	// stands for "no such image", which is an error on the wire, not an empty id.
+	// Used by the single-image tests, where call order is unambiguous.
 	imageIDs []string
-	loadErr  error
+	// state is the alternative for the multi-image tests: the machine's image table,
+	// keyed by reference, which `docker load` then updates from loads. Set it and
+	// imageIDs is ignored.
+	state map[string]string
+	loads map[string]string
+
+	loadErr error
 
 	cmds     []string
 	received []byte
 }
 
 func (f *fakeRemote) Describe() string { return "sc@203.0.113.10:22" }
+
+// refOf pulls the reference back out of `docker image inspect --format '…' 'ref'`.
+func refOf(cmd string) string {
+	parts := strings.Split(cmd, "'")
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[len(parts)-2]
+}
 
 func (f *fakeRemote) Run(_ context.Context, cmd string, stdin io.Reader) (string, error) {
 	f.cmds = append(f.cmds, cmd)
@@ -73,6 +113,13 @@ func (f *fakeRemote) Run(_ context.Context, cmd string, stdin io.Reader) (string
 		}
 		return f.platform, nil
 	case strings.HasPrefix(cmd, "docker image inspect"):
+		if f.state != nil {
+			ref := refOf(cmd)
+			if id, ok := f.state[ref]; ok && id != "" {
+				return id, nil
+			}
+			return "", errors.Errorf("Error: No such image: %s", ref)
+		}
 		if len(f.imageIDs) == 0 {
 			return "", errors.Errorf("Error: No such image: %s", testRef)
 		}
@@ -91,6 +138,9 @@ func (f *fakeRemote) Run(_ context.Context, cmd string, stdin io.Reader) (string
 		if f.loadErr != nil {
 			return "", f.loadErr
 		}
+		for ref, id := range f.loads {
+			f.state[ref] = id
+		}
 		return "Loaded image: " + testRef, nil
 	}
 	return "", errors.Errorf("unexpected command %q", cmd)
@@ -104,9 +154,15 @@ func linuxAmd64() *fakeDocker {
 }
 
 func shipOpts(mutate func(*Options)) Options {
-	o := Options{Image: testRef, Log: func(string, ...any) {}}
+	o := Options{Images: []string{testRef}, Log: func(string, ...any) {}}
 	mutate(&o)
 	return o
+}
+
+// first is the per-image result of a single-image ship, which most of these tests do.
+func first(r *Result) ImageResult {
+	Expect(r.Images).To(HaveLen(1))
+	return r.Images[0]
 }
 
 // The idempotency contract: the second deploy of an unchanged image must not move
@@ -120,7 +176,8 @@ func TestShipSkipsWhenTheMachineAlreadyHoldsTheImage(t *testing.T) {
 
 	res, err := Ship(context.Background(), docker, remote, shipOpts(func(*Options) {}))
 	Expect(err).To(BeNil())
-	Expect(res.Skipped).To(BeTrue())
+	Expect(res.SkippedAll()).To(BeTrue())
+	Expect(first(res).Skipped).To(BeTrue())
 	Expect(docker.saveCalls).To(Equal(0))
 	Expect(remote.received).To(BeEmpty())
 }
@@ -133,7 +190,7 @@ func TestShipForceOverridesTheSkip(t *testing.T) {
 
 	res, err := Ship(context.Background(), docker, remote, shipOpts(func(o *Options) { o.Force = true }))
 	Expect(err).To(BeNil())
-	Expect(res.Skipped).To(BeFalse())
+	Expect(res.SkippedAll()).To(BeFalse())
 	Expect(docker.saveCalls).To(Equal(1))
 }
 
@@ -151,8 +208,8 @@ func TestShipStreamsTheSavedTarIntoDockerLoadIntact(t *testing.T) {
 		res, err := Ship(context.Background(), docker, remote,
 			shipOpts(func(o *Options) { o.Compression = compression }))
 		Expect(err).To(BeNil(), compression)
-		Expect(res.Skipped).To(BeFalse(), compression)
-		Expect(res.ImageID).To(Equal(testID), compression)
+		Expect(res.SkippedAll()).To(BeFalse(), compression)
+		Expect(first(res).ImageID).To(Equal(testID), compression)
 
 		Expect(decompress(compression, remote.received)).To(Equal(testTar), compression)
 		Expect(res.BytesRaw).To(Equal(int64(len(testTar))), compression)
@@ -274,9 +331,143 @@ func TestShipErrorNamesTheLocalDockerWhenTheImageIsNotBuilt(t *testing.T) {
 
 	docker := linuxAmd64()
 	docker.inspectErr = errors.New("No such image")
-	_, err := Ship(context.Background(), docker, &fakeRemote{}, shipOpts(func(*Options) {}))
+	_, err := Ship(context.Background(), docker, &fakeRemote{platform: "linux/amd64"}, shipOpts(func(*Options) {}))
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("not in the local docker"))
+	// And it names the way out, because the common case for an image that is not
+	// there is one SC did not build: a third-party compose image, or the ingress.
+	Expect(err.Error()).To(ContainSubstring("--pull"))
+	Expect(docker.pulled).To(BeEmpty())
+}
+
+// --pull is what makes shipping usable for images SC does not build. It fetches only
+// what is ABSENT: an image the runner already holds is shipped as it stands, so a
+// deploy does not re-pull a pinned third-party tag on every run.
+func TestShipPullsOnlyTheImagesTheRunnerDoesNotHave(t *testing.T) {
+	RegisterTestingT(t)
+
+	const mongo = "mongo:7"
+	docker := linuxAmd64()
+	docker.byRef = map[string]image.InspectResponse{
+		testRef: {ID: testID, Os: "linux", Architecture: "amd64"},
+		mongo:   {ID: otherID, Os: "linux", Architecture: "amd64"},
+	}
+	docker.absent = map[string]bool{mongo: true}
+	remote := &fakeRemote{
+		platform: "linux/amd64",
+		state:    map[string]string{},
+		loads:    map[string]string{testRef: testID, mongo: otherID},
+	}
+
+	res, err := Ship(context.Background(), docker, remote, shipOpts(func(o *Options) {
+		o.Images = []string{testRef, mongo}
+		o.Pull = true
+	}))
+	Expect(err).To(BeNil())
+	Expect(docker.pulled).To(Equal([]string{mongo}))
+	Expect(res.Images).To(HaveLen(2))
+	Expect(res.Images[0].Pulled).To(BeFalse())
+	Expect(res.Images[1].Pulled).To(BeTrue())
+	// One stream for both, which is the point: `docker save` deduplicates the layers
+	// they share, and a second invocation would mean a second SSH connection and a
+	// second compressor.
+	Expect(docker.saved).To(Equal([][]string{{testRef, mongo}}))
+}
+
+// A pull that fails is the deploy's failure, and the message has to carry the
+// registry's own reason: a 401 on a private image and "no route to host" from inside a
+// closed network are the same symptom here and need opposite fixes.
+func TestShipReportsWhyAPullFailed(t *testing.T) {
+	RegisterTestingT(t)
+
+	docker := linuxAmd64()
+	docker.absent = map[string]bool{testRef: true}
+	docker.pullErr = errors.New("unauthorized: authentication required")
+
+	_, err := Ship(context.Background(), docker, &fakeRemote{platform: "linux/amd64"},
+		shipOpts(func(o *Options) { o.Pull = true }))
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("authentication required"))
+	Expect(err.Error()).To(ContainSubstring("could not be pulled here"))
+}
+
+// Per-image idempotency, not all-or-nothing: the stack's own image changes on every
+// deploy while the mongo beside it does not, so a deploy must move the one and not
+// the other.
+func TestShipSkipsOnlyTheImagesTheMachineAlreadyHolds(t *testing.T) {
+	RegisterTestingT(t)
+
+	const mongo = "mongo:7"
+	docker := linuxAmd64()
+	docker.byRef = map[string]image.InspectResponse{
+		testRef: {ID: testID, Os: "linux", Architecture: "amd64"},
+		mongo:   {ID: otherID, Os: "linux", Architecture: "amd64"},
+	}
+	remote := &fakeRemote{
+		platform: "linux/amd64",
+		state:    map[string]string{mongo: otherID},
+		loads:    map[string]string{testRef: testID},
+	}
+
+	res, err := Ship(context.Background(), docker, remote, shipOpts(func(o *Options) {
+		o.Images = []string{testRef, mongo}
+	}))
+	Expect(err).To(BeNil())
+	Expect(res.SkippedAll()).To(BeFalse())
+	Expect(res.Shipped()).To(Equal([]string{testRef}))
+	Expect(docker.saved).To(Equal([][]string{{testRef}}))
+}
+
+// Two services of one compose project running the same third-party image is ordinary,
+// and the callers that assemble the list walk services. `docker save` given the same
+// reference twice is not something to find out about on the wire.
+func TestShipDeduplicatesTheImageList(t *testing.T) {
+	RegisterTestingT(t)
+
+	docker := linuxAmd64()
+	remote := &fakeRemote{
+		platform: "linux/amd64",
+		state:    map[string]string{},
+		loads:    map[string]string{testRef: testID},
+	}
+
+	res, err := Ship(context.Background(), docker, remote, shipOpts(func(o *Options) {
+		o.Images = []string{testRef, testRef}
+	}))
+	Expect(err).To(BeNil())
+	Expect(res.Images).To(HaveLen(1))
+	Expect(docker.saved).To(Equal([][]string{{testRef}}))
+}
+
+func TestShipRefusesAnEmptyImageList(t *testing.T) {
+	RegisterTestingT(t)
+
+	_, err := Ship(context.Background(), linuxAmd64(), &fakeRemote{platform: "linux/amd64"},
+		shipOpts(func(o *Options) { o.Images = nil }))
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("no image to ship"))
+}
+
+// The gates run over every image before the first byte moves. A mismatched arch in
+// position two must not be discovered with position one already on the machine —
+// half a stack's images loaded is a worse state than none of them.
+func TestShipGatesEveryImageBeforeTransferringAny(t *testing.T) {
+	RegisterTestingT(t)
+
+	const arm = "ghcr.io/org/other:v1"
+	docker := linuxAmd64()
+	docker.byRef = map[string]image.InspectResponse{
+		testRef: {ID: testID, Os: "linux", Architecture: "amd64"},
+		arm:     {ID: otherID, Os: "linux", Architecture: "arm64"},
+	}
+	remote := &fakeRemote{platform: "linux/amd64", state: map[string]string{}}
+
+	_, err := Ship(context.Background(), docker, remote, shipOpts(func(o *Options) {
+		o.Images = []string{testRef, arm}
+	}))
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring(arm))
+	Expect(docker.saveCalls).To(Equal(0))
 }
 
 // An image reference reaches a remote shell, so it is quoted — and, more importantly,

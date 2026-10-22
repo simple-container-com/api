@@ -122,6 +122,24 @@ func TestValidate(t *testing.T) {
 			mutate:   func(c *VmConfig) { c.Ingress = &VmIngress{Enable: false} },
 			errMatch: "",
 		},
+		{
+			name: "unknown ingress imageDelivery",
+			mutate: func(c *VmConfig) {
+				c.Ingress = &VmIngress{Enable: true, Email: "ops@example.com", ImageDelivery: "rsync"}
+			},
+			errMatch: "unknown `ingress.imageDelivery` \"rsync\"",
+		},
+		{
+			name: "ingress shipped from the runner",
+			mutate: func(c *VmConfig) {
+				c.Ingress = &VmIngress{
+					Enable:        true,
+					Email:         "ops@example.com",
+					ImageDelivery: ImageDeliverySshTar,
+				}
+			},
+			errMatch: "",
+		},
 	}
 
 	for _, tc := range cases {
@@ -188,10 +206,32 @@ func TestEffectiveDefaults(t *testing.T) {
 	// something that looks like a real project.
 	Expect(cfg.ProjectIdValue()).To(Equal("n/a"))
 
+	// The machine pulls Caddy unless told otherwise — today's behaviour for every
+	// existing vm resource, and shipping would make `sc provision` need a local
+	// docker daemon it has never needed.
+	Expect(cfg.EffectiveIngressImageDelivery()).To(Equal(ImageDeliveryRegistry))
+	Expect(cfg.ShipsIngressImage()).To(BeFalse())
+
 	h := cfg.Hosts[0]
 	Expect(h.EffectivePort()).To(Equal(DefaultSshPort))
 	Expect(h.EffectiveUser("")).To(Equal(DefaultSshUser))
 	Expect(h.EffectiveUser("deployer")).To(Equal("deployer"))
 	h.User = "ubuntu"
 	Expect(h.EffectiveUser("deployer")).To(Equal("ubuntu"))
+}
+
+// ShipsIngressImage gates a whole local.Command in the provision graph, so it has to
+// be false whenever there is no ingress at all — including the case where somebody
+// set the delivery and then disabled the ingress, which is how a half-edited config
+// looks.
+func TestShipsIngressImageNeedsAnIngress(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := byoConfig()
+	cfg.Ingress = &VmIngress{Enable: false, ImageDelivery: ImageDeliverySshTar}
+	Expect(cfg.ShipsIngressImage()).To(BeFalse())
+
+	cfg.Ingress = &VmIngress{Enable: true, Email: "ops@example.com", ImageDelivery: ImageDeliverySshTar}
+	Expect(cfg.ShipsIngressImage()).To(BeTrue())
+	Expect(cfg.Validate()).ToNot(HaveOccurred())
 }
