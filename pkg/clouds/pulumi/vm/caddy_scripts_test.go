@@ -68,7 +68,7 @@ func TestIngressConfigScript_CreatesEverythingDeclaredExternal(t *testing.T) {
 func TestIngressUpScript_GatesOnTheContainerThenReloads(t *testing.T) {
 	RegisterTestingT(t)
 
-	script := ingressUpScript("simplecontainer/caddy:latest")
+	script := ingressUpScript(ingressUpSpec{Image: "simplecontainer/caddy:latest", Pull: true})
 	shellCheck(t, script)
 
 	Expect(script).To(ContainSubstring("docker compose -p " + shellQuote(vm.CaddyProject)))
@@ -87,6 +87,21 @@ func TestIngressUpScript_GatesOnTheContainerThenReloads(t *testing.T) {
 	// pull" from silently becoming "no ingress".
 	Expect(script).To(ContainSubstring("docker pull " + shellQuote("simplecontainer/caddy:latest")))
 	Expect(script).To(ContainSubstring("docker image inspect " + shellQuote("simplecontainer/caddy:latest")))
+}
+
+// When the provision shipped the image, the machine must not pull: on the machine
+// this mode exists for, that pull cannot succeed and costs a connect timeout every
+// provision. The inspect stays — it is what keeps a vanished image from becoming a
+// Caddy that never starts.
+func TestIngressUpScript_DoesNotPullWhatWasShipped(t *testing.T) {
+	RegisterTestingT(t)
+
+	script := ingressUpScript(ingressUpSpec{Image: "simplecontainer/caddy:2026.10.24", Pull: false})
+	shellCheck(t, script)
+
+	Expect(script).ToNot(ContainSubstring("docker pull"))
+	Expect(script).To(ContainSubstring("docker image inspect " + shellQuote("simplecontainer/caddy:2026.10.24")))
+	Expect(script).To(ContainSubstring("docker compose -p " + shellQuote(vm.CaddyProject)))
 }
 
 // The volumes stay. CaddyDataVolume holds the ACME account key and every issued
@@ -200,7 +215,7 @@ func TestIngressImageMissingMessage(t *testing.T) {
 		RegisterTestingT(t)
 		build.Version = "0.0.0-pre2026.10.18.11.12.36"
 
-		msg := ingressImageMissingMessage("simplecontainer/caddy:" + build.Version)
+		msg := ingressImageMissingMessage("simplecontainer/caddy:"+build.Version, true)
 		Expect(msg).To(ContainSubstring("local build"))
 		Expect(msg).To(ContainSubstring("no such image was published"))
 		// The generic advice would send the reader looking for a network fault.
@@ -212,7 +227,7 @@ func TestIngressImageMissingMessage(t *testing.T) {
 		build.Version = "0.0.0-pre2026.10.18.11.12.36"
 
 		// Not the default tag, so the version string is irrelevant to why it is absent.
-		msg := ingressImageMissingMessage("registry.example.ru/mirror/caddy:2.11")
+		msg := ingressImageMissingMessage("registry.example.ru/mirror/caddy:2.11", true)
 		Expect(msg).To(ContainSubstring("a registry this machine can reach"))
 		Expect(msg).ToNot(ContainSubstring("local build"))
 	})
@@ -223,7 +238,7 @@ func TestIngressImageMissingMessage(t *testing.T) {
 		// absent image here really is a registry or network problem.
 		build.Version = "2026.10.24"
 
-		msg := ingressImageMissingMessage("simplecontainer/caddy:" + build.Version)
+		msg := ingressImageMissingMessage("simplecontainer/caddy:"+build.Version, true)
 		Expect(msg).To(ContainSubstring("a registry this machine can reach"))
 		Expect(msg).ToNot(ContainSubstring("local build"))
 	})
@@ -234,8 +249,22 @@ func TestIngressImageMissingMessage(t *testing.T) {
 		// this is not the broken case and must not claim to be.
 		build.Version = "latest"
 
-		msg := ingressImageMissingMessage("simplecontainer/caddy:latest")
+		msg := ingressImageMissingMessage("simplecontainer/caddy:latest", true)
 		Expect(msg).To(ContainSubstring("a registry this machine can reach"))
 		Expect(msg).ToNot(ContainSubstring("local build"))
+	})
+
+	// The generic advice is wrong a second way under ssh-tar: the provision already
+	// streamed this image from the runner, so "could not be pulled" sends the reader
+	// after a registry route the mode deliberately does not use.
+	t.Run("a shipped image is not described as unpullable", func(t *testing.T) {
+		RegisterTestingT(t)
+		build.Version = "2026.10.24"
+
+		msg := ingressImageMissingMessage("simplecontainer/caddy:"+build.Version, false)
+		Expect(msg).To(ContainSubstring("shipped it from the runner"))
+		Expect(msg).To(ContainSubstring("prune"))
+		Expect(msg).ToNot(ContainSubstring("could not be pulled"))
+		Expect(msg).ToNot(ContainSubstring("a registry this machine can reach"))
 	})
 }

@@ -80,6 +80,9 @@
           },
           "image": {
             "type": "string"
+          },
+          "imageDelivery": {
+            "type": "string"
           }
         },
         "required": [

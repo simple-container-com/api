@@ -88,7 +88,9 @@ secret output). `sc deploy` then:
 1. creates `/etc/sc/<stack>/<env>` and the shared networks and named volumes,
 2. writes the env file `0600` — values arrive on the SSH connection's stdin, never in a
    command line or a log,
-3. gets the image onto the machine (`ssh-tar` streams it; `registry` logs in and pulls),
+3. gets the images onto the machine (`ssh-tar` streams them; `registry` logs in and
+   pulls) — the stack's own image, and with `externalImages: ship` every third-party
+   image in the compose file too, in one stream,
 4. renders a compose project and brings up the inactive slot,
 5. gates on the ingress service being healthy, points the machine's Caddy at the new
    slot (or, with the ingress off, publishes it on the host port), then stops the slot
@@ -145,6 +147,35 @@ exists because "my certificate never appeared" otherwise leaves no local evidenc
 bare `prefix:` without a `domain:` cannot be served on a VM at all — on Kubernetes a
 prefix is grafted onto an aggregator site that already owns a host name, and one machine
 has no such site.
+
+## A machine with no route to a registry
+
+`imageDelivery: ssh-tar` is only half the promise on its own: it moves the image SC
+built, and leaves every other image in the compose file to be pulled by the machine.
+Two settings close the gap, and together they mean the machine pulls nothing at all:
+
+| Setting | Where | What it moves |
+|---|---|---|
+| `imageDelivery: ssh-tar` | `vm-compose` template | the stack's own image (the default) |
+| `externalImages: ship` | `vm-compose` template | every `image:` in the compose file that SC did not build — a mongo, a redis (the default under `ssh-tar`) |
+| `ingress.imageDelivery: ssh-tar` | `vm` resource | the Caddy image (NOT the default — see below) |
+
+All three work the same way: the **deploy runner** pulls what it does not have and
+streams it over the SSH connection it is already using. So the runner needs a route to
+the registry and a local docker; the machine needs neither.
+
+Three things to know before relying on it:
+
+- **Pin third-party tags.** The re-ship is triggered by the image reference, so
+  `mongo:7.0.14` is re-shipped when you change it to `7.0.15` — but `mongo:7`, after
+  upstream moves it, is not. Detecting that would mean pulling during `pulumi preview`.
+- **`docker login` on the runner first** for a private third-party image. The ship
+  pulls through the docker engine API, which takes no credentials from
+  `~/.docker/config.json`, and pulls only what the runner does not already have — so a
+  `docker login && docker pull` step before `sc deploy` is all it needs.
+- **The ingress is opt-in, and it changes `sc provision`.** `ingress.imageDelivery:
+  ssh-tar` makes `sc provision` need a working local docker daemon, which it has never
+  needed. It is left off by default for that reason, not because the path is worse.
 
 ## What this template refuses
 

@@ -102,6 +102,20 @@ type VmIngress struct {
 	// storage) are in that image and not in the official one. Override to pin a tag
 	// or to run a local mirror.
 	Image string `json:"image,omitempty" yaml:"image,omitempty"`
+	// ImageDelivery is how that image reaches the machine: ImageDeliveryRegistry
+	// (default — the machine pulls it) or ImageDeliverySshTar (the runner pulls it
+	// and streams it over the provision's SSH connection).
+	//
+	// The default is "the machine pulls" because that is what every existing vm
+	// resource already does, and because shipping makes `sc provision` need a local
+	// docker daemon it has never needed before. `ssh-tar` is for the case this whole
+	// delivery path exists for: a machine with no route to Docker Hub
+	// (compose-on-vm.md §8.3). Caddy is the one image SC itself insists on, so
+	// without this the ingress is the last thing on such a machine that still needs
+	// a registry — `externalImages: ship` on the template covers a stack's own
+	// images and the third-party ones beside them, and stops at the ingress because
+	// the ingress belongs to the resource, not the stack.
+	ImageDelivery string `json:"imageDelivery,omitempty" yaml:"imageDelivery,omitempty"`
 	// AcmeCa points Caddy at a certificate authority other than Let's Encrypt.
 	//
 	// This field exists because of the Russian market specifically
@@ -253,6 +267,22 @@ func (r *VmConfig) IngressImage() string {
 	return fmt.Sprintf("simplecontainer/caddy:%s", build.Version)
 }
 
+// EffectiveIngressImageDelivery resolves how the Caddy image reaches the machine.
+// Defaults to ImageDeliveryRegistry — see the field comment for why the default is
+// not the other way round.
+func (r *VmConfig) EffectiveIngressImageDelivery() string {
+	if r.Ingress != nil && r.Ingress.ImageDelivery != "" {
+		return r.Ingress.ImageDelivery
+	}
+	return ImageDeliveryRegistry
+}
+
+// ShipsIngressImage reports whether the provision streams Caddy to the machine from
+// the runner instead of letting the machine pull it.
+func (r *VmConfig) ShipsIngressImage() bool {
+	return r.IngressEnabled() && r.EffectiveIngressImageDelivery() == ImageDeliverySshTar
+}
+
 // validateIngress holds the ingress rules shared by the byo and cloud paths. One
 // function rather than the same two checks in both, because the pair of them drifted
 // once already: `acmeEabKeyId` without `acmeEabMacKey` is accepted by Caddy's parser
@@ -264,16 +294,22 @@ func (r *VmConfig) validateIngress() error {
 	if r.Ingress.Email == "" {
 		return errors.Errorf("`ingress.enable: true` requires `ingress.email` (the ACME account address)")
 	}
+	if d := r.EffectiveIngressImageDelivery(); d != ImageDeliveryRegistry && d != ImageDeliverySshTar {
+		return errors.Errorf("unknown `ingress.imageDelivery` %q; one of: %s, %s",
+			d, ImageDeliveryRegistry, ImageDeliverySshTar)
+	}
 	if (r.Ingress.AcmeEabKeyID == "") != (r.Ingress.AcmeEabMacKey == "") {
 		return errors.Errorf(
 			"`ingress.acmeEabKeyId` and `ingress.acmeEabMacKey` must be set together: External Account " +
 				"Binding needs both, and half of it is accepted by the config parser and then fails at the " +
-				"first certificate request")
+				"first certificate request",
+		)
 	}
 	if r.Ingress.AcmeEabKeyID != "" && r.Ingress.AcmeCa == "" {
 		return errors.Errorf(
 			"`ingress.acmeEabKeyId` is set without `ingress.acmeCa`: External Account Binding is for a " +
-				"private or enterprise CA, and Let's Encrypt (the default) does not accept it")
+				"private or enterprise CA, and Let's Encrypt (the default) does not accept it",
+		)
 	}
 	return nil
 }
@@ -310,7 +346,8 @@ func (r *VmConfig) Validate() error {
 		return errors.Errorf(
 			"vm provider %q is not implemented yet (roadmap item %s); until it lands, create the machine "+
 				"by hand and declare it with `provider: %s` and `hosts:`",
-			r.Driver, drv.RoadmapItem, DriverByo)
+			r.Driver, drv.RoadmapItem, DriverByo,
+		)
 	}
 	return nil
 }
@@ -344,7 +381,8 @@ func (r *VmConfig) validateByo() error {
 		return errors.Errorf(
 			"%s is not valid with `provider: %s`: SC does not create the machine, so it cannot apply %s; "+
 				"configure it in the cloud console instead",
-			strings.Join(quoteAll(ignored), ", "), DriverByo, lo.If(len(ignored) == 1, "it").Else("them"))
+			strings.Join(quoteAll(ignored), ", "), DriverByo, lo.If(len(ignored) == 1, "it").Else("them"),
+		)
 	}
 
 	if len(r.Hosts) == 0 {
@@ -356,7 +394,8 @@ func (r *VmConfig) validateByo() error {
 	if len(r.Hosts) > 1 {
 		return errors.Errorf(
 			"`provider: %s` currently supports exactly one host, got %d; multi-host pools arrive with the "+
-				"k3s cluster resource (roadmap item sc-k3s-cluster-resource)", DriverByo, len(r.Hosts))
+				"k3s cluster resource (roadmap item sc-k3s-cluster-resource)", DriverByo, len(r.Hosts),
+		)
 	}
 	for i, h := range r.Hosts {
 		if h.Address == "" {
@@ -365,7 +404,8 @@ func (r *VmConfig) validateByo() error {
 		if h.PrivateKey == "" {
 			return errors.Errorf(
 				"hosts[%d] (%s) requires `privateKey` — write it as `${secret:<name>}`; password and "+
-					"ssh-agent authentication are not supported", i, h.Address)
+					"ssh-agent authentication are not supported", i, h.Address,
+			)
 		}
 		if h.Port < 0 || h.Port > 65535 {
 			return errors.Errorf("hosts[%d] (%s) has an invalid `port`: %d", i, h.Address, h.Port)
@@ -382,7 +422,8 @@ func (r *VmConfig) validateCloud() error {
 	if len(r.Hosts) > 0 {
 		return errors.Errorf(
 			"`hosts` is only valid with `provider: %s`; with `provider: %s` SC creates the machine itself",
-			DriverByo, r.Driver)
+			DriverByo, r.Driver,
+		)
 	}
 	if r.Region == "" {
 		return errors.Errorf("`provider: %s` requires `region`", r.Driver)

@@ -179,11 +179,11 @@ func TestShipScript_KeyOnStdinAndAlwaysRemoved(t *testing.T) {
 	RegisterTestingT(t)
 
 	script := shipScript(shipSpec{
-		ImageRef: "sc-local/atrium-staging-app:2026.10.16-abc1234",
-		Host:     "203.0.113.10",
-		User:     vm.DefaultSshUser,
-		Port:     vm.DefaultSshPort,
-		HostKey:  "ssh-ed25519 AAAAC3Nz",
+		ImageRefs: []string{"sc-local/atrium-staging-app:2026.10.16-abc1234"},
+		Host:      "203.0.113.10",
+		User:      vm.DefaultSshUser,
+		Port:      vm.DefaultSshPort,
+		HostKey:   "ssh-ed25519 AAAAC3Nz",
 	})
 	shellCheck(t, script)
 
@@ -203,10 +203,32 @@ func TestShipScript_KeyOnStdinAndAlwaysRemoved(t *testing.T) {
 func TestShipScript_SkipsVerificationExplicitlyWhenUnpinned(t *testing.T) {
 	RegisterTestingT(t)
 
-	script := shipScript(shipSpec{ImageRef: "sc-local/a:1", Host: "h", User: "sc", Port: 22})
+	script := shipScript(shipSpec{ImageRefs: []string{"sc-local/a:1"}, Host: "h", User: "sc", Port: 22})
 
 	shellCheck(t, script)
 	Expect(script).To(ContainSubstring("--insecure-skip-host-key-check"))
+}
+
+// A third-party image is shipped in the same stream as every other third-party image,
+// and with --pull: the runner built none of them, so it holds none of them.
+func TestShipScript_ShipsSeveralImagesInOneStreamAndCanPull(t *testing.T) {
+	RegisterTestingT(t)
+
+	script := shipScript(shipSpec{
+		ImageRefs: []string{"mongo:7.0.14", "redis:7.4-alpine"},
+		Host:      "203.0.113.10",
+		User:      vm.DefaultSshUser,
+		Port:      vm.DefaultSshPort,
+		HostKey:   "ssh-ed25519 AAAAC3Nz",
+		Pull:      true,
+	})
+	shellCheck(t, script)
+
+	Expect(script).To(ContainSubstring("--image 'mongo:7.0.14'"))
+	Expect(script).To(ContainSubstring("--image 'redis:7.4-alpine'"))
+	Expect(script).To(ContainSubstring("--pull"))
+	// One invocation, not one per image: docker save deduplicates the layers they share.
+	Expect(strings.Count(script, "image ship")).To(Equal(1))
 }
 
 func blueGreenUp() upSpec {
@@ -233,6 +255,29 @@ func TestUpScript_BlueGreenLeavesTheServingSlotAlone(t *testing.T) {
 	Expect(script).To(ContainSubstring("sc_wait " + shellQuote(vm.ProjectName(testStack, testEnv, vm.SlotB))))
 	Expect(script).To(ContainSubstring("still serving traffic"), "the rollback message names what is still up")
 	Expect(script).To(ContainSubstring("{ sc_rollback; exit 1; }"))
+}
+
+// Under `externalImages: ship` every image in the file arrived over SSH, so the
+// machine must not be asked to pull. Live-caught on the 2026-10-22 smoke: the
+// best-effort pull still ran, and printed one `failed to resolve reference` per image
+// into a deploy that then succeeded — noise on a blackholed registry, a per-image
+// connect timeout on a machine that simply has no route.
+func TestUpScript_ShippedImagesAreNeverPulled(t *testing.T) {
+	RegisterTestingT(t)
+
+	s := blueGreenUp()
+	s.Pull = pullNone
+	script := upScript(s)
+	shellCheck(t, script)
+
+	Expect(script).NotTo(ContainSubstring("compose pull"))
+	Expect(script).NotTo(ContainSubstring("--ignore-pull-failures"))
+	// But the up itself is unchanged — the images are there, and the gate still runs.
+	Expect(script).To(ContainSubstring("up -d --remove-orphans"))
+	Expect(script).To(ContainSubstring("sc_wait " + shellQuote(vm.ProjectName(testStack, testEnv, vm.SlotB))))
+
+	// And best-effort still pulls, for ssh-tar with `externalImages: pull`.
+	Expect(upScript(blueGreenUp())).To(ContainSubstring("--ignore-pull-failures"))
 }
 
 // The compose file is delivered base64-encoded rather than as a heredoc, because a

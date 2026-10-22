@@ -42,6 +42,18 @@ templates:
       # from the machine. Use `registry` (plus `dockerRegistryURL`, and the username and
       # password when it is private) if you already have one.
       imageDelivery: ssh-tar
+      # What happens to images SC did not build — a mongo, a redis, anything with an
+      # `image:` and no build context in your compose file. `ship` (the default under
+      # `ssh-tar`) has the deploy runner pull them and stream them to the machine in
+      # the same way, in ONE stream alongside your own image: that is what makes the
+      # promise above true, because otherwise the machine still had to reach Docker
+      # Hub for every third-party image. `pull` leaves them to the machine.
+      #
+      # Pin third-party tags (`mongo:7.0.14`, not `mongo:7`) when you ship them: the
+      # re-ship is triggered by the reference, so a tag that moves upstream is not
+      # noticed. And `docker login` on the runner before `sc deploy` if any of them is
+      # private — the ship pulls only what the runner does not already have.
+      externalImages: ship
       # `blue-green` (default) brings the new slot up beside the old one and gates on its
       # health before stopping the old one. `recreate` stops first — a few seconds of 502
       # in exchange for not running both slots at once, which is the honest choice on a
@@ -123,6 +135,18 @@ resources:
               # `0.0.0-pre<timestamp>` and no such image was ever pushed. So if you are
               # running this example against a binary you built, pin a real tag here.
               # image: registry.example.ru/mirror/caddy:2.11
+              #
+              # How that image reaches the machine. `registry` (the default) has the
+              # machine pull it. `ssh-tar` has the deploy runner pull it and stream it
+              # over the provision's SSH connection, the same way `imageDelivery:
+              # ssh-tar` above moves your own image — which is what you want on a
+              # machine with no route to Docker Hub, because Caddy is otherwise the
+              # last image on it that still needs a registry.
+              #
+              # Not the default, for two reasons: it changes nothing for the machines
+              # that can pull, and it makes `sc provision` need a working local docker
+              # daemon, which it has never needed before.
+              # imageDelivery: ssh-tar
               #
               # A certificate authority other than Let's Encrypt. This exists for the
               # Russian market: a `.ru` domain opened from inside Russia in a browser

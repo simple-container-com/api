@@ -282,6 +282,11 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	}
 
 	pull := pullBestEffort
+	if in.ShipsExternalImages() {
+		// Every image in the file arrived over SSH, so the machine has nothing to
+		// fetch. See pullNone for why this is silence rather than best-effort.
+		pull = pullNone
+	}
 	if in.EffectiveImageDelivery() == vm.ImageDeliveryRegistry {
 		pull = pullRequired
 		if in.RegistryRequiresAuth() {
