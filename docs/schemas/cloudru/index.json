@@ -11,6 +11,36 @@
       "goStruct": "AccountConfig",
       "resourceType": "cloudru-access-key",
       "schema": {}
+    },
+    {
+      "name": "CloudruContainerAppExtras",
+      "type": "cloudextras",
+      "provider": "cloudru",
+      "description": "Cloud.ru Evolution Container App cloudExtras configuration: container port, privileged mode, CPU request, concurrency, scale-to-zero idle timeout, custom-domain certificate and container name",
+      "goPackage": "pkg/clouds/cloudru/",
+      "goStruct": "ContainerAppExtras",
+      "resourceType": "cloudru-container-app-cloudextras",
+      "schema": {}
+    },
+    {
+      "name": "ContainerAppTemplateConfig",
+      "type": "template",
+      "provider": "cloudru",
+      "description": "CLOUDRU deployment template configuration",
+      "goPackage": "pkg/clouds/cloudru/",
+      "goStruct": "ContainerAppTemplateConfig",
+      "resourceType": "cloudru-container-app",
+      "schema": {}
+    },
+    {
+      "name": "EvolutionAccountConfig",
+      "type": "auth",
+      "provider": "cloudru",
+      "description": "CLOUDRU authentication configuration",
+      "goPackage": "pkg/clouds/cloudru/",
+      "goStruct": "EvolutionAccountConfig",
+      "resourceType": "cloudru-evolution-key",
+      "schema": {}
     }
   ]
 }

@@ -23,7 +23,7 @@ import (
 	// Import all cloud provider packages to trigger init() functions
 	_ "github.com/simple-container-com/api/pkg/clouds/aws"
 	_ "github.com/simple-container-com/api/pkg/clouds/cloudflare"
-	_ "github.com/simple-container-com/api/pkg/clouds/cloudru"
+	"github.com/simple-container-com/api/pkg/clouds/cloudru"
 	_ "github.com/simple-container-com/api/pkg/clouds/compose"
 	_ "github.com/simple-container-com/api/pkg/clouds/discord"
 	_ "github.com/simple-container-com/api/pkg/clouds/docker"
@@ -474,6 +474,21 @@ func (sg *SchemaGenerator) generateCloudExtrasSchemas() ([]ResourceDefinition, e
 		Schema:       reflect.TypeOf(yandex.CloudExtras{}),
 	})
 
+	// Cloud.ru CloudExtras. Named ContainerAppExtras rather than CloudExtras, unlike
+	// the three above, because the two Cloud.ru estates are unrelated clouds sharing
+	// a brand: an Advanced `vm` template's extras would have nothing in common with
+	// these, so there is no one type that is "the Cloud.ru cloudExtras".
+	cloudExtrasSchemas = append(cloudExtrasSchemas, ResourceDefinition{
+		Name:         "CloudruContainerAppExtras",
+		Type:         "cloudextras",
+		Provider:     "cloudru",
+		Description:  "Cloud.ru Evolution Container App cloudExtras configuration: container port, privileged mode, CPU request, concurrency, scale-to-zero idle timeout, custom-domain certificate and container name",
+		GoPackage:    "pkg/clouds/cloudru/",
+		GoStruct:     "ContainerAppExtras",
+		ResourceType: "cloudru-container-app-cloudextras",
+		Schema:       reflect.TypeOf(cloudru.ContainerAppExtras{}),
+	})
+
 	fmt.Printf("Generated %d CloudExtras schemas\n", len(cloudExtrasSchemas))
 	return cloudExtrasSchemas, nil
 }
@@ -562,10 +577,11 @@ func (sg *SchemaGenerator) guessProviderFromResourceType(resourceType string) st
 	// lands in "unknown" and schema generation fails on a directory that is never created.
 	case has("yc", "yandex"):
 		return "yandex"
-	// Cloud.ru Advanced. Only an auth type lives in pkg/clouds/cloudru — a machine
-	// there is a `type: vm` resource with `provider: cloudru-vm`, which tokenises to
-	// [cloudru, vm] and is caught by the `vm` case ABOVE this one, correctly: the
-	// resource schema belongs with the vm resource, not with the credential.
+	// Cloud.ru: the two auth types and the Evolution `cloudru-container-app`
+	// template. A *machine* on either estate is a `type: vm` resource with
+	// `provider: cloudru-vm`, which tokenises to [cloudru, vm] and is caught by the
+	// `vm` case ABOVE this one, correctly: the resource schema belongs with the vm
+	// resource, not with the credential.
 	case has("cloudru"):
 		return "cloudru"
 	default:
@@ -576,14 +592,20 @@ func (sg *SchemaGenerator) guessProviderFromResourceType(resourceType string) st
 // guessResourceType attempts to determine if this is a resource, template, or auth type
 func (sg *SchemaGenerator) guessResourceType(resourceType string) string {
 	switch {
-	case strings.Contains(resourceType, "template") || strings.Contains(resourceType, "fargate") || strings.Contains(resourceType, "lambda") || strings.Contains(resourceType, "cloudrun") || strings.Contains(resourceType, "serverless-container") || strings.Contains(resourceType, "static"):
+	// "container-app" is how Cloud.ru Evolution spells its serverless-container
+	// equivalent; without it `cloudru-container-app` falls through to the default and
+	// is documented as a resource an operator can declare in a parent stack, which it
+	// is not.
+	case strings.Contains(resourceType, "template") || strings.Contains(resourceType, "fargate") || strings.Contains(resourceType, "lambda") || strings.Contains(resourceType, "cloudrun") || strings.Contains(resourceType, "serverless-container") || strings.Contains(resourceType, "container-app") || strings.Contains(resourceType, "static"):
 		return "template"
 	// "service-account" is how both GCP and Yandex spell their auth entry; without it
 	// those land in "resource" while aws-token is correctly classified "auth".
 	// "access-key" is how Cloud.ru Advanced spells its auth entry (an OpenStack-style
 	// key pair, not a token); without it `cloudru-access-key` is classified as a
-	// resource and documented as one.
-	case strings.Contains(resourceType, "auth") || strings.Contains(resourceType, "token") || strings.Contains(resourceType, "service-account") || strings.Contains(resourceType, "kubeconfig") || strings.Contains(resourceType, "access-key"):
+	// resource and documented as one. Evolution spells its own, unrelated credential
+	// `cloudru-evolution-key` — two auth types for one brand, because a key for
+	// either estate does not authenticate against the other.
+	case strings.Contains(resourceType, "auth") || strings.Contains(resourceType, "token") || strings.Contains(resourceType, "service-account") || strings.Contains(resourceType, "kubeconfig") || strings.Contains(resourceType, "access-key") || strings.Contains(resourceType, "evolution-key"):
 		return "auth"
 	case strings.Contains(resourceType, "secrets"):
 		return "secrets"
