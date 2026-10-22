@@ -1,6 +1,6 @@
 module github.com/simple-container-com/api
 
-go 1.26.9
+go 1.26.10
 
 require (
 	cloud.google.com/go/kms v1.26.0
