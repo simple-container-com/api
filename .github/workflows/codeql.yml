@@ -86,7 +86,7 @@ jobs:
           cache: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
+        uses: github/codeql-action/init@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
         with:
           languages: ${{ matrix.language }}
           # security-extended adds queries beyond the default "security
@@ -96,9 +96,9 @@ jobs:
           queries: security-extended
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
+        uses: github/codeql-action/autobuild@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
 
       - name: Perform analysis
-        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
+        uses: github/codeql-action/analyze@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee  # v4.39.0
         with:
           category: /language:${{ matrix.language }}
