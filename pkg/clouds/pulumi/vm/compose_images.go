@@ -287,13 +287,17 @@ func shipExternalImages(
 			return nil, errors.Wrapf(err, "third-party image %q of stack %q cannot be shipped", ref, stack.Name)
 		}
 	}
-	script := host.Address.ApplyT(func(addr string) string {
+	// HostKey rides the apply rather than being read directly — it is an Output;
+	// see the note in shipImage.
+	script := sdk.All(host.Address, host.HostKey).ApplyT(func(vals []any) string {
+		addr, _ := vals[0].(string)
+		hostKey, _ := vals[1].(string)
 		return shipScript(shipSpec{
 			ImageRefs: refs,
 			Host:      addr,
 			User:      host.User,
 			Port:      host.Port,
-			HostKey:   host.HostKey,
+			HostKey:   hostKey,
 			// The runner does not have these images: nothing in this deploy built
 			// them. Pulling only what is absent is what makes a CI step that
 			// pre-pulled a private image (after its own `docker login`) work.
