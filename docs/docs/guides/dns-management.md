@@ -349,6 +349,7 @@ stacks:
     type: cloud-compose
     parent: myorg/saas-infrastructure
     config:
+      dockerComposeFile: docker-compose.yaml
       domain: customera.myapp.com
       uses: [mongodb-cluster-us]
       runs: [app]
@@ -359,6 +360,7 @@ stacks:
     type: cloud-compose
     parent: myorg/saas-infrastructure
     config:
+      dockerComposeFile: docker-compose.yaml
       domain: customerb.myapp.com
       uses: [mongodb-cluster-eu]
       runs: [app]

@@ -262,6 +262,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ${git:root}/docker-compose.yaml
       uses: [postgres-db, redis-cache, s3-storage]
       runs: [api-service, worker-service, scheduler]
       dependencies:

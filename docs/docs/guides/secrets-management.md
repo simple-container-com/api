@@ -212,17 +212,16 @@ config/production.env
 
 ### `sc secrets add`
 
-Add new secrets to the encrypted store.
+Put one **file** under the encrypted store's management. It takes a **path**, and
+exactly one per invocation.
 
 ```shell
 # Add a single secret file
 sc secrets add database-password.txt
 
-# Add multiple files
-sc secrets add api-keys.json ssl-cert.pem
-
-# Add multiple files at once
-sc secrets add config-dev.env config-prod.env
+# One path per invocation — a second argument is rejected
+sc secrets add api-keys.json
+sc secrets add ssl-cert.pem
 
 # Add with verbose output
 sc secrets add --verbose database-password.txt
@@ -233,10 +232,59 @@ sc secrets add --profile github database-password.txt
 
 **What it does:**
 
-- Encrypts the specified files/directories
-- Adds encrypted versions to Git tracking
-- Removes plaintext versions from Git (adds to .gitignore)
-- Updates secrets index
+- Appends the path to the file registry in `.sc/secrets.yaml`
+- Encrypts the file's contents to every registered public key and stores the
+  ciphertext in that registry (the registry is what you commit)
+- Adds the plaintext path to `.gitignore`, so the cleartext never reaches Git
+
+**What it does *not* do.** It is not a key/value setter. `sc secrets add FOO`
+does not create a secret named `FOO` — it tries to register a *file* called
+`FOO` and fails if no such file exists. There is no `--file`, no `--value` and
+no `--overwrite` flag.
+
+### Setting a `${secret:NAME}` value
+
+The `${secret:NAME}` placeholders in `server.yaml` and `client.yaml` resolve
+against the `values:` map of the stack's own `secrets.yaml` — and that map is
+edited **by hand**. There is no command that sets one entry.
+
+```shell
+sc secrets reveal -F                        # decrypt in place
+$EDITOR .sc/stacks/<stack>/secrets.yaml     # edit `values:`
+sc secrets hide -F                          # re-encrypt BEFORE committing
+```
+
+```yaml
+# .sc/stacks/<stack>/secrets.yaml
+values:
+  DATABASE_PASSWORD: "s3cr3t"
+  # A multi-line value (a PEM key, a service-account JSON) needs a block scalar:
+  DEPLOY_KEY: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    ...
+    -----END OPENSSH PRIVATE KEY-----
+```
+
+Register that per-stack file itself once, so its contents travel encrypted:
+
+```shell
+sc secrets add .sc/stacks/<stack>/secrets.yaml
+```
+
+Read one value back without printing the whole file:
+
+```shell
+sc stack secret-get DATABASE_PASSWORD -s <stack>
+```
+
+`sc secrets reveal` leaves plaintext on disk until `sc secrets hide` runs. The
+file is gitignored either way, but an interrupted edit leaves it decrypted —
+re-run `sc secrets hide -F` before you commit.
+
+For a value that only one narrow CI context should be able to open — a
+`pull_request` scan job, say — see `sc secrets scope set KEY VALUE --scope <s>
+-s <stack>`, which seals it into `secrets.<scope>.yaml` with its own recipient
+list instead of the whole-file store.
 
 ### `sc secrets reveal`
 

@@ -65,6 +65,7 @@ stacks:
   production:
     type: cloud-compose
     config:
+      dockerComposeFile: ./docker-compose.yaml
       size:
         limits:
           cpu: "2000"    # 2 CPU cores maximum

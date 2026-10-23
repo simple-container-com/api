@@ -7,6 +7,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app]
       
       # Legacy configuration (still fully supported)
@@ -24,6 +25,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app]
       
       # Another legacy configuration example

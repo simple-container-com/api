@@ -171,6 +171,7 @@ stacks:
     type: cloud-compose
     parent: mycompany/staging-infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       domain: staging-app.example.com
       size:
         cpu: 1024
@@ -191,6 +192,7 @@ stacks:
     type: cloud-compose
     parent: mycompany/production-infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       domain: app.example.com
       size:
         cpu: 2048

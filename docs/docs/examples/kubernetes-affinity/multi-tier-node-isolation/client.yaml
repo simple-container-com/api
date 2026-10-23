@@ -9,6 +9,7 @@ stacks:
     type: cloud-compose
     parent: mycompany/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [cloud-sql-postgres, redis-memorystore]
       domain: api.mycompany.com
       runs: [processing-api, celery-workers]
@@ -41,6 +42,7 @@ stacks:
     type: cloud-compose  
     parent: mycompany/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [cloud-sql-postgres, redis-memorystore]
       domain: bot.mycompany.com
       runs: [telegram-bot, support-bot]
@@ -68,6 +70,7 @@ stacks:
     type: cloud-compose
     parent: mycompany/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [cloud-sql-postgres, redis-memorystore]
       domain: client-a.mycompany.com
       runs: [telegram-bot]
@@ -99,6 +102,7 @@ stacks:
     type: cloud-compose
     parent: mycompany/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [cloud-sql-postgres, redis-memorystore]
       domain: client-b.mycompany.com
       runs: [telegram-bot]
@@ -129,6 +133,7 @@ stacks:
     parent: mycompany/infrastructure
     parentEnv: staging
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [cloud-sql-postgres, redis-memorystore]
       domain: api-staging.mycompany.com
       runs: [processing-api, celery-workers]
@@ -143,6 +148,7 @@ stacks:
     parent: mycompany/infrastructure
     parentEnv: staging
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [cloud-sql-postgres, redis-memorystore]
       domain: bot-staging.mycompany.com
       runs: [telegram-bot]

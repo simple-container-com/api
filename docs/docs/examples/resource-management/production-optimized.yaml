@@ -7,6 +7,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app, worker, cache]
       
       # High-performance web application
@@ -25,6 +26,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [background-worker]
       
       # CPU-intensive background worker
@@ -41,6 +43,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [redis-cache]
       
       # Memory-intensive cache service
@@ -57,6 +60,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app]
       
       # Staging environment - production-like but smaller
@@ -73,6 +77,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app]
       
       # Load testing environment - can burst high but minimal guarantees
