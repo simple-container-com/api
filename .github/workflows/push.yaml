@@ -1026,34 +1026,76 @@ jobs:
           DIGEST: ${{ steps.build_and_push.outputs.digest }}
         run: |
           set -euo pipefail
+          # Retry every registry call. This step is the LAST thing standing
+          # between a fully-built, pushed, signed and attested image and a
+          # published release, and until 2026-10-23 each of its three calls was
+          # one-shot. Run 40007865716 attempt 3 died here with
+          #   curl: (28) Failed to connect to registry-1.docker.io port 443
+          #              after 130676 ms: Connection timed out
+          # *after* the build, the push, cosign, the SBOM, the SLSA provenance
+          # and the attestation gate had all succeeded. Everything upstream had
+          # a retry; this did not. Cost: a ~2-hour release republished nothing,
+          # because `docker-finalize` is `needs:` this job and skipped. The
+          # fleet's egress is a fake-IP hijack that stalls intermittently (same
+          # root cause as the cosign retry loop above, and as the `apk` loop in
+          # the Dockerfiles) — one attempt is simply too few here.
+          #
+          # Deliberately an explicit loop rather than curl's own `--retry`: the
+          # two calls below parse response headers out of stdout via `-D -`, and
+          # curl dumps the headers of EVERY attempt including the failed ones —
+          # so a retried 5xx would hand `awk` two Content-Type lines and silently
+          # corrupt `ctype` (or two Docker-Content-Digest lines, defeating the
+          # digest equality check that is this step's whole safety property).
+          # One attempt per curl, each fully re-validated, matching the cosign
+          # idiom above. `--connect-timeout` is what stops a stalled connect
+          # from eating 130 s of the budget before the first retry.
+          CURL_OPTS=(-sS --connect-timeout 15 --max-time 180)
           token="$(sc stack secret-get -s dist dockerhub-cicd-token)"
           echo "::add-mask::${token}"
-          bearer="$(curl -sS -u "simplecontainer:${token}" \
-            "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${IMAGE_REPO}:pull,push" \
-            | jq -r '.token // empty')"
+          bearer=""
+          for attempt in 1 2 3 4 5; do
+            bearer="$(curl "${CURL_OPTS[@]}" -u "simplecontainer:${token}" \
+              "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${IMAGE_REPO}:pull,push" \
+              | jq -r '.token // empty')" || true
+            [ -n "$bearer" ] && break
+            [ "$attempt" = 5 ] || { echo "::warning::registry token attempt ${attempt} failed for ${IMAGE_REPO}; retrying"; sleep $((attempt * 5)); }
+          done
           if [ -z "$bearer" ]; then
-            echo "::error title=Promotion failed::could not obtain a registry token for ${IMAGE_REPO}"
+            echo "::error title=Promotion failed::could not obtain a registry token for ${IMAGE_REPO} after 5 attempts"
             exit 1
           fi
           echo "::add-mask::${bearer}"
           accept='application/vnd.oci.image.index.v1+json,application/vnd.oci.image.manifest.v1+json,application/vnd.docker.distribution.manifest.list.v2+json,application/vnd.docker.distribution.manifest.v2+json'
           manifest="$(mktemp)"
-          ctype="$(curl -sS -D - -o "$manifest" \
-            -H "Authorization: Bearer ${bearer}" -H "Accept: ${accept}" \
-            "https://registry-1.docker.io/v2/${IMAGE_REPO}/manifests/${DIGEST}" \
-            | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')"
+          ctype=""
+          for attempt in 1 2 3 4 5; do
+            ctype="$(curl "${CURL_OPTS[@]}" -D - -o "$manifest" \
+              -H "Authorization: Bearer ${bearer}" -H "Accept: ${accept}" \
+              "https://registry-1.docker.io/v2/${IMAGE_REPO}/manifests/${DIGEST}" \
+              | tr -d '\r' | awk 'tolower($1)=="content-type:"{print $2}')" || true
+            [ -n "$ctype" ] && break
+            [ "$attempt" = 5 ] || { echo "::warning::manifest read attempt ${attempt} failed for ${IMAGE_REPO}@${DIGEST}; retrying"; sleep $((attempt * 5)); }
+          done
           if [ -z "$ctype" ]; then
-            echo "::error title=Promotion failed::could not read the manifest for ${IMAGE_REPO}@${DIGEST}"
+            echo "::error title=Promotion failed::could not read the manifest for ${IMAGE_REPO}@${DIGEST} after 5 attempts"
             exit 1
           fi
           while IFS= read -r tag; do
             [ -n "$tag" ] || continue
             echo "Promoting ${IMAGE_REPO}@${DIGEST} to ${tag}"
-            pushed="$(curl -sS -X PUT -D - -o /dev/null \
-              -H "Authorization: Bearer ${bearer}" -H "Content-Type: ${ctype}" \
-              --data-binary "@${manifest}" \
-              "https://registry-1.docker.io/v2/${IMAGE_REPO}/manifests/${tag##*:}" \
-              | tr -d '\r' | awk 'tolower($1)=="docker-content-digest:"{print $2}')"
+            pushed=""
+            for attempt in 1 2 3 4 5; do
+              pushed="$(curl "${CURL_OPTS[@]}" -X PUT -D - -o /dev/null \
+                -H "Authorization: Bearer ${bearer}" -H "Content-Type: ${ctype}" \
+                --data-binary "@${manifest}" \
+                "https://registry-1.docker.io/v2/${IMAGE_REPO}/manifests/${tag##*:}" \
+                | tr -d '\r' | awk 'tolower($1)=="docker-content-digest:"{print $2}')" || true
+              # Only a MISSING digest is a retryable blip. A digest that came
+              # back WRONG is a correctness failure, not a network one — fall
+              # straight through to the check below rather than retrying into it.
+              [ -n "$pushed" ] && break
+              [ "$attempt" = 5 ] || { echo "::warning::tag PUT attempt ${attempt} failed for ${tag}; retrying"; sleep $((attempt * 5)); }
+            done
             if [ "$pushed" != "$DIGEST" ]; then
               echo "::error title=Promotion changed the digest::${tag} resolved to ${pushed:-<none>}, not the signed ${DIGEST}. Consumers verifying by tag would fail."
               exit 1
