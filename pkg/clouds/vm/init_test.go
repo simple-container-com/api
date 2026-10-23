@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -85,11 +86,21 @@ func TestDriversCoverEveryNamedDriver(t *testing.T) {
 		"byo", "cloudru-vm", "mws-vm", "openstack-vm", "timeweb-vm", "vkcs-vm", "yc-vm",
 	}))
 
-	// Exactly one driver is implemented today. When the second lands, this is the
-	// line that reminds whoever lands it to fill in its capability row.
+	// The drivers that exist today. This list is the reminder: landing a driver means
+	// filling in its capability row from the cloud's own API, and an implemented
+	// driver left with the zeroed row would make shared code branch on "this cloud
+	// has no private network, no public address and no firewall".
+	implemented := []string{DriverByo, DriverCloudru}
 	for name, info := range Drivers {
-		if name == DriverByo {
-			Expect(info.Implemented).To(BeTrue())
+		if lo.Contains(implemented, name) {
+			Expect(info.Implemented).To(BeTrue(), "driver %q is implemented but its row says otherwise", name)
+			// byo is the exception and is genuinely all-false: there is no cloud
+			// behind it, so SC cannot create a network, hand out an address or write
+			// a firewall rule. Every cloud driver has to claim something.
+			if name != DriverByo {
+				Expect(info.Capabilities).ToNot(Equal(Capabilities{}),
+					"driver %q is implemented with an empty capability row", name)
+			}
 			continue
 		}
 		Expect(info.Implemented).To(BeFalse(), "driver %q claims to be implemented", name)

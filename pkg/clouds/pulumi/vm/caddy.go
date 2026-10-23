@@ -264,13 +264,19 @@ func shipIngressImage(
 			input.Descriptor.Name, image)
 	}
 
-	script := h.Address.ApplyT(func(addr string) string {
+	// HostKey rides the apply rather than being read directly: it is an Output
+	// (a key SC knows before boot is one SC generated, so it has to be a Pulumi
+	// resource that survives the next deploy), and reading it here would render
+	// the struct instead of the key.
+	script := sdk.All(h.Address, h.HostKey).ApplyT(func(vals []any) string {
+		addr, _ := vals[0].(string)
+		hostKey, _ := vals[1].(string)
 		return shipScript(shipSpec{
 			ImageRefs: []string{image},
 			Host:      addr,
 			User:      h.User,
 			Port:      h.Port,
-			HostKey:   h.HostKey,
+			HostKey:   hostKey,
 			Pull:      true,
 		})
 	}).(sdk.StringOutput)

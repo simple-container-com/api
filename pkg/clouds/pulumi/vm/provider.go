@@ -10,8 +10,10 @@ import (
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/cloudru"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/vm"
+	sdkSbercloud "github.com/simple-container-com/pulumi-sbercloud/sdk/go/sbercloud"
 )
 
 // Provider instantiates the Pulumi provider a vm resource provisions through.
@@ -60,10 +62,73 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 			return nil, errors.Wrapf(err, "failed to init command provider for vm %q", input.Descriptor.Name)
 		}
 		return &api.ResourceOutput{Ref: provider}, nil
+	case vm.DriverCloudru:
+		provider, err := cloudruProvider(ctx, input, cfg)
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to init cloudru provider for vm %q", input.Descriptor.Name)
+		}
+		return &api.ResourceOutput{Ref: provider}, nil
 	default:
 		// Unreachable: Validate above refuses every provider without a driver. Kept
 		// as a real error rather than a panic so that adding a driver to
 		// vm.Drivers without adding it here fails legibly.
 		return nil, errors.Errorf("no provider implementation for vm provider %q", cfg.Driver)
 	}
+}
+
+// cloudruProvider builds the Cloud.ru Advanced provider from the resource's
+// `credentials:` blob.
+//
+// Note what drives the region: the RESOURCE's `region:`, not the credential's. A vm
+// resource always has one (Validate requires it), and WithRegion carries it into the
+// Keystone endpoint and the project name as well — because on this cloud those three
+// are one decision, and setting only the provider's region authenticates against one
+// region's tenancy while creating in another.
+func cloudruProvider(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig) (*sdkSbercloud.Provider, error) {
+	var account cloudru.AccountConfig
+	if err := api.ConvertAuth(cfg, &account); err != nil {
+		return nil, errors.Wrapf(err,
+			"failed to read Cloud.ru credentials; `credentials:` must reference an `auth:` entry of type %q",
+			cloudru.AuthTypeCloudruAccessKey)
+	}
+	if err := account.Validate(); err != nil {
+		return nil, err
+	}
+	account = *account.WithRegion(cfg.Region)
+
+	args := &sdkSbercloud.ProviderArgs{
+		AccessKey: sdk.StringPtr(account.AccessKey),
+		// secretStringPtr, never sdk.StringPtr: the provider's own inputs are printed
+		// in a Pulumi update summary and archived in the CI log unless marked, which
+		// is how a Yandex service-account private key reached a world-readable Actions
+		// log on 2026-09-30.
+		SecretKey:   secretStringPtr(account.SecretKey),
+		AuthUrl:     sdk.StringPtr(account.EffectiveAuthURL()),
+		Region:      sdk.StringPtr(account.EffectiveRegion()),
+		ProjectName: sdk.StringPtr(account.EffectiveProjectName()),
+	}
+	// Set only when given. The provider derives each of these from the key pair
+	// otherwise, and an empty string is not the same as absent: it is a scope that
+	// matches nothing, and Keystone answers it with a 401 that names neither field.
+	if account.SecurityToken != "" {
+		args.SecurityToken = secretStringPtr(account.SecurityToken)
+	}
+	if account.DomainName != "" {
+		args.DomainName = sdk.StringPtr(account.DomainName)
+	}
+	if account.DomainID != "" {
+		args.DomainId = sdk.StringPtr(account.DomainID)
+	}
+	if account.EnterpriseProjectID != "" {
+		args.EnterpriseProjectId = sdk.StringPtr(account.EnterpriseProjectID)
+	}
+
+	return sdkSbercloud.NewProvider(ctx, input.ToResName(input.Descriptor.Name), args)
+}
+
+// secretStringPtr is secretString for a provider argument that takes a pointer.
+// Same reasoning, same reason it is three duplicated lines rather than a utility
+// package: see secretString in byo.go.
+func secretStringPtr(value string) sdk.StringPtrInput {
+	return secretString(value).ToStringPtrOutput()
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/simple-container-com/api/pkg/cmd/cmd_assistant"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cancel"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_cicd"
+	"github.com/simple-container-com/api/pkg/cmd/cmd_cloudru"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_deploy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_destroy"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_image"
@@ -90,6 +91,7 @@ func main() {
 		cmd_upgrade.NewUpgradeCmd(rootCmdInstance),
 		cmd_stack.NewStackCmd(rootCmdInstance),
 		cmd_cicd.NewCicdCmd(rootCmdInstance),
+		cmd_cloudru.NewCloudruCmd(),
 		cmd_image.NewImageCmd(),
 		cmd_provenance.NewProvenanceCommand(),
 		cmd_sbom.NewSBOMCommand(),

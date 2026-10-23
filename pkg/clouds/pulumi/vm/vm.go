@@ -113,8 +113,8 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 		// The host key crosses the same boundary and for the same reason — the
 		// template that ships images and writes env files onto this machine runs in
 		// the child stack. Exported in the clear: it is the machine's public key.
-		ctx.Export(ToHostKeyExport(input.Descriptor.Name, i), sdk.String(h.HostKey))
-		if h.HostKey == "" {
+		ctx.Export(ToHostKeyExport(input.Descriptor.Name, i), h.HostKey)
+		if !h.HostKeyPinned {
 			// Said once, here, rather than on every command that connects. It is
 			// also the only place that knows the host was declared without one.
 			params.Log.Warn(ctx.Context(),

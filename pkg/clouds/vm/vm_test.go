@@ -49,11 +49,20 @@ func TestValidate(t *testing.T) {
 			errMatch: `unknown vm provider "cloudru"`,
 		},
 		{
-			// The message an operator with a Cloud.ru subscription hits today. It has
-			// to name both the roadmap item and the way out, because "not implemented"
-			// on its own leaves them with nothing to do.
-			name:     "known but unimplemented provider",
-			mutate:   func(c *VmConfig) { c.Driver = DriverCloudru; c.Hosts = nil; c.Region = "ru-moscow-1" },
+			// The message an operator with an MWS subscription hits today. It has to
+			// name both the roadmap item and the way out, because "not implemented" on
+			// its own leaves them with nothing to do.
+			//
+			// This used to be the Cloud.ru case; it moved to MWS when `cloudru-vm`
+			// landed. Keeping a case here at all is the point — the refusal is the only
+			// thing an operator on one of the five remaining clouds ever sees.
+			name: "known but unimplemented provider",
+			mutate: func(c *VmConfig) {
+				c.Driver = DriverMws
+				c.Hosts = nil
+				c.Region = "ru-central-1"
+				c.PublicIP = true
+			},
 			errMatch: "not implemented yet (roadmap item sc-ru-clouds-beyond-yandex)",
 		},
 		{
@@ -177,6 +186,87 @@ func TestValidateCloudShapeBeforeNotImplemented(t *testing.T) {
 	Expect(withHosts.Validate().Error()).To(ContainSubstring("`hosts` is only valid with `provider: byo`"))
 }
 
+// The invariants every machine-creating driver shares. They are checked here, once,
+// rather than per driver — `cloudru-vm` is written assuming each of them holds, so a
+// hole here is a hole in every driver that follows.
+func TestValidateCloud(t *testing.T) {
+	RegisterTestingT(t)
+
+	cases := []struct {
+		name     string
+		mutate   func(*VmConfig)
+		errMatch string
+	}{
+		{
+			name:     "minimal cloud config",
+			mutate:   func(*VmConfig) {},
+			errMatch: "",
+		},
+		{
+			// Refused at validation rather than discovered as an SSH dial timeout
+			// against a machine that was created, billed, and is unreachable: every
+			// delivery step is an outbound connection from wherever `sc deploy` runs.
+			name:     "no public address",
+			mutate:   func(c *VmConfig) { c.PublicIP = false },
+			errMatch: "requires `publicIP: true`",
+		},
+		{
+			name:     "one zone",
+			mutate:   func(c *VmConfig) { c.Zones = []string{"ru-moscow-1a"} },
+			errMatch: "",
+		},
+		{
+			name:     "two zones",
+			mutate:   func(c *VmConfig) { c.Zones = []string{"ru-moscow-1a", "ru-moscow-1b"} },
+			errMatch: "at most one entry under `zones`, got 2",
+		},
+		{
+			// Half a BYO network is the one shape that cannot be completed by
+			// guessing: picking "some subnet in the VPC" places the machine in a zone,
+			// or behind a route table, the operator did not choose.
+			name:     "network id without subnets",
+			mutate:   func(c *VmConfig) { c.Network = &VmNetwork{ID: "vpc-1"} },
+			errMatch: "`network.subnets` is empty",
+		},
+		{
+			name:     "subnets without network id",
+			mutate:   func(c *VmConfig) { c.Network = &VmNetwork{Subnets: map[string]string{"ru-moscow-1a": "sub-1"}} },
+			errMatch: "`network.id` is empty",
+		},
+		{
+			name: "both halves of a byo network",
+			mutate: func(c *VmConfig) {
+				c.Network = &VmNetwork{ID: "vpc-1", Subnets: map[string]string{"ru-moscow-1a": "sub-1"}}
+			},
+			errMatch: "",
+		},
+		{
+			// Shared with the byo path, and checked on this one too: the pair drifted
+			// apart once already.
+			name:     "ingress without acme email",
+			mutate:   func(c *VmConfig) { c.Ingress = &VmIngress{Enable: true} },
+			errMatch: "requires `ingress.email`",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
+			cfg := cloudConfig()
+			tc.mutate(cfg)
+
+			err := cfg.Validate()
+			if tc.errMatch == "" {
+				Expect(err).ToNot(HaveOccurred())
+				return
+			}
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(tc.errMatch))
+		})
+	}
+}
+
 // CredentialsValue must not become a dumping ground for the config: with `byo` the
 // config holds host private keys, and this value exists to be handed to other code.
 // yandex.AccountConfig serialises itself as a fallback; doing that here would mean
@@ -234,4 +324,30 @@ func TestShipsIngressImageNeedsAnIngress(t *testing.T) {
 	cfg.Ingress = &VmIngress{Enable: true, Email: "ops@example.com", ImageDelivery: ImageDeliverySshTar}
 	Expect(cfg.ShipsIngressImage()).To(BeTrue())
 	Expect(cfg.Validate()).ToNot(HaveOccurred())
+}
+
+// A missing `size` must not mean "whatever the cloud lists first". A cloud driver
+// picks a flavour by FILTERING on cores and memory, so an unfilled half is a filter
+// that matches hundreds of flavours — and a different one on the next deploy, which
+// replaces the machine.
+func TestEffectiveSize(t *testing.T) {
+	RegisterTestingT(t)
+
+	absent := (&VmConfig{}).EffectiveSize()
+	Expect(absent).To(Equal(VmSize{Cores: DefaultCores, Memory: DefaultMemory}))
+
+	// Each half defaults on its own, so `size: {memory: 8Gi}` is a legal way to ask
+	// for more memory at the default core count.
+	Expect((&VmConfig{Size: &VmSize{Memory: "8Gi"}}).EffectiveSize()).
+		To(Equal(VmSize{Cores: DefaultCores, Memory: "8Gi"}))
+	Expect((&VmConfig{Size: &VmSize{Cores: 8}}).EffectiveSize()).
+		To(Equal(VmSize{Cores: 8, Memory: DefaultMemory}))
+
+	// Disk is NOT defaulted: unlike cores and memory it is not a flavour filter, and
+	// an empty value lets each image keep its own root-disk size, which is better
+	// than one SC invents.
+	full := (&VmConfig{Size: &VmSize{Cores: 4, Memory: "16Gi", Disk: "60Gi", DiskType: "SSD"}}).EffectiveSize()
+	Expect(full).To(Equal(VmSize{Cores: 4, Memory: "16Gi", Disk: "60Gi", DiskType: "SSD"}))
+	Expect(absent.Disk).To(BeEmpty())
+	Expect(absent.DiskType).To(BeEmpty())
 }

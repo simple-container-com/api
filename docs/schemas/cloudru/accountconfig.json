@@ -1,0 +1,59 @@
+{
+  "name": "AccountConfig",
+  "type": "auth",
+  "provider": "cloudru",
+  "description": "CLOUDRU authentication configuration",
+  "goPackage": "pkg/clouds/cloudru/",
+  "goStruct": "AccountConfig",
+  "resourceType": "cloudru-access-key",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "credentials": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "credentials"
+        ],
+        "type": "object"
+      },
+      "accessKey": {
+        "type": "string"
+      },
+      "authUrl": {
+        "type": "string"
+      },
+      "domainId": {
+        "type": "string"
+      },
+      "domainName": {
+        "type": "string"
+      },
+      "enterpriseProjectId": {
+        "type": "string"
+      },
+      "projectName": {
+        "type": "string"
+      },
+      "region": {
+        "type": "string"
+      },
+      "secretKey": {
+        "type": "string"
+      },
+      "securityToken": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "",
+      "accessKey",
+      "secretKey"
+    ],
+    "type": "object"
+  }
+}

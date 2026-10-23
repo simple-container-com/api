@@ -1,0 +1,54 @@
+{
+  "name": "ContainerAppTemplateConfig",
+  "type": "template",
+  "provider": "cloudru",
+  "description": "CLOUDRU deployment template configuration",
+  "goPackage": "pkg/clouds/cloudru/",
+  "goStruct": "ContainerAppTemplateConfig",
+  "resourceType": "cloudru-container-app",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "credentials": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "credentials"
+            ],
+            "type": "object"
+          },
+          "keyId": {
+            "type": "string"
+          },
+          "keySecret": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "",
+          "keyId",
+          "keySecret",
+          "projectId"
+        ],
+        "type": "object"
+      },
+      "registryName": {
+        "type": "string"
+      }
+    },
+    "required": [
+      ""
+    ],
+    "type": "object"
+  }
+}
