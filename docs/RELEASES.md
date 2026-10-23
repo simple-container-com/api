@@ -20,7 +20,7 @@ It satisfies the OpenSSF Best Practices `release_notes`,
 Every push to `main` triggers `.github/workflows/push.yaml`. After
 build + sign + publish to dist, the `docker-finalize` job invokes
 [`scripts/create-github-release.sh`](../scripts/create-github-release.sh)
-which calls:
+which, on a tag that has no Release yet, calls:
 
 ```bash
 gh release create "${VERSION}" "${assets[@]}" \
@@ -40,6 +40,48 @@ Release notes are attached to each Release object alongside the signed
 sidecars (`.cosign-bundle`, `.sigstore.json`, `.sha256`, `.sbom.cdx.json`).
 Consumers can verify the integrity of the artifacts AND read the notes
 in the same Release UI.
+
+### Re-running a release job
+
+Re-running a failed release job is the supported recovery path — the
+image legs hit transient CDN/registry flakes routinely, and
+`push.yaml` deliberately sets `cancel-in-progress: false`. So the
+script is idempotent: it first checks whether the Release already
+exists and, if so, refreshes its assets in place instead of failing on
+a duplicate tag.
+
+```bash
+if gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+  gh release upload "${VERSION}" "${assets[@]}" \
+    --repo "${GITHUB_REPOSITORY}" \
+    --clobber
+else
+  # ... the gh release create call shown above
+fi
+```
+
+Notes and title are **not** regenerated on the re-run path: the
+existing Release object already carries them from the run that created
+it, and `gh release upload` accepts neither `--generate-notes` nor
+`--title`. `--clobber` overwrites same-named assets rather than
+erroring or duplicating them.
+
+What a re-run does **not** relax is the unsigned-release refusal. The
+script still exits 1 if the dist bundle has zero `.sigstore.json`
+sidecars for the version — that guard sits ahead of the create/upload
+branch, so it fires identically on a first run and a re-run. An
+unsigned Release would produce a Scorecard
+`release artifact vX.Y.Z not signed` finding, which is worse than no
+Release at all.
+
+[`scripts/test-create-github-release.sh`](../scripts/test-create-github-release.sh)
+covers all of the above against a stub `gh` on `PATH` — fresh tag,
+existing tag, unsigned bundle on both paths, and preview/RC
+short-circuit. Run it after editing the release script:
+
+```bash
+./scripts/test-create-github-release.sh
+```
 
 ## How vulnerabilities appear in release notes
 

@@ -29,8 +29,17 @@
 #                         `.sc/stacks/dist/bundle` matching push.yaml
 #
 # Exit codes:
-#   0  Release created (or skipped because tag is preview/RC)
+#   0  Release created, or its assets refreshed on an already-existing
+#      Release, or skipped because the tag is preview/RC
 #   1  Hard failure (no .sigstore.json, no assets, gh release error)
+#
+# Idempotency: re-running a release job is the normal recovery path in
+# this pipeline (image legs hit transient CDN/registry flakes), so the
+# script must survive re-entry on a tag whose Release already exists.
+# See the create/upload branch at the bottom of this file.
+#
+# Verification: scripts/test-create-github-release.sh exercises every
+# branch below against a stub `gh` on PATH — run it after any edit here.
 
 set -euo pipefail
 
@@ -107,8 +116,34 @@ fi
 # tag (it ran two steps earlier in push.yaml). --generate-notes pulls
 # release notes from commits/PRs since the previous tag (default
 # GitHub formatting — flat list of merged PRs).
-gh release create "${VERSION}" "${assets[@]}" \
-  --repo "${GITHUB_REPOSITORY}" \
-  --title "v${VERSION}" \
-  --generate-notes \
-  --verify-tag
+#
+# Idempotency: `gh release create` hard-fails with "a release with the
+# same tag name already exists" when re-entered on a tag that already
+# has a Release — and with `set -e` that reds the whole job even though
+# every artefact published correctly. Re-running is the supported
+# recovery path here (push.yaml sets `cancel-in-progress: false`), so
+# branch on whether the Release exists and refresh its assets instead.
+#
+# `gh release upload` takes neither --title, --generate-notes nor
+# --verify-tag: the existing Release object already carries the title
+# and notes from the run that created it, and the tag is proven to
+# exist by the Release referencing it. --clobber overwrites same-named
+# assets in place rather than erroring or duplicating them.
+#
+# A transient `gh release view` failure (rate-limit, auth blip) is
+# indistinguishable from a 404 here and falls through to the create
+# branch. That is deliberate and safe: `create` is still the
+# authoritative action and still fails loudly under `set -e` if the
+# Release really did exist. Do not add retry/backoff around `view`.
+if gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+  echo "Release ${VERSION} already exists — refreshing its assets (re-run recovery path)."
+  gh release upload "${VERSION}" "${assets[@]}" \
+    --repo "${GITHUB_REPOSITORY}" \
+    --clobber
+else
+  gh release create "${VERSION}" "${assets[@]}" \
+    --repo "${GITHUB_REPOSITORY}" \
+    --title "v${VERSION}" \
+    --generate-notes \
+    --verify-tag
+fi
