@@ -1,0 +1,151 @@
+schemaVersion: 1.0
+
+# A parent stack where SC creates the machine itself, in Cloud.ru Advanced.
+#
+# The difference from the `byo` example next door is exactly one block: there is no
+# `hosts:`. SC creates the VPC, the subnet, the security group, the floating address,
+# the SSH keypair and the instance, then connects to what it created. Everything from
+# the SSH connection upwards — readiness, image ship, compose render, Caddy, TLS — is
+# the same code the `byo` path runs, which is why it was proven on a hand-made machine
+# first.
+#
+# WHICH Cloud.ru this is matters. Cloud.ru sells two unrelated estates:
+#
+#   - **Advanced** (ex-SberCloud) — this driver. Its Terraform provider has open Go
+#     sources, so it is bridged into Pulumi the classic way
+#     (`simple-container-com/pulumi-sbercloud`).
+#   - **Evolution** — a different API with different credentials, whose provider ships
+#     as a binary only. Not supported; a key pair from one estate does not
+#     authenticate against the other.
+#
+# `fs` + `passphrase` keep this example runnable with nothing but the Cloud.ru account:
+# Pulumi state lives next to the checkout. Swap in an S3-compatible bucket once more
+# than one person deploys this stack. Add `.sc/state` to .gitignore yourself — the
+# checkpoint under it carries the stack's inputs and outputs, the generated deploy key
+# among them, encrypted with the passphrase below and no stronger than it.
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: fs
+      config:
+        path: ${git:root}/.sc/state
+    secrets-provider:
+      type: passphrase
+      config:
+        passPhrase: ${secret:SC_STATE_PASSPHRASE}
+
+templates:
+  # Delivery behaviour ONLY — identical to the `byo` example. The template never learns
+  # which cloud the machine is in; it reads the host facts the `vm` resource exports.
+  compose-on-vm:
+    type: vm-compose
+    config:
+      vmResource: portal-vm
+      # Streams the built image over the same SSH connection, so no registry has to be
+      # reachable from the machine. That is worth more here than on a machine you
+      # brought: a fresh Cloud.ru VM reaching Docker Hub is not something to assume.
+      imageDelivery: ssh-tar
+      strategy: blue-green
+      keepImages: 3
+
+resources:
+  resources:
+    staging:
+      template: compose-on-vm
+      resources:
+        portal-vm:
+          type: vm
+          config:
+            provider: cloudru-vm
+            # The Keystone key pair, declared under `auth:` in secrets.yaml. Region is
+            # not just one input on this cloud — it also selects the IAM endpoint and
+            # the project resources are created in — so the credential carries its own
+            # region and SC keeps the three in step. Setting them apart authenticates
+            # against one region's tenancy and creates in another.
+            credentials: ${auth:cloudru}
+            # Required. Resources are created here; zones inside it are discovered from
+            # the cloud's own availability-zones datasource rather than compiled in.
+            region: ru-moscow-1
+            # Optional: pin the zone. One entry at most — this is a single machine, and
+            # a list of zones would describe a cluster. Left out, SC takes the first
+            # zone the datasource reports (documented as alphanumeric, so stable).
+            # zones: [ru-moscow-1a]
+
+            # Required on every cloud driver, and refused if false: every delivery step
+            # is an outbound connection FROM wherever `sc deploy` runs, so a machine
+            # with no public address is created, billed and unreachable. It also gates
+            # cloud-init — the image has no docker, and cloud-init installs it over
+            # this address, which is why SC binds the address at instance creation
+            # rather than attaching it afterwards.
+            publicIP: true
+
+            # A cloud-independent alias, resolved to a Cloud.ru image id at provision
+            # time by a regex over the public image names (they carry a build number
+            # that changes on Cloud.ru's schedule, so an exact name would rot). An
+            # exact name or a raw image UUID is also accepted.
+            image: ubuntu-2404-lts
+
+            # Cores and memory are a FLAVOUR FILTER, not a shape SC creates: the
+            # driver asks the flavours datasource for general-purpose shapes matching
+            # both and takes the smallest match deterministically. Defaults are 2 cores
+            # / 4Gi. Memory is matched in whole GiB — `1536Mi` is refused rather than
+            # rounded, because rounding would silently hand you a different machine.
+            size:
+              cores: 2
+              memory: 4Gi
+              # Disk is NOT defaulted: left out, the image keeps its own root-disk
+              # size, which is a better answer than one SC invents. `diskType` is
+              # Cloud.ru's volume type (`SSD`, `GPSSD`, `SAS`).
+              disk: 60Gi
+              diskType: SSD
+
+            # The login SC creates in cloud-init and connects as. Defaults to `sc`.
+            sshUser: sc
+
+            # Optional: pin an EXISTING network instead of letting SC create one.
+            # Both halves or neither — half of this is refused rather than completed by
+            # guessing, because picking "some subnet in the VPC" places the machine in a
+            # zone, or behind a route table, you did not choose. Keys are zone names.
+            #
+            # Left out, SC creates a VPC on 10.47.0.0/16 and a subnet on 10.47.1.0/24.
+            # Those ranges are deliberately not 10.0.0.0/16 or 192.168.0.0/16: the only
+            # job they have is to not collide with the VPN or peering you already run.
+            # network:
+            #   id: vpc-xxxxxxxx
+            #   subnets:
+            #     ru-moscow-1a: subnet-xxxxxxxx
+
+            # Optional: Docker registry mirrors and an apt mirror, written into
+            # cloud-init. Worth setting on this cloud — reachability of Docker Hub and
+            # of `get.docker.com` from inside Russia is measured, not assumed.
+            # registryMirrors:
+            #   - https://mirror.gcr.io
+            # packageMirror: https://mirror.yandex.ru/ubuntu
+
+            # Public keys for humans, added alongside the deploy key SC generates. The
+            # deploy key is a stack resource, not an operator secret: SC creates it, it
+            # lives encrypted in the Pulumi checkpoint, and nobody has to paste it
+            # anywhere. Without an entry here, nobody can log in to debug the machine.
+            # extraSshKeys:
+            #   - "ssh-ed25519 AAAAC3Nza… ops@example.com"
+
+            # The front door: a Caddy container in its own compose project, terminating
+            # TLS for every stack on this machine. SC opens 80 and 443 (TCP and UDP) in
+            # the security group when this is on, and only 22 when it is off.
+            #
+            # On a `.ru` domain served to browsers inside Russia, read `acmeCa` below
+            # before relying on Let's Encrypt.
+            ingress:
+              enable: true
+              # The ACME account address. Required — no CA issues without one.
+              email: ops@example.com
+              #
+              # A certificate authority other than Let's Encrypt. This field exists for
+              # this market: a `.ru` domain opened from inside Russia in a browser
+              # without foreign roots wants a Russian Trusted CA certificate. Whether
+              # that CA speaks ACME is UNVERIFIED — the field is here so there is an
+              # option, not because the path is known to work.
+              # acmeCa: https://acme.example-ca.ru/directory
+              # acmeEabKeyId: "kid-from-your-ca"
+              # acmeEabMacKey: ${secret:PORTAL_VM_ACME_EAB_MAC_KEY}

@@ -650,8 +650,13 @@ func hostFromParent(
 		Port:               port,
 		PrivateKey:         secretString(privateKey),
 		PrivateKeyPassword: secretString(keyPassword),
-		HostKey:            hostKey,
-		Role:               vm.RoleCompose,
+		// Lifted into an Output only to satisfy HostFacts, which carries one because a
+		// cloud driver GENERATES the host key and therefore only knows it once the
+		// resource exists. On this side it is already a resolved string: it came out of
+		// the parent stack's exports.
+		HostKey:       sdk.String(hostKey).ToStringOutput(),
+		HostKeyPinned: hostKey != "",
+		Role:          vm.RoleCompose,
 	}, ingressEnabled, nil
 }
 

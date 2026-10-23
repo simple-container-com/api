@@ -53,13 +53,15 @@ func ConnectionArgs(h HostFacts) *remote.ConnectionArgs {
 		DialErrorLimit: sdk.IntPtr(dialErrorLimit),
 		PerDialTimeout: sdk.IntPtr(perDialTimeoutSeconds),
 	}
-	// Set only when pinned: the SDK's contract is "if not provided, the host key will
-	// be ignored", so passing an empty string risks being read as "provided, and it is
-	// the empty key" — a failure on every connection rather than the documented
-	// fallback. Unset is insecure and warned about once, at provision time; it is not
-	// hidden behind a connection that silently fails.
-	if h.HostKey != "" {
-		args.HostKey = sdk.StringPtr(h.HostKey)
+	// Set only when pinned, and that is why HostKeyPinned is a plain bool rather than
+	// something read off the Output: the provider checks `HostKey != nil`, not
+	// `!= ""`, and hands whatever it finds to ssh.ParseAuthorizedKey. An empty string
+	// is therefore "provided, and unparseable" — a failure on EVERY connection rather
+	// than the documented "if not provided, the host key will be ignored" fallback.
+	// Unset is insecure and warned about once, at provision time; it is not hidden
+	// behind a connection that silently fails.
+	if h.HostKeyPinned {
+		args.HostKey = h.HostKey.ToStringPtrOutput()
 	}
 	return args
 }

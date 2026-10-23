@@ -287,13 +287,17 @@ func shipExternalImages(
 			return nil, errors.Wrapf(err, "third-party image %q of stack %q cannot be shipped", ref, stack.Name)
 		}
 	}
-	script := host.Address.ApplyT(func(addr string) string {
+	// HostKey rides the apply rather than being read directly — it is an Output;
+	// see the note in shipImage.
+	script := sdk.All(host.Address, host.HostKey).ApplyT(func(vals []any) string {
+		addr, _ := vals[0].(string)
+		hostKey, _ := vals[1].(string)
 		return shipScript(shipSpec{
 			ImageRefs: refs,
 			Host:      addr,
 			User:      host.User,
 			Port:      host.Port,
-			HostKey:   host.HostKey,
+			HostKey:   hostKey,
 			// The runner does not have these images: nothing in this deploy built
 			// them. Pulling only what is absent is what makes a CI step that
 			// pre-pulled a private image (after its own `docker login`) work.
@@ -343,14 +347,19 @@ func shipImage(
 	// built.ImageName is threaded through the apply, not RepoDigest: with SkipPush
 	// there is no push and therefore no repo digest, so depending on one would make
 	// this command's Create unresolvable in exactly the mode that needs it.
-	script := sdk.All(host.Address, built.ImageName).ApplyT(func(vals []any) string {
+	script := sdk.All(host.Address, built.ImageName, host.HostKey).ApplyT(func(vals []any) string {
 		addr, _ := vals[0].(string)
+		hostKey, _ := vals[2].(string)
 		return shipScript(shipSpec{
 			ImageRefs: []string{localRef},
 			Host:      addr,
 			User:      host.User,
 			Port:      host.Port,
-			HostKey:   host.HostKey,
+			// Resolved out of the apply, not host.HostKey: this driver made
+			// HostFacts.HostKey an Output (a key SC knows before boot is a key SC
+			// generated, so it has to be a Pulumi resource that survives the next
+			// deploy), and an Output here would render as a struct, not a key.
+			HostKey: hostKey,
 			// No --pull: this image was just built on this runner. A pull here could
 			// only ever mask a build that did not produce the tag it claimed, and the
 			// repository is `sc-local/...`, which exists in no registry by design.

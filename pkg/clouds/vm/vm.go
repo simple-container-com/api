@@ -55,6 +55,21 @@ const (
 	// DefaultImage is an SC-level alias; each driver maps it to its own image id.
 	DefaultImage = "ubuntu-2404-lts"
 
+	// DefaultCores and DefaultMemory size the machine when `size` is absent or
+	// half-filled.
+	//
+	// There has to be a default, and it has to live here rather than per driver: a
+	// cloud driver picks a flavour by FILTERING the cloud's flavour list on cores and
+	// memory, so "no size given" is not "the cloud's default machine" — it is a filter
+	// that matches hundreds of flavours, and the one that gets used is whichever the
+	// API happened to list first. Deploying a different machine shape on the next
+	// `sc deploy` is not a defensible default.
+	//
+	// 2 cores / 4Gi is the smallest shape that runs a compose stack plus the Caddy
+	// ingress without the docker build cache pushing it into swap.
+	DefaultCores  = 2
+	DefaultMemory = "4Gi"
+
 	// ConfigDir holds rendered configuration (compose files, env files, Caddy).
 	ConfigDir = "/etc/sc"
 	// StateDir holds state SC manages on the machine (shipped images, markers).
@@ -251,6 +266,26 @@ func (r *VmConfig) EffectiveImage() string {
 	return lo.If(r.Image == "", DefaultImage).Else(r.Image)
 }
 
+// EffectiveSize resolves the machine size, filling in DefaultCores/DefaultMemory for
+// whichever half was left out. Disk is left empty when unset: unlike cores and memory
+// it is not a flavour filter, and every cloud has a sane per-image root-disk default
+// that is better than one SC invents.
+func (r *VmConfig) EffectiveSize() VmSize {
+	size := VmSize{Cores: DefaultCores, Memory: DefaultMemory}
+	if r.Size == nil {
+		return size
+	}
+	if r.Size.Cores > 0 {
+		size.Cores = r.Size.Cores
+	}
+	if r.Size.Memory != "" {
+		size.Memory = r.Size.Memory
+	}
+	size.Disk = r.Size.Disk
+	size.DiskType = r.Size.DiskType
+	return size
+}
+
 // IngressEnabled reports whether Caddy should be installed in front of the stacks
 // on this machine.
 func (r *VmConfig) IngressEnabled() bool {
@@ -414,10 +449,9 @@ func (r *VmConfig) validateByo() error {
 	return r.validateIngress()
 }
 
-// validateCloud holds the invariants of every driver that creates a machine. No such
-// driver is implemented yet — Validate refuses them after this runs — but the rules
-// are the contract the first one is written against, so they live here rather than
-// being rediscovered per cloud.
+// validateCloud holds the invariants of every driver that creates a machine. They
+// live here, once, rather than being rediscovered per cloud — the first driver
+// (`cloudru-vm`) is written against exactly these.
 func (r *VmConfig) validateCloud() error {
 	if len(r.Hosts) > 0 {
 		return errors.Errorf(
@@ -427,6 +461,36 @@ func (r *VmConfig) validateCloud() error {
 	}
 	if r.Region == "" {
 		return errors.Errorf("`provider: %s` requires `region`", r.Driver)
+	}
+	// A machine with no public address is a machine SC cannot deploy to. Every
+	// delivery step — readiness, image ship, compose up, the Caddy reload — is an
+	// outbound SSH connection from wherever `sc deploy` runs, and SC has no bastion,
+	// no VPN and no in-VPC runner. Refused here rather than discovered as a dial
+	// timeout against a machine that was created and billed successfully.
+	if !r.PublicIP {
+		return errors.Errorf(
+			"`provider: %s` requires `publicIP: true`: SC deploys over SSH from outside the cloud and has no "+
+				"bastion or VPN path to a machine without a public address", r.Driver)
+	}
+	// One zone, because one machine. Several zones only mean something once a vm
+	// resource can describe a pool, which arrives with the k3s cluster resource.
+	if len(r.Zones) > 1 {
+		return errors.Errorf(
+			"`provider: %s` currently supports at most one entry under `zones`, got %d; multi-zone pools "+
+				"arrive with the k3s cluster resource (roadmap item sc-k3s-cluster-resource)",
+			r.Driver, len(r.Zones))
+	}
+	// `network.id` without the matching subnet is the one shape of a BYO network that
+	// cannot be completed by guessing: a driver that picked "some subnet in the VPC"
+	// would place the machine in a zone, or behind a route table, the operator did not
+	// choose. Caught here because the driver only learns the zone later.
+	if r.Network != nil && r.Network.ID != "" && len(r.Network.Subnets) == 0 {
+		return errors.Errorf(
+			"`network.id` is set but `network.subnets` is empty: SC needs the subnet to place the machine in, " +
+				"as `subnets: {<zone>: <subnet-id>}`")
+	}
+	if r.Network != nil && r.Network.ID == "" && len(r.Network.Subnets) > 0 {
+		return errors.Errorf("`network.subnets` is set but `network.id` is empty: give both, or neither")
 	}
 	return r.validateIngress()
 }

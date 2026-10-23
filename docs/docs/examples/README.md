@@ -39,6 +39,7 @@ This directory contains production-tested Simple Container configurations based 
 
 ### Compose on a VM (`vm-compose/`)
 - **byo-host**: one machine created by hand in a cloud console, running a `single-image` stack as a generated docker compose project over SSH — no Kubernetes and no registry required
+- **cloudru**: the same, with the machine created by SC in Cloud.ru Advanced (`provider: cloudru-vm`) — VPC, subnet, security group, floating address, key pair and instance
 
 ### Advanced Configurations (`advanced-configs/`)
 - **mixed-environments**: Different deployment types per environment

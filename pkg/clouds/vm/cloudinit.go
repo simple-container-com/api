@@ -34,8 +34,16 @@ const (
 //
 // It reaches out to get.docker.com, which is one of the four egress paths whose
 // reachability from inside Russia is being measured before anything is promised
-// about it (roadmap item sc-ru-market-readiness, B0). Where it is unreliable, the
-// answer is PackageMirror, not a retry loop.
+// about it (roadmap item sc-ru-market-readiness, B0).
+//
+// PackageMirror does NOT cover this: it rewrites apt's sources, and this is a curl to
+// a host of Docker's own. The script then adds Docker's apt repository and installs
+// from THERE, not from the distribution — so a machine that cannot reach
+// download.docker.com cannot be fixed by an apt mirror either. The two answers for
+// such a machine are an image that already ships docker (the install is skipped —
+// see InstallDocker below) or a private mirror of Docker's repository; neither is
+// expressible as a one-line field, which is why there is no flag pretending to be
+// one.
 const DefaultDockerInstallScript = "curl -fsSL https://get.docker.com | sh"
 
 // dockerLogOpts caps the json-file driver.
@@ -64,6 +72,25 @@ var dockerLogOpts = map[string]string{
 //     takes effect on the next boot otherwise, and the first deploy happens on this
 //     one.
 const cloudInitTemplate = `#cloud-config
+{{- if .PackageMirror }}
+# Rewrites the distribution's package sources before any module that installs a
+# package runs. cloud-init's apt module does this by rewriting the sources files
+# itself, which is why it is expressed here rather than as a runcmd — by the time
+# runcmd runs, package_update has already tried the default mirror and the boot has
+# already spent its timeout on it.
+#
+# Both the main archive and the security one are set, from the same value: a mirror
+# that carries one and not the other leaves every boot waiting on
+# security.ubuntu.com, which is the slow failure this field exists to avoid. Point it
+# at a mirror that carries both (mirror.yandex.ru/ubuntu does).
+apt:
+  primary:
+    - arches: [default]
+      uri: {{ quote .PackageMirror }}
+  security:
+    - arches: [default]
+      uri: {{ quote .PackageMirror }}
+{{- end }}
 users:
   - name: {{ .User }}
     sudo: ["ALL=(ALL) NOPASSWD:ALL"]
@@ -72,6 +99,20 @@ users:
     ssh_authorized_keys:
 {{- range .AuthorizedKeys }}
       - {{ quote . }}
+{{- end }}
+{{- if .HostPrivateKey }}
+# Pins the machine's SSH host key to one SC generated before the machine booted,
+# which is the only way a deploy can verify the identity of a machine that did not
+# exist when the config was written. See HostKeys on RenderCloudInit.
+#
+# cloud-init's ssh module treats a supplied ssh_keys as an ELSE to generating any
+# (cc_ssh.py), so this leaves the machine with exactly one host key, of exactly the
+# algorithm the client pins. That is deliberate: an extra ecdsa host key is an extra
+# algorithm the handshake could negotiate and the pin could not cover.
+ssh_keys:
+  ed25519_private: |
+{{ indent 4 .HostPrivateKey }}
+  ed25519_public: {{ quote .HostPublicKey }}
 {{- end }}
 write_files:
   - path: /etc/docker/daemon.json
@@ -92,6 +133,9 @@ runcmd:
 type cloudInitData struct {
 	User           string
 	AuthorizedKeys []string
+	HostPrivateKey string
+	HostPublicKey  string
+	PackageMirror  string
 	DaemonJSON     string
 	InstallDocker  string
 	PostInstall    string
@@ -99,16 +143,44 @@ type cloudInitData struct {
 }
 
 var cloudInitTpl = template.Must(template.New("cloud-init").
-	Funcs(template.FuncMap{"quote": strconv.Quote}).
+	Funcs(template.FuncMap{"quote": strconv.Quote, "indent": indent}).
 	Parse(cloudInitTemplate))
 
+// HostKeys is the key material a machine SC creates is born with. Both halves of
+// both pairs are generated inside the parent stack and persisted in its checkpoint,
+// so they are stable across deploys — which matters because user-data is
+// replace-on-change on every cloud: a key that moved would rebuild the machine.
+type HostKeys struct {
+	// DeployPublicKey is the public half of the key pair SC connects with (D10,
+	// vm-matrix.md §3.3). Required: a machine with no authorised key is a machine SC
+	// cannot deploy to, and discovering that after creation means destroying and
+	// recreating it. The PRIVATE half never appears in user-data.
+	DeployPublicKey string
+
+	// HostPrivateKey / HostPublicKey pin the machine's own ed25519 host key, in
+	// OpenSSH formats (`-----BEGIN OPENSSH PRIVATE KEY-----…` and
+	// `ssh-ed25519 AAAA…`). Optional as a pair — omit both and the machine generates
+	// its own, which no deploy can then verify.
+	//
+	// Why SC supplies them rather than reading the machine's key afterwards: no cloud
+	// API returns a host key, so the alternatives are to trust the first connection
+	// (no protection against anyone who can answer on that address before SC does) or
+	// to make the operator paste `ssh-keyscan` output for a machine that does not
+	// exist yet. Generating the key first is the only one of the three that verifies
+	// anything.
+	//
+	// The private half does ride in user-data, which anything on the instance can
+	// read from the metadata service and any console reader can read from the API.
+	// That is accepted: both of those already imply control of the machine. What it
+	// protects against is a DIFFERENT machine answering on the address — which is
+	// exactly the deploy-time risk, since the deploy carries the deploy key and every
+	// `${secret:...}` of every stack.
+	HostPrivateKey string
+	HostPublicKey  string
+}
+
 // RenderCloudInit builds the user-data for one machine.
-//
-// deployPublicKey is the public half of the key pair SC generates inside the parent
-// stack (D10, vm-matrix.md §3.3). It is required: a machine with no authorised key
-// is a machine SC cannot deploy to, and discovering that after creation means
-// destroying and recreating it.
-func RenderCloudInit(cfg *VmConfig, role HostRole, deployPublicKey string) (string, error) {
+func RenderCloudInit(cfg *VmConfig, role HostRole, keys HostKeys) (string, error) {
 	if cfg == nil {
 		return "", errors.Errorf("vm config must not be nil")
 	}
@@ -118,8 +190,14 @@ func RenderCloudInit(cfg *VmConfig, role HostRole, deployPublicKey string) (stri
 		// check, not a wait (pkg/clouds/pulumi/vm/ready.go).
 		return "", errors.Errorf("cloud-init is not rendered for `provider: %s`: the machine already booted", DriverByo)
 	}
-	if strings.TrimSpace(deployPublicKey) == "" {
+	if strings.TrimSpace(keys.DeployPublicKey) == "" {
 		return "", errors.Errorf("cloud-init requires the deploy public key: a machine with no authorised key cannot be deployed to")
+	}
+	// Refused rather than half-applied: a private half with no public half leaves
+	// cloud-init writing a host key whose .pub does not match it, and sshd then
+	// refuses to start — which presents as a machine that never answers SSH at all.
+	if (strings.TrimSpace(keys.HostPrivateKey) == "") != (strings.TrimSpace(keys.HostPublicKey) == "") {
+		return "", errors.Errorf("cloud-init needs both halves of the host key, or neither")
 	}
 	if role == "" {
 		return "", errors.Errorf("cloud-init requires a host role")
@@ -131,12 +209,15 @@ func RenderCloudInit(cfg *VmConfig, role HostRole, deployPublicKey string) (stri
 	}
 
 	user := cfg.EffectiveSshUser()
-	keys := append([]string{strings.TrimSpace(deployPublicKey)}, cfg.ExtraSshKeys...)
+	authorized := append([]string{strings.TrimSpace(keys.DeployPublicKey)}, cfg.ExtraSshKeys...)
 
 	var out bytes.Buffer
 	if err := cloudInitTpl.Execute(&out, cloudInitData{
 		User:           user,
-		AuthorizedKeys: lo.Compact(keys),
+		AuthorizedKeys: lo.Compact(authorized),
+		HostPrivateKey: strings.TrimRight(keys.HostPrivateKey, "\n"),
+		HostPublicKey:  strings.TrimSpace(keys.HostPublicKey),
+		PackageMirror:  strings.TrimSpace(cfg.PackageMirror),
 		DaemonJSON:     daemonJSON,
 		// Idempotent on purpose: an image that already ships docker (several RU
 		// marketplace images do) must not be sent through the convenience script.
@@ -156,6 +237,23 @@ func RenderCloudInit(cfg *VmConfig, role HostRole, deployPublicKey string) (stri
 		return "", errors.Wrapf(err, "failed to render cloud-init for role %q", role)
 	}
 	return out.String(), nil
+}
+
+// indent prefixes every line with n spaces, for embedding a multi-line value under a
+// YAML block scalar.
+//
+// Blank lines are left blank rather than padded with trailing spaces: an OpenSSH
+// private key ends with a newline, and a line of whitespace inside a `|` block is
+// content — it would become part of the key file and sshd would refuse to parse it.
+func indent(n int, s string) string {
+	pad := strings.Repeat(" ", n)
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = pad + line
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // DockerDaemonJSON renders /etc/docker/daemon.json: the mandatory log caps plus any

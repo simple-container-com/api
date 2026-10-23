@@ -35,6 +35,19 @@ const (
 type vmMocks struct {
 	mu      sync.Mutex
 	created []pulumi.MockResourceArgs
+	// extraOutputs supplements a mocked resource's state, by type token, with
+	// properties a real provider COMPUTES rather than echoes — an address, a
+	// generated key. Without them the output never resolves and anything that reads
+	// it (an ApplyT rendering cloud-init, say) silently never runs.
+	extraOutputs map[string]resource.PropertyMap
+	// callResults answers a datasource invoke, by token. The default of echoing the
+	// arguments back is right for a resource and useless for a datasource, whose
+	// whole purpose is to return something the caller did not send.
+	callResults map[string]resource.PropertyMap
+	// invoked records the arguments each datasource was asked with — for a driver
+	// that resolves an image and a flavour by FILTERING, the filter is the behaviour
+	// worth asserting.
+	invoked map[string]resource.PropertyMap
 }
 
 func newVmMocks() *vmMocks { return &vmMocks{} }
@@ -43,11 +56,39 @@ func (m *vmMocks) NewResource(args pulumi.MockResourceArgs) (string, resource.Pr
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.created = append(m.created, args)
-	return args.Name + "-id", args.Inputs, nil
+
+	state := args.Inputs
+	if extra, ok := m.extraOutputs[args.TypeToken]; ok {
+		state = make(resource.PropertyMap, len(args.Inputs)+len(extra))
+		for k, v := range args.Inputs {
+			state[k] = v
+		}
+		for k, v := range extra {
+			state[k] = v
+		}
+	}
+	return args.Name + "-id", state, nil
 }
 
 func (m *vmMocks) Call(args pulumi.MockCallArgs) (resource.PropertyMap, error) {
+	m.mu.Lock()
+	if m.invoked == nil {
+		m.invoked = map[string]resource.PropertyMap{}
+	}
+	m.invoked[args.Token] = args.Args
+	result, mocked := m.callResults[args.Token]
+	m.mu.Unlock()
+
+	if mocked {
+		return result, nil
+	}
 	return args.Args, nil
+}
+
+func (m *vmMocks) callArgsOf(token string) resource.PropertyMap {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.invoked[token]
 }
 
 func (m *vmMocks) inputsOf(typeToken string) resource.PropertyMap {
@@ -59,6 +100,22 @@ func (m *vmMocks) inputsOf(typeToken string) resource.PropertyMap {
 		}
 	}
 	return nil
+}
+
+// allInputsOf is inputsOf for the cases where the COUNT is not the assertion — a
+// driver that creates several of one type (security-group rules) needs every one of
+// them checked, because three rules of the right shape plus one of the wrong shape
+// passes a count.
+func (m *vmMocks) allInputsOf(typeToken string) []resource.PropertyMap {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []resource.PropertyMap
+	for _, a := range m.created {
+		if a.TypeToken == typeToken {
+			out = append(out, a.Inputs)
+		}
+	}
+	return out
 }
 
 func (m *vmMocks) countOf(typeToken string) int {
@@ -179,8 +236,13 @@ func TestProvider_ValidatesBeforeCreatingAnything(t *testing.T) {
 func TestProvider_RefusesUnimplementedDriver(t *testing.T) {
 	RegisterTestingT(t)
 
+	// MWS rather than Cloud.ru since `cloudru-vm` landed. The refusal has to keep
+	// being exercised: it is what an operator on one of the five remaining clouds
+	// sees, and driverFor has no entry for them — so without this check the failure
+	// would be an "unsupported driver" from one layer deeper, after a provider had
+	// already been built.
 	mocks := newVmMocks()
-	_, err := provisionVm(&vm.VmConfig{Driver: vm.DriverCloudru, Region: "ru-moscow-1"}, mocks)
+	_, err := provisionVm(&vm.VmConfig{Driver: vm.DriverMws, Region: "ru-central-1", PublicIP: true}, mocks)
 
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("not implemented yet"))
