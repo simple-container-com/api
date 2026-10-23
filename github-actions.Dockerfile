@@ -126,7 +126,12 @@ RUN rm -rf \
 # through the gha buildx cache. The .dockerignore allowlist keeps this stage
 # to cmd/pkg/internal — .sc/ (decrypted secrets post `sc secrets reveal`) and
 # everything else cannot enter the context at all.
-FROM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS gobuild
+#
+# THIS DIGEST MOVES IN LOCKSTEP WITH go.mod's `go` DIRECTIVE — see the long
+# comment on the identical pin in cloud-helpers.aws.Dockerfile for why
+# (GOTOOLCHAIN=local in the official image means a stale digest fails every
+# `go` invocation outright) and for the re-resolve recipe. Bump both together.
+FROM golang:1.26-alpine@sha256:27f2d3b83cfc5803c8078f8e730af0f7c431bf067afaec8f60a36fb763187cba AS gobuild
 ARG VERSION=0.0.0
 WORKDIR /src
 COPY go.mod go.sum ./
