@@ -187,11 +187,29 @@ func EncryptLargeString(key crypto.PublicKey, s string) ([]string, error) {
 func EncryptLargeStringWithAAD(key crypto.PublicKey, s string, aad []byte) ([]string, error) {
 	var res []string
 	if rsaKey, ok := key.(*rsa.PublicKey); ok {
-		chunks := lo.ChunkString(s, rsaKey.Size()/2)
-		res = make([]string, len(chunks))
-		n := len(chunks)
-		for idx, chunk := range chunks {
-			encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, []byte(chunk), chunkLabel(aad, idx, n))
+		// OAEP-SHA256 caps plaintext at k - 2*hLen - 2 bytes, NOT runes: a dense
+		// multi-byte UTF-8 window of rsaKey.Size()/2 runes can exceed the byte
+		// budget and fail with "message too long" (#318), so chunk by bytes.
+		maxPlain := rsaKey.Size() - 2*sha256.Size - 2
+		if maxPlain <= 0 {
+			return nil, errors.Errorf("RSA key too small for OAEP-SHA256: max plaintext size is %d bytes", maxPlain)
+		}
+		// Byte boundaries may split a UTF-8 rune; decrypt joins the raw chunk
+		// bytes back together, so the concatenation still reproduces the input.
+		plaintext := []byte(s)
+		n := (len(plaintext) + maxPlain - 1) / maxPlain
+		if n == 0 {
+			n = 1 // Preserve the legacy single encrypted chunk for empty strings.
+		}
+		res = make([]string, n)
+		for idx := 0; idx < n; idx++ {
+			start := idx * maxPlain
+			end := start + maxPlain
+			if end > len(plaintext) {
+				end = len(plaintext)
+			}
+
+			encryptedData, err := rsa.EncryptOAEP(sha256.New(), rand.Reader, rsaKey, plaintext[start:end], chunkLabel(aad, idx, n))
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to encrypt secret")
 			}

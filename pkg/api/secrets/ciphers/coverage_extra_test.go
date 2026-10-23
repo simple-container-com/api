@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"encoding/base64"
+	"math/big"
 	"strings"
 	"testing"
 
@@ -16,22 +17,32 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-// TestEncryptLargeString_RSAEncryptError covers the error branch inside
-// EncryptLargeString's RSA path. EncryptLargeString chunks the plaintext at
-// keySize/2 bytes, but OAEP-SHA256 only fits keySize - 2*32 - 2 bytes. For a
-// 1024-bit key the chunk size (64) exceeds the OAEP budget (128 - 64 - 2 = 62),
-// so rsa.EncryptOAEP fails on the over-sized chunk.
+// TestEncryptLargeString_RSAEncryptError covers the error branches inside
+// EncryptLargeString's RSA path. Since the fix for #318 the plaintext is
+// chunked at exactly the OAEP-SHA256 byte budget (keySize - 2*32 - 2), so
+// no chunk can over-size and normal encryption never fails on size. The
+// reachable error branch is the nonpositive-budget guard, which rejects
+// keys whose modulus is smaller than the OAEP-SHA256 overhead.
 func TestEncryptLargeString_RSAEncryptError(t *testing.T) {
 	RegisterTestingT(t)
 
-	// 1024 is the smallest key size Go 1.26 will generate.
+	// 1024 is the smallest key size Go will generate. Its budget
+	// (128 - 64 - 2 = 62 bytes) is positive, so 64 bytes of plaintext
+	// now encrypts fine where the old rune-chunking overflowed and failed.
 	small, err := rsa.GenerateKey(rand.Reader, 1024)
 	Expect(err).ToNot(HaveOccurred())
-
-	// Plaintext must be long enough to produce a full 64-byte chunk.
 	_, err = EncryptLargeString(&small.PublicKey, strings.Repeat("z", 64))
+	Expect(err).ToNot(HaveOccurred())
+
+	// A 512-bit modulus (64 bytes) leaves 64 - 64 - 2 = -2 bytes of budget;
+	// the guard must reject it up front. It only reads N's bit length, so a
+	// synthetic modulus is enough — no key generation below Go's 1024 floor.
+	n := new(big.Int).Lsh(big.NewInt(1), 511)
+	n.Or(n, big.NewInt(1))
+	tiny := &rsa.PublicKey{N: n, E: 65537}
+	_, err = EncryptLargeString(tiny, "any")
 	Expect(err).To(HaveOccurred())
-	Expect(err.Error()).To(ContainSubstring("failed to encrypt secret"))
+	Expect(err.Error()).To(ContainSubstring("RSA key too small"))
 }
 
 // TestDecryptLargeString_DecryptError covers DecryptLargeString's
