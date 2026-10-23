@@ -36,7 +36,28 @@
 # through the gha buildx cache. The .dockerignore allowlist keeps this stage
 # to cmd/pkg/internal — .sc/ (decrypted secrets post `sc secrets reveal`) and
 # everything else cannot enter the context at all.
-FROM golang:1.26-alpine@sha256:3082400e369fa24d5fc60bca20edab3f6d604e0c5a690ec66b295eff4dd87ade AS gobuild
+#
+# THIS DIGEST MOVES IN LOCKSTEP WITH go.mod's `go` DIRECTIVE. The official
+# golang images set GOTOOLCHAIN=local, so the in-image toolchain is the ONLY
+# one available — it cannot download a newer patch release the way a developer
+# machine or `setup-go` would. Pin a digest whose Go is older than the `go`
+# directive and every build in this stage dies on the first `go` invocation:
+#
+#   go: go.mod requires go >= 1.26.10 (running go 1.26.9; GOTOOLCHAIN=local)
+#
+# Live-caught 2026-10-22 (run 39844463896): #472 bumped the directive
+# 1.26.9 -> 1.26.10 for GO-2026-6809 and this digest stayed on 1.26.9, so both
+# in-image build legs (here and github-actions.Dockerfile, which carries an
+# identical pin) failed while every other job stayed green — the rest of CI
+# reads `go-version-file: go.mod` and self-updates. `Docker finalize` is
+# `needs:` both legs, so it skipped and the release published NOTHING.
+#
+# When you bump the directive, re-resolve the digest and bump it here AND in
+# github-actions.Dockerfile:
+#   docker buildx imagetools inspect golang:1.26-alpine   # -> Digest:
+# then confirm that digest is the intended patch release:
+#   curl -s 'https://hub.docker.com/v2/repositories/library/golang/tags?name=<x.y.z>-alpine'
+FROM golang:1.26-alpine@sha256:27f2d3b83cfc5803c8078f8e730af0f7c431bf067afaec8f60a36fb763187cba AS gobuild
 ARG VERSION=0.0.0
 WORKDIR /src
 COPY go.mod go.sum ./
