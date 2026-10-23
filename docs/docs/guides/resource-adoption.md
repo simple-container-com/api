@@ -92,6 +92,7 @@ stacks:
     type: cloud-compose
     parent: your-org/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses:
         - mongodb    # Uses adopted MongoDB cluster
         - postgres   # Uses adopted PostgreSQL instance

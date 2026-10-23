@@ -61,9 +61,13 @@ sc init
 sc assistant devops setup --interactive
 # Selects: AWS, PostgreSQL, Redis, S3, ECS
 
-# 3. Configure secrets and deploy
-sc secrets add aws-access-key aws-secret-key
-sc provision -s infrastructure -e staging,production
+# 3. Configure secrets and deploy. `${secret:...}` values are edited by hand in
+#    the stack's secrets.yaml; `sc secrets add` registers FILES, not values.
+sc secrets reveal -F
+$EDITOR .sc/stacks/infrastructure/secrets.yaml   # values: { aws-access-key: ..., aws-secret-key: ... }
+sc secrets hide -F
+sc provision -s infrastructure -e staging
+sc provision -s infrastructure -e production
 
 # 4. Share with development teams
 echo "Infrastructure ready! Use parent: infrastructure"
@@ -178,6 +182,7 @@ stacks:
     type: cloud-compose
     parent: saas-infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [tenant-db, cache-cluster, file-storage]
       scale:
         min: 3

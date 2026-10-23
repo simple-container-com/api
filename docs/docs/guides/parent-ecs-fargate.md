@@ -241,6 +241,7 @@ stacks:
     type: cloud-compose
     parent: myproject/devops
     config:
+      dockerComposeFile: ./docker-compose.yaml
       # ... basic configuration above
       cloudExtras:
         # AWS IAM roles for the ECS task

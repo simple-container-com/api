@@ -135,12 +135,19 @@ sc deploy --stack infrastructure --env production
 ```
 
 ### **2. Configure Secrets**
-```bash
-# Add GCP credentials
-sc secrets add gcp-credentials --file service-account.json
 
-# Add database credentials  
-sc secrets add postgres-password --value "secure-password"
+`${secret:...}` values live under `values:` in the stack's own `secrets.yaml`
+and are edited by hand — `sc secrets add` registers *files*, it does not set
+values. See [Secrets Management](../../../guides/secrets-management.md).
+
+```bash
+# Register the GCP service-account file so it travels encrypted
+sc secrets add service-account.json
+
+# Set the database password
+sc secrets reveal -F
+$EDITOR .sc/stacks/infrastructure/secrets.yaml   # values: { POSTGRES_PASSWORD: "..." }
+sc secrets hide -F
 ```
 
 ### **3. Deploy Services**

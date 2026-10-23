@@ -179,6 +179,7 @@ stacks:
     parent: infrastructure
     parentEnv: staging
     config:
+      dockerComposeFile: ./docker-compose.yaml
       # Reference shared resources from DevOps team
       uses: [postgres-db, redis-cache]
       
@@ -198,13 +199,6 @@ stacks:
         REDIS_URL: "${resource:redis-cache.url}"
         JWT_SECRET: "${secret:jwt-secret}"
         
-      # Health check configuration
-      healthCheck:
-        path: "/health"
-        port: 3000
-        initialDelaySeconds: 30
-        periodSeconds: 10
-        
       # Secrets
       secrets:
         JWT_SECRET: "${secret:jwt-secret}"
@@ -220,6 +214,11 @@ services:
     build: .
     ports:
       - "3000:3000"
+    # Health checks are configured here, not in the stack config — there is no
+    # `healthCheck:` section on a client stack.
+    labels:
+      "simple-container.com/healthcheck/path": "/health"
+      "simple-container.com/healthcheck/port": "3000"
     environment:
       - NODE_ENV=development
       - PORT=3000
@@ -401,13 +400,18 @@ docker-compose down
 ### Step 8: Deploy to Staging
 
 ```bash
-# Ensure secrets are configured
+# Ensure the stack's secrets file is under the encrypted store.
+# `sc secrets list` prints registered FILE PATHS, not secret names.
 sc secrets list
-# Should show: jwt-secret, staging-db-password
+# Should show: .sc/stacks/nodejs-express-api/secrets.yaml
 
-# If missing, add secrets
-sc secrets add jwt-secret
-# Enter value: your-super-secret-jwt-key-here
+# Set the values by hand — there is no command that sets one
+sc secrets reveal -F
+$EDITOR .sc/stacks/nodejs-express-api/secrets.yaml
+#   values:
+#     jwt-secret: your-super-secret-jwt-key-here
+#     staging-db-password: ...
+sc secrets hide -F
 
 # Deploy to staging
 sc deploy -s nodejs-express-api -e staging
@@ -425,9 +429,10 @@ curl https://staging-api.yourcompany.com/health
 ### Step 9: Production Deployment
 
 ```bash
-# Add production secrets
-sc secrets add prod-jwt-secret
-sc secrets add prod-db-password
+# Add production secrets to the same `values:` map
+sc secrets reveal -F
+$EDITOR .sc/stacks/nodejs-express-api/secrets.yaml   # prod-jwt-secret, prod-db-password
+sc secrets hide -F
 
 # Deploy to production
 sc deploy -s nodejs-express-api -e production

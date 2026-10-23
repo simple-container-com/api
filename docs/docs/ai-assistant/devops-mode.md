@@ -237,7 +237,8 @@ auth:
   cloudflare:
     credentials: "${secret:cloudflare-api-token}"
 
-# Secret values (managed with sc secrets add)
+# Secret values. Edited by hand between `sc secrets reveal -F` and
+# `sc secrets hide -F`; `sc secrets add` registers FILES, it does not set values.
 values:
   # Database passwords
   staging-db-password: "staging-secure-password-123"
@@ -502,10 +503,10 @@ sc assistant devops setup --interactive
 # Review generated configuration
 cat .sc/stacks/infrastructure/server.yaml
 
-# Set up secrets
-sc secrets add aws-access-key
-sc secrets add aws-secret-key
-sc secrets add staging-db-password
+# Set up secrets: edit the `values:` map by hand, then re-encrypt
+sc secrets reveal -F
+$EDITOR .sc/stacks/infrastructure/secrets.yaml
+sc secrets hide -F
 
 # Deploy infrastructure
 sc provision -s infrastructure -e staging

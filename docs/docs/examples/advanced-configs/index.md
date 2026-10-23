@@ -18,6 +18,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [gpu-resources, storage-volumes]
       runs: [jupyter-lab, tensorboard, mlflow]
 ```
@@ -116,6 +117,7 @@ stacks:
     <<: *common-config
     parentEnv: development
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [redis-dev, postgres-dev, s3-dev]
       runs: [api-service, worker-service, admin-ui]
       scale:
@@ -133,6 +135,7 @@ stacks:
     <<: *common-config
     parentEnv: staging
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [redis-staging, postgres-staging, s3-staging]
       runs: [api-service, worker-service, admin-ui]
       scale:
@@ -149,6 +152,7 @@ stacks:
     <<: *common-config
     parentEnv: production
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [redis-prod, postgres-prod, s3-prod, monitoring]
       runs: [api-service, worker-service, admin-ui]
       scale:
@@ -196,6 +200,7 @@ stacks:
     type: cloud-compose
     parent: myorg/aws-infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [aws-rds, aws-redis, aws-s3]
       runs: [primary-api, data-processor]
       
@@ -203,6 +208,7 @@ stacks:
     type: cloud-compose
     parent: myorg/gcp-infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [gcp-sql, gcp-redis, gcp-storage]
       runs: [secondary-api, backup-processor]
       
@@ -210,6 +216,7 @@ stacks:
     type: cloud-compose
     parent: myorg/azure-infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [azure-sql, azure-storage]
       runs: [backup-api]
 ```

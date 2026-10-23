@@ -45,6 +45,7 @@ stacks:
   my-service:
     type: cloud-compose
     config:
+      dockerComposeFile: ./docker-compose.yaml
       cloudExtras:
         affinity:
           nodePool: "high-performance"
@@ -58,6 +59,7 @@ stacks:
   my-service:
     type: cloud-compose
     config:
+      dockerComposeFile: ./docker-compose.yaml
       cloudExtras:
         affinity:
           nodePool: "processing"
@@ -88,6 +90,7 @@ stacks:
   my-service:
     type: cloud-compose
     config:
+      dockerComposeFile: ./docker-compose.yaml
       scale:
         min: 2
         max: 4

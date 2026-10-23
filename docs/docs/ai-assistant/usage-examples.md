@@ -38,6 +38,7 @@ stacks:
     type: cloud-compose
     parent: infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [app]
       scale:
         min: 1
@@ -262,6 +263,7 @@ stacks:
     parent: infrastructure
     parentEnv: production
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [app]
       scale:
         min: 2
