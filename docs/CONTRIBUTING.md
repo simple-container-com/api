@@ -110,8 +110,8 @@ git config --global commit.gpgsign true
   for perf work).
 - Link any related issue with `Closes #N` / `Refs #N`.
 - Pass all CI checks before requesting review.
-- Code review is **required** — current branch protection enforces 1
-  reviewer minimum; this will increase to 2 once admin-UI gates land.
+- Code review is **required** — branch protection enforces 2 required
+  approving reviews plus a code-owner review; nothing self-merges here.
 - Use [`/codex-review`](https://github.com/openai/codex) or
   [`/gemini-review`](https://github.com/google-gemini/gemini-cli)
   for an LLM-driven pre-merge sanity pass on larger PRs. Reviewers
