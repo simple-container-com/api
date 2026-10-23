@@ -95,6 +95,24 @@ func (p *pulumi) toOutputsResult(stackName string, result auto.OutputMap) *api.O
 			} else if value.Secret {
 				j, _ := json.Marshal(value)
 				res = string(j)
+			} else if value.Value != nil {
+				// Everything else — numbers (`sdk.Int`, e.g. a vm's host-port and
+				// host-count), booleans (`sdk.Bool`, e.g. ingress-enabled) and arrays.
+				// These used to fall through every branch above and render as the
+				// zero-value "", so `sc stack outputs` reported a byo vm's host-port
+				// and host-count as empty strings.
+				//
+				// json.Marshal rather than a per-type strconv: the shape Pulumi hands
+				// back off the checkpoint's JSON is not pinned to one Go type — see
+				// `toInt` in pkg/clouds/pulumi/vm/compose_stack.go, which already has
+				// to accept int/int32/int64/float32/float64/json.Number for these very
+				// same exports. Marshalling covers all of them, and for a whole number
+				// it emits the shortest round-tripping form ("2222", not "2222.000000").
+				//
+				// nil is excluded deliberately: an output that is absent must keep
+				// rendering as "" rather than becoming the literal string "null".
+				j, _ := json.Marshal(value.Value)
+				res = string(j)
 			}
 			return res
 		}),
