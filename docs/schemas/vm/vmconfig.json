@@ -21,6 +21,9 @@
         ],
         "type": "object"
       },
+      "allowUnverifiedProvider": {
+        "type": "boolean"
+      },
       "extraSshKeys": {
         "items": {
           "type": "string"
@@ -92,6 +95,28 @@
           "enable"
         ],
         "type": "object"
+      },
+      "ingressPorts": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "port": {
+              "type": "integer"
+            },
+            "portEnd": {
+              "type": "integer"
+            },
+            "preset": {
+              "type": "string"
+            },
+            "protocol": {
+              "type": "string"
+            }
+          },
+          "required": [],
+          "type": "object"
+        },
+        "type": "array"
       },
       "network": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

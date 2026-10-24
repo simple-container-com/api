@@ -22,8 +22,32 @@ const (
 	testHostPrivateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n"
 )
 
+// cloudConfig is the shared "a cloud driver, minimally configured" fixture.
+//
+// `AllowUnverifiedProvider` is set because `cloudru-vm` addresses a cloud SC has
+// never provisioned on and Validate refuses it without the flag (see the Unverified
+// field of DriverInfo). Every test below is about something else; the gate itself is
+// asserted in TestValidateRefusesUnverifiedProvider.
 func cloudConfig() *VmConfig {
-	return &VmConfig{Driver: DriverCloudru, Region: "ru-moscow-1", PublicIP: true}
+	return &VmConfig{
+		Driver:                  DriverCloudru,
+		Region:                  "ru-moscow-1",
+		PublicIP:                true,
+		AllowUnverifiedProvider: true,
+	}
+}
+
+// evolutionConfig is the same fixture for the one Cloud.ru estate SC has actually
+// provisioned on. Two fields differ from cloudConfig() and both are refusals rather
+// than defaults, so switching `Driver` by hand leaves the config invalid for a
+// reason that has nothing to do with the test doing the switching: Evolution is
+// regionless (a `region` is refused) and live-verified (the gate opt-in is refused).
+func evolutionConfig() *VmConfig {
+	cfg := cloudConfig()
+	cfg.Driver = DriverCloudruEvolution
+	cfg.Region = ""
+	cfg.AllowUnverifiedProvider = false
+	return cfg
 }
 
 func testKeys() HostKeys {

@@ -60,6 +60,21 @@ resources:
           type: vm
           config:
             provider: cloudru-vm
+
+            # Required with THIS driver, and refused with any other: `cloudru-vm` has
+            # never provisioned a machine. It is written against the Advanced
+            # (ex-SberCloud) API, and the only Cloud.ru estate SC has ever had an
+            # account on is Evolution — so every claim below (the flavour lookup, the
+            # address bound at create, the security group, the cloud-init) is read off
+            # a Terraform provider's schema and nothing more. `sc provision` refuses
+            # the driver without this flag rather than letting "implemented" read as
+            # "known to work".
+            #
+            # If your console says Evolution — which new accounts get by default — use
+            # ../cloudru-evolution/server.yaml instead. That driver is verified end to
+            # end and takes no flag.
+            allowUnverifiedProvider: true
+
             # The Keystone key pair, declared under `auth:` in secrets.yaml. Region is
             # not just one input on this cloud — it also selects the IAM endpoint and
             # the project resources are created in — so the credential carries its own
@@ -132,9 +147,26 @@ resources:
             # extraSshKeys:
             #   - "ssh-ed25519 AAAAC3Nza… ops@example.com"
 
+            # Optional. Extra holes in the security group, on top of 22, the ingress's
+            # 80/443, and the ranges SC INFERS from this machine's consumers — the
+            # `compose-on-vm` template above names this resource, so the host-port
+            # range a stack publishes into is opened without being listed here.
+            #
+            # This field is for what inference cannot see: a port your own process
+            # binds on the machine. `preset` names a bundle instead (`vm-compose`,
+            # `k3s`, `http`); `preset` and `port` are mutually exclusive, and an
+            # unknown preset or an out-of-range port is refused rather than accepted
+            # and dropped.
+            # ingressPorts:
+            #   - port: 9100            # node_exporter
+            #   - port: 7946
+            #     protocol: udp
+            #   - port: 32000
+            #     portEnd: 32100
+
             # The front door: a Caddy container in its own compose project, terminating
             # TLS for every stack on this machine. SC opens 80 and 443 (TCP and UDP) in
-            # the security group when this is on, and only 22 when it is off.
+            # the security group when this is on, and leaves them shut when it is off.
             #
             # On a `.ru` domain served to browsers inside Russia, read `acmeCa` below
             # before relying on Let's Encrypt.

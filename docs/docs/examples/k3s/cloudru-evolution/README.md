@@ -174,36 +174,55 @@ ssh-keyscan -t ed25519 <the address from that file>
 or read the key off the machine's console output, and paste the line into `hostKey:` in
 `server.yaml`. The next provision pins it. SC warns loudly while it is unset.
 
-## The ports SC does not open
+## The ports, and who opens them
 
-This is the one thing that will cost you a confused afternoon, and it is a known gap
-rather than a configuration mistake.
+Nothing to do by hand here any more — but worth knowing what gets opened, because this
+cloud's security group is shared with everything else in the project.
 
-The Cloud.ru VM driver opens **22**, plus **80/443/443-udp** when `ingress.enable:
-true`. **Nothing else** — not the Kubernetes API port, not the NodePort range. And
-`server.yaml` here leaves `ingress` off on purpose, so k3s can own 80/443.
+SC opens **22** always, **80/443/443-udp** when `ingress.enable: true`, and then the
+ports of whatever is declared onto the machine. A `k3s-cluster` naming this `vm`
+resource is a declaration SC can read, so provisioning this file opens:
 
-The failure mode is the expensive kind: `sc provision` and `sc deploy` both report
-success, `curl` from the node itself answers 200, `readyReplicas: 1`, and from outside
-the request simply times out. No log line anywhere says a port is shut.
+| port range | protocol | source | needed for |
+|---|---|---|---|
+| `6443` | tcp | the internet | the kubeconfig SC exports — `kubectl`, and the Kubernetes provider `sc deploy` runs |
+| `30000-32767` | tcp | the internet | the NodePort range, which is what publishing a `type: NodePort` Service means |
+| `8472` | udp | the node's own subnet | flannel's VXLAN backend — pod-to-pod traffic between nodes |
+| `10250` | tcp | the node's own subnet | the kubelet: metrics, `kubectl logs`, `exec`, `port-forward` |
+| `2379-2380` | tcp | the node's own subnet | embedded etcd, for a multi-server cluster |
 
-Until SC opens them itself, add these to the project's security group in the Cloud.ru
-console:
+The last three are **node-to-node** and are never opened to the internet: reaching the
+kubelet is reaching into every pod on the node. On this cloud SC permits them from the
+private subnet the machine actually landed on (it does not get to choose the subnet
+here, so the CIDR is resolved after the create). If that lookup fails, SC says so and
+leaves the port **shut** rather than widening it to `0.0.0.0/0` — a multi-node cluster
+will not form until it is opened by hand, which is the correct trade.
 
-| port range | needed for |
-|---|---|
-| `6443` | the kubeconfig SC exports — `kubectl`, and the Kubernetes provider `sc deploy` runs |
-| `30000-32767` | the NodePort range, if you reach a Service by node port |
-| `80`, `443` | only if you use `cloudExtras.serviceType: LoadBalancer` with `ingress` off, as this example does |
+Need something else open — a port your own process binds on the machine, a
+metrics exporter, a database you exposed on purpose — add it to the `vm` resource:
 
-6443 is not optional on this path: the exported kubeconfig points at the machine's
-floating address, and `sc deploy` connects to the API server from wherever it runs — a
-CI runner, not the machine. Without that rule the deploy itself cannot reach the
-cluster.
+```yaml
+            ingressPorts:
+              - port: 9100            # node_exporter
+              - port: 5432
+                protocol: tcp
+              - port: 51820
+                protocol: udp
+              - preset: k3s           # the table above, explicitly
+```
 
-Remove the rules when you are done smoking. The project's security group is shared
-(Cloud.ru marks it `default: true`), and SC has no `DeleteSecurityGroupRule` yet, so
-anything left behind is permanent.
+`preset` and `port` are mutually exclusive, and an unknown preset or an out-of-range
+port is refused at validation rather than accepted and dropped.
+
+**What it looked like before SC did this** (useful, because the symptom is nothing like
+the cause): `sc provision` and `sc deploy` both report success, `curl` from the node
+itself answers 200, `readyReplicas: 1`, and from outside the request simply times out.
+No log line anywhere says a port is shut.
+
+A destroy closes the rules it opened, matched by a description carrying this VM's name
+— the project's group is shared (Cloud.ru marks it `default: true`), so a sweep of
+everything SC had written would shut a sibling machine's ports. Rules you added in the
+console are left alone, and are yours to remove.
 
 ## Checking the cluster by hand
 

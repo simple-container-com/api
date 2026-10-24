@@ -69,6 +69,10 @@ type fakeCompute struct {
 	deletedVms   []string
 	deletedDisks []string
 	deletedFips  []string
+	// deletedRules is every rule id the destroy sweep asked to remove. The
+	// assertion worth making is which ones are NOT here: the VM's own rules go, and
+	// the rules of every other SC machine sharing the project's default group stay.
+	deletedRules []string
 
 	// onVmGet mutates the fake before each VM read, so a test can let a machine
 	// progress from `creating` to `running` the way the platform does.
@@ -164,30 +168,82 @@ func (f *fakeCompute) handler(t *testing.T) http.Handler {
 		defer f.mu.Unlock()
 		f.record(r)
 		f.requireProject(r)
-		writePage(w, r, f.groups, f.pageSize)
+		// Rules STRIPPED, like the real route: it answers `ingress_rules_count` and
+		// an empty `rules` (measured 2026-10-24). A fake that inlined them would let
+		// a client read the group's rules from here, pass, and then re-create every
+		// rule on every live deploy — and find nothing to clean up on destroy.
+		blind := lo.Map(f.groups, func(g SecurityGroup, _ int) SecurityGroup {
+			g.Rules = nil
+			return g
+		})
+		writePage(w, r, blind, f.pageSize)
 	})
 
+	// The whole `/security-groups/{id}/rules[/{ruleId}]` sub-tree, which behaves
+	// unlike every other compute route in the same two ways on all three verbs: it
+	// declares no project field, and it is the only place rules are visible at all
+	// (the group endpoints answer `ingress_rules_count` and an empty `rules`).
 	mux.HandleFunc(computeAPIPath+"/security-groups/", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.record(r)
-		Expect(r.Method).To(Equal(http.MethodPost))
-		Expect(r.URL.Path).To(HaveSuffix("/rules"))
 		// The exception, and the one that cost twenty minutes of imagined permission
-		// debugging: this route declares no project field and refuses the request
+		// debugging: these routes declare no project field and refuse the request
 		// outright when it is sent.
 		Expect(r.URL.Query().Get("project_id")).To(BeEmpty(),
-			"`POST /security-groups/{id}/rules` answers 422 `extra_forbidden` for a `project_id`")
-		var rule SecurityGroupRule
-		Expect(json.NewDecoder(r.Body).Decode(&rule)).To(Succeed())
-		f.createdRules = append(f.createdRules, rule)
-		groupID := strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, computeAPIPath+"/security-groups/"), "/rules")
-		for i := range f.groups {
-			if f.groups[i].ID == groupID {
-				f.groups[i].Rules = append(f.groups[i].Rules, rule)
+			"`/security-groups/{id}/rules` answers 422 `extra_forbidden` for a `project_id`")
+
+		rest := strings.TrimPrefix(r.URL.Path, computeAPIPath+"/security-groups/")
+		groupID, tail, _ := strings.Cut(rest, "/rules")
+		ruleID := strings.TrimPrefix(tail, "/")
+		Expect(strings.HasPrefix(tail, "/rules")).To(BeFalse(), "only `/rules` and `/rules/{id}` exist here")
+
+		switch {
+		case r.Method == http.MethodPost && ruleID == "":
+			var rule SecurityGroupRule
+			Expect(json.NewDecoder(r.Body).Decode(&rule)).To(Succeed())
+			f.createdRules = append(f.createdRules, rule)
+			// The id is assigned by the platform and is the only handle a delete
+			// has — a fake that left it empty would make the destroy sweep look
+			// like it worked while deleting nothing.
+			if rule.ID == "" {
+				rule.ID = fmt.Sprintf("rule-%d", len(f.createdRules))
 			}
+			for i := range f.groups {
+				if f.groups[i].ID == groupID {
+					f.groups[i].Rules = append(f.groups[i].Rules, rule)
+				}
+			}
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && ruleID == "":
+			for _, g := range f.groups {
+				if g.ID == groupID {
+					writeJSON(w, pagedEnvelope[SecurityGroupRule]{Items: g.Rules, Total: len(g.Rules)})
+					return
+				}
+			}
+			http.Error(w, `{"error_msg":"not found"}`, http.StatusNotFound)
+		case r.Method == http.MethodDelete && ruleID != "":
+			for i := range f.groups {
+				if f.groups[i].ID != groupID {
+					continue
+				}
+				for j, rule := range f.groups[i].Rules {
+					if rule.ID != ruleID {
+						continue
+					}
+					f.deletedRules = append(f.deletedRules, ruleID)
+					f.groups[i].Rules = append(f.groups[i].Rules[:j], f.groups[i].Rules[j+1:]...)
+					w.WriteHeader(http.StatusNoContent)
+					return
+				}
+			}
+			// A rule that is already gone answers 404, which the client treats as
+			// success — the delete is async, so a retry lands here routinely.
+			http.Error(w, `{"error_msg":"not found"}`, http.StatusNotFound)
+		default:
+			Expect(r.Method).To(BeEmpty(), "unexpected %s %s", r.Method, r.URL.Path)
 		}
-		w.WriteHeader(http.StatusCreated)
 	})
 
 	mux.HandleFunc(computeAPIPath+"/disks", func(w http.ResponseWriter, r *http.Request) {
@@ -499,9 +555,13 @@ func smokeVmSpec() VmSpec {
 		SSHUser:   "ubuntu",
 		PublicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDEPLOY\n",
 		PublicIP:  true,
+		// Described the way the driver describes them — through RuleDescription, which
+		// embeds the VM's name. On this cloud the machine joins the project's SHARED
+		// default group, so that name in the description is the only thing that tells
+		// this VM's rules from another SC machine's at destroy time.
 		IngressRules: []IngressRule{
-			{Protocol: "tcp", Port: 22, Description: "simple-container ssh"},
-			{Protocol: "udp", Port: 443, Description: "simple-container https-h3"},
+			{Protocol: "tcp", Port: 22, Description: RuleDescription("ruvm--staging-vm-host-0", "ssh")},
+			{Protocol: "udp", Port: 443, Description: RuleDescription("ruvm--staging-vm-host-0", "https-h3")},
 		},
 	}
 }
@@ -1082,6 +1142,184 @@ func TestDestroyVmOrderAndIdempotence(t *testing.T) {
 	_, err = c.DestroyVm(ctx, Request{Credentials: Credentials{KeyID: "k", Secret: "s", ProjectID: "project-1"}}, nil)
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("`name` is required"))
+}
+
+// Node-to-node ports are opened from the VM's own SUBNET, never from the internet.
+//
+// The three k3s ports in this spec hand out cluster-admin-equivalent access to
+// whoever can reach them — the kubelet execs into any pod on the node, and etcd IS
+// the cluster's state — so the difference between these two sources is the
+// difference between a cluster and a cluster anybody owns. In the console the two
+// rules look alike.
+func TestApplyVmScopesNodeToNodePortsToTheSubnet(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComputeFake()
+	f.subnets[0].SubnetAddress = "10.0.0.0/24"
+	f.onVmGet = func(f *fakeCompute) {
+		for i := range f.vms {
+			f.vms[i].State = VmStateRunning
+		}
+	}
+	c := newComputeClient(t, f)
+
+	spec := smokeVmSpec()
+	name := spec.Name
+	spec.IngressRules = append(spec.IngressRules,
+		IngressRule{Protocol: "tcp", Port: 6443, Description: RuleDescription(name, "k3s-api")},
+		IngressRule{Protocol: "udp", Port: 8472, Internal: true, Description: RuleDescription(name, "k3s-flannel-vxlan")},
+		IngressRule{Protocol: "tcp", Port: 10250, Internal: true, Description: RuleDescription(name, "k3s-kubelet")},
+		IngressRule{
+			Protocol: "tcp", PortRange: "2379:2380", Internal: true,
+			Description: RuleDescription(name, "k3s-etcd"),
+		})
+
+	_, err := c.ApplyVm(context.Background(), vmRequest(spec), nil)
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(lo.Map(f.createdRules, func(r SecurityGroupRule, _ int) string {
+		return r.IPProtocol + " " + r.PortRange + " from " + r.RemoteIPPrefix
+	})).To(ConsistOf(
+		"tcp 22:22 from 0.0.0.0/0",
+		"udp 443:443 from 0.0.0.0/0",
+		"tcp 6443:6443 from 0.0.0.0/0",
+		"udp 8472:8472 from 10.0.0.0/24",
+		"tcp 10250:10250 from 10.0.0.0/24",
+		"tcp 2379:2380 from 10.0.0.0/24",
+	))
+}
+
+// And when the subnet cannot be resolved, the port is left SHUT and said out loud.
+//
+// The tempting fallback is 0.0.0.0/0 — it makes the cluster form, the smoke pass and
+// nothing look wrong. It also publishes the kubelet and etcd. A port an operator has
+// to open by hand is recoverable; this is not.
+func TestApplyVmSkipsInternalPortsWhenTheSubnetIsUnknown(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComputeFake()
+	// No `subnet_address` on the subnet the interface lands on, which is what a
+	// response from an older API version or a differently-shaped VPC looks like.
+	f.subnets[0].SubnetAddress = ""
+	f.onVmGet = func(f *fakeCompute) {
+		for i := range f.vms {
+			f.vms[i].State = VmStateRunning
+		}
+	}
+	c := newComputeClient(t, f)
+
+	spec := smokeVmSpec()
+	spec.IngressRules = append(spec.IngressRules, IngressRule{
+		Protocol: "tcp", Port: 10250, Internal: true,
+		Description: RuleDescription(spec.Name, "k3s-kubelet"),
+	})
+
+	var said []string
+	_, err := c.ApplyVm(context.Background(), vmRequest(spec), func(msg string, args ...any) {
+		said = append(said, fmt.Sprintf(msg, args...))
+	})
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(lo.Map(f.createdRules, func(r SecurityGroupRule, _ int) string { return r.PortRange })).
+		ToNot(ContainElement("10250:10250"))
+	Expect(strings.Join(said, "\n")).To(ContainSubstring("node-to-node port"))
+	Expect(strings.Join(said, "\n")).To(ContainSubstring("will not open it to the internet instead"))
+}
+
+// A destroy closes the ports IT opened and leaves every other machine's alone.
+//
+// The machine joins the project's SHARED default group, so the sweep's scope is the
+// whole risk here: a sweep of everything SC had written would take the ports of
+// every other SC machine in the project down with it — one stack's destroy breaking
+// another, with nothing in either stack's state to explain it.
+func TestDestroyVmClosesOnlyItsOwnRules(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComputeFake()
+	f.onVmGet = func(f *fakeCompute) {
+		for i := range f.vms {
+			f.vms[i].State = VmStateRunning
+		}
+	}
+	f.groups[0].Rules = append(f.groups[0].Rules,
+		// Another SC machine in the same project, sharing this group. On a port this
+		// VM does not ask for — the shared-port case is below, and it behaves
+		// differently enough to be worth keeping apart.
+		SecurityGroupRule{
+			ID: "rule-other", Direction: "ingress", IPProtocol: "tcp", PortRange: "9090:9090",
+			RemoteIPPrefix: "0.0.0.0/0", Description: RuleDescription("other-vm", "metrics"),
+		},
+		// A machine whose name merely STARTS with this one's. The discriminator ends
+		// in the description's separator for exactly this case: a prefix match on the
+		// name alone would sweep `…-host-02` while destroying `…-host-0`.
+		SecurityGroupRule{
+			ID: "rule-sibling", Direction: "ingress", IPProtocol: "tcp", PortRange: "80:80",
+			RemoteIPPrefix: "0.0.0.0/0", Description: RuleDescription("ruvm--staging-vm-host-02", "http"),
+		},
+		// Somebody's hand-written rule, which SC did not create and must not remove.
+		SecurityGroupRule{
+			ID: "rule-manual", Direction: "ingress", IPProtocol: "tcp", PortRange: "5432:5432",
+			RemoteIPPrefix: "0.0.0.0/0", Description: "postgres from the office",
+		})
+	c := newComputeClient(t, f)
+	ctx := context.Background()
+
+	_, err := c.ApplyVm(ctx, vmRequest(smokeVmSpec()), nil)
+	Expect(err).ToNot(HaveOccurred())
+	own := lo.Map(f.createdRules, func(r SecurityGroupRule, _ int) string { return r.Description })
+	Expect(own).To(HaveLen(2))
+
+	_, err = c.DestroyVm(ctx, vmRequest(smokeVmSpec()), nil)
+	Expect(err).ToNot(HaveOccurred())
+
+	// The two rules the apply created, by the ids the fake assigned them, and
+	// nothing else.
+	Expect(f.deletedRules).To(ConsistOf("rule-1", "rule-2"))
+	surviving := lo.Map(f.groups[0].Rules, func(r SecurityGroupRule, _ int) string { return r.ID })
+	Expect(surviving).To(ContainElements("rule-other", "rule-sibling", "rule-manual"))
+
+	// Collected BEFORE the VM is deleted, which is the only time they are knowable:
+	// afterwards nothing says which group SC opened ports in.
+	Expect(f.indexOfCall(http.MethodDelete, "/security-groups/sg-default/rules/rule-1")).
+		To(BeNumerically(">", f.indexOfCall(http.MethodGet, "/vms")))
+
+	// And a second destroy is quiet: the rules are gone, 404 is success, nothing is
+	// deleted twice.
+	before := len(f.deletedRules)
+	_, err = c.DestroyVm(ctx, vmRequest(smokeVmSpec()), nil)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(f.deletedRules).To(HaveLen(before))
+}
+
+// A re-apply opens nothing: the rules are already there. This is the test the
+// stripped `rules` field in the group-list route exists for — a client reading the
+// group's inlined (empty) rules would re-create all of them here, every deploy,
+// until the group hit its rule cap.
+func TestApplyVmDoesNotReopenExistingPorts(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComputeFake()
+	f.subnets[0].SubnetAddress = "10.0.0.0/24"
+	f.onVmGet = func(f *fakeCompute) {
+		for i := range f.vms {
+			f.vms[i].State = VmStateRunning
+		}
+	}
+	c := newComputeClient(t, f)
+
+	spec := smokeVmSpec()
+	spec.IngressRules = append(spec.IngressRules, IngressRule{
+		Protocol: "tcp", Port: 10250, Internal: true,
+		Description: RuleDescription(spec.Name, "k3s-kubelet"),
+	})
+
+	_, err := c.ApplyVm(context.Background(), vmRequest(spec), nil)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(f.createdRules).To(HaveLen(3))
+
+	_, err = c.ApplyVm(context.Background(), vmRequest(spec), nil)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(f.createdRules).To(HaveLen(3), "the second converge opens nothing")
 }
 
 // The default group carries an `any`/`any` ingress rule scoped to the GROUP, and that

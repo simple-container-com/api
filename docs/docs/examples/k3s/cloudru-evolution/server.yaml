@@ -113,10 +113,15 @@ resources:
             # do not coordinate it.
             #
             # On THIS cloud the choice has a second consequence, because the driver's
-            # firewall follows the same setting: with `ingress` off, the security group
-            # SC touches has 22 open and nothing else. See the README's
-            # "The ports SC does not open" — the k3s path needs 6443 and the NodePort
-            # range, and today you add those two rules by hand.
+            # firewall follows the same setting: with `ingress` off, 80/443 are not
+            # opened and klipper-lb binds them for whatever Service claims them.
+            #
+            # The k3s ports themselves need nothing from you. SC reads the
+            # `k3s-cluster` resource below — it names this machine — and opens 6443
+            # and the NodePort range to the internet, plus the node-to-node ports
+            # (flannel 8472/udp, the kubelet 10250, etcd 2379-2380) to this machine's
+            # own subnet and nowhere else. `ingressPorts:` adds anything beyond that;
+            # see the README.
 
         ru-cluster:
           type: k3s-cluster

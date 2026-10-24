@@ -93,7 +93,13 @@ func (cloudruDriver) Capabilities() vm.Capabilities {
 	return vm.Drivers[vm.DriverCloudru].Capabilities
 }
 
-func (d cloudruDriver) Hosts(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig, params pApi.ProvisionParams) ([]HostFacts, error) {
+func (d cloudruDriver) Hosts(
+	ctx *sdk.Context,
+	input api.ResourceInput,
+	cfg *vm.VmConfig,
+	ports []vm.PortRange,
+	params pApi.ProvisionParams,
+) ([]HostFacts, error) {
 	// Every Cloud.ru resource and datasource below is given this provider
 	// EXPLICITLY, and nothing else is. params.Provider is the sbercloud provider for
 	// this driver, while the layers above build remote.Command and tls.PrivateKey
@@ -130,7 +136,7 @@ func (d cloudruDriver) Hosts(ctx *sdk.Context, input api.ResourceInput, cfg *vm.
 		return nil, err
 	}
 
-	secGroupID, secDeps, err := d.securityGroup(ctx, input, cfg, region, resOpts)
+	secGroupID, secDeps, err := d.securityGroup(ctx, input, ports, region, resOpts)
 	if err != nil {
 		return nil, err
 	}
@@ -444,43 +450,19 @@ func (cloudruDriver) network(ctx *sdk.Context, input api.ResourceInput, cfg *vm.
 	return subnet.ID().ToStringPtrOutput(), []sdk.Resource{vpc, subnet}, nil
 }
 
-// ingressPort is one hole in the security group. The protocol is carried alongside
-// the number rather than assumed to be tcp, because one of the ports SC opens is
-// 443/udp and a map keyed by number alone could not hold both.
-type ingressPort struct {
-	port     int
-	protocol string
-}
-
-// ingressPorts is every hole SC opens on a machine it created, keyed by a stable
-// label (which becomes part of the firewall rule's resource name or description).
-//
-// Shared by both Cloud.ru drivers rather than written twice, because the two halves
-// of the 443/udp decision below have to agree and the firewall is the half SC owns.
-//
-// 22 always — it is the entire delivery path. 80 and 443 only when the machine runs
-// the ingress: a host serving stacks on a published port has no business answering
-// on 443, and opening it anyway is what makes a later "why is this reachable" audit
-// expensive.
-//
-// 443/udp is HTTP/3, and it is here because the Caddy compose project publishes it
-// (pkg/clouds/vm/caddy.go — `443:443/udp` alongside the TCP one). A container bound
-// to UDP 443 behind a firewall that drops it is worse than not serving h3 at all:
-// Caddy still advertises Alt-Svc, so every browser spends a connection attempt on a
-// port that black-holes before falling back to TCP, and Chrome remembers the broken
-// alt-svc.
-func ingressPorts(cfg *vm.VmConfig) map[string]ingressPort {
-	ports := map[string]ingressPort{"ssh": {port: vm.DefaultSshPort, protocol: "tcp"}}
-	if cfg.IngressEnabled() {
-		ports["http"] = ingressPort{port: 80, protocol: "tcp"}
-		ports["https"] = ingressPort{port: 443, protocol: "tcp"}
-		ports["https-h3"] = ingressPort{port: 443, protocol: "udp"}
-	}
-	return ports
-}
-
 // securityGroup opens exactly the ports SC is going to use.
-func (cloudruDriver) securityGroup(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig, region string, resOpts []sdk.ResourceOption) (sdk.StringInput, []sdk.Resource, error) {
+//
+// The port list is resolved before any driver runs (firewall.go) and shared with the
+// Evolution driver: which holes a machine needs is a property of what SC deploys
+// onto it — the ingress, a k3s cluster's NodePort range, a stack's host port — and
+// not of the cloud whose firewall ends up holding them.
+func (cloudruDriver) securityGroup(
+	ctx *sdk.Context,
+	input api.ResourceInput,
+	ports []vm.PortRange,
+	region string,
+	resOpts []sdk.ResourceOption,
+) (sdk.StringInput, []sdk.Resource, error) {
 	name := input.Descriptor.Name
 
 	// `deleteDefaultRules` is deliberately left at its default (false), i.e. the
@@ -496,25 +478,35 @@ func (cloudruDriver) securityGroup(ctx *sdk.Context, input api.ResourceInput, cf
 		return nil, nil, errors.Wrapf(err, "failed to create security group for vm %q", name)
 	}
 
-	ports := ingressPorts(cfg)
-
 	deps := []sdk.Resource{group}
-	for _, label := range sortedKeys(ports) {
-		p := ports[label]
+	// Already deduped and ordered by label (vm.VmConfig.FirewallPorts), which is what
+	// makes the resource names below stable across deploys.
+	for _, p := range ports {
+		args := &sdkSbercloud.NetworkingSecgroupRuleArgs{
+			Region:          sdk.StringPtr(region),
+			SecurityGroupId: group.ID(),
+			Direction:       sdk.String("ingress"),
+			Ethertype:       sdk.String("IPv4"),
+			Protocol:        sdk.StringPtr(p.Protocol),
+			PortRangeMin:    sdk.IntPtr(p.From),
+			PortRangeMax:    sdk.IntPtr(p.To),
+		}
+		if p.Internal {
+			// Node-to-node traffic: reachable from the other machines of this
+			// resource and from nothing else. `RemoteGroupId` pointing at the group
+			// itself is the whole mechanism — these ports (the kubelet, flannel's
+			// VXLAN, embedded etcd) hand out cluster-admin-equivalent access to
+			// anyone who can reach them, so a CIDR would have to be the private
+			// subnet's and a security group that every machine of the cluster joins
+			// is both narrower and known here.
+			args.RemoteGroupId = group.ID()
+		} else {
+			args.RemoteIpPrefix = sdk.StringPtr("0.0.0.0/0")
+		}
 		rule, err := sdkSbercloud.NewNetworkingSecgroupRule(ctx,
-			input.ToResName(fmt.Sprintf("%s-secgroup-%s", name, label)),
-			&sdkSbercloud.NetworkingSecgroupRuleArgs{
-				Region:          sdk.StringPtr(region),
-				SecurityGroupId: group.ID(),
-				Direction:       sdk.String("ingress"),
-				Ethertype:       sdk.String("IPv4"),
-				Protocol:        sdk.StringPtr(p.protocol),
-				PortRangeMin:    sdk.IntPtr(p.port),
-				PortRangeMax:    sdk.IntPtr(p.port),
-				RemoteIpPrefix:  sdk.StringPtr("0.0.0.0/0"),
-			}, resOpts...)
+			input.ToResName(fmt.Sprintf("%s-secgroup-%s", name, p.Label)), args, resOpts...)
 		if err != nil {
-			return nil, nil, errors.Wrapf(err, "failed to open %s port %d on vm %q", p.protocol, p.port, name)
+			return nil, nil, errors.Wrapf(err, "failed to open %s on vm %q", p.Spec(), name)
 		}
 		deps = append(deps, rule)
 	}

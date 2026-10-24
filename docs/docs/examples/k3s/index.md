@@ -75,10 +75,11 @@ cannot seed one.
 ```
 
 Measured end to end on 2026-10-24: `sc provision` 7 m 33 s from nothing to
-`all nodes ready`. One caveat it is better to read before the smoke than during it —
-the Cloud.ru driver opens only 22 (plus 80/443 with `ingress`), so **6443 and the
-NodePort range are added by hand today**, and the symptom of not doing so is a green
-deploy that times out from outside. The example's README spells out which rules.
+`all nodes ready`. The firewall needs nothing from you: a `k3s-cluster` naming the `vm`
+resource is a declaration SC reads, so provisioning opens 6443 and the NodePort range to
+the internet and the node-to-node ports (flannel, the kubelet, etcd) to the machine's
+own subnet only. The example's README has the table, and `ingressPorts:` on the `vm`
+resource is how you add anything else.
 
 `provider: cloudru-vm` (the Advanced / ex-SberCloud estate) is the same file with a
 different credential type and `region: ru-moscow-1` required rather than refused.

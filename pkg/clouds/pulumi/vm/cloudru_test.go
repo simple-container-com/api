@@ -46,6 +46,11 @@ func cloudruConfig() *vm.VmConfig {
 		Driver:   vm.DriverCloudru,
 		Region:   "ru-moscow-1",
 		PublicIP: true,
+		// This driver has never provisioned a machine on the cloud it addresses
+		// (Advanced, not the Evolution estate SC smoked), so Validate refuses it
+		// without the opt-in — and `Vm()` validates before any driver runs. The gate
+		// itself is asserted in the config tier, where it lives.
+		AllowUnverifiedProvider: true,
 	}
 	// What `credentials: ${auth:cloudru}` resolves to by the time the provisioning
 	// tier sees it: an opaque JSON blob that api.ConvertAuth rehydrates.
@@ -294,7 +299,51 @@ func TestCloudruDriver_OpensIngressPortsOnlyWithIngress(t *testing.T) {
 	for _, in := range mocks.allInputsOf(tokenSecgroupRule) {
 		Expect(in["portRangeMax"].NumberValue()).To(Equal(in["portRangeMin"].NumberValue()))
 		Expect(in["direction"].StringValue()).To(Equal("ingress"))
+		Expect(in["remoteIpPrefix"].StringValue()).To(Equal("0.0.0.0/0"),
+			"these four are the public ones; the scoped ones are asserted below")
 	}
+}
+
+// The node-to-node half of the k3s preset is open to the OTHER MACHINES of this
+// resource and to nobody else. This is the assertion that a future rewrite of the
+// rule loop has to keep passing: all three ports hand out cluster-admin-equivalent
+// access to whoever can reach them — the kubelet execs into any pod on the node,
+// and etcd IS the cluster's state — so a `0.0.0.0/0` here is not a loose rule, it
+// is a cluster anybody can take over, and it would look exactly like the rules
+// beside it in the console.
+func TestCloudruDriver_ScopesNodeToNodePortsToTheGroup(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := cloudruConfig()
+	cfg.IngressPorts = []vm.VmIngressPort{{Preset: vm.IngressPresetK3s}}
+
+	mocks := cloudruMocks()
+	_, err := provisionVm(cfg, mocks)
+	Expect(err).To(BeNil())
+
+	scope := map[string]string{}
+	for _, in := range mocks.allInputsOf(tokenSecgroupRule) {
+		spec := fmt.Sprintf("%s/%d-%d", in["protocol"].StringValue(),
+			int(in["portRangeMin"].NumberValue()), int(in["portRangeMax"].NumberValue()))
+		switch {
+		case in["remoteGroupId"].HasValue():
+			scope[spec] = "group"
+		case in["remoteIpPrefix"].HasValue():
+			scope[spec] = in["remoteIpPrefix"].StringValue()
+		default:
+			// Neither set means "from anywhere" on this provider, which is the one
+			// outcome no rule here may have by accident.
+			scope[spec] = "UNSCOPED"
+		}
+	}
+	Expect(scope).To(Equal(map[string]string{
+		"tcp/22-22":       "0.0.0.0/0",
+		"tcp/6443-6443":   "0.0.0.0/0", // the API server: operators and CI reach it
+		"tcp/30000-32767": "0.0.0.0/0", // NodePort: that is what publishing means
+		"udp/8472-8472":   "group",     // flannel VXLAN
+		"tcp/10250-10250": "group",     // kubelet
+		"tcp/2379-2380":   "group",     // etcd client + peer
+	}))
 }
 
 // An explicit `size` reaches the flavour filter, and `size.disk` reaches the root
