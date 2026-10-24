@@ -5,6 +5,7 @@ package api
 
 import (
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -237,6 +238,17 @@ func DetectPerStackResourcesType(p *PerStackResourcesDescriptor) (*PerStackResou
 			}
 			fn, found := providerConfigMapping[resource.Type]
 			if !found {
+				// Plugin fall-through: types with a package:module:Type shape
+				// (Pulumi gRPC type-token convention) are routed to SC plugins
+				// at provision time. The config-tier skips strict validation
+				// for them — the plugin's Schema RPC authoritatively declares
+				// which types it owns. See
+				// forge/docs/design/2026-10-24/sc-plugin-architecture/.
+				if strings.Count(resource.Type, ":") >= 2 {
+					resources.Resources[resourceName] = resource
+					p.Resources[stackName] = resources
+					continue
+				}
 				return nil, errors.Errorf("unknown type %q for resource %q", resource.Type, resourceName)
 			}
 			var err error
