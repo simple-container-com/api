@@ -132,6 +132,21 @@ func (c *Client) PreDestroy(ctx context.Context, req *scpluginv1.PreDestroyReque
 	return c.stub.PreDestroy(ctx, req)
 }
 
+// NewDnsRecord calls through to the plugin's NewDnsRecord RPC (Phase 1b).
+func (c *Client) NewDnsRecord(ctx context.Context, req *scpluginv1.NewDnsRecordRequest) (*scpluginv1.NewDnsRecordResponse, error) {
+	return c.stub.NewDnsRecord(ctx, req)
+}
+
+// NewOverrideHeaderRule calls through to the plugin's NewOverrideHeaderRule RPC (Phase 1b).
+func (c *Client) NewOverrideHeaderRule(ctx context.Context, req *scpluginv1.NewOverrideHeaderRuleRequest) (*scpluginv1.NewOverrideHeaderRuleResponse, error) {
+	return c.stub.NewOverrideHeaderRule(ctx, req)
+}
+
+// ProvisionDomainForEndpoint calls through to the plugin's ProvisionDomainForEndpoint RPC (Phase 1b).
+func (c *Client) ProvisionDomainForEndpoint(ctx context.Context, req *scpluginv1.ProvisionDomainForEndpointRequest) (*scpluginv1.ProvisionDomainForEndpointResponse, error) {
+	return c.stub.ProvisionDomainForEndpoint(ctx, req)
+}
+
 // Close terminates the plugin subprocess. Safe to call more than once.
 func (c *Client) Close() {
 	if c.gpClient != nil {

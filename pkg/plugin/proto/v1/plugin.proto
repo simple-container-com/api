@@ -269,6 +269,72 @@ message ProvisionRegistrarResponse {
 }
 
 // -----------------------------------------------------------------------------
+// Phase 1b — per-method Registrar RPCs. Each call registers Pulumi resources
+// via the plugin bus's monitor address. SC-core-side pluginRegistrar.*
+// methods proxy to these.
+// -----------------------------------------------------------------------------
+
+message NewDnsRecordRequest {
+  RequestHeader header = 1;
+  string registrar_type = 2;
+  // The DnsRecord fields that cross the gRPC boundary as values. Pulumi
+  // sdk.StringOutput's can't; `value_resolved` carries the resolved string
+  // the SC-core-side pluginRegistrar.NewRecord obtains via ApplyT before
+  // the RPC call.
+  string record_name = 3;
+  string record_type = 4;
+  string value_resolved = 5;
+  bool proxied = 6;
+}
+
+message NewDnsRecordResponse {
+  string urn = 1;
+}
+
+message NewOverrideHeaderRuleRequest {
+  RequestHeader header = 1;
+  string registrar_type = 2;
+  string stack_name = 3;
+  // OverrideHeaderRule fields:
+  string rule_name = 4;
+  string from_host = 5;
+  string to_host_resolved = 6; // sdk.StringInput resolved by SC core before RPC
+  string path_prefix = 7;
+  BasicAuthMsg basic_auth = 8;
+  OverridePagesMsg override_pages = 9;
+}
+
+message BasicAuthMsg {
+  string username = 1;
+  string password = 2;
+  string realm = 3;
+}
+
+message OverridePagesMsg {
+  string index_page = 1;
+  string not_found_page = 2;
+}
+
+message NewOverrideHeaderRuleResponse {
+  string urn = 1;
+}
+
+message ProvisionDomainForEndpointRequest {
+  RequestHeader header = 1;
+  string registrar_type = 2;
+  string stack_name = 3;
+  // DomainEndpoint fields:
+  string endpoint_name = 4;
+  string domain = 5;
+  string target_host_resolved = 6; // sdk.StringInput resolved by SC core
+  bool websocket = 7;
+}
+
+message ProvisionDomainForEndpointResponse {
+  string urn = 1;
+}
+
+// -----------------------------------------------------------------------------
 // PreDestroy — pre-destroy hook. Called BEFORE the engine deletes resources,
 // so the plugin can perform cloud-side cleanup that Pulumi doesn't track
 // (e.g. drain a load balancer target group before the LB resource is removed).
@@ -353,6 +419,11 @@ service SCCloudPlugin {
   rpc Provision(ProvisionRequest) returns (ProvisionResponse);
   rpc ComputeProcess(ComputeProcessRequest) returns (ComputeProcessResponse);
   rpc ProvisionRegistrar(ProvisionRegistrarRequest) returns (ProvisionRegistrarResponse);
+  // Phase 1b per-method registrar RPCs (the stubbed pluginRegistrar
+  // methods on SC core proxy here).
+  rpc NewDnsRecord(NewDnsRecordRequest) returns (NewDnsRecordResponse);
+  rpc NewOverrideHeaderRule(NewOverrideHeaderRuleRequest) returns (NewOverrideHeaderRuleResponse);
+  rpc ProvisionDomainForEndpoint(ProvisionDomainForEndpointRequest) returns (ProvisionDomainForEndpointResponse);
   rpc PreDestroy(PreDestroyRequest) returns (PreDestroyResponse);
 }
 
