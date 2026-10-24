@@ -2098,6 +2098,9 @@ resources:
             useSSL: true                            # Use SSL by default (optional, default: true)
             usePrefixes: false                      # Use prefixes instead of domains (optional, default: false)
             provisionIngress: false                 # Provision ingress for Caddy (optional, default: false)
+            useResourceName: false                  # Name every object <resource>-<env> instead of caddy-<env>,
+                                                    # so a second Caddy fits in an env that has one (optional, default: false).
+                                                    # Switching it on an existing Caddy makes Pulumi replace it.
 
             # Scheduling (optional)
             podAnnotations:                         # Pod template only; simple-container.com/ and pulumi.com/ keys rejected

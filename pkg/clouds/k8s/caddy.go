@@ -10,6 +10,10 @@ const ResourceTypeCaddy = "kubernetes-caddy"
 type CaddyResource struct {
 	*KubernetesConfig `json:",inline" yaml:",inline"`
 	*CaddyConfig      `json:",inline" yaml:",inline"`
+	// UseResourceName names every object of this Caddy <resource name>-<env> instead of
+	// caddy-<env>, so a second Caddy fits in an environment that already has one. Switching
+	// it on an existing Caddy renames it, which makes Pulumi replace it.
+	UseResourceName bool `json:"useResourceName,omitempty" yaml:"useResourceName,omitempty"`
 }
 
 func CaddyReadConfig(config *api.Config) (api.Config, error) {
