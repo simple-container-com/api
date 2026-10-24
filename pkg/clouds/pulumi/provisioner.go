@@ -5,6 +5,7 @@ package pulumi
 
 import (
 	"context"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/pkg/v3/backend"
@@ -113,6 +114,33 @@ func (p *pulumi) loadPreEnginePlugins(ctx context.Context, stack api.Stack) erro
 	}
 	b.RegisterSidecars()
 	p.preEnginePlugins = b
+
+	// If the provisioner's secrets-provider type is now owned by a plugin
+	// sidecar, invoke it to resolve the pulumi provider URL / passphrase.
+	// Sets p.secretsProviderUrl + p.secretsProviderPassphrase which
+	// prepareStackForOperations consumes. Reads the provisioner config from
+	// the stack descriptor directly — p.provisionerCfg isn't populated
+	// until login() runs, which happens after this.
+	if pCfg, ok := stack.Server.Provisioner.Config.Config.(*ProvisionerConfig); ok {
+		if fn, ok := pApi.InitSecretsProviderFuncByType[pCfg.SecretsProvider.Type]; ok {
+			url, passphrase, env, err := fn(ctx, p.logger)
+			if err != nil {
+				return errors.Wrapf(err, "plugin secrets-provider init for %q",
+					pCfg.SecretsProvider.Type)
+			}
+			if url != "" {
+				p.secretsProviderUrl = url
+			}
+			if passphrase != "" {
+				p.secretsProviderPassphrase = passphrase
+			}
+			for k, v := range env {
+				if err := os.Setenv(k, v); err != nil {
+					p.logger.Warn(ctx, "set env %q from secrets-provider plugin: %v", k, err)
+				}
+			}
+		}
+	}
 	return nil
 }
 
@@ -139,7 +167,14 @@ func (p *pulumi) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, pa
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
-	return p.destroyStack(ctx, cfg, s, params, p.provisionProgram(parentStack, cfg), preview)
+	return p.destroyStack(ctx, cfg, s, params, p.provisionProgram(parentStack, cfg), preview, func(stackSource auto.Stack) {
+		// Phase 1 — pre-destroy hooks also fire on parent-stack destroy so
+		// plugin-side cleanup runs symmetrically for infrastructure teardown,
+		// not only child-stack deploys.
+		for _, hook := range pApi.PreDestroyHookFuncs {
+			hook(ctx, parentStack, params, stackSource, p.logger)
+		}
+	})
 }
 
 func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams, preview bool) error {

@@ -111,48 +111,80 @@ func (b *preEnginePluginBundle) loadOne(ctx context.Context, name string, spec a
 	return nil
 }
 
-// RegisterSidecars installs InitStateStoreFunc sidecars in pApi's in-tree
-// map for each plugin-advertised state-store type. SC's existing login
-// flow picks them up transparently. The sidecar closures over `b` so
-// invocation reuses the already-spawned plugin subprocess.
+// RegisterSidecars installs sidecars in pApi's in-tree registration maps
+// for every plugin-advertised type. SC's existing dispatch picks them up
+// transparently — the same path in-tree types use.
+//
+// Covered surfaces (Phase 1 complete):
+//   - state_store_types       → pApi.InitStateStoreFuncByType
+//   - secrets_provider_types  → pApi.InitSecretsProviderFuncByType
+//   - resource_types          → pApi.ProvisionFuncByType
+//   - provider_types          → pApi.ProviderFuncByType
+//   - registrar_types         → pApi.RegistrarFuncByType
+//   - compute_processor_types → pApi.ComputeProcessorFuncByType
+//   - any plugin              → pApi.PreDestroyHookFuncs (appended once per plugin)
+//
+// Sidecars closure over `b` so invocation reuses the already-spawned plugin
+// subprocesses — one plugin binary serves all its advertised surfaces across
+// the full ProvisionStack / DeployStack / DestroyStack / PreviewStack call.
+// Monitor address for in-engine calls (Provision, Provider, Registrar,
+// ComputeProcess) is read from the active pluginSession via
+// sessionMonitorAddr(); if the session is not up (e.g. called before the
+// inline RunFunc), the sidecar returns a clear error.
 func (b *preEnginePluginBundle) RegisterSidecars() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for name, schema := range b.schemas {
 		cli := b.clients[name]
 		pluginName := name
+
+		// State-storage: pre-engine, no monitor needed.
 		for _, t := range schema.GetStateStoreTypes() {
 			typeToken := t
-			pApi.RegisterInitStateStore(typeToken, func(ctx context.Context, authCfg api.StateStorageConfig, log logger.Logger) error {
-				_ = authCfg // v1: config carried via plugin's own env/state, not threaded through
-				resp, err := cli.InitStateStore(ctx, &scpluginv1.InitStateStoreRequest{
-					Header:         &scpluginv1.RequestHeader{},
-					StateStoreType: typeToken,
-				})
-				if err != nil {
-					return errors.Wrapf(err, "plugin %q InitStateStore(%q)", pluginName, typeToken)
-				}
-				// Apply env vars the plugin asked for.
-				for k, v := range resp.GetEnv() {
-					if sv := v.GetStringValue(); sv != "" {
-						if err := os.Setenv(k, sv); err != nil {
-							log.Warn(ctx, "set env %q from plugin %q: %v", k, pluginName, err)
-						}
-					}
-				}
-				// Shape backend URL for the Automation API workspace. The
-				// fs InitStateStoreFunc sets PULUMI_BACKEND_URL by precedent;
-				// mirror that so the plugin-driven path lands in the same place.
-				if url := resp.GetBackendUrl(); url != "" {
-					if err := os.Setenv("PULUMI_BACKEND_URL", url); err != nil {
-						log.Warn(ctx, "set PULUMI_BACKEND_URL from plugin %q: %v", pluginName, err)
-					}
-				}
-				log.Info(ctx, "plugin %q initialised state-store type %q at %q",
-					pluginName, typeToken, resp.GetBackendUrl())
-				return nil
-			})
+			pApi.RegisterInitStateStore(typeToken, b.makeStateStoreSidecar(cli, pluginName, typeToken))
 		}
+
+		// Secrets-provider: pre-engine, no monitor needed.
+		for _, t := range schema.GetSecretsProviderTypes() {
+			typeToken := t
+			pApi.RegisterInitSecretsProvider(typeToken, b.makeSecretsProviderSidecar(cli, pluginName, typeToken))
+		}
+
+		// Resource types: in-engine, needs monitor address.
+		resMap := map[string]pApi.ProvisionFunc{}
+		for _, t := range schema.GetResourceTypes() {
+			typeToken := t
+			resMap[typeToken] = b.makeResourceSidecar(cli, pluginName, typeToken)
+		}
+		if len(resMap) > 0 {
+			pApi.RegisterResources(resMap)
+		}
+
+		// Provider types: in-engine, needs monitor address.
+		for _, t := range schema.GetProviderTypes() {
+			typeToken := t
+			pApi.RegisterProvider(typeToken, b.makeProviderSidecar(cli, pluginName, typeToken))
+		}
+
+		// Registrar types: in-engine, needs monitor address.
+		for _, t := range schema.GetRegistrarTypes() {
+			typeToken := t
+			pApi.RegisterRegistrar(typeToken, b.makeRegistrarSidecar(cli, pluginName, typeToken))
+		}
+
+		// Compute processor types: in-engine, needs monitor address.
+		cpMap := map[string]pApi.ComputeProcessorFunc{}
+		for _, t := range schema.GetComputeProcessorTypes() {
+			typeToken := t
+			cpMap[typeToken] = b.makeComputeProcessorSidecar(cli, pluginName, typeToken)
+		}
+		if len(cpMap) > 0 {
+			pApi.RegisterComputeProcessor(cpMap)
+		}
+
+		// PreDestroy hook: one per plugin, no type keying — plugin chooses
+		// internally what to clean up based on request_type at call time.
+		pApi.RegisterPreDestroyHook(b.makePreDestroySidecar(cli, pluginName))
 	}
 }
 

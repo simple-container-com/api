@@ -282,6 +282,14 @@ func DetectRegistrarType(p *PerStackResourcesDescriptor) (*PerStackResourcesDesc
 	detect := func(registrar RegistrarDescriptor) (RegistrarDescriptor, bool, error) {
 		fn, found := providerConfigMapping[registrar.Type]
 		if !found {
+			// Plugin fall-through — same mechanism as the resource and
+			// provisioner-field fall-throughs. A registrar type with `:`
+			// prefix is handled by a pre-engine SC plugin's
+			// ProvisionRegistrar RPC.
+			if strings.Contains(registrar.Type, ":") {
+				registrar.Config = pluginFieldConfig(registrar.Type, &registrar.Config)
+				return registrar, true, nil
+			}
 			return registrar, false, errors.Errorf("unknown registrar type %q", registrar.Type)
 		}
 		config, err := fn(&registrar.Config)
@@ -459,6 +467,7 @@ func (p *PluginFieldConfig) ProviderType() string     { return p.TypeName }
 func (p *PluginFieldConfig) CredentialsValue() string { return p.Credentials }
 func (p *PluginFieldConfig) ProjectIdValue() string   { return p.ProjectID }
 func (p *PluginFieldConfig) StorageUrl() string       { return p.URL }
+func (p *PluginFieldConfig) KeyUrl() string           { return p.URL } // secrets-provider interface
 func (p *PluginFieldConfig) IsProvisionEnabled() bool { return p.Provision }
 func (p *PluginFieldConfig) UsesAmbientCredentials() bool {
 	return p.Credentials == "" // if no explicit creds, assume ambient (env/role)

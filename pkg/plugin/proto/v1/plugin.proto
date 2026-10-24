@@ -214,6 +214,80 @@ message ProviderResponse {
 }
 
 // -----------------------------------------------------------------------------
+// ComputeProcess — compute-side injection. For a dependency resource (e.g. an
+// RDS instance or an S3 bucket), produce env variables and output placeholders
+// that downstream compute (lambda, ECS task, cloud-run) consumes.
+// Dispatched from pkg/clouds/pulumi/deploy.go on each dependency resource.
+// -----------------------------------------------------------------------------
+
+message ComputeProcessRequest {
+  RequestHeader header = 1;
+  string resource_type = 2;              // from SchemaResponse.compute_processor_types
+  string resource_name = 3;
+  map<string, InputValue> inputs = 4;
+  // Previously-registered dependency outputs this resource may need.
+  map<string, string> dependency_outputs = 5;
+  string parent_urn = 6;
+}
+
+message ComputeProcessResponse {
+  // Env variables to inject into downstream compute. Secret-flagged are
+  // propagated as Pulumi secrets.
+  map<string, InputValue> env = 1;
+  // Output placeholders — references by the dependency resource's URN that
+  // downstream compute can resolve at deploy time (SC's compute processor
+  // vocabulary; see pkg/clouds/pulumi/api/compute_context.go).
+  map<string, string> placeholders = 2;
+  // The URN the compute processor registered (if any). Optional.
+  string urn = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Registrar — DNS registrar surface. One plugin RPC per high-level operation
+// on the registrar: ProvisionRecords (bulk), NewRecord (one), etc.
+//
+// For v1 we ship a reduced surface: just ProvisionRecords, which is what
+// cloudflare-registrar's primary flow uses. The remaining methods
+// (NewOverrideHeaderRule, NewWorkerScript, ProvisionDomainForEndpoint) have
+// their own RPCs in a follow-up; a plugin that returns UNIMPLEMENTED gets a
+// clear SC-core-side error.
+// -----------------------------------------------------------------------------
+
+message ProvisionRegistrarRequest {
+  RequestHeader header = 1;
+  string registrar_type = 2;             // from SchemaResponse.registrar_types
+  map<string, InputValue> config = 3;    // registrar config (zone name, api token, account id, …)
+}
+
+message ProvisionRegistrarResponse {
+  // The registrar's "main domain" — typically the zone name. SC core caches
+  // this on the per-stack registrar handle.
+  string main_domain = 1;
+  // URNs of any resources the plugin registered up-front (e.g. a provider
+  // or a looked-up zone data source). Optional.
+  repeated string registered_urns = 2;
+}
+
+// -----------------------------------------------------------------------------
+// PreDestroy — pre-destroy hook. Called BEFORE the engine deletes resources,
+// so the plugin can perform cloud-side cleanup that Pulumi doesn't track
+// (e.g. drain a load balancer target group before the LB resource is removed).
+// Not inside the inline RunFunc; no monitor access.
+// -----------------------------------------------------------------------------
+
+message PreDestroyRequest {
+  RequestHeader header = 1;
+  // The resource type the hook is advertised against (optional — a plugin
+  // may install a generic hook across its surface).
+  string resource_type = 2;
+}
+
+message PreDestroyResponse {
+  // No fields currently — v1 is fire-and-forget. Response reserved for
+  // future diagnostics (duration, action taken).
+}
+
+// -----------------------------------------------------------------------------
 // Provision — the main workhorse. Plugin registers ONE SC-level resource against
 // the monitor and returns the SC-shaped ResourceOutput.
 // -----------------------------------------------------------------------------
@@ -277,6 +351,9 @@ service SCCloudPlugin {
   rpc InitSecretsProvider(InitSecretsProviderRequest) returns (InitSecretsProviderResponse);
   rpc Provider(ProviderRequest) returns (ProviderResponse);
   rpc Provision(ProvisionRequest) returns (ProvisionResponse);
+  rpc ComputeProcess(ComputeProcessRequest) returns (ComputeProcessResponse);
+  rpc ProvisionRegistrar(ProvisionRegistrarRequest) returns (ProvisionRegistrarResponse);
+  rpc PreDestroy(PreDestroyRequest) returns (PreDestroyResponse);
 }
 
 // SCCore — the callback surface SC core exposes to a plugin. Lets the plugin

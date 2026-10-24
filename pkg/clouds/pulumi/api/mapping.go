@@ -6,34 +6,41 @@ package api
 import (
 	"context"
 
-	"github.com/samber/lo"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 )
 
 type (
-	ProvisionFunc        func(sdkCtx *sdk.Context, stack api.Stack, input api.ResourceInput, params ProvisionParams) (*api.ResourceOutput, error)
-	ComputeProcessorFunc func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector ComputeContextCollector, params ProvisionParams) (*api.ResourceOutput, error)
-	RegistrarFunc        func(sdkCtx *sdk.Context, desc api.RegistrarDescriptor, params ProvisionParams) (Registrar, error)
-	InitStateStoreFunc   func(ctx context.Context, authCfg api.StateStorageConfig, log logger.Logger) error
-	PreDestroyHookFunc   func(ctx context.Context, stack api.Stack, params api.DestroyParams, stackSource auto.Stack, log logger.Logger)
+	ProvisionFunc           func(sdkCtx *sdk.Context, stack api.Stack, input api.ResourceInput, params ProvisionParams) (*api.ResourceOutput, error)
+	ComputeProcessorFunc    func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector ComputeContextCollector, params ProvisionParams) (*api.ResourceOutput, error)
+	RegistrarFunc           func(sdkCtx *sdk.Context, desc api.RegistrarDescriptor, params ProvisionParams) (Registrar, error)
+	InitStateStoreFunc      func(ctx context.Context, authCfg api.StateStorageConfig, log logger.Logger) error
+	InitSecretsProviderFunc func(ctx context.Context, log logger.Logger) (secretsProviderURL string, passphrase string, env map[string]string, err error)
+	PreDestroyHookFunc      func(ctx context.Context, stack api.Stack, params api.DestroyParams, stackSource auto.Stack, log logger.Logger)
 )
 
 var (
-	InitStateStoreFuncByType   = map[string]InitStateStoreFunc{}
-	ProviderFuncByType         = map[string]ProvisionFunc{}
-	ProvisionFuncByType        = map[string]ProvisionFunc{}
-	RegistrarFuncByType        = map[string]RegistrarFunc{}
-	ComputeProcessorFuncByType = map[string]ComputeProcessorFunc{}
-	PreDestroyHookFuncs        []PreDestroyHookFunc
+	InitStateStoreFuncByType      = map[string]InitStateStoreFunc{}
+	InitSecretsProviderFuncByType = map[string]InitSecretsProviderFunc{}
+	ProviderFuncByType            = map[string]ProvisionFunc{}
+	ProvisionFuncByType           = map[string]ProvisionFunc{}
+	RegistrarFuncByType           = map[string]RegistrarFunc{}
+	ComputeProcessorFuncByType    = map[string]ComputeProcessorFunc{}
+	PreDestroyHookFuncs           []PreDestroyHookFunc
 )
 
 func RegisterInitStateStore(providerType string, fnc InitStateStoreFunc) {
 	InitStateStoreFuncByType = lo.Assign(InitStateStoreFuncByType, map[string]InitStateStoreFunc{
+		providerType: fnc,
+	})
+}
+
+func RegisterInitSecretsProvider(providerType string, fnc InitSecretsProviderFunc) {
+	InitSecretsProviderFuncByType = lo.Assign(InitSecretsProviderFuncByType, map[string]InitSecretsProviderFunc{
 		providerType: fnc,
 	})
 }
