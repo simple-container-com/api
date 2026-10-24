@@ -65,7 +65,13 @@ func (cloudruEvolutionDriver) Capabilities() vm.Capabilities {
 	return vm.Drivers[vm.DriverCloudruEvolution].Capabilities
 }
 
-func (d cloudruEvolutionDriver) Hosts(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig, params pApi.ProvisionParams) ([]HostFacts, error) {
+func (d cloudruEvolutionDriver) Hosts(
+	ctx *sdk.Context,
+	input api.ResourceInput,
+	cfg *vm.VmConfig,
+	ports []vm.PortRange,
+	params pApi.ProvisionParams,
+) ([]HostFacts, error) {
 	name := input.Descriptor.Name
 	hostName := fmt.Sprintf("%s-host-0", name)
 
@@ -113,7 +119,7 @@ func (d cloudruEvolutionDriver) Hosts(ctx *sdk.Context, input api.ResourceInput,
 	// checkpoint), while the trigger has to be something Pulumi may render in a diff
 	// — so the trigger is a hash of the spec alone, and the spec holds no credential.
 	buildSpec := func(publicKey string) (evolution.VmSpec, error) {
-		return d.vmSpec(cfg, hostName, publicKey)
+		return d.vmSpec(cfg, hostName, publicKey, ports)
 	}
 
 	requestJSON := deployKey.PublicKeyOpenssh.ApplyT(func(publicKey string) (string, error) {
@@ -226,7 +232,11 @@ func (d cloudruEvolutionDriver) Hosts(ctx *sdk.Context, input api.ResourceInput,
 
 // vmSpec turns the cloud-independent VmConfig into the request `sc cloudru
 // compute-vm apply` reads.
-func (d cloudruEvolutionDriver) vmSpec(cfg *vm.VmConfig, hostName, deployPublicKey string) (evolution.VmSpec, error) {
+func (d cloudruEvolutionDriver) vmSpec(
+	cfg *vm.VmConfig,
+	hostName, deployPublicKey string,
+	ports []vm.PortRange,
+) (evolution.VmSpec, error) {
 	size := cfg.EffectiveSize()
 	memGiB, err := gibibytes(size.Memory, "size.memory")
 	if err != nil {
@@ -247,7 +257,7 @@ func (d cloudruEvolutionDriver) vmSpec(cfg *vm.VmConfig, hostName, deployPublicK
 		// every delivery step is an outbound SSH connection from wherever `sc deploy`
 		// runs and SC has no bastion.
 		PublicIP:     true,
-		IngressRules: evolutionIngressRules(cfg),
+		IngressRules: evolutionIngressRules(hostName, ports),
 	}
 	if len(cfg.Zones) > 0 && cfg.Zones[0] != "" {
 		spec.Zone = cfg.Zones[0]
@@ -266,19 +276,28 @@ func (d cloudruEvolutionDriver) vmSpec(cfg *vm.VmConfig, hostName, deployPublicK
 	return spec, nil
 }
 
-// evolutionIngressRules is the security-group holes SC needs, derived from the same
-// port table the Advanced driver opens (ingressPorts) so the two cannot drift. They
-// are applied to whichever group the machine actually joined — SC does not get to
-// choose the group on this cloud.
-func evolutionIngressRules(cfg *vm.VmConfig) []evolution.IngressRule {
-	ports := ingressPorts(cfg)
+// evolutionIngressRules maps the resolved port list (firewall.go) onto this
+// cloud's rule shape.
+//
+// Two decisions worth keeping:
+//
+//   - **The description carries the VM's name**, not just the label. On this cloud
+//     the VM joins the project's SHARED default security group, so the rules of
+//     every SC machine in the project sit in one object — and the description is
+//     the only thing a destroy has to tell them apart by. A sweep keyed on a bare
+//     `simple-container ` prefix would close a sibling VM's ports.
+//   - **A node-to-node port becomes the private subnet's CIDR**, filled in by the
+//     client once it knows which subnet the machine actually landed on (SC does not
+//     get to choose it here). Expressed as the empty `CIDR` plus `Internal`, rather
+//     than guessed at here, because the provisioning tier never learns the subnet.
+func evolutionIngressRules(hostName string, ports []vm.PortRange) []evolution.IngressRule {
 	rules := make([]evolution.IngressRule, 0, len(ports))
-	for _, label := range sortedKeys(ports) {
-		p := ports[label]
+	for _, p := range ports {
 		rules = append(rules, evolution.IngressRule{
-			Protocol:    p.protocol,
-			Port:        p.port,
-			Description: fmt.Sprintf("simple-container %s", label),
+			Protocol:    p.Protocol,
+			PortRange:   fmt.Sprintf("%d:%d", p.From, p.To),
+			Internal:    p.Internal,
+			Description: evolution.RuleDescription(hostName, p.Label),
 		})
 	}
 	return rules

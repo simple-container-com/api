@@ -5,6 +5,7 @@ package vm
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -95,7 +96,7 @@ func TestEvolutionVmSpec(t *testing.T) {
 
 	d := cloudruEvolutionDriver{}
 
-	spec, err := d.vmSpec(evolutionConfig(), "portal-vm-host-0", testGeneratedPub)
+	spec, err := d.vmSpec(evolutionConfig(), "portal-vm-host-0", testGeneratedPub, testPorts(evolutionConfig()))
 	Expect(err).ToNot(HaveOccurred())
 
 	Expect(spec.Name).To(Equal("portal-vm-host-0"))
@@ -130,7 +131,7 @@ func TestEvolutionVmSpec(t *testing.T) {
 	cfg := evolutionConfig()
 	cfg.Zones = []string{"ru-central-1b"}
 	cfg.Size = &vm.VmSize{Cores: 4, Memory: "8Gi", Disk: "60Gi", DiskType: "ssd"}
-	spec, err = d.vmSpec(cfg, "portal-vm-host-0", testGeneratedPub)
+	spec, err = d.vmSpec(cfg, "portal-vm-host-0", testGeneratedPub, testPorts(cfg))
 	Expect(err).ToNot(HaveOccurred())
 	Expect(spec.Zone).To(Equal("ru-central-1b"))
 	Expect(spec.Cores).To(Equal(4))
@@ -142,57 +143,89 @@ func TestEvolutionVmSpec(t *testing.T) {
 	// rounded, same as on the Advanced driver: the field is in the message because the
 	// same value reaches here from two different config keys.
 	cfg.Size = &vm.VmSize{Cores: 2, Memory: "1536Mi"}
-	_, err = d.vmSpec(cfg, "portal-vm-host-0", testGeneratedPub)
+	_, err = d.vmSpec(cfg, "portal-vm-host-0", testGeneratedPub, testPorts(cfg))
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("size.memory"))
 
 	cfg.Size = &vm.VmSize{Cores: 2, Memory: "4Gi", Disk: "half a terabyte"}
-	_, err = d.vmSpec(cfg, "portal-vm-host-0", testGeneratedPub)
+	_, err = d.vmSpec(cfg, "portal-vm-host-0", testGeneratedPub, testPorts(cfg))
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("size.disk"))
 }
 
-// The firewall holes come from the SAME table the Advanced driver opens
-// (ingressPorts), and that sharing is the assertion: 443/udp was added once because
-// Caddy publishes HTTP/3 and advertises it via Alt-Svc, and a browser that takes the
-// advertisement while the firewall drops the packets gets a stall rather than a
-// fallback. A second, hand-maintained copy of the table is how that comes back.
+// The firewall holes come from the SAME resolved port list the Advanced driver
+// opens (vm.VmConfig.FirewallPorts), and that sharing is the assertion: 443/udp was
+// added once because Caddy publishes HTTP/3 and advertises it via Alt-Svc, and a
+// browser that takes the advertisement while the firewall drops the packets gets a
+// stall rather than a fallback. A second, hand-maintained copy of the table is how
+// that comes back.
 func TestEvolutionIngressRules(t *testing.T) {
 	RegisterTestingT(t)
 
 	cfg := evolutionConfig()
-	rules := evolutionIngressRules(cfg)
+	rules := evolutionIngressRules("portal-vm-host-0", testPorts(cfg))
 	Expect(rules).To(HaveLen(1), "with no ingress the machine needs SSH and nothing else")
 	Expect(rules[0].Protocol).To(Equal("tcp"))
-	Expect(rules[0].Port).To(Equal(vm.DefaultSshPort))
-	Expect(rules[0].Description).To(Equal("simple-container ssh"))
+	Expect(rules[0].PortRange).To(Equal(fmt.Sprintf("%d:%d", vm.DefaultSshPort, vm.DefaultSshPort)))
+	// The VM's name is in the description, not just the label — on this cloud the
+	// machine joins the project's SHARED default group, so a destroy that swept
+	// every `simple-container ` rule would close a sibling VM's ports.
+	Expect(rules[0].Description).To(Equal("simple-container vm portal-vm-host-0: ssh"))
 
 	cfg.Ingress = &vm.VmIngress{Enable: true, Email: "ops@example.com"}
-	rules = evolutionIngressRules(cfg)
+	rules = evolutionIngressRules("portal-vm-host-0", testPorts(cfg))
 
-	// Sorted, because the labels are iterated to build the rules and a Go map is
-	// iterated in a different order every run: an unsorted loop would reorder the
-	// rules of the spec, move the spec hash, and re-converge the machine on a deploy
-	// that changed nothing.
+	// Sorted, and deterministically: the rules travel inside the spec the converge
+	// command hashes, so a reordering would re-converge the machine on a deploy that
+	// changed nothing.
 	Expect(lo.Map(rules, func(r evolution.IngressRule, _ int) string { return r.Description })).
 		To(Equal([]string{
-			"simple-container http",
-			"simple-container https",
-			"simple-container https-h3",
-			"simple-container ssh",
+			"simple-container vm portal-vm-host-0: http",
+			"simple-container vm portal-vm-host-0: https",
+			"simple-container vm portal-vm-host-0: https-h3",
+			"simple-container vm portal-vm-host-0: ssh",
 		}))
 	Expect(lo.Map(rules, func(r evolution.IngressRule, _ int) string {
 		return r.Protocol
 	})).To(Equal([]string{"tcp", "tcp", "udp", "tcp"}))
 	// The pairing that matters: 443 on BOTH protocols.
-	Expect(lo.Filter(rules, func(r evolution.IngressRule, _ int) bool { return r.Port == 443 })).To(HaveLen(2))
-	// Every rule names itself. The group is the AZ's default one, shared with
-	// whatever else the operator put in the project, so a rule SC added has to be
-	// identifiable in the console as SC's.
+	Expect(lo.Filter(rules, func(r evolution.IngressRule, _ int) bool { return r.PortRange == "443:443" })).
+		To(HaveLen(2))
 	for _, r := range rules {
-		Expect(r.Description).To(HavePrefix("simple-container "))
-		Expect(r.Port).ToNot(Equal(0))
+		Expect(r.Description).To(HavePrefix("simple-container vm portal-vm-host-0: "))
+		Expect(r.PortRange).ToNot(BeEmpty())
+		// Public, all four of them: these are the ingress and SSH.
+		Expect(r.Internal).To(BeFalse())
 	}
+
+	// And the k3s preset, which is where `Internal` earns its keep: the API port and
+	// the NodePort range are public, while the kubelet, flannel's VXLAN and embedded
+	// etcd are node-to-node only. A multi-node cluster whose kubelet port were
+	// public would be one anybody could `exec` into.
+	cfg = evolutionConfig()
+	k3sPorts, err := cfg.FirewallPorts(vm.IngressPresetK3s)
+	Expect(err).ToNot(HaveOccurred())
+	rules = evolutionIngressRules("portal-vm-host-0", k3sPorts)
+	byLabel := lo.SliceToMap(rules, func(r evolution.IngressRule) (string, evolution.IngressRule) {
+		return strings.TrimPrefix(r.Description, "simple-container vm portal-vm-host-0: "), r
+	})
+	Expect(byLabel["k3s-api"].Internal).To(BeFalse())
+	Expect(byLabel["k3s-api"].PortRange).To(Equal("6443:6443"))
+	Expect(byLabel["k3s-nodeport"].Internal).To(BeFalse())
+	Expect(byLabel["k3s-nodeport"].PortRange).To(Equal("30000:32767"))
+	Expect(byLabel["k3s-kubelet"].Internal).To(BeTrue())
+	Expect(byLabel["k3s-flannel-vxlan"].Internal).To(BeTrue())
+	Expect(byLabel["k3s-flannel-vxlan"].Protocol).To(Equal("udp"))
+	Expect(byLabel["k3s-etcd"].Internal).To(BeTrue())
+	Expect(byLabel["k3s-etcd"].PortRange).To(Equal("2379:2380"))
+}
+
+// testPorts is the port list the provisioning tier would have resolved for a
+// config, without the parent-stack inference (which firewall_test.go covers).
+func testPorts(cfg *vm.VmConfig) []vm.PortRange {
+	ports, err := cfg.FirewallPorts()
+	Expect(err).ToNot(HaveOccurred())
+	return ports
 }
 
 // The address every later SSH connection dials is parsed out of a command's stdout,

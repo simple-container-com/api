@@ -271,7 +271,7 @@ func TestByoDriver_MarksHostKeysSecretWhereTheyEnterPulumi(t *testing.T) {
 	cfg.Hosts[0].PrivateKeyPassword = "test-passphrase"
 
 	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
-		hosts, err := byoDriver{}.Hosts(ctx, resourceInput(cfg), cfg, pApi.ProvisionParams{Log: logger.New()})
+		hosts, err := byoDriver{}.Hosts(ctx, resourceInput(cfg), cfg, nil, pApi.ProvisionParams{Log: logger.New()})
 		if err != nil {
 			return err
 		}

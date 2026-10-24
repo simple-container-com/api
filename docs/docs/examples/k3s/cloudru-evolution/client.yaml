@@ -67,10 +67,17 @@ stacks:
         #
         # On Cloud.ru there is a THIRD condition that is not Kubernetes' problem and
         # produces no Kubernetes symptom: the ports have to be open in the project's
-        # security group. The driver opens 80/443 only when `ingress.enable: true` — and
-        # this file wants them WITHOUT the compose Caddy. So with `serviceType:
-        # LoadBalancer` on this cloud, open 80/443 in the console, or leave the Service
-        # on a node port and open the NodePort range. The README spells out both.
+        # security group. SC opens the NodePort range for you (it reads the
+        # `k3s-cluster` resource in the parent stack), but 80/443 only when
+        # `ingress.enable: true` — and this file wants them WITHOUT the compose Caddy.
+        # So with `serviceType: LoadBalancer` on this cloud, add them to the vm
+        # resource explicitly:
+        #
+        #   ingressPorts:
+        #     - preset: http
+        #
+        # or leave the Service on a node port, which already works. The README has
+        # the full table.
         #
         # If an address never arrives, look for a Pending `svclb-<service>` pod before
         # anything else: `kubectl get pods -A | grep svclb`.

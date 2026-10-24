@@ -28,7 +28,16 @@ func (byoDriver) Capabilities() vm.Capabilities {
 	return vm.Drivers[vm.DriverByo].Capabilities
 }
 
-func (byoDriver) Hosts(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig, params pApi.ProvisionParams) ([]HostFacts, error) {
+// Hosts ignores `ports` — and is the reason the interface documents that it may be
+// ignored. There is no cloud here to write a firewall rule in, so the ports are
+// warned about by the caller instead (see Vm in vm.go).
+func (byoDriver) Hosts(
+	ctx *sdk.Context,
+	input api.ResourceInput,
+	cfg *vm.VmConfig,
+	_ []vm.PortRange,
+	params pApi.ProvisionParams,
+) ([]HostFacts, error) {
 	hosts := make([]HostFacts, 0, len(cfg.Hosts))
 	for i, h := range cfg.Hosts {
 		params.Log.Info(ctx.Context(), "vm %q uses byo host %q (user %q)",

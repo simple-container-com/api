@@ -43,6 +43,40 @@ const DefaultInstallScriptURL = "https://get.k3s.io"
 // three to mean anything.
 const APIPort = 6443
 
+// The NodePort range a Kubernetes apiserver allocates `type: NodePort` services
+// from, and the range k3s uses because SC never passes
+// `--service-node-port-range`. Both ends inclusive.
+//
+// They live here rather than in the firewall code that needs them because they are
+// a property of the control plane, not of a cloud: `pkg/clouds/vm` imports this
+// package for the `k3s` entry of a vm resource's `ingressPorts` preset table. That
+// import direction is the reason this package must keep importing nothing from
+// `pkg/clouds/vm` — the name of a vm resource (K3sClusterConfig.VmResource) is all
+// it has ever needed, and widening it to the type would close a cycle.
+const (
+	NodePortRangeStart = 30000
+	NodePortRangeEnd   = 32767
+)
+
+// The ports k3s nodes use to talk to EACH OTHER. Node-to-node only — see
+// vm.PortRange.Internal for why the distinction is per-port and not per-machine.
+//
+// Taken from k3s's own "Inbound Rules for K3s Nodes" and narrowed to the backends
+// SC actually runs: flannel's default VXLAN backend (so no 51820/51821, which are
+// the wireguard-native ones), and embedded etcd, which is what `--cluster-init`
+// gives an HA control plane.
+const (
+	// FlannelVxlanPort carries every packet between pods on different nodes. UDP.
+	FlannelVxlanPort = 8472
+	// KubeletPort serves metrics and `kubectl logs`/`exec`/`port-forward` — which
+	// is also why it must never be public: it reaches into any pod on the node.
+	KubeletPort = 10250
+	// EtcdClientPort and EtcdPeerPort are the embedded etcd of a multi-server
+	// cluster. Contiguous, and used as a range.
+	EtcdClientPort = 2379
+	EtcdPeerPort   = 2380
+)
+
 // The k3s packaged components SC is willing to turn off. k3s accepts `--disable` for
 // each of these; anything else is refused rather than passed through, because a
 // misspelled component name leaves the component RUNNING and k3s says nothing — the
