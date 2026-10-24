@@ -68,6 +68,15 @@ func (b *preEnginePluginBundle) Load(ctx context.Context, specs map[string]api.P
 }
 
 func (b *preEnginePluginBundle) loadOne(ctx context.Context, name string, spec api.PluginSpec) error {
+	// Resolve the binary — either spec.Path verbatim, or fetch from the
+	// release URL + verify sha256. Honours spec.Source for the download path.
+	resolvedPath, err := scPlugin.ResolveBinaryPath(spec, scPlugin.DefaultCacheRoot)
+	if err != nil {
+		return errors.Wrap(err, "resolve plugin binary")
+	}
+	// SHA256 was checked by ResolveBinaryPath for source-driven loads; for
+	// path-driven loads, verify here (verifySHA256 only runs when sha256 is set).
+	spec.Path = resolvedPath
 	if err := verifySHA256(spec); err != nil {
 		return err
 	}
@@ -77,7 +86,7 @@ func (b *preEnginePluginBundle) loadOne(ctx context.Context, name string, spec a
 		Output: os.Stderr,
 	})
 	cli, err := scPlugin.NewClient(scPlugin.ClientConfig{
-		Path:    spec.Path,
+		Path:    resolvedPath,
 		Managed: true,
 		Logger:  hcLog,
 	})
