@@ -62,7 +62,8 @@ func TestCheckZoneVerifiedWithoutValidationTextPointsAtTheConsole(t *testing.T) 
 // TestDnsNameserversAreTheSbercloudPair locks the NS set against a plausible
 // "fix": the hosts are under sbercloud.ru even for an Evolution zone, and every
 // other endpoint in this package is a *.cloud.ru host, so the inconsistency reads
-// like a mistake. It is not — verified live 2026-10-24.
+// like a mistake. It is not — both of Cloud.ru's own Cloud DNS pages name this
+// pair, and both hosts resolved when checked on 2026-10-24.
 func TestDnsNameserversAreTheSbercloudPair(t *testing.T) {
 	RegisterTestingT(t)
 

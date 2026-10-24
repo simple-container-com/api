@@ -66,8 +66,11 @@ const DefaultDnsRecordTtl = 3600
 //
 // Note the domain: `sbercloud.ru`, not `cloud.ru`, and the same pair serves zones
 // on BOTH estates — there is no Evolution-specific nameserver and no
-// `ns1.cloud.ru`. Verified live 2026-10-24: both hosts resolve (37.18.8.44,
-// 37.18.8.88) and answer authoritatively (`flags: qr aa`).
+// `ns1.cloud.ru`. Source: Cloud.ru's own Cloud DNS documentation (the quickstart
+// and the delegation guide, which agree). Both hosts resolved 2026-10-24
+// (37.18.8.44, 37.18.8.88); whether they answer *authoritatively* was not
+// established, because the box this was checked from runs a fake-IP DNS proxy
+// that intercepts `@server` queries and answers them itself.
 //
 // Hardcoded rather than read from the zone, because the zone shape the API
 // publishes has no nameservers field — so this list is the only place in SC that
