@@ -192,11 +192,43 @@ reason: a public zone is authoritative for a real domain, so creating one from a
 either collides with the delegation that exists or produces a second zone nobody's
 nameservers point at.
 
-**Delegation is not checked for you, and an undelegated zone fails silently.** Cloud
-DNS reports a zone's `delegated` / `valid` state rather than refusing records, so a
-record written into a zone whose apex still points its NS elsewhere is **created
-successfully and resolves nowhere**. If a new record never appears in `dig`, check the
-delegation before you check SC.
+#### Getting the zone ready: two gates, in this order
+
+A Cloud DNS zone has to clear **two separate** states before SC can use it, and doing
+them in the wrong order takes the domain down.
+
+**1. Verify the zone (`valid`) — a hard gate.** Cloud DNS **refuses to create records**
+in an unverified zone. Verification is a TXT record at the apex carrying the value from
+the zone's own page in the console, shaped
+`sbc-verification: 4a420000-4700-000d-a0f0-8b71933f0000`. Publish it **where the domain
+resolves today** — i.e. at your registrar or current DNS provider, *not* at Cloud.ru.
+SC pre-checks this and refuses the deploy with the value to publish quoted in the
+error, rather than letting Cloud DNS reject the write for a reason that is nowhere in
+its own message.
+
+**2. Delegate the zone (`delegated`) — a silent one.** Once verification clears (the
+"требуется подтверждение" badge disappears and NS + SOA records appear on the zone
+page), point the domain's nameservers at:
+
+```
+cdns-ns01.sbercloud.ru
+cdns-ns02.sbercloud.ru
+```
+
+Note the domain — **`sbercloud.ru`, not `cloud.ru`**, and the same pair serves zones on
+both Cloud.ru estates. There is no `ns1.cloud.ru`. (The zone shape the API publishes
+carries no nameservers field, so SC cannot read these back from your zone; they are
+constants in `evolution.DnsNameservers`.)
+
+Unlike verification, delegation is **not** enforced: Cloud DNS reports `delegated:
+false` and accepts the write anyway, so a record in an undelegated zone is **created
+successfully and resolves nowhere**. SC warns on it and continues. If a new record
+never appears in `dig`, check the delegation before you check SC.
+
+**Why the order matters.** Verification needs a TXT record served by whoever is
+authoritative now. Switch the NS first and you get a window where Cloud.ru is
+authoritative for the domain, still refuses to hold records for it, and has no way to
+be verified — the domain goes dark and the SC deploy is what fails.
 
 **Multi-valued records** are one recordset with N values, as on `yc-dns` and unlike
 Cloudflare. **`proxied`** has no meaning here and is dropped.

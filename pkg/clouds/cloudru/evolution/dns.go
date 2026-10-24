@@ -61,13 +61,39 @@ const DefaultDnsEndpoint = "https://console.cloud.ru/api/clouddns"
 // report in a diff.
 const DefaultDnsRecordTtl = 3600
 
+// DnsNameservers is the NS set a domain's registrar must point at for Cloud DNS to
+// become authoritative for it.
+//
+// Note the domain: `sbercloud.ru`, not `cloud.ru`, and the same pair serves zones
+// on BOTH estates — there is no Evolution-specific nameserver and no
+// `ns1.cloud.ru`. Verified live 2026-10-24: both hosts resolve (37.18.8.44,
+// 37.18.8.88) and answer authoritatively (`flags: qr aa`).
+//
+// Hardcoded rather than read from the zone, because the zone shape the API
+// publishes has no nameservers field — so this list is the only place in SC that
+// can answer "what do I put at my registrar", and that question is asked while
+// standing in front of exactly the two errors below.
+var DnsNameservers = []string{"cdns-ns01.sbercloud.ru", "cdns-ns02.sbercloud.ru"}
+
 // DnsZone is a zone as the API returns it.
 //
 // `Delegated`, `Valid` and `ValidationText` are the fields worth surfacing in an
-// error: a zone created here is inert until the apex domain's registrar points NS
-// records at Cloud.ru, and the API reports that state rather than refusing the
-// zone. A record written into an undelegated zone is created successfully and
-// resolves nowhere, which is the single most confusing way for this path to fail.
+// error, and they are two DIFFERENT gates that must be passed in a fixed order:
+//
+//  1. `Valid` — the zone is *verified*: the operator published the TXT record in
+//     `ValidationText` (shape `sbc-verification: <uuid>`) at the apex, proving
+//     they control the domain. Cloud DNS **refuses record creation** in a zone
+//     that is not verified, so this one is a hard gate.
+//  2. `Delegated` — the registrar's NS records point at DnsNameservers. The API
+//     reports this state rather than refusing the zone, so a record written into
+//     an undelegated zone is created successfully and resolves nowhere, which is
+//     the single most confusing way for this path to fail.
+//
+// The order matters operationally and not just logically: verification is done
+// while the OLD nameservers are still authoritative, because that is where the
+// operator can publish a TXT record. Switching NS first produces a window in
+// which Cloud DNS is authoritative for the domain and still refuses to hold any
+// records for it — i.e. the domain goes dark, and SC's own deploy is what fails.
 type DnsZone struct {
 	ID       string `json:"id,omitempty"`
 	Name     string `json:"name,omitempty"`
@@ -380,12 +406,34 @@ func (c *Client) resolveZone(ctx context.Context, spec DnsRecordSpec) (*DnsZone,
 	}
 	if !found {
 		return nil, errors.Errorf("cloud.ru DNS zone %q was not found under service instance %q. "+
-			"The zone is looked up and never created by a deploy — create it in the console (Cloud DNS → Зоны) "+
-			"and delegate the apex domain's NS records to Cloud.ru first. Note `parentId` is the Cloud DNS "+
-			"SERVICE INSTANCE id, not the project id: a project id here lists an empty set of zones, which "+
-			"looks identical to having none", spec.ZoneName, spec.ParentID)
+			"The zone is looked up and never created by a deploy — create it in the console (Cloud DNS → Зоны), "+
+			"verify it with the TXT record the zone page shows, then point the domain's registrar at %s. "+
+			"Note `parentId` is the Cloud DNS SERVICE INSTANCE id, not the project id: a project id here lists "+
+			"an empty set of zones, which looks identical to having none",
+			spec.ZoneName, spec.ParentID, strings.Join(DnsNameservers, " and "))
 	}
 	return zone, nil
+}
+
+// checkZoneVerified refuses a write into an unverified zone.
+//
+// Worth a pre-check rather than letting the write fail, for two reasons. The API
+// rejects the create itself, so without this the operator gets Cloud DNS's own
+// error for a cause that is nowhere in it; and the remedy is a value only the zone
+// carries, which this is the one place holding it.
+func checkZoneVerified(zone *DnsZone) error {
+	if zone.Valid {
+		return nil
+	}
+	hint := "the zone page in the console shows the value to publish"
+	if zone.ValidationText != "" {
+		hint = errors.Errorf("publish this TXT record at the apex of %s: %q", zone.Name, zone.ValidationText).Error()
+	}
+	return errors.Errorf("cloud.ru DNS zone %q (id %s) is not verified yet (valid=false), and Cloud DNS refuses "+
+		"to create records in an unverified zone — so this is not something a retry fixes. To verify it, %s. "+
+		"Do this BEFORE moving the domain's NS records to %s: verification needs a TXT record published where "+
+		"the domain resolves TODAY, which is the registrar or the current DNS provider, not Cloud.ru",
+		zone.Name, zone.ID, hint, strings.Join(DnsNameservers, " and "))
 }
 
 // ApplyDnsRecord converges one record set: create when absent, patch when present.
@@ -410,6 +458,9 @@ func (c *Client) ApplyDnsRecord(ctx context.Context, req Request, progress func(
 
 	zone, err := c.resolveZone(ctx, spec)
 	if err != nil {
+		return nil, err
+	}
+	if err := checkZoneVerified(zone); err != nil {
 		return nil, err
 	}
 	name := dnsRecordName(spec.Name, zone.Name)
@@ -437,7 +488,8 @@ func (c *Client) ApplyDnsRecord(ctx context.Context, req Request, progress func(
 
 	if !zone.Delegated {
 		progress("WARNING: cloud.ru DNS zone %q reports delegated=false — the record exists but will not "+
-			"resolve until the domain's registrar points its NS records at Cloud.ru", zone.Name)
+			"resolve until the domain's registrar points its NS records at %s",
+			zone.Name, strings.Join(DnsNameservers, " and "))
 	}
 
 	return &Result{
