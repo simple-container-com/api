@@ -37,14 +37,29 @@ import (
 // The zone is NOT resolved here, unlike the Yandex registrar, which looks its zone up
 // at plan time. There is nothing to look it up with: a lookup is a REST call, and this
 // tier may not make one. The zone is therefore resolved inside each command, against
-// the same credentials — which also means a misconfigured `parentId` surfaces on the
-// first record rather than on the plan. The config's Validate catches the shape of the
-// mistake; only the cloud can catch the value.
+// the same credentials — which also means a misconfigured `projectId` or `zoneId`
+// surfaces on the first record rather than on the plan. The config's Validate catches
+// the shape of the mistake; only the cloud can catch the value.
+//
+// One Cloud DNS property leaks into this tier and is worth knowing before reading
+// NewRecord: a record is not addressable on that API, so applying one is a
+// read-modify-write of the zone's entire record array (evolution.ApplyDnsRecord). Two
+// records provisioned concurrently would each write the array they read, and the
+// loser's record would vanish. ProvisionRecords therefore builds them in sequence,
+// and each command re-reads the zone when it runs.
 type registrar struct {
 	provider sdk.ProviderResource
 	config   *cloudru.DnsRegistrarConfig
 	creds    evolution.Credentials
 	log      logger.Logger
+
+	// lastRecord is the previously-created record command, and every new one
+	// depends on it. This is a correctness requirement, not tidiness: see the
+	// read-modify-write note above. Pulumi runs sibling resources concurrently by
+	// default, so without this chain two records in one zone race and the deploy
+	// reports green having written only one of them — the classic shape of "the
+	// record was there a minute ago".
+	lastRecord sdk.Resource
 }
 
 // Registrar builds the Cloud.ru Cloud DNS registrar for a server.yaml `registrar:`
@@ -64,8 +79,8 @@ func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.Pro
 		return nil, err
 	}
 
-	params.Log.Info(ctx.Context(), "configure cloud.ru DNS registrar for zone %q (service instance %q)...",
-		cfg.ZoneName, lo.If(cfg.ZoneID != "", "by zoneId "+cfg.ZoneID).Else(cfg.ParentID))
+	params.Log.Info(ctx.Context(), "configure cloud.ru DNS registrar for zone %q (%s)...",
+		cfg.ZoneName, lo.If(cfg.ZoneID != "", "by zoneId "+cfg.ZoneID).Else("by name in project "+cfg.ProjectID))
 
 	return &registrar{
 		provider: params.Provider,
@@ -119,12 +134,14 @@ func (r *registrar) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.R
 	// the IAM key secret.
 	buildSpec := func(target string) evolution.DnsRecordSpec {
 		return evolution.DnsRecordSpec{
-			ParentID: r.config.ParentID,
-			ZoneName: r.config.ZoneName,
-			ZoneID:   r.config.ZoneID,
-			Name:     dnsRecord.Name,
-			Type:     recordType,
-			TTL:      r.config.EffectiveRecordTtl(),
+			// The lookup scope is the ordinary Evolution project id, carried on the
+			// auth entry. Cloud DNS has no scope of its own.
+			ProjectID: r.creds.ProjectID,
+			ZoneName:  r.config.ZoneName,
+			ZoneID:    r.config.ZoneID,
+			Name:      dnsRecord.Name,
+			Type:      recordType,
+			TTL:       r.config.EffectiveRecordTtl(),
 			// One record set holds every value for a name+type, so a multi-valued
 			// record is one resource here. SC's DnsRecord carries a single value, so
 			// this is a one-element list until something needs more.
@@ -158,6 +175,11 @@ func (r *registrar) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.R
 	applyScript := scScript("cloudru", "dns-record", "apply")
 	destroyScript := scScript("cloudru", "dns-record", "destroy")
 
+	opts := []sdk.ResourceOption{sdk.Provider(r.provider)}
+	if r.lastRecord != nil {
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{r.lastRecord}))
+	}
+
 	cmd, err := local.NewCommand(ctx, dnsRecordResourceName(dnsRecord.Name, recordType), &local.CommandArgs{
 		Create: sdk.String(applyScript),
 		// Update is the same script, not absent: without it pulumi-command treats any
@@ -178,10 +200,11 @@ func (r *registrar) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.R
 		Stdin:                  sdk.ToSecret(requestJSON).(sdk.StringOutput).ToStringPtrOutput(),
 		Logging:                local.LoggingNone.ToLoggingPtrOutput(),
 		AddPreviousOutputInEnv: sdk.Bool(false),
-	}, sdk.Provider(r.provider))
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to configure cloud.ru DNS %s record %q", recordType, dnsRecord.Name)
 	}
+	r.lastRecord = cmd
 	return &api.ResourceOutput{Ref: cmd.ID()}, nil
 }
 

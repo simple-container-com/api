@@ -146,14 +146,19 @@ For the full YC parent-stack shape and destroy hazards, see
 For zones hosted on **Cloud.ru Evolution**'s Cloud DNS. Same role as `yc-dns`: SC
 writes the records a service's `domain:` needs into a zone that already exists.
 
-> **Implemented but not yet smoked end to end.** The routes and field names are a
-> faithful transcription of Cloud.ru's published API reference, not measurements
-> against a live project — the service-account key this driver was built with lacks
-> the Cloud DNS role, and every call answers
-> `403 {"code":7,"message":"permission denied: invalid scopes"}`. Expect the first
-> live use to correct something, and read `pkg/clouds/cloudru/evolution/dns.go`'s
-> header for the three most likely candidates. Everything else on Cloud.ru —
-> Container Apps, both VM drivers, k3s — is live-verified; this one is not.
+> **Measured against a live zone on 2026-10-24**, and the measurement corrected most
+> of what this page used to say. The previous version was a faithful transcription of
+> Cloud.ru's published API reference — wrong host, a `parentId` scope that does not
+> exist, per-record endpoints that do not exist, and a zone-verification step that is
+> not part of this product. If you are holding an older copy of this guide, or a
+> Cloud.ru doc page that does not say which estate it describes, prefer what is
+> written here.
+>
+> The registrar itself was then **smoked end to end on the same day** against a real
+> delegated zone: create, an idempotent re-apply that writes nothing, a TTL change, a
+> second record that leaves the first alone, a selective destroy, and a destroy of an
+> already-absent record. Each step was confirmed by resolving the name on the public
+> internet, not just by reading the API back.
 
 ```yaml
 # server.yaml
@@ -163,45 +168,32 @@ resources:
       type: cloudru-dns
       config:
         # The Evolution service-account key — the same credential the Container App
-        # and VM drivers use. Written VERBATIM: `${secret:...}` is not expanded
-        # inside an auth block, and SC refuses an unexpanded placeholder rather
-        # than letting IAM reject it mid-deploy.
+        # and VM drivers use, and the same `projectId`. Written VERBATIM:
+        # `${secret:...}` is not expanded inside an auth block, and SC refuses an
+        # unexpanded placeholder rather than letting IAM reject it mid-deploy.
         credentials: "${auth:cloudru}"
         # The zone as it appears in a domain name.
         zoneName: simple-forge.ru
-        # PREFER this: the zone's own id, which is the path segment of its console
-        # URL — /spa/dns/zones/public/<zoneId>/edit. Needs nothing else.
+        # Optional. The zone's own id — the path segment of its console URL,
+        # /spa/dns/zones/public/<zoneId>/edit. Without it the zone is looked up by
+        # name inside the auth entry's projectId.
         zoneId: "11111111-2222-3333-4444-555555555555"
-        # Alternative to zoneId: scope a lookup-by-name to a Cloud DNS parent.
-        # Only one of the two is required — see the warning below before reaching
-        # for this one.
-        # parentId: "..."
-        # Optional, default 3600. Cloud DNS has no automatic-TTL sentinel.
+        # Optional. Honoured by the API; defaults to 300 when unset, because an
+        # omitted TTL is stored as a literal 0 rather than a platform default.
         # recordTtl: 300
 ```
 
-> **Use `zoneId`, not `parentId`.** Open the zone in the console and the id is right
-> there in the URL path: `/spa/dns/zones/public/<zoneId>/edit`. It identifies the zone
-> outright, so no lookup — and no parent scope — is needed.
->
-> **`parentId` is the one value here we cannot tell you how to find.** It scopes a
-> lookup *by name*, and a wrong value **does not fail**: Cloud DNS returns an *empty
-> set of zones*, which is indistinguishable from a parent that has no zones. An
-> earlier version of this page said it was a "Cloud DNS service instance id, visible
-> at `console.cloud.ru/spa/cloud-dns/<parentId>`" — that URL shape does not exist. A
-> real zone URL exposes a zone id, a `customerId` and a `projectId`, and no fourth
-> id; which of those `parentId` wants has never been established, because every Cloud
-> DNS call from a service account without the DNS role answers `403` regardless of
-> the value. So reach for `zoneId` and sidestep the question.
-> `sc cloudru dns-record apply` prints the zones it can see when a lookup comes up
-> empty.
+There is **no DNS-specific scope to configure**. A lookup by name is scoped to the
+ordinary Evolution `projectId` already on the auth entry; set `zoneId` as well when a
+project holds several zones, because a lookup scoped to the wrong project does not
+fail — it finds nothing, which looks exactly like a project with no zones.
 
 **The zone is looked up, never created** — the same rule as `yc-dns`, and for the same
 reason: a public zone is authoritative for a real domain, so creating one from a deploy
 either collides with the delegation that exists or produces a second zone nobody's
 nameservers point at.
 
-#### Getting the zone ready: delegation, and maybe verification
+#### Getting the zone ready: delegation only
 
 **Point the domain's nameservers at the pair your zone publishes.** Open the zone in the
 console and read the **NS-серверы** field — for an Evolution zone that is:
@@ -216,42 +208,113 @@ Cloud.ru estates do not share nameservers and the documentation mostly does not 
 which estate it is describing. Cloud.ru's Cloud DNS quickstart and delegation guide both
 name `cdns-ns01/cdns-ns02.sbercloud.ru` — that is the **Advanced** (ex-SberCloud) estate.
 An Evolution zone publishes the `evo-` pair above, which is a genuinely different
-network (`94.158.23.11` / `94.158.23.22`, against `37.18.8.44` / `37.18.8.88`). SC keeps
-the Evolution pair in `evolution.DnsNameservers` as a fallback and prefers your zone's
-own list when the API returns one.
+network (`94.158.23.11` / `94.158.23.22`, against `37.18.8.44` / `37.18.8.88`).
 
-Delegation is **not enforced**: Cloud DNS reports `delegated: false` and accepts the
-write anyway, so a record in an undelegated zone is **created successfully and resolves
-nowhere**. SC warns on it and continues — but only when the API affirmatively says
-`false`, so a silent API does not produce a warning on every deploy. If a new record
-never appears in `dig`, check the delegation before you check SC.
+**There is no verification step, and nothing to check delegation with.** An Evolution
+zone carries no `valid`, `validationText` or `delegated` field — it reports `state`
+(`ok` on a working zone) and an always-empty `confirmState`, and it is authoritative the
+moment it exists. Earlier versions of this driver gated the deploy on `valid` and warned
+on `delegated`; both fields were transcribed from a reference describing the other
+estate, and against the real API the gate would have refused **every** write while
+instructing you to publish a TXT record that does not exist.
 
-**Zone verification (`valid`) may not apply on Evolution.** The API reference documents
-`valid` / `validationText` — a TXT record at the apex carrying a value shaped
-`sbc-verification: <uuid>`, proving you control the domain, with Cloud DNS refusing
-record creation until it clears. An Evolution zone created in the console on 2026-10-24
-went straight to **Активен** with its NS pair published and **no verification value
-anywhere on the page**, which is the DNS-hosting model rather than the
-domain-verification one. So this is likely another Advanced-estate concept in shared
-documentation.
+So SC cannot tell you whether your domain is actually delegated — check it yourself
+before blaming the deploy:
 
-SC handles both worlds by acting only on what the API actually says: it refuses the
-deploy — quoting the value to publish — when a zone comes back `valid: false`, and
-proceeds normally when the field is simply absent. **If your zone page does show a
-verification value, publish it before you move the nameservers.** Verification needs a
-TXT record served by whoever is authoritative *now*; switch NS first and you get a window
-where Cloud.ru is authoritative for the domain, still refuses to hold records for it, and
-cannot be verified — the domain goes dark and the SC deploy is what fails.
+```bash
+dig +short NS simple-forge.ru @1.1.1.1
+```
 
-**Multi-valued records** are one recordset with N values, as on `yc-dns` and unlike
-Cloudflare. **`proxied`** has no meaning here and is dropped.
+A record written into a zone the domain is not delegated to is created successfully and
+resolves nowhere. That is the normal failure here, and `dig` is the only thing that sees
+it.
+
+#### Three API behaviours worth knowing before you debug one
+
+**A record is not addressable, so applying one rewrites the whole zone.** Cloud DNS has
+no record endpoint at any spelling: records are an array on the zone, and the only write
+is a `PATCH` that **replaces that array wholesale**. SC therefore reads the zone, merges
+one record set, and writes everything back — and provisions records one after another
+rather than in parallel, because two concurrent read-modify-writes would each persist
+the array they read and the loser's record would simply be gone. If you drive the API by
+hand, a `PATCH` carrying your one record **deletes every other record in the zone**.
+
+**Writes are asynchronous, a zone reads back empty while one is in flight, and
+`done: true` does not mean it converged.** A `PATCH` answers `200` with a long-running
+operation; poll `GET /v1/operations/{id}` until `done`. Read the zone before that and
+you get `records: []` — which looks exactly like the write having wiped it. Two
+separate false "the records got wiped" conclusions were reached before SC polled.
+
+The sharper hazard is on the other side of `done`. A `PATCH` issued while a previous
+write is still settling **silently discards records** — measured twice on 2026-10-24:
+a two-record write landed one record, and the next two-record write landed none,
+emptying the zone. Both operations reported `done: true` with an empty `error`, and
+the zone was still empty 80 seconds later, so this is lost data and not a stale read.
+The same three-record write, issued after a ~30 s quiet period, applied perfectly.
+
+So SC does not trust the operation's verdict: after it reports `done` the zone is
+re-read until it holds what was written, the `PATCH` is re-issued once if it does not,
+and a write that still has not landed is a **loud error** rather than a green deploy
+over a damaged zone. If you drive the API by hand, leave a pause between writes to the
+same zone, and read the zone back before believing a `done`.
+
+**`ttl` is honoured, but there is no "automatic" value.** A record written with `900`
+reads back as `900` and is served with it. Omitting the field stores a literal `0`
+rather than substituting a platform default, so SC always sends a TTL — `recordTtl`,
+or 300 when unset. (An earlier measurement on the same day read `ttl: 0` back and
+concluded the field was ignored; that record had been created without a TTL, and the
+wrong conclusion made a TTL-only change a silent no-op for one build.)
+
+#### Record names are relative, not fully-qualified
+
+Cloud DNS stores a record name as a label **relative to the zone** and rejects a
+fully-qualified one. SC converts, so write the name whichever way is natural
+(`api.simple-forge.ru` and `api` both reach the API as `api`), but the conversion is
+worth knowing when reading an error or the console:
+
+| You write | Reaches the API as |
+|---|---|
+| `api.simple-forge.ru` or `api` | `api` |
+| `simple-forge.ru`, `@`, or empty | `""` — the apex is the **empty string** |
+| `*.simple-forge.ru` | refused; a wildcard is a flag on the record, not a `*` in the name |
+
+Record **types are lowercase on the wire** (`a`, not `A`) — SC lowercases them. The
+API's own refusal of an uppercase type is `must be a valid value`, which does not read
+as a casing problem.
+
+**Multi-valued records** are one record set with N values, as on `yc-dns` and unlike
+Cloudflare. **`proxied`** has no meaning here and is dropped: on Cloud.ru, TLS is
+terminated by whatever the record points at (Caddy on a `vm`, the Container App's own
+platform certificate), so a record is only ever a record.
 
 A standalone CLI exists for working on records without a deploy:
 
 ```bash
-sc cloudru dns-record apply    # create/update
+sc cloudru dns-record apply    # create-or-update, reading the spec on stdin
 sc cloudru dns-record destroy
 ```
+
+#### If you get a 403 from Cloud DNS, check the host before the role
+
+`403 {"code":7,"message":"permission denied: invalid scopes"}` from Cloud DNS is almost
+certainly **the wrong host**, not a missing permission — and it is unaffected by any
+amount of role granting, which is how it consumed a day of this driver's development.
+`console.cloud.ru/api/clouddns` is the console's own BFF: it has the right-looking routes
+and authenticates browser sessions, so a perfectly good service-account token is refused
+there forever. The API is `https://dns.api.cloud.ru`, an `*.api.cloud.ru` host like every
+other Cloud.ru endpoint SC uses.
+
+Two cheap controls separate a credential problem from a routing one:
+
+- **Drop the token.** `dns.api.cloud.ru` answers an unauthenticated request with
+  `403 RBAC: access denied` from its envoy filter. If your token turns that into a
+  `404`, the token is fine and the path is wrong.
+- **Read which layer answered.** `{"error_msg":"404 Not Found"}` is the gateway — no such
+  route. `{"code":5,"message":"Not Found","details":[]}` is a real backend — the route
+  exists and the resource does not.
+
+The role itself is `cdns.admin` (or `cdns.user` for read-only), granted per project
+under **Роли в проектах** for the service account.
 
 ### Which registrars exist today
 
@@ -259,7 +322,7 @@ sc cloudru dns-record destroy
 |---|---|---|
 | `cloudflare` | Cloudflare | live, the default on `.com` zones |
 | `yc-dns` | Yandex Cloud DNS | live |
-| `cloudru-dns` | Cloud.ru Evolution Cloud DNS | implemented, **not smoked** (above) |
+| `cloudru-dns` | Cloud.ru Evolution Cloud DNS | live — smoked against a delegated zone 2026-10-24 (above) |
 
 A cloud with no registrar entry here does not mean no DNS — it means you create the
 record yourself. On a `vm`/k3s stand that is an A record at the machine's address,

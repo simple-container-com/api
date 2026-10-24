@@ -1523,41 +1523,49 @@ resources:
       config:
         keyId: 01234567-89ab-cdef-0123-456789abcdef
         keySecret: "<verbatim>"
-        projectId: 01234567-89ab-cdef-0123-456789abcdef
+        projectId: 01234567-89ab-cdef-0123-456789abcdef   # also the zone-lookup scope
         zoneName: example.ru          # as it appears in a domain
-        zoneId: 01234567-89ab-...     # from .../dns/zones/public/<zoneId>/edit
-        # parentId: ...               # alternative: scopes a lookup by name
-        recordTtl: 300
+        zoneId: 01234567-89ab-...     # optional: from .../dns/zones/public/<zoneId>/edit
+        # recordTtl: 300              # honoured; defaults to 300 when unset — see below
         dnsRecords:
-          - name: api.example.ru
+          - name: api.example.ru      # relative on the wire; the apex is an empty name
             type: A
             value: 203.0.113.10
 ```
 
-> **Use `zoneId`, not `parentId`.** Open the zone in the console and the id is the
-> path segment of the URL: `/spa/dns/zones/public/<zoneId>/edit`. It identifies the
-> zone outright, so neither a lookup nor a parent scope is needed.
->
-> **`parentId` is the one value here we cannot tell you how to find**, and a wrong
-> one is the single most expensive mistake on this cloud because it does not fail:
-> Cloud DNS answers a list scoped to an unrelated parent with an **empty set**,
-> indistinguishable from a parent that has no zones. An earlier version of this page
-> called it a "Cloud DNS service-instance id, in the console URL of the service
-> instance" — that URL shape does not exist. A real zone URL carries a zone id, a
-> `customerId` and a `projectId`, and no fourth id; which of them `parentId` wants
-> has never been established, because every Cloud DNS call from an account without
-> the DNS role answers `403` whatever the value. `sc cloudru dns-record apply`
-> prints the zones it *can* see when a lookup comes up empty.
+Set `zoneId` when a project holds several zones. Without it the zone is found by
+name inside `projectId`, and a lookup scoped to the wrong project **does not fail** —
+it finds nothing, which is indistinguishable from a project with no zones. There is no
+DNS-specific scope: an earlier version of this page described a `parentId` for a "Cloud
+DNS service instance", which the real API does not have.
 
 The zone is **looked up and never created**, for the same reason as the Yandex
 registrar: a public zone is authoritative for a real domain, so creating one from
 a deploy either collides with the delegation that already exists or produces a
-second zone nobody's nameservers point at. `zoneName` is checked against the zone
-actually found.
+second zone nobody's nameservers point at. `zoneName` is matched against the zone's
+`domain` — **not** its `name`, which the console slugs (`example.ru.` is stored with
+`name: example-ru`).
 
-Cloud DNS has no automatic-TTL sentinel (unlike Cloudflare's `ttl: 1`), so some
-number is always picked; `recordTtl` sets it for every record this registrar
-writes.
+Delegate the domain to `evo-cns01.cloud.ru` and `evo-cns02.cloud.ru` before expecting a
+record to resolve. There is no verification step and nothing to check delegation with:
+an Evolution zone has no `valid`, `validationText` or `delegated` field, only a `state`
+and an always-empty `confirmState`, and it is authoritative as soon as it exists. Verify
+with `dig NS` yourself.
+
+Four measured behaviours shape how this registrar writes (details and the API-level
+reasoning in [DNS Management](../guides/dns-management.md#4-cloudru-cloud-dns-registrar-cloudru-dns)):
+
+| Behaviour | Consequence |
+|---|---|
+| A record is **not addressable**; a `PATCH` replaces the zone's whole record array | SC reads the zone, merges, writes it all back, and provisions records **serially** — parallel writes would lose one |
+| Writes are **asynchronous**, and the zone reads back `records: []` mid-flight | SC polls the operation; reading too early looks exactly like the write having wiped the zone |
+| **`done: true` is not convergence** — a write issued while the previous one settles silently discards records, up to emptying the zone, and still reports success | SC re-reads the zone after `done`, re-issues the write once, and **errors loudly** rather than reporting a green deploy over a damaged zone |
+| `ttl` is **honoured**, but an omitted one is stored as a literal `0` rather than defaulted | SC always sends a TTL — `recordTtl`, or 300 when unset |
+
+Record names are **relative to the zone** on the wire and a fully-qualified one is
+refused; SC converts, so `api.example.ru` and `api` both arrive as `api`, and the apex
+(`example.ru`, `@`, or empty) arrives as the empty string. A wildcard is a flag on the
+record, not a `*` in the name. Types are lowercase on the wire; SC lowercases them.
 
 ### **Container Registry** (Artifact Registry, auto-created)
 
@@ -1574,7 +1582,7 @@ service-account key pair, not a separate one.
 | Container Apps (`cloudru-container-app`) | smoke-tested live |
 | `vm` + `vm-compose`, both drivers | smoke-tested live, including a VM SC created itself |
 | `vm` + `k3s-cluster` + `k3s-cloudrun` | smoke-tested live |
-| `cloudru-dns` | implemented, **not** exercised end to end — the service account needs a Cloud DNS role and an apex has to be delegated to Cloud.ru |
+| `cloudru-dns` | smoke-tested live against a delegated apex (2026-10-24) — create, idempotent re-apply, TTL change, a second record, selective destroy, each confirmed by public resolution. The service account needs the `cdns.admin` role in the project |
 | Custom domain on a Container App | needs `cloudExtras.certificateId`; untested |
 | Advanced: SWR registry, EVS CSI for k3s | bridged in the provider, not wired into SC |
 
