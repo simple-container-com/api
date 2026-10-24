@@ -16,13 +16,15 @@ everything above SSH had already been proven live on a machine made by hand.
 Cloud.ru sells two unrelated estates, with different APIs and different credentials. A
 key pair from one does not authenticate against the other.
 
-| | Driver | Why |
+| | Driver | How SC reaches it |
 |---|---|---|
 | **Advanced** (ex-SberCloud) | `cloudru-vm` — this example | its Terraform provider (`sbercloud-terraform/terraform-provider-sbercloud`, MPL-2.0) has open Go sources, so it is bridged into Pulumi the classic way (`simple-container-com/pulumi-sbercloud`) |
-| **Evolution** | none | its provider (`cloud-ru/evo-terraform`) ships as a binary only; it cannot be statically bridged |
+| **Evolution** | `cloudru-evolution-vm` — [that example](../cloudru-evolution/README.md) | its provider (`cloud-ru/evo-terraform`) ships as a binary only, so that driver talks to Cloud.ru's public REST API instead of riding a provider at all |
 
-If your console says "Evolution", this example does not apply — use `provider: byo`
-against a machine you create there.
+**If your console says "Evolution", this example does not apply** — the credentials
+are different (a service-account key, not an access/secret pair), there are no regions,
+and the cloud runs no cloud-init. Go to
+[Compose on a Machine SC Creates in Cloud.ru Evolution](../cloudru-evolution/README.md).
 
 ## Files
 

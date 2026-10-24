@@ -14,8 +14,10 @@ schemaVersion: 1.0
 #   - **Advanced** (ex-SberCloud) — this driver. Its Terraform provider has open Go
 #     sources, so it is bridged into Pulumi the classic way
 #     (`simple-container-com/pulumi-sbercloud`).
-#   - **Evolution** — a different API with different credentials, whose provider ships
-#     as a binary only. Not supported; a key pair from one estate does not
+#   - **Evolution** — a different API with different credentials. Its provider ships as
+#     a binary only, so `cloudru-evolution-vm` talks to Cloud.ru's public REST API
+#     instead of riding a provider at all. See ../cloudru-evolution/server.yaml; it has
+#     no regions and no cloud-init, and a key pair from one estate does not
 #     authenticate against the other.
 #
 # `fs` + `passphrase` keep this example runnable with nothing but the Cloud.ru account:

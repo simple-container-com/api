@@ -73,9 +73,44 @@ resources:
               email: ops@example.com
 ```
 
-Cloud.ru sells two unrelated estates. This driver is **Advanced** (ex-SberCloud), whose
-Terraform provider has open sources; **Evolution** is a different API with different
-credentials and no driver — use `provider: byo` there.
+### [A Machine SC Creates in Cloud.ru Evolution (`cloudru-evolution-vm`)](cloudru-evolution/README.md)
+
+The other Cloud.ru estate, and a different API end to end: a service-account key instead
+of a Keystone pair, **no regions at all**, and **no cloud-init** — so docker is installed
+over SSH after the machine exists, and the SSH host key is the one thing you pin by hand.
+
+**Use case:** the same single-machine deployment in Russia, on the estate most Cloud.ru
+projects are actually on today.
+
+```yaml
+# .sc/stacks/mycompany/server.yaml  (excerpt — the template block is unchanged)
+        portal-vm:
+          type: vm
+          config:
+            provider: cloudru-evolution-vm
+            credentials: ${auth:cloudru}
+            # No `region:` — this cloud has none, and the field is refused.
+            zones: [ru.AZ-1]
+            publicIP: true
+            image: ubuntu-2404-lts
+            size: {cores: 2, memory: 4Gi, disk: 40Gi}
+            # hostKey: "45.132.179.77 ssh-ed25519 AAAAC3Nza…"   # pin after first provision
+            ingress:
+              enable: true
+              email: ops@example.ru
+```
+
+**Cloud.ru sells two unrelated estates under one brand**, and which one you are on
+decides the driver, the credential and whether `region:` is legal. A key pair from one
+does not authenticate against the other.
+
+| | **Advanced** (ex-SberCloud) | **Evolution** |
+|---|---|---|
+| driver | `cloudru-vm` | `cloudru-evolution-vm` |
+| credential | Keystone access key + secret | service-account key id + secret |
+| regions | `region: ru-moscow-1` required | **none** — `region:` refused |
+| cloud-init | yes (SC pins the host key itself) | no (`hostKey:` is yours to pin) |
+| your own network / security group | SC creates both | refused — the zone's defaults |
 
 ## How the pieces divide up
 
@@ -97,3 +132,5 @@ description.
 
 - [Shipping Images Without a Registry](../../reference/image-ship-command.md) — the
   `sc image ship` command behind `imageDelivery: ssh-tar`.
+- [k3s on the same machines](../k3s/index.md) — when the workload wants a Kubernetes API
+  rather than a compose project. Both Cloud.ru machines above can run one.

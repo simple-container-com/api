@@ -320,6 +320,29 @@ func TestValidateCloudAcceptsHostKeyWhereCloudInitIsImpossible(t *testing.T) {
 	Expect(cfg.Validate().Error()).To(ContainSubstring("requires `publicIP: true`"))
 }
 
+// The same capability, read the other way round. `extraSshKeys` is honoured by
+// writing the keys into user-data, so a cloud that accepts no user-data must refuse
+// the field rather than take it and drop it — the failure mode otherwise is an
+// operator who believes they can still log in during an incident and discovers in
+// the incident that they cannot.
+func TestValidateCloudRefusesExtraSshKeysWithoutCloudInit(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := cloudConfig()
+	cfg.ExtraSshKeys = []string{"ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample ops@example.com"}
+
+	// cloudConfig() is `cloudru-vm`, which does run cloud-init: accepted there.
+	Expect(Drivers[cfg.Driver].Capabilities.CloudInit).To(BeTrue())
+	Expect(cfg.Validate()).ToNot(HaveOccurred())
+
+	cfg.Driver = DriverCloudruEvolution
+	cfg.Region = "" // regionless — see TestValidateCloudRegionFollowsTheCapability
+	Expect(cfg.Validate().Error()).To(ContainSubstring("`extraSshKeys` is not valid"))
+
+	cfg.ExtraSshKeys = nil
+	Expect(cfg.Validate()).ToNot(HaveOccurred())
+}
+
 // CredentialsValue must not become a dumping ground for the config: with `byo` the
 // config holds host private keys, and this value exists to be handed to other code.
 // yandex.AccountConfig serialises itself as a fallback; doing that here would mean

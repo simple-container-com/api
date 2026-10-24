@@ -499,6 +499,20 @@ func (r *VmConfig) validateCloud(drv DriverInfo) error {
 			DriverByo, r.Driver,
 		)
 	}
+	// The mirror of the `hostKey` rule above, and keyed off the same capability for
+	// the same reason. Extra keys are authorised by writing them into user-data
+	// (cloudinit.go: authorized = deploy key + ExtraSshKeys), so on a cloud that
+	// accepts none there is nowhere to put them — the create call takes exactly one
+	// public key, the deploy key SC generates. Accepted and dropped, this would be
+	// the worst kind of dead config: an operator certain they can still reach the
+	// machine during an incident, finding out in the incident that they cannot.
+	if len(r.ExtraSshKeys) > 0 && !drv.Capabilities.CloudInit {
+		return errors.Errorf(
+			"`extraSshKeys` is not valid with `provider: %s`: this cloud runs no cloud-init and its VM create "+
+				"takes exactly one public key (the deploy key SC generates), so there is nowhere to authorise "+
+				"another one. Add the key to the machine yourself, or keep console access for incidents",
+			r.Driver)
+	}
 	// Required on a region-scoped cloud, and REFUSED on one that has no regions —
 	// not merely optional there. A `region:` that SC silently drops would read as
 	// placement the operator controlled, and this package treats an ignored field

@@ -47,6 +47,42 @@ resources:
             vmResource: cluster-vm
 ```
 
+### [k3s on a Cloud.ru Machine SC Creates (`cloudru-evolution-vm`)](cloudru-evolution/README.md)
+
+The same two resources, except SC creates the machine too: `sc provision` makes the VM
+in Cloud.ru Evolution, installs docker and k3s on it, and exports the kubeconfig. The
+only console step left is pinning the host key — this cloud runs no cloud-init, so SC
+cannot seed one.
+
+**Use case:** a Kubernetes stand in a Russian cloud, end to end from config.
+
+```yaml
+# .sc/stacks/mycompany/server.yaml  (excerpt)
+        cluster-vm:
+          type: vm
+          config:
+            provider: cloudru-evolution-vm
+            credentials: ${auth:cloudru}
+            zones: [ru.AZ-1]        # no `region:` — this cloud has none
+            publicIP: true
+            image: ubuntu-2404-lts
+            size: { cores: 2, memory: 4Gi, disk: 40Gi }
+
+        ru-cluster:
+          type: k3s-cluster
+          config:
+            vmResource: cluster-vm
+```
+
+Measured end to end on 2026-10-24: `sc provision` 7 m 33 s from nothing to
+`all nodes ready`. One caveat it is better to read before the smoke than during it —
+the Cloud.ru driver opens only 22 (plus 80/443 with `ingress`), so **6443 and the
+NodePort range are added by hand today**, and the symptom of not doing so is a green
+deploy that times out from outside. The example's README spells out which rules.
+
+`provider: cloudru-vm` (the Advanced / ex-SberCloud estate) is the same file with a
+different credential type and `region: ru-moscow-1` required rather than refused.
+
 ## How the pieces divide up
 
 The machine is described by a `vm` resource — the same one the
@@ -57,7 +93,7 @@ references the one below it **by name**, which is the split `gcp-gke-autopilot` 
 
 | Belongs to the `vm` resource | Belongs to `k3s-cluster` | Belongs to the `k3s-cloudrun` template |
 |---|---|---|
-| `provider`, `hosts`, `sshUser` | `vmResource` | `k3sClusterResource` |
+| `provider`, `hosts`/`credentials`, `sshUser` | `vmResource` | `k3sClusterResource` |
 | `region`, `zones`, `image`, `size` | `version`, `endpoint`, `tlsSans` | `dockerRegistryURL` / username / password |
 | `ingress` (one machine, one port 443) | `disable`, `extraServerArgs` | `caddyResource`, `useSSL` |
 
