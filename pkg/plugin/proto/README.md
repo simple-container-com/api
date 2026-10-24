@@ -39,36 +39,35 @@ is the long-term fit; v1 is a single `ProtocolVersion` integer.
 Field numbers in each message are **permanent** once they land on `main`. Deleted
 fields are moved to `reserved <n>;` so nothing else reuses them.
 
-## Not in this PR
-
-This PR intentionally ships **only the `.proto` file**. The generated Go lives in a
-follow-up PR along with the `pkg/plugin/` runtime consumer (Phase 0 Step 2). The
-reason: the generated code is boilerplate-dense and obscures the thing being reviewed
-here, which is the SHAPE of the service surface — field numbers, oneof choices,
-secret-flagging, and the single-session plumbing (`monitor_address`, `provider_urns`).
-
 ## Regenerating Go
 
-Once Step 2 lands, the Go stubs live under `pkg/plugin/proto/v1/scpluginv1/`. To
-regenerate from the `.proto`:
+Generated Go stubs live alongside the proto at `pkg/plugin/proto/v1/plugin.pb.go`
+and `plugin_grpc.pb.go` — they are checked in so a plain `go build ./...` works
+without proto tooling installed. To regenerate:
 
 ```sh
-# One-time tool install:
+# One-time tool install (bufbuild/buf bundles protoc internally):
+go install github.com/bufbuild/buf/cmd/buf@latest
 go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
-# Requires protoc (install via your system package manager, e.g. apt install protobuf-compiler).
-
 # From repo root:
-protoc \
-  --go_out=. --go_opt=paths=source_relative \
-  --go-grpc_out=. --go-grpc_opt=paths=source_relative \
-  pkg/plugin/proto/v1/plugin.proto
+make proto
 ```
 
-A `make proto` target wiring the above will land with the Step 2 PR.
+The generation config lives in `buf.yaml` + `buf.gen.yaml` in this directory.
 
 ## Linting
 
-Phase 0 Step 2 will add a `buf.yaml` with `buf lint` wired into CI. For this PR,
-`protoc --lint` or an eyeball review suffices.
+`buf lint` runs against `buf.yaml` and is the entry point every reviewer should
+expect to be green on this subtree:
+
+```sh
+cd pkg/plugin/proto && buf lint
+```
+
+Two STANDARD rules are deliberately disabled (`PACKAGE_DIRECTORY_MATCH` because
+our Go-import-matching layout puts v1/ one level below where buf expects it, and
+`SERVICE_SUFFIX` because `SCCloudPlugin` matches the project's naming convention
+rather than appending `Service` — same stance as Pulumi's own `ResourceProvider`
+and Terraform's `Provider`).
