@@ -132,6 +132,12 @@ message SchemaResponse {
   // PluginDownloadURL this plugin was built against. SC core uses these for the
   // auto-pin algorithm in 04 §3.
   repeated PulumiPluginRequirement pulumi_plugins = 7;
+
+  // Secrets-provider types this plugin can initialise (e.g. "awskms", "gcpkms",
+  // "azurekeyvault"). Step 4b of sc-plugin-architecture; see Addendum C in
+  // forge/docs/design/2026-10-24/sc-plugin-architecture/04-no-destroy-invariant.md.
+  // SC dispatches these pre-engine, same lifecycle as state_store_types.
+  repeated string secrets_provider_types = 8;
 }
 
 message PulumiPluginRequirement {
@@ -159,6 +165,33 @@ message InitStateStoreResponse {
   // Environment variables SC core should set before starting the engine (e.g.
   // AWS_ACCESS_KEY_ID, GOOGLE_CREDENTIALS). Must be flagged secret if secret.
   map<string, InputValue> env = 2;
+}
+
+// -----------------------------------------------------------------------------
+// InitSecretsProvider — pre-engine. Plugin returns a Pulumi secrets-provider
+// URL (passphrase://..., awskms://..., gcpkms://..., azurekeyvault://...)
+// SC core wires into the Automation API workspace via
+// stackSource.Workspace().ChangeStackSecretsProvider.
+// -----------------------------------------------------------------------------
+
+message InitSecretsProviderRequest {
+  RequestHeader header = 1;
+  string secrets_provider_type = 2;    // from SchemaResponse.secrets_provider_types
+  map<string, InputValue> config = 3;
+}
+
+message InitSecretsProviderResponse {
+  // Pulumi secrets-provider URL — one of the pulumi/secrets handler schemes.
+  // Example: "awskms://alias/mykey?region=eu-west-1"
+  string provider_url = 1;
+
+  // Env vars SC core should set before the engine starts (credentials, etc).
+  // Secret-flagged values are preserved as secrets.
+  map<string, InputValue> env = 2;
+
+  // If set, this is the passphrase to seed when provider_url is a passphrase
+  // scheme — mirrors the pulumi{}.secretsProviderPassphrase field. Secret.
+  string passphrase = 3;
 }
 
 // -----------------------------------------------------------------------------
@@ -241,6 +274,7 @@ message ResolveCredentialResponse {
 service SCCloudPlugin {
   rpc Schema(SchemaRequest) returns (SchemaResponse);
   rpc InitStateStore(InitStateStoreRequest) returns (InitStateStoreResponse);
+  rpc InitSecretsProvider(InitSecretsProviderRequest) returns (InitSecretsProviderResponse);
   rpc Provider(ProviderRequest) returns (ProviderResponse);
   rpc Provision(ProvisionRequest) returns (ProvisionResponse);
 }

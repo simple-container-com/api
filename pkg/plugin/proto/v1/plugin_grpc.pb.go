@@ -40,10 +40,11 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SCCloudPlugin_Schema_FullMethodName         = "/sc.plugin.v1.SCCloudPlugin/Schema"
-	SCCloudPlugin_InitStateStore_FullMethodName = "/sc.plugin.v1.SCCloudPlugin/InitStateStore"
-	SCCloudPlugin_Provider_FullMethodName       = "/sc.plugin.v1.SCCloudPlugin/Provider"
-	SCCloudPlugin_Provision_FullMethodName      = "/sc.plugin.v1.SCCloudPlugin/Provision"
+	SCCloudPlugin_Schema_FullMethodName              = "/sc.plugin.v1.SCCloudPlugin/Schema"
+	SCCloudPlugin_InitStateStore_FullMethodName      = "/sc.plugin.v1.SCCloudPlugin/InitStateStore"
+	SCCloudPlugin_InitSecretsProvider_FullMethodName = "/sc.plugin.v1.SCCloudPlugin/InitSecretsProvider"
+	SCCloudPlugin_Provider_FullMethodName            = "/sc.plugin.v1.SCCloudPlugin/Provider"
+	SCCloudPlugin_Provision_FullMethodName           = "/sc.plugin.v1.SCCloudPlugin/Provision"
 )
 
 // SCCloudPluginClient is the client API for SCCloudPlugin service.
@@ -57,6 +58,7 @@ const (
 type SCCloudPluginClient interface {
 	Schema(ctx context.Context, in *SchemaRequest, opts ...grpc.CallOption) (*SchemaResponse, error)
 	InitStateStore(ctx context.Context, in *InitStateStoreRequest, opts ...grpc.CallOption) (*InitStateStoreResponse, error)
+	InitSecretsProvider(ctx context.Context, in *InitSecretsProviderRequest, opts ...grpc.CallOption) (*InitSecretsProviderResponse, error)
 	Provider(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
 	Provision(ctx context.Context, in *ProvisionRequest, opts ...grpc.CallOption) (*ProvisionResponse, error)
 }
@@ -83,6 +85,16 @@ func (c *sCCloudPluginClient) InitStateStore(ctx context.Context, in *InitStateS
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(InitStateStoreResponse)
 	err := c.cc.Invoke(ctx, SCCloudPlugin_InitStateStore_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) InitSecretsProvider(ctx context.Context, in *InitSecretsProviderRequest, opts ...grpc.CallOption) (*InitSecretsProviderResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(InitSecretsProviderResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_InitSecretsProvider_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -120,6 +132,7 @@ func (c *sCCloudPluginClient) Provision(ctx context.Context, in *ProvisionReques
 type SCCloudPluginServer interface {
 	Schema(context.Context, *SchemaRequest) (*SchemaResponse, error)
 	InitStateStore(context.Context, *InitStateStoreRequest) (*InitStateStoreResponse, error)
+	InitSecretsProvider(context.Context, *InitSecretsProviderRequest) (*InitSecretsProviderResponse, error)
 	Provider(context.Context, *ProviderRequest) (*ProviderResponse, error)
 	Provision(context.Context, *ProvisionRequest) (*ProvisionResponse, error)
 	mustEmbedUnimplementedSCCloudPluginServer()
@@ -137,6 +150,9 @@ func (UnimplementedSCCloudPluginServer) Schema(context.Context, *SchemaRequest) 
 }
 func (UnimplementedSCCloudPluginServer) InitStateStore(context.Context, *InitStateStoreRequest) (*InitStateStoreResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method InitStateStore not implemented")
+}
+func (UnimplementedSCCloudPluginServer) InitSecretsProvider(context.Context, *InitSecretsProviderRequest) (*InitSecretsProviderResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method InitSecretsProvider not implemented")
 }
 func (UnimplementedSCCloudPluginServer) Provider(context.Context, *ProviderRequest) (*ProviderResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Provider not implemented")
@@ -201,6 +217,24 @@ func _SCCloudPlugin_InitStateStore_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SCCloudPlugin_InitSecretsProvider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(InitSecretsProviderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).InitSecretsProvider(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_InitSecretsProvider_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).InitSecretsProvider(ctx, req.(*InitSecretsProviderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _SCCloudPlugin_Provider_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ProviderRequest)
 	if err := dec(in); err != nil {
@@ -251,6 +285,10 @@ var SCCloudPlugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InitStateStore",
 			Handler:    _SCCloudPlugin_InitStateStore_Handler,
+		},
+		{
+			MethodName: "InitSecretsProvider",
+			Handler:    _SCCloudPlugin_InitSecretsProvider_Handler,
 		},
 		{
 			MethodName: "Provider",
