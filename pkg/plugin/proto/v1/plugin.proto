@@ -1,0 +1,254 @@
+// Simple Container plugin bus — v1 (draft, Phase 0 Step 1 of sc-plugin-architecture).
+//
+// See forge/docs/design/2026-10-24/sc-plugin-architecture/03-architecture.md §3 for
+// why there are TWO orthogonal gRPC conversations in an sc deploy:
+//
+//   (1) SC plugin bus — this file. SC core ↔ plugin, hashicorp/go-plugin transport.
+//       Carries the SC-shaped half of the contract: schema, resource dispatch, compute
+//       processing, DNS registrar, pre-destroy hook, credential callbacks.
+//
+//   (2) Pulumi Resource Monitor gRPC — pulumi/sdk/v3's own resource.proto. The plugin
+//       dials MonitorAddress (passed in RequestHeader below) and registers resources
+//       directly against the Pulumi engine owned by SC core. Not defined here.
+//
+// Design pins:
+//   - URN byte-identity: the plugin receives the provider URN SC core has already
+//     computed (via provision.go:320's deterministic template). See
+//     forge/docs/design/2026-10-24/sc-plugin-architecture/04-no-destroy-invariant.md.
+//   - Secrets are placeholders on this bus; real resolution happens via the callback
+//     service below (Vault pattern — see 03 §6.3).
+//   - Reattach (go-plugin's ReattachConfig) is NOT v1. Fields reserved.
+
+syntax = "proto3";
+
+package sc.plugin.v1;
+
+option go_package = "github.com/simple-container-com/api/pkg/plugin/proto/v1;scpluginv1";
+
+// -----------------------------------------------------------------------------
+// Shared messages
+// -----------------------------------------------------------------------------
+
+// RequestHeader rides every plugin-bus RPC. It carries the plumbing a plugin needs
+// to participate in the one Pulumi deployment SC core owns.
+message RequestHeader {
+  // The address of SC core's Pulumi Resource Monitor. Protocol per
+  // pulumi/sdk/v3/go/common/resource/plugin's RunInfo.MonitorAddress — typically a
+  // unix:// or passthrough://<host:port> URL. The plugin dials this to call
+  // RegisterResource against the SAME engine SC core is using.
+  string monitor_address = 1;
+
+  // The address of SC core's engine endpoint — the diagnostic / log sink the plugin
+  // should post Pulumi-visible events to. Pulumi's RunInfo.EngineAddress.
+  string engine_address = 2;
+
+  string stack_name = 3;
+  string project_name = 4;
+  string environment = 5;
+
+  // Short-lived scoped token (Vault pattern). Plugin presents this on callback RPCs
+  // (ResolveCredential, ResolveSecret). HS256-signed by SC core's ephemeral key.
+  string run_token = 6;
+
+  // Trace / correlation id for log stitching.
+  string trace_id = 7;
+
+  // Explicit providers SC core has already registered against the monitor, keyed by
+  // "<pkg>::<provider-resource-name>" (e.g. "aws::my-stack--s3-bucket--my-bucket--prod--provider").
+  // Values are full Pulumi provider URNs the plugin passes to RegisterResource via
+  // ResourceOptions.Provider. These names are byte-identical to the pre-split
+  // state's provider URNs, which is how the no-destroy invariant holds —
+  // see 04-no-destroy-invariant.md §3.
+  map<string, string> provider_urns = 8;
+
+  // Reserved for future use. Not v1.
+  reserved 9 to 15;
+}
+
+// InputValue is the typed carrier for a resource input or a config field on the
+// plugin bus. Secrets are flagged (not transmitted plain): a real cleartext fetch
+// goes through the callback service.
+message InputValue {
+  oneof value {
+    string string_value = 1;
+    sint64 int_value = 2;
+    double double_value = 3;
+    bool bool_value = 4;
+    bytes bytes_value = 5;
+    InputList list_value = 6;
+    InputMap map_value = 7;
+    // Opaque reference to another resource's output. The plugin passes it through
+    // to Pulumi's RegisterResource as a dependency, not a value.
+    string output_ref = 8;
+    // Reference to a secret the plugin should fetch via ResolveSecret.
+    string secret_ref = 9;
+  }
+  // Marks this field as secret in the YAML config. Plugins calling pulumi.ToSecret
+  // on the value (or using secret_ref) must preserve the flag.
+  bool secret = 10;
+}
+
+message InputList {
+  repeated InputValue items = 1;
+}
+
+message InputMap {
+  map<string, InputValue> fields = 1;
+}
+
+// -----------------------------------------------------------------------------
+// Schema — advertised at plugin startup
+// -----------------------------------------------------------------------------
+
+message SchemaRequest {
+  RequestHeader header = 1;
+}
+
+message SchemaResponse {
+  // The plugin's semantic version (independent of the gRPC protocol version).
+  string plugin_version = 1;
+
+  // Provider auth types this plugin owns, keyed by the ProviderType string this
+  // plugin's /api module registered in pkg/api/mapping.go
+  // (e.g. "aws", "gcp", "cloudflare", "yandex").
+  repeated string provider_types = 2;
+
+  // Resource types this plugin handles, keyed by SC resource.Type
+  // (e.g. "aws:s3/bucket:Bucket", "aws-lambda", "cloud-compose").
+  repeated string resource_types = 3;
+
+  // Compute processor types this plugin handles (dependency placeholder injection,
+  // env variable propagation). Keyed by the Type of the dependency resource.
+  repeated string compute_processor_types = 4;
+
+  // DNS registrar types (e.g. "cloudflare", "yandex", "cloudru-dns").
+  repeated string registrar_types = 5;
+
+  // State-store types this plugin can initialise (e.g. "s3", "gcs", "yc-object-storage").
+  repeated string state_store_types = 6;
+
+  // Pulumi provider plugin dependencies the engine must have available. Keyed by
+  // Pulumi package name (e.g. "aws", "cloudflare"), value is the version + optional
+  // PluginDownloadURL this plugin was built against. SC core uses these for the
+  // auto-pin algorithm in 04 §3.
+  repeated PulumiPluginRequirement pulumi_plugins = 7;
+}
+
+message PulumiPluginRequirement {
+  string package = 1;              // e.g. "aws"
+  string version = 2;              // e.g. "6.17.0"
+  string plugin_download_url = 3;  // empty for official Pulumi registry providers
+}
+
+// -----------------------------------------------------------------------------
+// InitStateStore — pre-engine. Lets the plugin configure a Pulumi state backend
+// before the Automation API starts.
+// -----------------------------------------------------------------------------
+
+message InitStateStoreRequest {
+  RequestHeader header = 1;
+  string state_store_type = 2;         // from SchemaResponse.state_store_types
+  map<string, InputValue> config = 3;
+}
+
+message InitStateStoreResponse {
+  // Pulumi backend URL to pass to auto.NewLocalWorkspace / UpsertStackInlineSource.
+  // Example: "s3://sc-state/<project>?region=eu-west-1"
+  string backend_url = 1;
+
+  // Environment variables SC core should set before starting the engine (e.g.
+  // AWS_ACCESS_KEY_ID, GOOGLE_CREDENTIALS). Must be flagged secret if secret.
+  map<string, InputValue> env = 2;
+}
+
+// -----------------------------------------------------------------------------
+// Provider — plugin materialises the explicit pulumi:providers:<pkg> resource
+// against the shared monitor. Returns its URN so SC core can wire it into every
+// downstream Provision call via RequestHeader.provider_urns.
+// -----------------------------------------------------------------------------
+
+message ProviderRequest {
+  RequestHeader header = 1;
+  string provider_type = 2;              // from SchemaResponse.provider_types
+  string provider_resource_name = 3;     // deterministic — provision.go:320's template
+  map<string, InputValue> inputs = 4;    // provider auth + config
+}
+
+message ProviderResponse {
+  // The URN of the pulumi:providers:<pkg> resource the plugin registered.
+  // Byte-identical to pre-split state's URN for stacks that already have one.
+  string provider_urn = 1;
+}
+
+// -----------------------------------------------------------------------------
+// Provision — the main workhorse. Plugin registers ONE SC-level resource against
+// the monitor and returns the SC-shaped ResourceOutput.
+// -----------------------------------------------------------------------------
+
+message ProvisionRequest {
+  RequestHeader header = 1;
+  string resource_type = 2;              // from SchemaResponse.resource_types
+  string resource_name = 3;              // the pre-split-compatible name (see 04 §1.2)
+  map<string, InputValue> inputs = 4;    // resource-specific inputs
+  map<string, string> dependency_outputs = 5;  // outputs from previously provisioned deps
+  string parent_urn = 6;                 // parent ComponentResource URN, if any
+}
+
+message ProvisionResponse {
+  // The URN of the created resource. Must be byte-identical to the pre-split URN
+  // for stacks migrated from pre-split SC — see 04 §4 fixture gate.
+  string urn = 1;
+  // Resource outputs the SC core compute processor consumes. Field names are the
+  // SC-level logical outputs the resource exposes (e.g. "endpoint", "arn", "id").
+  map<string, InputValue> outputs = 2;
+  // Env variables this resource injects into downstream compute (keyed by env var name).
+  map<string, InputValue> env = 3;
+}
+
+// -----------------------------------------------------------------------------
+// Callback service — plugin → SC core. Lets the plugin resolve the real secret
+// behind a secret_ref it received in InputValue, or fetch a cloud credential.
+// -----------------------------------------------------------------------------
+
+message ResolveSecretRequest {
+  string run_token = 1;    // same JWT SC core handed the plugin at spawn
+  string secret_ref = 2;   // the opaque ref from InputValue
+}
+
+message ResolveSecretResponse {
+  // Cleartext secret value. Only transmitted over the local, mTLS go-plugin channel.
+  // Never log this.
+  string value = 1;
+}
+
+message ResolveCredentialRequest {
+  string run_token = 1;
+  string credential_name = 2;  // e.g. "aws-access-key-id"
+}
+
+message ResolveCredentialResponse {
+  string value = 1;
+}
+
+// -----------------------------------------------------------------------------
+// Services
+// -----------------------------------------------------------------------------
+
+// SCCloudPlugin — implemented by every sc-plugin-<cloud> binary. Called by SC core
+// via hashicorp/go-plugin's gRPC transport. v1 is the scope-reduced "walking
+// skeleton" surface — see pkg/plugin/proto/README.md for the planned additions
+// (ComputeProcess, Registrar, PreDestroy, Fingerprint stream, PeerInvoke).
+service SCCloudPlugin {
+  rpc Schema(SchemaRequest) returns (SchemaResponse);
+  rpc InitStateStore(InitStateStoreRequest) returns (InitStateStoreResponse);
+  rpc Provider(ProviderRequest) returns (ProviderResponse);
+  rpc Provision(ProvisionRequest) returns (ProvisionResponse);
+}
+
+// SCCore — the callback surface SC core exposes to a plugin. Lets the plugin
+// resolve secrets and credentials without SC core sending them in cleartext
+// over the plugin bus up front (Vault pattern — see 03 §6.3).
+service SCCore {
+  rpc ResolveSecret(ResolveSecretRequest) returns (ResolveSecretResponse);
+  rpc ResolveCredential(ResolveCredentialRequest) returns (ResolveCredentialResponse);
+}
