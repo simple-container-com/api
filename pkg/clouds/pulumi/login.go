@@ -12,7 +12,6 @@ import (
 
 	"github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
-
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/pkg/v3/backend/display"
 	"github.com/pulumi/pulumi/pkg/v3/backend/diy"
@@ -196,7 +195,12 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 			p.secretsProviderUrl = e.Value.(string)
 		}
 
-	} else if secretsProviderCfg.ProviderType() != BackendTypePulumiCloud && p.secretsProviderUrl == "" {
+	} else if secretsProviderCfg.ProviderType() != BackendTypePulumiCloud && p.secretsProviderUrl == "" && p.secretsProviderPassphrase == "" {
+		// Only run the config-driven secrets provider setup when a plugin
+		// pre-engine sidecar hasn't already supplied one. Phase 1 of the
+		// sc-plugin-architecture (04 Addendum C): plugin's InitSecretsProvider
+		// RPC sets p.secretsProviderPassphrase (and/or p.secretsProviderUrl)
+		// at loadPreEnginePlugins time, before login runs.
 		if secretsProviderCfg.KeyUrl() == "" {
 			return errors.Errorf("secrets provider key url is empty for %q in stack %q", secretsProviderCfg.ProviderType(), stack.Name)
 		}
