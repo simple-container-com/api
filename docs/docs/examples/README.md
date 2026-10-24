@@ -40,6 +40,11 @@ This directory contains production-tested Simple Container configurations based 
 ### Compose on a VM (`vm-compose/`)
 - **byo-host**: one machine created by hand in a cloud console, running a `single-image` stack as a generated docker compose project over SSH — no Kubernetes and no registry required
 - **cloudru**: the same, with the machine created by SC in Cloud.ru Advanced (`provider: cloudru-vm`) — VPC, subnet, security group, floating address, key pair and instance
+- **cloudru-evolution**: the other Cloud.ru estate (`provider: cloudru-evolution-vm`) — a service-account key, no regions, and no cloud-init, so docker is installed over SSH and the host key is pinned by hand
+
+### k3s Clusters (`k3s/`)
+- **byo-host**: a single-node Kubernetes cluster installed over SSH on a machine you created, deployed to through SC's ordinary Kubernetes path
+- **cloudru-evolution**: the same, with SC creating the machine in Cloud.ru first — VM, docker and k3s end to end from one `sc provision`
 
 ### Advanced Configurations (`advanced-configs/`)
 - **mixed-environments**: Different deployment types per environment

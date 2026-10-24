@@ -14,6 +14,10 @@
 // public REST API (pkg/clouds/cloudru/evolution). That one does not ride a
 // Terraform provider at all, because Container Apps appear in none of them.
 //
+// There is one registrar type, RegistrarTypeCloudruDns, writing records into an
+// Evolution Cloud DNS zone over the same REST client — also absent from every
+// provider.
+//
 // Which Cloud.ru this is matters. Cloud.ru sells two unrelated estates:
 //
 //   - **Advanced**, the ex-SberCloud estate, whose Terraform provider
@@ -51,6 +55,7 @@ func init() {
 		AuthTypeCloudruAccessKey:        ReadAuthAccessKeyConfig,
 		AuthTypeCloudruEvolutionKey:     ReadAuthEvolutionKeyConfig,
 		TemplateTypeCloudruContainerApp: ReadContainerAppTemplateConfig,
+		RegistrarTypeCloudruDns:         ReadDnsRegistrarConfig,
 	})
 
 	// A Container App is this cloud's Lambda replacement, so it converts from a

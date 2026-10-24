@@ -141,6 +141,87 @@ values; unlike Cloudflare where a multi-valued record is N separate resources.
 For the full YC parent-stack shape and destroy hazards, see
 [Yandex Cloud](parent-yandex-cloud.md).
 
+### 4. Cloud.ru Cloud DNS Registrar (`cloudru-dns`)
+
+For zones hosted on **Cloud.ru Evolution**'s Cloud DNS. Same role as `yc-dns`: SC
+writes the records a service's `domain:` needs into a zone that already exists.
+
+> **Implemented but not yet smoked end to end.** The routes and field names are a
+> faithful transcription of Cloud.ru's published API reference, not measurements
+> against a live project — the service-account key this driver was built with lacks
+> the Cloud DNS role, and every call answers
+> `403 {"code":7,"message":"permission denied: invalid scopes"}`. Expect the first
+> live use to correct something, and read `pkg/clouds/cloudru/evolution/dns.go`'s
+> header for the three most likely candidates. Everything else on Cloud.ru —
+> Container Apps, both VM drivers, k3s — is live-verified; this one is not.
+
+```yaml
+# server.yaml
+resources:
+  registrars:
+    cloudru:
+      type: cloudru-dns
+      config:
+        # The Evolution service-account key — the same credential the Container App
+        # and VM drivers use. Written VERBATIM: `${secret:...}` is not expanded
+        # inside an auth block, and SC refuses an unexpanded placeholder rather
+        # than letting IAM reject it mid-deploy.
+        credentials: "${auth:cloudru}"
+        # The zone as it appears in a domain name.
+        zoneName: simple-forge.ru
+        # The Cloud DNS SERVICE INSTANCE id — see the warning below.
+        parentId: "11111111-2222-3333-4444-555555555555"
+        # Optional. Skips the lookup entirely, and the surest form when the lookup
+        # cannot find the zone.
+        # zoneId: "..."
+        # Optional, default 3600. Cloud DNS has no automatic-TTL sentinel.
+        # recordTtl: 300
+```
+
+> **`parentId` is the Cloud DNS *service instance* id — not the project id**, even
+> though every other Evolution API is project-scoped. This is the single most
+> expensive thing to get wrong here because **it does not fail**: a list scoped to an
+> unrelated parent returns an *empty set of zones*, which is indistinguishable from a
+> project that has no zones. The id is the trailing segment of the console URL
+> `https://console.cloud.ru/spa/cloud-dns/<parentId>`, and
+> `sc cloudru dns-record apply` prints the zones it can see when a lookup comes up
+> empty.
+
+**The zone is looked up, never created** — the same rule as `yc-dns`, and for the same
+reason: a public zone is authoritative for a real domain, so creating one from a deploy
+either collides with the delegation that exists or produces a second zone nobody's
+nameservers point at.
+
+**Delegation is not checked for you, and an undelegated zone fails silently.** Cloud
+DNS reports a zone's `delegated` / `valid` state rather than refusing records, so a
+record written into a zone whose apex still points its NS elsewhere is **created
+successfully and resolves nowhere**. If a new record never appears in `dig`, check the
+delegation before you check SC.
+
+**Multi-valued records** are one recordset with N values, as on `yc-dns` and unlike
+Cloudflare. **`proxied`** has no meaning here and is dropped.
+
+A standalone CLI exists for working on records without a deploy:
+
+```bash
+sc cloudru dns-record apply    # create/update
+sc cloudru dns-record destroy
+```
+
+### Which registrars exist today
+
+| Registrar | Zone host | Status |
+|---|---|---|
+| `cloudflare` | Cloudflare | live, the default on `.com` zones |
+| `yc-dns` | Yandex Cloud DNS | live |
+| `cloudru-dns` | Cloud.ru Evolution Cloud DNS | implemented, **not smoked** (above) |
+
+A cloud with no registrar entry here does not mean no DNS — it means you create the
+record yourself. On a `vm`/k3s stand that is an A record at the machine's address,
+**not proxied** (the node answers the ACME challenge itself, so Cloudflare's orange
+cloud breaks it, which is why `domainProxied` is refused on those paths rather than
+accepted and ignored).
+
 ## Application Domain Configuration
 
 ### 1. Basic Domain Assignment

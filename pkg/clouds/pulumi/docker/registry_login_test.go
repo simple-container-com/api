@@ -157,8 +157,10 @@ func runLoginScript(t *testing.T, server, auth, path string) (home, fallback, ou
 
 func runLoginScriptIn(home, fallback, server, auth, path string) string {
 	cmd := exec.Command("sh", "-c", registryLoginScript)
-	cmd.Env = []string{"PATH=" + path, "HOME=" + home, registryServerEnv + "=" + server,
-		registryAuthEnv + "=" + auth, registryFallbackHomeEnv + "=" + fallback}
+	cmd.Env = []string{
+		"PATH=" + path, "HOME=" + home, registryServerEnv + "=" + server,
+		registryAuthEnv + "=" + auth, registryFallbackHomeEnv + "=" + fallback,
+	}
 	out, err := cmd.CombinedOutput()
 	Expect(err).NotTo(HaveOccurred(), string(out))
 	return string(out)

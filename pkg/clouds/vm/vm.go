@@ -43,6 +43,15 @@ const (
 	DriverMws       = "mws-vm"
 	DriverCloudru   = "cloudru-vm"
 	DriverTimeweb   = "timeweb-vm"
+
+	// DriverCloudruEvolution creates machines in Cloud.ru **Evolution**, which is a
+	// different cloud from DriverCloudru's Cloud.ru **Advanced** (ex-SberCloud)
+	// despite the shared brand and console: different API, different credentials
+	// (a service-account key pair, not AK/SK), different regions, and no Terraform
+	// provider with open sources. Two drivers rather than one `cloudru` with a mode
+	// flag, because an account generally has one estate and not the other — the
+	// operator's own project has only Evolution, which is why this driver exists.
+	DriverCloudruEvolution = "cloudru-evolution-vm"
 )
 
 const (
@@ -228,6 +237,19 @@ type VmConfig struct {
 	// permanent access path (vm-matrix.md §3.3).
 	ExtraSshKeys []string `json:"extraSshKeys,omitempty" yaml:"extraSshKeys,omitempty"`
 
+	// HostKey pins the SSH host key of a machine SC created but could not give an
+	// identity to, as one authorized_keys line. Valid only with a driver whose cloud
+	// has no cloud-init (today: DriverCloudruEvolution) — see validateCloud.
+	//
+	// It exists because of a cloud that accepts no user-data at all: SC cannot
+	// pre-seed a host key there, so the FIRST connection has nothing to verify and
+	// trust-on-first-use is the only thing left. That is a real exposure (the deploy
+	// key and every secret of every stack on the machine ride that connection), and
+	// an operator who reads the key off the cloud's console can close it by pasting
+	// it here on the next provision. Same semantics and same format as
+	// `hosts[].hostKey` — `ssh-keyscan -t ed25519 <address>` output pastes verbatim.
+	HostKey string `json:"hostKey,omitempty" yaml:"hostKey,omitempty"`
+
 	// Hosts is valid only with DriverByo.
 	Hosts []VmHost `json:"hosts,omitempty" yaml:"hosts,omitempty"`
 
@@ -369,7 +391,7 @@ func (r *VmConfig) Validate() error {
 	if r.Driver == DriverByo {
 		err = r.validateByo()
 	} else {
-		err = r.validateCloud()
+		err = r.validateCloud(drv)
 	}
 	if err != nil {
 		return err
@@ -419,6 +441,13 @@ func (r *VmConfig) validateByo() error {
 			strings.Join(quoteAll(ignored), ", "), DriverByo, lo.If(len(ignored) == 1, "it").Else("them"),
 		)
 	}
+	// Refused rather than merged with hosts[].hostKey: with byo the host key already
+	// has a per-host spelling, and accepting a second one would make whichever lost
+	// look applied. A pool of byo hosts does not share a host key.
+	if r.HostKey != "" {
+		return errors.Errorf(
+			"`hostKey` is not valid with `provider: %s`: pin it per machine, as `hosts[].hostKey`", DriverByo)
+	}
 
 	if len(r.Hosts) == 0 {
 		return errors.Errorf("`provider: %s` requires at least one entry under `hosts`", DriverByo)
@@ -452,14 +481,50 @@ func (r *VmConfig) validateByo() error {
 // validateCloud holds the invariants of every driver that creates a machine. They
 // live here, once, rather than being rediscovered per cloud — the first driver
 // (`cloudru-vm`) is written against exactly these.
-func (r *VmConfig) validateCloud() error {
+func (r *VmConfig) validateCloud(drv DriverInfo) error {
+	// `hostKey` is accepted by exactly the clouds that cannot be given one, and the
+	// condition is the cloud-init capability rather than a driver name: seeding a
+	// machine's host key means writing it into user-data (see
+	// pkg/clouds/pulumi/vm/cloudru.go), so a cloud that runs cloud-init gets an
+	// SC-generated identity and a pasted key would be dead config — while a cloud
+	// that accepts no user-data at all has no other way to ever be verified.
+	if r.HostKey != "" && drv.Capabilities.CloudInit {
+		return errors.Errorf(
+			"`hostKey` is not valid with `provider: %s`: this cloud runs cloud-init, so SC generates the "+
+				"machine's host key itself and pins it — a pasted key would never be used", r.Driver)
+	}
 	if len(r.Hosts) > 0 {
 		return errors.Errorf(
 			"`hosts` is only valid with `provider: %s`; with `provider: %s` SC creates the machine itself",
 			DriverByo, r.Driver,
 		)
 	}
-	if r.Region == "" {
+	// The mirror of the `hostKey` rule above, and keyed off the same capability for
+	// the same reason. Extra keys are authorised by writing them into user-data
+	// (cloudinit.go: authorized = deploy key + ExtraSshKeys), so on a cloud that
+	// accepts none there is nowhere to put them — the create call takes exactly one
+	// public key, the deploy key SC generates. Accepted and dropped, this would be
+	// the worst kind of dead config: an operator certain they can still reach the
+	// machine during an incident, finding out in the incident that they cannot.
+	if len(r.ExtraSshKeys) > 0 && !drv.Capabilities.CloudInit {
+		return errors.Errorf(
+			"`extraSshKeys` is not valid with `provider: %s`: this cloud runs no cloud-init and its VM create "+
+				"takes exactly one public key (the deploy key SC generates), so there is nowhere to authorise "+
+				"another one. Add the key to the machine yourself, or keep console access for incidents",
+			r.Driver)
+	}
+	// Required on a region-scoped cloud, and REFUSED on one that has no regions —
+	// not merely optional there. A `region:` that SC silently drops would read as
+	// placement the operator controlled, and this package treats an ignored field
+	// as a future incident. Keyed off the capability rather than the driver name so
+	// the next regionless cloud needs no change here.
+	switch {
+	case drv.Capabilities.Regionless && r.Region != "":
+		return errors.Errorf(
+			"`region` is not valid with `provider: %s`: this cloud's API has no region — one global endpoint, "+
+				"and placement is the availability zone. Remove `region`, and pin placement with `zones:` "+
+				"(at most one entry)", r.Driver)
+	case !drv.Capabilities.Regionless && r.Region == "":
 		return errors.Errorf("`provider: %s` requires `region`", r.Driver)
 	}
 	// A machine with no public address is a machine SC cannot deploy to. Every

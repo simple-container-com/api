@@ -43,6 +43,11 @@ const (
 	DefaultContainersEndpoint = "https://containers.api.cloud.ru"
 	// DefaultRegistryEndpoint serves the Artifact Registry API (Swagger 2.0, v1).
 	DefaultRegistryEndpoint = "https://ar.api.cloud.ru"
+	// DefaultComputeEndpoint serves the Evolution Compute API (VMs, disks,
+	// floating IPs, subnets, security groups). Note the project scope on this one
+	// is a **snake_case** `project_id` query parameter, unlike the camelCase
+	// `projectId` the Containers and Registry APIs want — see computeQuery.
+	DefaultComputeEndpoint = "https://compute.api.cloud.ru"
 
 	// RegistryHostSuffix completes a registry's docker host: a registry named
 	// `foo` is pushed to and pulled from `foo.cr.cloud.ru`.
@@ -84,6 +89,8 @@ type Client struct {
 	iamURL        string
 	containersURL string
 	registryURL   string
+	computeURL    string
+	dnsURL        string
 
 	httpClient *http.Client
 
@@ -109,12 +116,21 @@ func WithRegistryEndpoint(u string) Option {
 	return func(c *Client) { c.registryURL = strings.TrimSuffix(u, "/") }
 }
 
-// WithAllEndpoints points IAM, Containers and Artifact Registry at one base URL.
-// Only useful for tests, where a single httptest server serves all three.
+func WithComputeEndpoint(u string) Option {
+	return func(c *Client) { c.computeURL = strings.TrimSuffix(u, "/") }
+}
+
+func WithDnsEndpoint(u string) Option {
+	return func(c *Client) { c.dnsURL = strings.TrimSuffix(u, "/") }
+}
+
+// WithAllEndpoints points IAM, Containers, Artifact Registry, Compute and Cloud
+// DNS at one base URL. Only useful for tests, where a single httptest server
+// serves all.
 func WithAllEndpoints(u string) Option {
 	return func(c *Client) {
 		u = strings.TrimSuffix(u, "/")
-		c.iamURL, c.containersURL, c.registryURL = u, u, u
+		c.iamURL, c.containersURL, c.registryURL, c.computeURL, c.dnsURL = u, u, u, u, u
 	}
 }
 
@@ -124,6 +140,8 @@ func New(creds Credentials, opts ...Option) *Client {
 		iamURL:        DefaultIAMEndpoint,
 		containersURL: DefaultContainersEndpoint,
 		registryURL:   DefaultRegistryEndpoint,
+		computeURL:    DefaultComputeEndpoint,
+		dnsURL:        DefaultDnsEndpoint,
 		// Generous but bounded: an image-less POST answers in well under a second,
 		// but the API has been seen to sit on a request for tens of seconds.
 		httpClient: &http.Client{Timeout: 2 * time.Minute},
@@ -293,4 +311,14 @@ func (c *Client) request(ctx context.Context, method, base, path string, query u
 // each call site rather than hidden here.
 func (c *Client) projectQuery() url.Values {
 	return url.Values{"projectId": []string{c.creds.ProjectID}}
+}
+
+// computeQuery is the project scope the **Compute** API wants: `project_id`,
+// snake_case, as a query parameter on every verb including POST (which ALSO
+// wants `project_id` inside the body). This is not a style difference that can
+// be normalised away — the Compute API is a FastAPI service and rejects an
+// unexpected query key outright (422 `extra_forbidden`), so handing it
+// `projectId` is a hard failure, not a tolerated alias.
+func (c *Client) computeQuery() url.Values {
+	return url.Values{"project_id": []string{c.creds.ProjectID}}
 }

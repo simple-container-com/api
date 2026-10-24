@@ -6,12 +6,14 @@ package docker
 import (
 	"bufio"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/containerd/platforms"
 	"github.com/moby/moby/client"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/pkg/errors"
+
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"golang.org/x/sync/errgroup"
 
 	"github.com/simple-container-com/api/pkg/api/logger"
 )

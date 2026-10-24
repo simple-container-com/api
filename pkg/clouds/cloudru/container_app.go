@@ -42,6 +42,22 @@ const (
 	DefaultTimeoutSeconds = 10
 )
 
+// ReservedEnvNames are the environment-variable names the Cloud.ru Evolution
+// runtime defines itself and refuses to let a revision set.
+//
+// The refusal is not a warning and not a per-variable skip — the create/update
+// call fails and no revision is published:
+//
+//	code 3, Invalid argument; fieldViolations[0]: field "name",
+//	"The container env variable name 'PORT' is reserved. Give another name for
+//	 the variable; input=PORT"
+//
+// Measured 2026-10-23. The same name is reserved on YC Serverless Containers,
+// where SC hit it first; see the Yandex section of forge/CLAUDE.md. The list is
+// deliberately a list rather than one constant because the platform is young and
+// the error above names the variable, so the next one is cheap to add.
+var ReservedEnvNames = []string{"PORT"}
+
 // appNameRegexp is Cloud.ru's own constraint on a Container App name, and on the
 // name of every container inside its template. Checked here because the API
 // answers a violation with a bare 400 that names no field — and because the
@@ -268,13 +284,18 @@ func ToContainerAppConfig(tpl any, stackCfg *api.StackConfigSingleImage) (any, e
 }
 
 func appNameRule() string {
-	return fmt.Sprintf("%d-%d characters, lowercase letters, digits and hyphens, starting with a letter and "+
+	return fmt.Sprintf("%d-%d characters, lowercase letters, digits and single hyphens, starting with a letter and "+
 		"not ending with a hyphen", MinAppNameLen, MaxAppNameLen)
 }
 
 // ValidateAppName checks a name against Cloud.ru's rule, explaining it.
+//
+// The hyphen-run check is separate from appNameRegexp rather than folded into it
+// so that this function refuses exactly what the API refuses: a run is legal in
+// SC's own naming and illegal in Cloud.ru's, and before 2026-10-23 this validator
+// passed `<stack>--<env>` straight through to a 400 from Artifact Registry.
 func ValidateAppName(name string) error {
-	if appNameRegexp.MatchString(name) {
+	if appNameRegexp.MatchString(name) && !hyphenRunRegexp.MatchString(name) {
 		return nil
 	}
 	return errors.Errorf("%q is not a valid Cloud.ru Container App name: %s", name, appNameRule())
@@ -284,14 +305,36 @@ func ValidateAppName(name string) error {
 // contain.
 var nonNameCharsRegexp = regexp.MustCompile(`[^a-z0-9-]+`)
 
+// hyphenRunRegexp matches a run of two or more hyphens, which is exactly what
+// SC's `<stack>--<env>` naming produces and what Cloud.ru refuses — see
+// ToAppName.
+var hyphenRunRegexp = regexp.MustCompile(`-{2,}`)
+
 // ToAppName makes an SC resource name usable as a Container App name.
 //
 // It normalises rather than rejecting, because the input is not the operator's to
 // choose: SC's name for a client stack is always `<stack>--<env>`, and the app's
-// own name is derived from it. The rule has three edges that a stack name hits in
-// practice — it must start with a letter, it must not end with a hyphen, and it
-// must be at least 5 and at most 50 characters — so a bare rejection would make
-// perfectly ordinary stacks undeployable on this cloud alone.
+// own name is derived from it. The rule has four edges that a stack name hits in
+// practice — it must start with a letter, it must not end with a hyphen, it must
+// not contain a RUN of hyphens, and it must be at least 5 and at most 50
+// characters — so a bare rejection would make perfectly ordinary stacks
+// undeployable on this cloud alone.
+//
+// The hyphen run is the one that is not obvious, and it is measured rather than
+// read off a doc page (live smoke 2026-10-23, project a8236278):
+//
+//   - Artifact Registry validates a registry name against
+//     `^[a-z][a-z0-9]+(?:[-][a-z0-9]+)*$` and answers a doubled hyphen with
+//     `HTTP 400 invalid CreateRegistryRequest.Name`.
+//   - The registry's docker endpoint rejects it again, separately, on push:
+//     `invalid repository name`.
+//
+// So `<stack>--<env>` — the name EVERY client stack has — is refused twice on the
+// way to a first deploy. Collapsing runs here is what makes the default path work
+// at all, and it matches what the Yandex driver already does for the same reason
+// (toRepositoryName, pkg/clouds/pulumi/yandex/docker.go). The cost is that
+// `foo--staging` and `foo-staging` map to one name; that is accepted because the
+// alternative is a cloud on which no stack deploys without a manual override.
 //
 // Truncation keeps the PREFIX, which is the stack name; the `--<env>` suffix is
 // what gets cut on a long one. That is deliberate but worth knowing: two
@@ -301,6 +344,9 @@ var nonNameCharsRegexp = regexp.MustCompile(`[^a-z0-9-]+`)
 // loudly.
 func ToAppName(name string) string {
 	out := nonNameCharsRegexp.ReplaceAllString(strings.ToLower(strings.TrimSpace(name)), "-")
+	// Must not contain a run of hyphens — collapsed BEFORE the length checks, so
+	// truncation measures the name the API will actually see.
+	out = hyphenRunRegexp.ReplaceAllString(out, "-")
 	// Must start with a letter.
 	out = strings.TrimLeft(out, "-0123456789")
 	if len(out) > MaxAppNameLen {

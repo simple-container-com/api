@@ -73,7 +73,7 @@ func TestDriversCoverEveryNamedDriver(t *testing.T) {
 
 	named := []string{
 		DriverByo, DriverYandex, DriverOpenstack, DriverVkcs,
-		DriverMws, DriverCloudru, DriverTimeweb,
+		DriverMws, DriverCloudru, DriverCloudruEvolution, DriverTimeweb,
 	}
 	for _, name := range named {
 		Expect(Drivers).To(HaveKey(name), "driver %q has no Drivers row", name)
@@ -83,14 +83,14 @@ func TestDriversCoverEveryNamedDriver(t *testing.T) {
 	// Sorted, because the list is interpolated into error messages and an unstable
 	// order makes those messages unassertable.
 	Expect(KnownDrivers()).To(Equal([]string{
-		"byo", "cloudru-vm", "mws-vm", "openstack-vm", "timeweb-vm", "vkcs-vm", "yc-vm",
+		"byo", "cloudru-evolution-vm", "cloudru-vm", "mws-vm", "openstack-vm", "timeweb-vm", "vkcs-vm", "yc-vm",
 	}))
 
 	// The drivers that exist today. This list is the reminder: landing a driver means
 	// filling in its capability row from the cloud's own API, and an implemented
 	// driver left with the zeroed row would make shared code branch on "this cloud
 	// has no private network, no public address and no firewall".
-	implemented := []string{DriverByo, DriverCloudru}
+	implemented := []string{DriverByo, DriverCloudru, DriverCloudruEvolution}
 	for name, info := range Drivers {
 		if lo.Contains(implemented, name) {
 			Expect(info.Implemented).To(BeTrue(), "driver %q is implemented but its row says otherwise", name)

@@ -45,6 +45,16 @@ type Request struct {
 	// Spec is the desired state of the app. Required by apply, unused by destroy.
 	Spec *AppSpec `json:"spec,omitempty"`
 
+	// VmSpec is the desired state of a compute VM, for the compute-vm
+	// subcommands. Required by their apply, optional for destroy (which needs
+	// only Name).
+	VmSpec *VmSpec `json:"vmSpec,omitempty"`
+
+	// DnsSpec is the desired state of one Cloud DNS record set, for the
+	// dns-record subcommands. Required by both of theirs — a destroy needs the
+	// zone reference as well as the name, since the zone is resolved by lookup.
+	DnsSpec *DnsRecordSpec `json:"dnsSpec,omitempty"`
+
 	// WaitTimeout and PollInterval are Go duration strings; empty means the
 	// defaults above.
 	WaitTimeout  string `json:"waitTimeout,omitempty"`
@@ -64,6 +74,14 @@ type Result struct {
 	Status       string `json:"status,omitempty"`
 	Revision     string `json:"revision,omitempty"`
 	RegistryHost string `json:"registryHost,omitempty"`
+
+	// VmResult carries the compute-vm facts. Embedded rather than nested so the
+	// stdout document stays one flat object, which is what the provisioning tier
+	// parses with a single pass.
+	VmResult
+
+	// DnsResult carries the dns-record facts, embedded for the same reason.
+	DnsResult
 }
 
 func (r Request) waitTimeout() (time.Duration, error) {

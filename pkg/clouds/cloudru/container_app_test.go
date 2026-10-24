@@ -37,13 +37,19 @@ func TestToAppNameAlwaysValid(t *testing.T) {
 func TestToAppNameNormalisation(t *testing.T) {
 	RegisterTestingT(t)
 
-	// The common case is a pass-through: a client stack is `<stack>--<env>` and the
-	// doubled hyphen is legal.
-	Expect(ToAppName("atrium--staging")).To(Equal("atrium--staging"))
+	// The common case: a client stack is `<stack>--<env>`, and the doubled hyphen
+	// is NOT legal on this cloud — Artifact Registry refuses it both when creating
+	// the registry (`400 invalid CreateRegistryRequest.Name`) and again on push
+	// (`invalid repository name`). Measured 2026-10-23; before that this assertion
+	// pinned the pass-through and the driver could not deploy any stack at all.
+	Expect(ToAppName("atrium--staging")).To(Equal("atrium-staging"))
+	Expect(ValidateAppName("atrium--staging")).NotTo(Succeed())
+	// A longer run collapses to one hyphen too, not to two.
+	Expect(ToAppName("atrium----staging")).To(Equal("atrium-staging"))
 	// Underscores and upper case are normalised, not rejected.
 	Expect(ToAppName("Atrium_Staging")).To(Equal("atrium-staging"))
 	// A leading digit is illegal and is dropped rather than failing the deploy.
-	Expect(ToAppName("9lives--prod")).To(Equal("lives--prod"))
+	Expect(ToAppName("9lives--prod")).To(Equal("lives-prod"))
 	// Padded, because the minimum is 5 and `sc` is a legal stack name.
 	Expect(ToAppName("sc")).To(Equal("sc000"))
 	// Truncation keeps the prefix and must not leave a trailing hyphen.
