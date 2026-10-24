@@ -246,9 +246,11 @@ The DNS A record points at the floating address the driver created
 (`portal-vm-vm-host-0-address`) and must **not** be proxied — Cloudflare's orange cloud
 breaks the ACME challenge the machine answers itself.
 
-Cloud.ru has its own Cloud DNS and SC has a `cloudru-dns` registrar for it, but it has
-not been exercised end to end: the service account needs the Cloud DNS role and an apex
-has to be delegated to Cloud.ru. Until then this record is a console step like any other.
+Cloud.ru has its own Cloud DNS and SC's `cloudru-dns` registrar for it is live-verified
+against a delegated apex, so this record can be SC's job rather than a console step —
+add the registrar to the parent stack and give the service account the `cdns.admin` role
+in the project. See
+[DNS Management](../../../guides/dns-management.md#4-cloudru-cloud-dns-registrar-cloudru-dns).
 
 ## Teardown
 

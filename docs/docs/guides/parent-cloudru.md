@@ -433,23 +433,29 @@ Remove them afterwards. The project's security group is shared (Cloud.ru marks i
 
 # **DNS and domains**
 
-SC has a `cloudru-dns` registrar for Cloud DNS, and it is the one Cloud.ru piece that
-is **implemented but not smoked end to end**: the service account the driver was built
-with lacks the Cloud DNS role, and every call answers
-`403 permission denied: invalid scopes`. The routes and field names are a faithful
-transcription of the published reference, not measurements. See
+SC has a `cloudru-dns` registrar for Cloud DNS, and it is **live-verified** against a
+delegated apex: records are created, updated (including the TTL), and deleted from a
+deploy, and the names resolve on the public internet. The service account needs the
+**`cdns.admin`** role in the project — grant it under *Роли в проектах*, not at the
+account level. See
 [DNS Management](dns-management.md#4-cloudru-cloud-dns-registrar-cloudru-dns) for the
-shape and the `parentId` trap — it is the Cloud DNS **service instance** id, not the
-project id, and a project id there lists an empty set of zones rather than failing.
+field shape and the two traps that matter: a record `name` is a label **relative** to
+the zone (the apex is an empty name), and Cloud DNS has **no per-record route** — every
+write replaces the zone's whole record set, so sibling records in one zone must be
+serialised. SC does both for you; a hand-rolled script against this API will not.
 
-Until then, create records in the console:
+What the registrar does and does not cover:
 
-- **Serverless**: a custom `domain:` on a Container App **requires**
-  `cloudExtras.certificateId`. The platform wildcard covers only its own
-  `*.containerapps.ru` zone, and there is no ACME on that path.
-- **VM / k3s**: an A record at the machine's address, **not proxied**. The node answers
-  the ACME challenge itself, so Cloudflare's orange cloud breaks it — which is why
-  `domainProxied` is refused on those paths rather than accepted and ignored.
+- **VM / k3s** — covered. A `domain:` on one of these paths becomes an A record at the
+  machine's address, **not proxied**. The node answers the ACME challenge itself, so
+  Cloudflare's orange cloud breaks it — which is why `domainProxied` is refused on these
+  paths rather than accepted and ignored.
+- **Serverless** — **not** covered, deliberately. A custom `domain:` on a Container App is
+  attached by a field on the app itself and **requires** `cloudExtras.certificateId` from
+  Cloud.ru's certificate service, which SC does not yet manage; the platform wildcard
+  covers only its own `*.containerapps.ru` zone and there is no ACME on that path. So
+  `ProvisionDomainForEndpoint` refuses outright instead of writing a CNAME that would
+  answer with somebody else's certificate.
 - On a `.ru` domain opened from inside Russia in a browser without foreign roots, read
   `ingress.acmeCa` (plus `acmeEabKeyId` / `acmeEabMacKey`) before relying on Let's
   Encrypt. The field exists so there is an option; whether a Russian Trusted CA speaks
@@ -481,7 +487,7 @@ still identifiable and still destroyable.
 | Container Apps (`cloudru-container-app`) | live-verified |
 | `vm` + `vm-compose`, both drivers | live-verified, including a VM SC created itself |
 | `vm` + `k3s-cluster` + `k3s-cloudrun` | live-verified |
-| `cloudru-dns` registrar | implemented, **not** exercised — needs the Cloud DNS role and a delegated apex |
+| `cloudru-dns` registrar | live-verified on a delegated apex — needs the `cdns.admin` role in the project |
 | Service ports beyond 22/80/443 | **opened by hand today** — see above |
 | Pulumi state in Cloud.ru | **no backend** — use `fs` or a bucket in another cloud |
 | Advanced: SWR registry, EVS CSI for k3s | bridged in the provider, not wired into SC |
