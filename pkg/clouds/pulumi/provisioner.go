@@ -128,6 +128,13 @@ func (p *pulumi) SetPublicKey(pubKey string) {
 }
 
 func (p *pulumi) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams, preview bool) error {
+	// Pre-engine plugin load — same as ProvisionStack. Destroy still needs the
+	// state-storage sidecar in InitStateStoreFuncByType to find the backend.
+	if err := p.loadPreEnginePlugins(ctx, parentStack); err != nil {
+		return errors.Wrap(err, "pre-engine plugin load")
+	}
+	defer p.closePreEnginePlugins()
+
 	s, err := p.selectStack(ctx, cfg, parentStack)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
@@ -136,6 +143,11 @@ func (p *pulumi) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, pa
 }
 
 func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DestroyParams, preview bool) error {
+	if err := p.loadPreEnginePlugins(ctx, parentStack); err != nil {
+		return errors.Wrap(err, "pre-engine plugin load")
+	}
+	defer p.closePreEnginePlugins()
+
 	_, err := p.selectStack(ctx, cfg, parentStack)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
@@ -154,6 +166,11 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 }
 
 func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.ProvisionParams) (*api.PreviewResult, error) {
+	if err := p.loadPreEnginePlugins(ctx, parentStack); err != nil {
+		return nil, errors.Wrap(err, "pre-engine plugin load")
+	}
+	defer p.closePreEnginePlugins()
+
 	err := p.createStackIfNotExists(ctx, cfg, parentStack)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
@@ -162,6 +179,11 @@ func (p *pulumi) PreviewStack(ctx context.Context, cfg *api.ConfigFile, parentSt
 }
 
 func (p *pulumi) PreviewChildStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) (*api.PreviewResult, error) {
+	if err := p.loadPreEnginePlugins(ctx, parentStack); err != nil {
+		return nil, errors.Wrap(err, "pre-engine plugin load")
+	}
+	defer p.closePreEnginePlugins()
+
 	childStack, err := p.initChildStackForDeploy(ctx, cfg, parentStack, params)
 	if err != nil {
 		return nil, err
@@ -186,6 +208,15 @@ func toChildStack(parentStack api.Stack, params api.StackParams) api.Stack {
 }
 
 func (p *pulumi) DeployStack(ctx context.Context, cfg *api.ConfigFile, parentStack api.Stack, params api.DeployParams) error {
+	// Same two-phase plugin bootstrap as ProvisionStack — see Addendum C of
+	// 04-no-destroy-invariant.md. Plugins declared on the PARENT stack are
+	// loaded before the engine; the inline deploy program (via pluginSession)
+	// re-uses the same clients for in-engine resource dispatch.
+	if err := p.loadPreEnginePlugins(ctx, parentStack); err != nil {
+		return errors.Wrap(err, "pre-engine plugin load")
+	}
+	defer p.closePreEnginePlugins()
+
 	childStack, err := p.initChildStackForDeploy(ctx, cfg, parentStack, params)
 	if err != nil {
 		return err
