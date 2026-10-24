@@ -56,15 +56,20 @@ func TestDnsRegistrarValidate(t *testing.T) {
 		Expect(cfg.Validate()).To(MatchError(ContainSubstring("`zoneName` is required")))
 	})
 
-	// The expensive mistake on this cloud: `parentId` is the Cloud DNS SERVICE
-	// INSTANCE id, and a wrong one does not fail — it lists an empty set of zones.
-	// Validate can only catch it being absent, which is why the message says which
-	// id it wants.
+	// The expensive mistake on this cloud: a wrong `parentId` does not fail — it
+	// lists an empty set of zones, indistinguishable from a parent with none. And
+	// what the id actually IS has never been established (every Cloud DNS call from
+	// a role-less account 403s, so no value has been observed working OR being
+	// rejected on its merits). So the message must steer to `zoneId`, which is
+	// readable straight off the console URL and needs no parent at all. Pin that
+	// steer: regressing to "find your parentId" sends operators hunting for a thing
+	// we cannot describe.
 	t.Run("refuses a zone with neither parentId nor zoneId", func(t *testing.T) {
 		cfg := &DnsRegistrarConfig{EvolutionAccountConfig: validEvolutionAuth(), ZoneName: "simple-forge.ru"}
 		err := cfg.Validate()
-		Expect(err).To(MatchError(ContainSubstring("requires `parentId`")))
-		Expect(err).To(MatchError(ContainSubstring("not the project id")))
+		Expect(err).To(MatchError(ContainSubstring("requires `zoneId` (preferred) or `parentId`")))
+		Expect(err).To(MatchError(ContainSubstring("/dns/zones/public/<zoneId>/edit")))
+		Expect(err).To(MatchError(ContainSubstring("empty set of zones")))
 	})
 
 	t.Run("accepts an explicit zoneId without parentId", func(t *testing.T) {

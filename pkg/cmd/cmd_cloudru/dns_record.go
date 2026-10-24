@@ -32,10 +32,11 @@ The zone is looked up and never created. A public zone is authoritative for a re
 domain, so creating one from a deploy either collides with the delegation that
 already exists or produces a second zone nobody's nameservers point at.
 
-` + "`parentId`" + ` is the Cloud DNS **service instance** id, not the project id — the one
-Cloud.ru API in this package that is not project-scoped. Getting it wrong does not
-fail: a list scoped to an unrelated parent comes back empty, which is
-indistinguishable from a project that has no zones.
+Prefer ` + "`zoneId`" + ` over ` + "`parentId`" + `. It names the zone outright and is the path
+segment of the zone's own console URL (.../dns/zones/public/<zoneId>/edit), so no
+lookup and no parent scope are involved. What ` + "`parentId`" + ` actually is has never been
+established, and getting it wrong does not fail: a list scoped to an unrelated
+parent comes back empty, which is indistinguishable from a parent that has no zones.
 
 A zone whose ` + "`delegated`" + ` flag is false is reported, not refused: the record is
 created successfully and resolves nowhere, and a deploy log is the only place the

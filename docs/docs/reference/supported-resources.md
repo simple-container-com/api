@@ -1525,8 +1525,8 @@ resources:
         keySecret: "<verbatim>"
         projectId: 01234567-89ab-cdef-0123-456789abcdef
         zoneName: example.ru          # as it appears in a domain
-        parentId: 01234567-89ab-...   # the Cloud DNS SERVICE INSTANCE id
-        # zoneId: ...                 # skips the lookup entirely
+        zoneId: 01234567-89ab-...     # from .../dns/zones/public/<zoneId>/edit
+        # parentId: ...               # alternative: scopes a lookup by name
         recordTtl: 300
         dnsRecords:
           - name: api.example.ru
@@ -1534,13 +1534,20 @@ resources:
             value: 203.0.113.10
 ```
 
-> **`parentId` is the Cloud DNS *service-instance* id, not the project id** —
-> and this is the single most expensive thing to get wrong on this cloud, because
-> it does not fail. Cloud DNS answers a list scoped to an unrelated parent with an
-> **empty set**, which is indistinguishable from a project that has no zones. The
-> id is in the console URL of the service instance (Сервисы → Cloud DNS → the
-> instance). `sc cloudru dns-record apply` prints the zones it *can* see when a
-> lookup comes up empty, which is the fastest way to tell the two apart.
+> **Use `zoneId`, not `parentId`.** Open the zone in the console and the id is the
+> path segment of the URL: `/spa/dns/zones/public/<zoneId>/edit`. It identifies the
+> zone outright, so neither a lookup nor a parent scope is needed.
+>
+> **`parentId` is the one value here we cannot tell you how to find**, and a wrong
+> one is the single most expensive mistake on this cloud because it does not fail:
+> Cloud DNS answers a list scoped to an unrelated parent with an **empty set**,
+> indistinguishable from a parent that has no zones. An earlier version of this page
+> called it a "Cloud DNS service-instance id, in the console URL of the service
+> instance" — that URL shape does not exist. A real zone URL carries a zone id, a
+> `customerId` and a `projectId`, and no fourth id; which of them `parentId` wants
+> has never been established, because every Cloud DNS call from an account without
+> the DNS role answers `403` whatever the value. `sc cloudru dns-record apply`
+> prints the zones it *can* see when a lookup comes up empty.
 
 The zone is **looked up and never created**, for the same reason as the Yandex
 registrar: a public zone is authoritative for a real domain, so creating one from

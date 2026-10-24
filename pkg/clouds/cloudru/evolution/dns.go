@@ -41,11 +41,23 @@ import (
 //     in and the field is omitted on the way out unless explicitly set.
 //  3. Whether PATCH's `updateMask` wants `values` or `record.values`.
 //
-// `parentId` is NOT the project id and NOT the client id — it is the **Cloud DNS
-// service instance id**, which the console shows as the trailing segment of
-// `https://console.cloud.ru/spa/cloud-dns/<parentId>`. That correction cost a
-// wrong note in the design doc; a project id put here authenticates fine and
-// lists an empty set of zones, which reads exactly like "we have no zones".
+// A fourth unknown, and the one with a way around it: **what `parentId` actually
+// is has never been established.** An earlier note here asserted it was a "Cloud
+// DNS service instance id, the trailing segment of
+// `https://console.cloud.ru/spa/cloud-dns/<parentId>`" — confidently, and wrongly:
+// that URL shape does not exist. A real zone's console URL is
+// `/spa/dns/zones/public/<zoneId>/edit?customerId=…&projectId=…`, which offers a
+// zone id, a customer id and a project id, and no fourth id. Whether `parentId`
+// wants one of those three is unknown, because every call here from an account
+// without the Cloud DNS role answers 403 regardless of the value — so no value has
+// been seen working *or* being rejected on its merits.
+//
+// The cost of a wrong value is why this is worth the paragraph: a list scoped to an
+// unrelated parent authenticates fine and returns an **empty set of zones**, which
+// reads exactly like "we have no zones". Hence the way around it — prefer
+// `zoneId`, which names the zone outright, is readable straight off the console
+// URL, and needs no parent scope at all (resolveZone's ZoneID branch never touches
+// parentId).
 // ──────────────────────────────────────────────────────────────────────────────
 
 // DefaultDnsEndpoint serves the Cloud DNS API.
@@ -203,21 +215,23 @@ func listDnsCollection[T any](ctx context.Context, c *Client, path string, query
 	return envelope.Items, nil
 }
 
-// ListZones returns every zone under one Cloud DNS service instance.
+// ListZones returns every zone under one Cloud DNS parent.
 func (c *Client) ListZones(ctx context.Context, parentID string) ([]DnsZone, error) {
 	if strings.TrimSpace(parentID) == "" {
-		return nil, errors.Errorf("`parentId` is required to list Cloud.ru DNS zones: it is the Cloud DNS " +
-			"SERVICE INSTANCE id (the trailing segment of https://console.cloud.ru/spa/cloud-dns/<parentId>), " +
-			"not the project id")
+		return nil, errors.Errorf("`parentId` is required to list Cloud.ru DNS zones — but if you are trying to " +
+			"reach ONE known zone, set `zoneId` instead and skip the listing entirely: it is the path segment " +
+			"of the zone's own console URL (.../dns/zones/public/<zoneId>/edit). Which id `parentId` wants is " +
+			"not something we can tell you (see the package comment); a wrong one does not error, it lists an " +
+			"empty set")
 	}
 	out, err := listDnsCollection[DnsZone](ctx, c, "/v1/zones", dnsQuery(parentID))
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to list cloud.ru DNS zones of service instance %q", parentID)
+		return nil, errors.Wrapf(err, "failed to list cloud.ru DNS zones under parent %q", parentID)
 	}
 	return out, nil
 }
 
-// FindZone resolves a zone by DNS name within one service instance.
+// FindZone resolves a zone by DNS name under one Cloud DNS parent.
 //
 // By name rather than by id because that is what an operator writes in
 // server.yaml, and the comparison is case-insensitive and trailing-dot-insensitive
@@ -408,11 +422,13 @@ func (c *Client) resolveZone(ctx context.Context, spec DnsRecordSpec) (*DnsZone,
 		return nil, err
 	}
 	if !found {
-		return nil, errors.Errorf("cloud.ru DNS zone %q was not found under service instance %q. "+
+		return nil, errors.Errorf("cloud.ru DNS zone %q was not found under parentId %q. "+
 			"The zone is looked up and never created by a deploy — create it in the console (Cloud DNS → Зоны), "+
 			"verify it with the TXT record the zone page shows, then point the domain's registrar at %s. "+
-			"Note `parentId` is the Cloud DNS SERVICE INSTANCE id, not the project id: a project id here lists "+
-			"an empty set of zones, which looks identical to having none",
+			"If the zone DOES exist, prefer `zoneId` over `parentId`: the zone's own id is the path segment in "+
+			"its console URL (.../dns/zones/public/<zoneId>/edit) and skips this lookup entirely, whereas a "+
+			"wrong `parentId` does not error — it lists an empty set of zones, which looks identical to having "+
+			"none",
 			spec.ZoneName, spec.ParentID, strings.Join(DnsNameservers, " and "))
 	}
 	return zone, nil

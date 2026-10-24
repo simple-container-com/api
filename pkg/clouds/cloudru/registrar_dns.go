@@ -35,22 +35,40 @@ type DnsRegistrarConfig struct {
 	// looked up.
 	ZoneName string `json:"zoneName" yaml:"zoneName"`
 
-	// ZoneID skips the lookup-by-name. The surest form, and the one to reach for
-	// when the error below says the zone could not be found.
+	// ZoneID skips the lookup-by-name, and is the form to PREFER on this cloud.
+	//
+	// It is unambiguous and it is right there in the console: open the zone and
+	// the id is the path segment of the URL,
+	// `/spa/dns/zones/public/<zoneId>/edit`. Setting it makes ParentID
+	// unnecessary — which matters, because ParentID is the one value here nobody
+	// has been able to point at reliably (see below).
 	ZoneID string `json:"zoneId,omitempty" yaml:"zoneId,omitempty"`
 
-	// ParentID is the **Cloud DNS service instance** id the zone lives under —
-	// NOT the project id, even though every other Evolution API in this package
-	// is scoped by project.
+	// ParentID scopes a lookup-by-name to the Cloud DNS parent the zone lives
+	// under. **Prefer ZoneID and leave this empty** unless you have a reason not
+	// to.
 	//
-	// This is the single most expensive thing to get wrong on this cloud, because
-	// it does not fail: Cloud DNS answers a list scoped to an unrelated parent
-	// with an empty set, which is indistinguishable from a project that has no
-	// zones. The id is visible in the console URL of the Cloud DNS service
-	// instance (Сервисы → Cloud DNS → the instance), and `sc cloudru dns-record
-	// apply` prints the zones it can see when the lookup comes up empty.
+	// What this id actually is remains UNRESOLVED, and the honest state of our
+	// knowledge is worth recording rather than guessing at again:
 	//
-	// Required unless ZoneID is set, since it is what the lookup is scoped to.
+	//   - It is not the project id in the sense of "any project id works" — but
+	//     that has never been *disproved* either, because every call this package
+	//     can make to Cloud DNS answers 403 (the service account lacks the role),
+	//     so neither the project id nor the customer id has ever been observed
+	//     either working or being rejected on its merits.
+	//   - An earlier note here claimed it was a "Cloud DNS service instance id,
+	//     visible in the console URL `/spa/cloud-dns/<parentId>`". That URL shape
+	//     does not exist: an operator's real zone URL is
+	//     `/spa/dns/zones/public/<zoneId>/edit?customerId=…&projectId=…`, which
+	//     exposes a zone id, a customer id and a project id, and no fourth
+	//     "service instance" id at all. Do not send people hunting for it.
+	//
+	// The cost of a wrong value is what makes this worth the warning: Cloud DNS
+	// answers a list scoped to an unrelated parent with an **empty set**, which is
+	// indistinguishable from a parent that has no zones. So `sc cloudru dns-record
+	// apply` prints the zones it can see when a lookup comes up empty.
+	//
+	// Required only when ZoneID is unset, since it is what the lookup is scoped to.
 	ParentID string `json:"parentId,omitempty" yaml:"parentId,omitempty"`
 
 	// RecordTtl is the TTL in seconds for every record written here. Cloud DNS has
@@ -93,9 +111,11 @@ func (r *DnsRegistrarConfig) Validate() error {
 			"serves, e.g. %q", RegistrarTypeCloudruDns, "simple-forge.ru")
 	}
 	if r.ParentID == "" && r.ZoneID == "" {
-		return errors.Errorf("registrar type %q for zone %q requires `parentId` (or an explicit `zoneId`): a zone "+
-			"is looked up within a Cloud DNS service instance. Note `parentId` is the service INSTANCE id, not the "+
-			"project id — a project id there lists an empty set of zones, which looks identical to having none",
+		return errors.Errorf("registrar type %q for zone %q requires `zoneId` (preferred) or `parentId`. "+
+			"`zoneId` is the path segment of the zone's own console URL "+
+			"(.../dns/zones/public/<zoneId>/edit) and needs nothing else; `parentId` scopes a lookup by name, "+
+			"and a wrong value there does not error — it lists an empty set of zones, which looks identical to "+
+			"having none",
 			RegistrarTypeCloudruDns, r.ZoneName)
 	}
 	// The credential half is validated by the embedded config, which also refuses

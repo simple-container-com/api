@@ -169,21 +169,30 @@ resources:
         credentials: "${auth:cloudru}"
         # The zone as it appears in a domain name.
         zoneName: simple-forge.ru
-        # The Cloud DNS SERVICE INSTANCE id — see the warning below.
-        parentId: "11111111-2222-3333-4444-555555555555"
-        # Optional. Skips the lookup entirely, and the surest form when the lookup
-        # cannot find the zone.
-        # zoneId: "..."
+        # PREFER this: the zone's own id, which is the path segment of its console
+        # URL — /spa/dns/zones/public/<zoneId>/edit. Needs nothing else.
+        zoneId: "11111111-2222-3333-4444-555555555555"
+        # Alternative to zoneId: scope a lookup-by-name to a Cloud DNS parent.
+        # Only one of the two is required — see the warning below before reaching
+        # for this one.
+        # parentId: "..."
         # Optional, default 3600. Cloud DNS has no automatic-TTL sentinel.
         # recordTtl: 300
 ```
 
-> **`parentId` is the Cloud DNS *service instance* id — not the project id**, even
-> though every other Evolution API is project-scoped. This is the single most
-> expensive thing to get wrong here because **it does not fail**: a list scoped to an
-> unrelated parent returns an *empty set of zones*, which is indistinguishable from a
-> project that has no zones. The id is the trailing segment of the console URL
-> `https://console.cloud.ru/spa/cloud-dns/<parentId>`, and
+> **Use `zoneId`, not `parentId`.** Open the zone in the console and the id is right
+> there in the URL path: `/spa/dns/zones/public/<zoneId>/edit`. It identifies the zone
+> outright, so no lookup — and no parent scope — is needed.
+>
+> **`parentId` is the one value here we cannot tell you how to find.** It scopes a
+> lookup *by name*, and a wrong value **does not fail**: Cloud DNS returns an *empty
+> set of zones*, which is indistinguishable from a parent that has no zones. An
+> earlier version of this page said it was a "Cloud DNS service instance id, visible
+> at `console.cloud.ru/spa/cloud-dns/<parentId>`" — that URL shape does not exist. A
+> real zone URL exposes a zone id, a `customerId` and a `projectId`, and no fourth
+> id; which of those `parentId` wants has never been established, because every Cloud
+> DNS call from a service account without the DNS role answers `403` regardless of
+> the value. So reach for `zoneId` and sidestep the question.
 > `sc cloudru dns-record apply` prints the zones it can see when a lookup comes up
 > empty.
 
