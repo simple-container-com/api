@@ -151,12 +151,21 @@ func (b *preEnginePluginBundle) makeRegistrarSidecar(cli *scPlugin.Client, plugi
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q ProvisionRegistrar(%q)", pluginName, typeToken)
 		}
+		// Sniff static DNS records off the typed config so ProvisionRecords can
+		// fan them out — the plugin bus intentionally drops slices on the
+		// serialize path (and the Output-bearing api.DnsRecord fields are not
+		// JSON-safe anyway; see pkg/api/dns.go DnsRecord ValueOut).
+		var staticRecords []api.DnsRecord
+		if rc, ok := desc.Config.Config.(api.RegistrarConfig); ok {
+			staticRecords = rc.DnsRecords()
+		}
 		return &pluginRegistrar{
 			mainDomain: resp.GetMainDomain(),
 			log:        params.Log,
 			pluginName: pluginName,
 			typeToken:  typeToken,
 			cli:        cli,
+			records:    staticRecords,
 		}, nil
 	}
 }
@@ -296,28 +305,60 @@ type pluginRegistrar struct {
 	pluginName string
 	typeToken  string
 	cli        *scPlugin.Client
+	// records captures the registrar's static dnsRecords block from server.yaml
+	// so ProvisionRecords can fan them out to per-record NewDnsRecord RPCs.
+	// Populated at ProvisionRegistrar time by sniffing an api.RegistrarConfig
+	// interface on the typed config.
+	records []api.DnsRecord
 }
 
 func (r *pluginRegistrar) MainDomain() string { return r.mainDomain }
 
-func (r *pluginRegistrar) ProvisionRecords(ctx *sdk.Context, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
-	r.log.Debug(ctx.Context(), "pluginRegistrar(%q).ProvisionRecords — plugin handles its own records in ProvisionRegistrar", r.pluginName)
-	return &api.ResourceOutput{Ref: fmt.Sprintf("plugin-registrar:%s", r.pluginName)}, nil
+// ProvisionRecords iterates the registrar's static dnsRecords and dispatches
+// one per-record NewRecord call to the plugin. This mirrors what the in-tree
+// cloudflare / cloudru / yandex registrars do and preserves state shape — each
+// record lands as its own Pulumi resource with the plugin's naming scheme.
+func (r *pluginRegistrar) ProvisionRecords(ctx *sdk.Context, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	if len(r.records) == 0 {
+		return &api.ResourceOutput{Ref: fmt.Sprintf("plugin-registrar:%s", r.pluginName)}, nil
+	}
+	refs := make([]any, 0, len(r.records))
+	for _, record := range r.records {
+		out, err := r.NewRecord(ctx, record)
+		if err != nil {
+			return nil, errors.Wrapf(err, "plugin %q ProvisionRecords(%q)", r.pluginName, record.Name)
+		}
+		refs = append(refs, out.Ref)
+	}
+	return &api.ResourceOutput{Ref: refs}, nil
 }
 
-// NewRecord — Phase 1b. Resolves the record's value (either the raw string
-// or the Output) via ApplyT before dispatching the gRPC call; the plugin
-// receives a plain string.
+// NewRecord — Phase 1b. For a plain-string record.Value we dispatch
+// synchronously; otherwise we chain via ApplyT so the plugin receives a
+// resolved string. The synchronous path matters: when ProvisionRecords
+// discards the returned ref (as the in-tree registrars do too), an unforced
+// Output chain never fires, so the gRPC call never happens and no record
+// resource gets registered.
 func (r *pluginRegistrar) NewRecord(ctx *sdk.Context, record api.DnsRecord) (*api.ResourceOutput, error) {
 	addr, err := requireMonitorAddr(r.typeToken)
 	if err != nil {
 		return nil, err
 	}
-	valueOutput := record.ValueOut
 	if record.Value != "" {
-		valueOutput = sdk.String(record.Value).ToStringOutput()
+		resp, err := r.cli.NewDnsRecord(ctx.Context(), &scpluginv1.NewDnsRecordRequest{
+			Header:        &scpluginv1.RequestHeader{MonitorAddress: addr},
+			RegistrarType: r.typeToken,
+			RecordName:    record.Name,
+			RecordType:    record.Type,
+			ValueResolved: record.Value,
+			Proxied:       record.Proxied,
+		})
+		if err != nil {
+			return nil, errors.Wrapf(err, "plugin %q NewDnsRecord(%q)", r.pluginName, record.Name)
+		}
+		return &api.ResourceOutput{Ref: resp.GetUrn()}, nil
 	}
-	urnOut := valueOutput.ApplyT(func(resolved string) (string, error) {
+	urnOut := record.ValueOut.ApplyT(func(resolved string) (string, error) {
 		resp, err := r.cli.NewDnsRecord(ctx.Context(), &scpluginv1.NewDnsRecordRequest{
 			Header:        &scpluginv1.RequestHeader{MonitorAddress: addr},
 			RegistrarType: r.typeToken,

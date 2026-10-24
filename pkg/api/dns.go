@@ -8,9 +8,8 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 )
 
 // DefaultRegistrarName is the key the legacy single `registrar:` block is normalised
@@ -111,9 +110,15 @@ func IsZoneApex(domain, zone string) bool {
 }
 
 type DnsRecord struct {
-	Name     string           `json:"name" yaml:"name"`
-	Type     string           `json:"type" yaml:"type"`
-	ValueOut sdk.StringOutput `json:"valueOut" yaml:"valueOut"`
+	Name string `json:"name" yaml:"name"`
+	Type string `json:"type" yaml:"type"`
+	// ValueOut threads a Pulumi Output through in-process callers so a
+	// record's value can be a resolved resource property. It is not
+	// serializable (sdk.StringOutput's MarshalJSON refuses) and must be
+	// excluded from JSON/YAML marshaling — the plugin bus serializer in
+	// pkg/clouds/pulumi/plugin_sidecars.go would otherwise fail the entire
+	// config serialization and leave the plugin without accountId/zoneName.
+	ValueOut sdk.StringOutput `json:"-" yaml:"-"`
 	Value    string           `json:"value" yaml:"value"`
 	Proxied  bool             `json:"proxied" yaml:"proxied"`
 }
