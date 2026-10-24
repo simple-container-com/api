@@ -50,9 +50,9 @@ stacks:
       # proxied — the node answers the ACME challenge itself and Cloudflare's orange
       # cloud breaks it.
       #
-      # Cloud.ru has its own Cloud DNS and SC has a `cloudru-dns` registrar for it, but
-      # it has not been exercised end to end (the service account needs the Cloud DNS
-      # role, and an apex has to be delegated). Until then this is a console step.
+      # Cloud.ru has its own Cloud DNS and SC's `cloudru-dns` registrar for it is
+      # live-verified, so the record can be SC's job rather than a console step. The
+      # service account needs the `cdns.admin` role in the project.
       #
       # While smoking, leave this out and reach the Service directly. There is no edge
       # in the parent stack (see its comments), so routing by host name has nothing to

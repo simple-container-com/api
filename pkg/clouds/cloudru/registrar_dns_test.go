@@ -13,7 +13,9 @@ import (
 )
 
 // validEvolutionAuth is the credential half every case below needs, since
-// DnsRegistrarConfig.Validate also validates it.
+// DnsRegistrarConfig.Validate also validates it. Its `projectId` is also what a
+// zone lookup is scoped to — Cloud DNS has no scope of its own, which is why this
+// struct no longer carries a `parentId`.
 func validEvolutionAuth() EvolutionAccountConfig {
 	return EvolutionAccountConfig{
 		KeyID:     "11111111-2222-3333-4444-555555555555",
@@ -37,9 +39,14 @@ func TestDnsRegistrarConfigIsZonesAware(t *testing.T) {
 	Expect((&DnsRegistrarConfig{}).Zones()).To(BeNil(), "an unconfigured registrar claims no zone")
 }
 
-// TestDnsRegistrarEffectiveRecordTtl pins that some TTL is always produced: Cloud DNS
-// has no "automatic" sentinel (unlike Cloudflare's ttl=1), so a zero would travel
-// verbatim.
+// TestDnsRegistrarEffectiveRecordTtl: an unset TTL defaults rather than sending 0.
+//
+// Cloud DNS has no "automatic" sentinel (Cloudflare's `ttl: 1`), and an omitted ttl
+// is stored as a literal 0 rather than replaced by a platform default — so a zero
+// here would put a zero TTL in the operator's zone. A measurement earlier on
+// 2026-10-24 read a record back with `ttl: 0` and concluded the field was ignored
+// entirely; that record had been created without a ttl, and re-measuring showed 900
+// stored as 900.
 func TestDnsRegistrarEffectiveRecordTtl(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -52,26 +59,34 @@ func TestDnsRegistrarValidate(t *testing.T) {
 	RegisterTestingT(t)
 
 	t.Run("refuses a missing zoneName", func(t *testing.T) {
-		cfg := &DnsRegistrarConfig{EvolutionAccountConfig: validEvolutionAuth(), ParentID: "svc-1"}
+		cfg := &DnsRegistrarConfig{EvolutionAccountConfig: validEvolutionAuth()}
 		Expect(cfg.Validate()).To(MatchError(ContainSubstring("`zoneName` is required")))
 	})
 
-	// The expensive mistake on this cloud: `parentId` is the Cloud DNS SERVICE
-	// INSTANCE id, and a wrong one does not fail — it lists an empty set of zones.
-	// Validate can only catch it being absent, which is why the message says which
-	// id it wants.
-	t.Run("refuses a zone with neither parentId nor zoneId", func(t *testing.T) {
-		cfg := &DnsRegistrarConfig{EvolutionAccountConfig: validEvolutionAuth(), ZoneName: "simple-forge.ru"}
+	// A lookup-by-name is scoped to the auth entry's `projectId`, and a lookup scoped
+	// to the wrong project does not fail — it finds no zones, indistinguishable from a
+	// project with none. So with neither a `zoneId` nor a `projectId` there is nothing
+	// to look the zone up in, and the message has to name both ways out.
+	t.Run("refuses a zone with neither zoneId nor a projectId to search", func(t *testing.T) {
+		auth := validEvolutionAuth()
+		auth.ProjectID = ""
+		cfg := &DnsRegistrarConfig{EvolutionAccountConfig: auth, ZoneName: "simple-forge.ru"}
 		err := cfg.Validate()
-		Expect(err).To(MatchError(ContainSubstring("requires `parentId`")))
-		Expect(err).To(MatchError(ContainSubstring("not the project id")))
+		Expect(err).To(MatchError(ContainSubstring("`zoneId`")))
+		Expect(err).To(MatchError(ContainSubstring("`projectId`")))
+		Expect(err).To(MatchError(ContainSubstring("/dns/zones/public/<zoneId>/edit")))
 	})
 
-	t.Run("accepts an explicit zoneId without parentId", func(t *testing.T) {
+	t.Run("accepts a projectId alone, since the zone is looked up by name", func(t *testing.T) {
+		cfg := &DnsRegistrarConfig{EvolutionAccountConfig: validEvolutionAuth(), ZoneName: "simple-forge.ru"}
+		Expect(cfg.Validate()).To(Succeed())
+	})
+
+	t.Run("accepts an explicit zoneId", func(t *testing.T) {
 		cfg := &DnsRegistrarConfig{
 			EvolutionAccountConfig: validEvolutionAuth(),
 			ZoneName:               "simple-forge.ru",
-			ZoneID:                 "zone-1",
+			ZoneID:                 "88fc588d-4ca5-4504-a2f6-5cbbdf54f331",
 		}
 		Expect(cfg.Validate()).To(Succeed())
 	})
@@ -82,14 +97,25 @@ func TestDnsRegistrarValidate(t *testing.T) {
 	t.Run("still refuses an unexpanded placeholder in the credentials", func(t *testing.T) {
 		auth := validEvolutionAuth()
 		auth.KeyID = "${secret:CLOUDRU_KEY_ID}"
-		cfg := &DnsRegistrarConfig{EvolutionAccountConfig: auth, ZoneName: "simple-forge.ru", ParentID: "svc-1"}
+		cfg := &DnsRegistrarConfig{EvolutionAccountConfig: auth, ZoneName: "simple-forge.ru"}
 		Expect(cfg.Validate()).To(MatchError(ContainSubstring("still holds a `${…}` placeholder")))
 	})
 
 	t.Run("refuses missing credentials", func(t *testing.T) {
-		cfg := &DnsRegistrarConfig{ZoneName: "simple-forge.ru", ParentID: "svc-1"}
+		cfg := &DnsRegistrarConfig{ZoneName: "simple-forge.ru", ZoneID: "zone-1"}
 		Expect(cfg.Validate()).To(MatchError(ContainSubstring("`keyId` is required")))
 	})
+}
+
+// TestDnsRegistrarNameserversAreTheEvolutionPair keeps the operator-facing answer to
+// "what do I set at my registrar" reachable from the registrar itself, and pins it to
+// the Evolution pair rather than the sbercloud.ru pair Cloud.ru's own Cloud DNS docs
+// name (those pages describe the Advanced estate without saying so).
+func TestDnsRegistrarNameserversAreTheEvolutionPair(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect((&DnsRegistrarConfig{}).Nameservers()).To(Equal(evolution.DnsNameservers))
+	Expect((&DnsRegistrarConfig{}).Nameservers()).To(ConsistOf("evo-cns01.cloud.ru", "evo-cns02.cloud.ru"))
 }
 
 // TestDnsRegistrarIsRegistered guards the wiring: a registrar type absent from the

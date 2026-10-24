@@ -5,333 +5,458 @@ package evolution
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
 )
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Cloud.ru **Cloud DNS**.
+// Cloud.ru **Cloud DNS** — measured live on 2026-10-24 against a real public zone.
 //
-// READ THIS FIRST: unlike everything else in this package, the routes and field
-// names below are taken from Cloud.ru's published API reference and have NOT been
-// measured against a live project. The service-account key the rest of this
-// package was built with lacks the Cloud DNS role, and the API answers that with
+// Everything in this file used to be a transcription of Cloud.ru's published API
+// reference, and almost none of it survived contact with the API. The corrections
+// are recorded here because each one presents as success or as a plausible-looking
+// failure, and a future reader working from the same reference will re-derive the
+// same wrong answers:
 //
-//	403 {"code":7,"message":"permission denied: invalid scopes"}
+//  1. **The host was wrong.** The reference's `console.cloud.ru/api/clouddns` is
+//     the console's own BFF: it has the right routes but authenticates browser
+//     sessions, so a perfectly good service-account token gets
+//     `403 permission denied: invalid scopes` there forever. That 403 is NOT a
+//     missing role — it is the wrong front door. The real API is
+//     `https://dns.api.cloud.ru` (an `*.api.cloud.ru` host like every other
+//     endpoint in this package, behind the public API gateway).
+//  2. **`parentId` does not exist.** The scope is `projectId`, the same project id
+//     every other Evolution API in this package uses. The "Cloud DNS service
+//     instance id" this file once described at length is not a thing.
+//  3. **The collection is `publicZones`, camelCase, and records are not a
+//     sub-resource.** There is no `/zones`, no `/zones/{id}/records`, and no
+//     per-record route of any kind. A zone carries its records inline, and the
+//     only way to change them is to PATCH the zone — see ApplyDnsRecord for why
+//     that makes a read-modify-write mandatory rather than an optimisation.
+//  4. **Record `type` is lowercase on the wire.** `"a"`, not `"A"`. Uppercase is
+//     refused with `must be a valid value` while *also* passing the API's own
+//     record-type lookup, so the error does not look like a casing problem.
+//  5. **Writes are asynchronous, and the operation lies about being finished.**
+//     PATCH answers 200 with a long-running operation; the zone reads back with
+//     `records: []` while it settles, so reading without waiting is how you
+//     conclude a write wiped the zone when it did not. Worse — and measured — the
+//     operation reaching `done: true` does NOT mean the zone has converged, and a
+//     second PATCH issued in that window **silently discards records**, up to and
+//     including emptying the zone, while reporting another clean `done` with no
+//     error. Two writes lost exactly this way on 2026-10-24. putZoneRecords
+//     therefore verifies the zone against what it wrote rather than trusting
+//     `done`; see the comment there.
+//  6. **`ttl` IS honoured** — 900 stores as 900, and an omitted ttl stores as 0.
+//     This corrects a measurement taken earlier the same day, which read `ttl: 0`
+//     back from a record and concluded the field was ignored; that read was of a
+//     record created without a ttl, taken while an operation was in flight. The
+//     wrong conclusion was briefly load-bearing: recordMatches stopped comparing
+//     TTLs, which made a TTL-only change a silent no-op.
 //
-// on the one path that reaches the backend at all. Which is the second thing to
-// know: **every unknown path under /api/clouddns answers a bodiless 415**, not a
-// 404 — including deliberately bogus ones. So route probing cannot discover or
-// confirm anything here, and a 415 from any call below means "this path is not a
-// route", not "wrong content type".
+// Two gates this file used to guard — `valid`/`validationText` (zone verification)
+// and `delegated` — **do not exist on this API at all.** A zone reports `state` and
+// `confirmState` instead, and the live zone was `state: "ok"`, `confirmState: ""`
+// with no verification value anywhere. So the elaborate "verify the zone BEFORE
+// moving its NS records" sequencing that this file once insisted on is an
+// Advanced/ex-SberCloud estate concept, documented in a reference shared between
+// the two estates. On Evolution, a zone is authoritative as soon as it exists.
 //
-// What that means for the code: the shapes are a faithful transcription, the
-// error messages say what to check, and the first live smoke should expect to
-// correct something. The candidates, in order of likelihood:
-//
-//  1. Whether a record `name` is relative to the zone, absolute, or
-//     absolute-with-trailing-dot (see dnsRecordName — SC sends the FQDN).
-//  2. The `enabled` field's wire name: the reference spells it `enables`, which
-//     reads like a typo in the reference itself, so BOTH are accepted on the way
-//     in and the field is omitted on the way out unless explicitly set.
-//  3. Whether PATCH's `updateMask` wants `values` or `record.values`.
-//
-// `parentId` is NOT the project id and NOT the client id — it is the **Cloud DNS
-// service instance id**, which the console shows as the trailing segment of
-// `https://console.cloud.ru/spa/cloud-dns/<parentId>`. That correction cost a
-// wrong note in the design doc; a project id put here authenticates fine and
-// lists an empty set of zones, which reads exactly like "we have no zones".
+// Diagnosing a 404 here: the gateway and the backend answer differently, and the
+// difference is the only route-discovery signal there is. `{"error_msg":"404 Not
+// Found"}` is the gateway — no such route. `{"code":5,"message":"Not Found"}` is a
+// real backend — the route exists, the resource does not. Unauthenticated, the
+// gateway answers `403 RBAC: access denied`, which is how you tell a credential
+// problem from a path problem without guessing.
 // ──────────────────────────────────────────────────────────────────────────────
 
-// DefaultDnsEndpoint serves the Cloud DNS API.
-//
-// Note the host: `console.cloud.ru`, not the `*.api.cloud.ru` pattern every other
-// endpoint in this package follows, and the `/api/clouddns` prefix is part of the
-// base rather than of the paths. Both are as published.
-const DefaultDnsEndpoint = "https://console.cloud.ru/api/clouddns"
+// DefaultDnsEndpoint serves the Cloud DNS API. See correction (1) above: NOT
+// `console.cloud.ru/api/clouddns`, which is the console BFF and 403s every
+// service-account token.
+const DefaultDnsEndpoint = "https://dns.api.cloud.ru"
 
-// DefaultDnsRecordTtl is the TTL applied when the config names none. It is also
-// the API's own documented default, so sending it changes nothing — SC sends it
-// anyway, because a TTL that lives only in a remote default is one SC cannot
-// report in a diff.
-const DefaultDnsRecordTtl = 3600
+// DefaultDnsRecordTtl is the TTL SC writes when a registrar does not set one.
+//
+// Cloud DNS has no automatic-TTL sentinel (unlike Cloudflare's `ttl: 1`) and stores
+// a literal 0 when the field is omitted, so some number has to be chosen. 300 is the
+// same default the Yandex registrar uses.
+const DefaultDnsRecordTtl = 300
+
+// DnsNameservers is the NS set a domain's registrar must point at for Evolution
+// Cloud DNS to become authoritative for it.
+//
+// **The two estates have different nameservers, and an earlier version of this
+// comment got it backwards.** It asserted — from Cloud.ru's own quickstart and
+// delegation guide, which agree with each other — that `cdns-ns01/cdns-ns02.
+// sbercloud.ru` serves zones on BOTH estates. A real Evolution zone publishes
+//
+//	evo-cns01.cloud.ru.   evo-cns02.cloud.ru.
+//
+// and those are not aliases of the other pair — they resolve into a different
+// network entirely (94.158.23.11 / 94.158.23.22, against 37.18.8.44 / 37.18.8.88
+// for the sbercloud pair). So those two docs pages describe the Advanced estate,
+// and this package is Evolution. The lesson generalises past DNS: on this cloud,
+// documentation that does not say which estate it is about should be assumed to be
+// about the other one.
+//
+// The API carries no nameserver field, so this constant is the only answer SC can
+// give; read the zone's own "NS-серверы" field in the console to confirm it.
+var DnsNameservers = []string{"evo-cns01.cloud.ru", "evo-cns02.cloud.ru"}
+
+// dnsRecordNamePattern is the API's own validation regex for a record name,
+// recovered from a `google.rpc.BadRequest` field violation.
+//
+// Relative labels only. It is pinned here so SC can refuse a bad name with an
+// explanation instead of forwarding it and relaying `must be in a valid format`.
+// Three things it rejects that an operator will reasonably try: a trailing dot, a
+// bare `@` for the apex (use the empty string), and `*` for a wildcard (that is
+// the separate `wildcard` field on the record).
+var dnsRecordNamePattern = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9-]{0,62}(\.[a-zA-Z0-9][a-zA-Z0-9-]{0,62})*?$`)
 
 // DnsZone is a zone as the API returns it.
 //
-// `Delegated`, `Valid` and `ValidationText` are the fields worth surfacing in an
-// error: a zone created here is inert until the apex domain's registrar points NS
-// records at Cloud.ru, and the API reports that state rather than refusing the
-// zone. A record written into an undelegated zone is created successfully and
-// resolves nowhere, which is the single most confusing way for this path to fail.
+// Note `Name` vs `Domain`: `Name` is a console *slug* (`atriumdev-online` for
+// `atriumdev.online.`), `Domain` is the DNS name and carries a trailing dot.
+// Matching a configured zone against `Name` therefore never matches — the earlier
+// version of this file did exactly that. Use ZoneDomain.
 type DnsZone struct {
-	ID       string `json:"id,omitempty"`
-	Name     string `json:"name,omitempty"`
-	ParentID string `json:"parentId,omitempty"`
+	ID        string `json:"id,omitempty"`
+	Name      string `json:"name,omitempty"`
+	Domain    string `json:"domain,omitempty"`
+	ProjectID string `json:"projectId,omitempty"`
 
-	Delegated      bool   `json:"delegated,omitempty"`
-	Valid          bool   `json:"valid,omitempty"`
-	ValidationText string `json:"validationText,omitempty"`
-	LastCheck      string `json:"lastCheck,omitempty"`
-	CreatedAt      string `json:"createdAt,omitempty"`
-	UpdatedAt      string `json:"updatedAt,omitempty"`
+	// State is the zone's lifecycle state; the live zone read `ok`.
+	State string `json:"state,omitempty"`
+	// ConfirmState is the API's only nod to domain confirmation, and it was empty
+	// on a perfectly working zone. SC does not gate on it: a gate keyed on a field
+	// whose vocabulary we have never seen is a hard block waiting to happen, which
+	// is precisely the bug the `valid` gate shipped with before it was removed.
+	ConfirmState string `json:"confirmState,omitempty"`
+
+	ReadOnly    bool   `json:"readOnly,omitempty"`
+	Description string `json:"description,omitempty"`
+	CreateAt    string `json:"createAt,omitempty"` // sic — not `createdAt`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
+
+	// Records are inline. There is no record sub-resource; this is the whole of
+	// the zone's record state and the whole of what a PATCH replaces.
+	Records []DnsRecord `json:"records"`
 }
 
-// DnsRecord is a record set: one name + type holding every value, as in Yandex
-// Cloud DNS and unlike Cloudflare, where each value is its own resource.
+// ZoneDomain is the zone's DNS name, lowercased and without the trailing dot.
+func ZoneDomain(zone *DnsZone) string {
+	if zone == nil {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSuffix(strings.TrimSpace(zone.Domain), "."))
+}
+
+// DnsRecord is a record set: one name + type holding every value.
 type DnsRecord struct {
-	ZoneID string   `json:"zoneId,omitempty"`
-	Name   string   `json:"name,omitempty"`
-	Type   string   `json:"type,omitempty"`
-	TTL    int      `json:"ttl,omitempty"`
-	Values []string `json:"values,omitempty"`
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name"`
+	// Type is lowercase on the wire (`a`, `cname`, `txt`). See correction (4).
+	Type   string   `json:"type"`
+	Values []string `json:"values"`
 
-	// Enabled is `enables` in the published reference. Treated as a quirk of the
-	// reference rather than of the API: it is decoded from either spelling and
-	// encoded only when non-nil, so SC never sends a field it is guessing about.
-	Enabled *bool `json:"enabled,omitempty"`
+	// TTL is honoured: a record written with 900 reads back as 900. Omitting the
+	// field stores a literal 0 rather than a platform default, which is why SC
+	// always sends one (DefaultDnsRecordTtl).
+	TTL int `json:"ttl,omitempty"`
+
+	// Wildcard is how this API spells a wildcard record. `*` in Name is refused
+	// by dnsRecordNamePattern.
+	Wildcard    bool   `json:"wildcard,omitempty"`
+	ReadOnly    bool   `json:"readOnly,omitempty"`
+	Description string `json:"description,omitempty"`
 }
 
-// UnmarshalJSON accepts both spellings of the enabled flag. See DnsRecord.Enabled.
-func (r *DnsRecord) UnmarshalJSON(data []byte) error {
-	type plain DnsRecord
-	var aux struct {
-		plain
-		Enables *bool `json:"enables,omitempty"`
-	}
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return err
-	}
-	*r = DnsRecord(aux.plain)
-	if r.Enabled == nil {
-		r.Enabled = aux.Enables
-	}
-	return nil
+// dnsOperation is the long-running operation a write answers with.
+type dnsOperation struct {
+	ID           string         `json:"id,omitempty"`
+	ResourceName string         `json:"resourceName,omitempty"`
+	ResourceID   string         `json:"resourceId,omitempty"`
+	Done         bool           `json:"done"`
+	Description  string         `json:"description,omitempty"`
+	Error        map[string]any `json:"error,omitempty"`
 }
 
-// dnsRecordKey is the `{name}/{type}` path suffix the record routes take. Both
-// segments are escaped: a record name legitimately contains characters (`*`, `_`)
-// that a path segment must encode, and an unescaped `*` silently matches a
-// different route on some gateways.
-func dnsRecordKey(name, recordType string) string {
-	return url.PathEscape(name) + "/" + url.PathEscape(strings.ToUpper(recordType))
+// dnsZoneList is the list envelope. One shape, measured — unlike the compute API,
+// this one does not need collection sniffing.
+type dnsZoneList struct {
+	Zones         []DnsZone `json:"zones"`
+	NextPageToken string    `json:"nextPageToken,omitempty"`
 }
 
-// dnsRecordName is the name SC sends.
+// dnsRecordType normalises a record type to the lowercase the API demands.
+func dnsRecordType(recordType string) string {
+	return strings.ToLower(strings.TrimSpace(recordType))
+}
+
+// dnsRecordName turns the name an operator wrote into the relative label the API
+// wants.
 //
-// The FQDN with no trailing dot, which is the form the reference's examples use.
-// This is the most likely thing to be wrong on the first live smoke (see the
-// package note above): a relative name written as an FQDN would create
-// `app.example.ru.example.ru`, which the API accepts and which resolves nowhere.
-// Check a created record's own `name` in the console before writing a second one.
-func dnsRecordName(name, zoneName string) string {
-	name = strings.TrimSuffix(strings.TrimSpace(name), ".")
-	zone := strings.TrimSuffix(strings.TrimSpace(zoneName), ".")
-	if name == "" || zone == "" {
-		return name
+// Operators write `app.example.ru` or `example.ru` (SC's other registrars take
+// FQDNs); this API wants `app` and `""`. Getting it wrong is not an error — the
+// earlier code sent the FQDN, which the API refuses outright, and a *relative* name
+// sent where an FQDN was meant would have created `app.example.ru.example.ru`,
+// which resolves nowhere and reads as "DNS has not propagated".
+func dnsRecordName(name, zoneDomain string) (string, error) {
+	n := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(name), "."))
+	zone := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(zoneDomain), "."))
+
+	switch {
+	case n == "" || n == "@":
+		return "", nil // the apex; the API spells it as the empty string
+	case zone != "" && n == zone:
+		return "", nil
+	case zone != "" && strings.HasSuffix(n, "."+zone):
+		n = strings.TrimSuffix(n, "."+zone)
 	}
-	if strings.EqualFold(name, zone) || strings.HasSuffix(strings.ToLower(name), "."+strings.ToLower(zone)) {
-		return name
+	if n != "" && !dnsRecordNamePattern.MatchString(n) {
+		return "", errors.Errorf("%q is not a valid cloud.ru DNS record name (relative to zone %q it is %q, and the "+
+			"API requires %s). Note what this rejects: a trailing dot, `@` for the apex (use an empty name), and "+
+			"`*` for a wildcard (set the record's `wildcard` flag instead)",
+			name, zone, n, dnsRecordNamePattern.String())
 	}
-	return name + "." + zone
+	return n, nil
 }
 
-// dnsQuery is the zone-listing scope: the Cloud DNS **service instance** id, as
-// `parentId`. Not `projectId` and not `project_id` — this API is a third scoping
-// convention in one cloud, which is why it gets its own helper next to the two
-// others rather than reusing either.
-func dnsQuery(parentID string) url.Values {
-	return url.Values{"parentId": []string{parentID}}
+// dnsRecordsEqual compares two record sets by identity (name + type).
+func dnsRecordsEqual(a, b DnsRecord) bool {
+	return a.Name == b.Name && dnsRecordType(a.Type) == dnsRecordType(b.Type)
 }
 
-// listDnsCollection reads a Cloud DNS list answer.
+// ListZones returns every public zone in a project.
+func (c *Client) ListZones(ctx context.Context, projectID string) ([]DnsZone, error) {
+	if strings.TrimSpace(projectID) == "" {
+		return nil, errors.Errorf("`projectId` is required to list Cloud.ru DNS zones")
+	}
+	var out []DnsZone
+	token := ""
+	for {
+		query := url.Values{"projectId": []string{projectID}}
+		if token != "" {
+			query.Set("pageToken", token)
+		}
+		var page dnsZoneList
+		if err := c.request(ctx, http.MethodGet, c.dnsURL, "/v1/publicZones", query, nil, &page); err != nil {
+			return nil, errors.Wrapf(err, "failed to list cloud.ru DNS zones in project %q", projectID)
+		}
+		out = append(out, page.Zones...)
+		// Bounded by the token changing: a server that echoes the same token would
+		// otherwise spin forever on a page that never advances.
+		if page.NextPageToken == "" || page.NextPageToken == token {
+			return out, nil
+		}
+		token = page.NextPageToken
+	}
+}
+
+// FindZone resolves a zone by DNS name within a project.
 //
-// It goes through decodeCollection for the reason that helper documents: this cloud
-// answers collections in two shapes with no rule saying which, the compute API
-// already proved it the hard way, and NOTHING about the DNS collection shapes has
-// been measured (see the package note). Sniffing costs a byte comparison and makes
-// both shapes work; a hard-coded guess would make exactly one of them work and would
-// be found out on the first live record, not here.
-//
-// No pagination: the reference documents neither `limit` nor `offset` on these
-// routes, so following an offset would be inventing a protocol. A zone with more
-// records than one page would silently read short — if a live smoke ever sees a
-// truncated list, that is the thing to fix, and `total` in the envelope is where the
-// evidence will be.
-func listDnsCollection[T any](ctx context.Context, c *Client, path string, query url.Values) ([]T, error) {
-	var raw json.RawMessage
-	if err := c.request(ctx, http.MethodGet, c.dnsURL, path, query, nil, &raw); err != nil {
-		return nil, err
-	}
-	envelope, err := decodeCollection[T](raw)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to decode cloud.ru DNS %s", path)
-	}
-	return envelope.Items, nil
-}
-
-// ListZones returns every zone under one Cloud DNS service instance.
-func (c *Client) ListZones(ctx context.Context, parentID string) ([]DnsZone, error) {
-	if strings.TrimSpace(parentID) == "" {
-		return nil, errors.Errorf("`parentId` is required to list Cloud.ru DNS zones: it is the Cloud DNS " +
-			"SERVICE INSTANCE id (the trailing segment of https://console.cloud.ru/spa/cloud-dns/<parentId>), " +
-			"not the project id")
-	}
-	out, err := listDnsCollection[DnsZone](ctx, c, "/v1/zones", dnsQuery(parentID))
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to list cloud.ru DNS zones of service instance %q", parentID)
-	}
-	return out, nil
-}
-
-// FindZone resolves a zone by DNS name within one service instance.
-//
-// By name rather than by id because that is what an operator writes in
-// server.yaml, and the comparison is case-insensitive and trailing-dot-insensitive
-// because the API's spelling of a zone name is one of the unmeasured things here.
-func (c *Client) FindZone(ctx context.Context, parentID, zoneName string) (*DnsZone, bool, error) {
-	zones, err := c.ListZones(ctx, parentID)
+// Matched on `domain`, not `name` — see DnsZone. Case- and trailing-dot-insensitive
+// because the API returns `atriumdev.online.` and an operator writes
+// `atriumdev.online`.
+func (c *Client) FindZone(ctx context.Context, projectID, zoneName string) (*DnsZone, bool, error) {
+	zones, err := c.ListZones(ctx, projectID)
 	if err != nil {
 		return nil, false, err
 	}
 	want := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(zoneName), "."))
 	for i := range zones {
-		if strings.ToLower(strings.TrimSuffix(zones[i].Name, ".")) == want {
+		if ZoneDomain(&zones[i]) == want {
 			return &zones[i], true, nil
 		}
 	}
 	return nil, false, nil
 }
 
-// GetZone reads one zone by id.
+// GetZone reads one zone by id, records included.
 func (c *Client) GetZone(ctx context.Context, zoneID string) (*DnsZone, error) {
 	var out DnsZone
-	if err := c.request(ctx, http.MethodGet, c.dnsURL, "/v1/zones/"+url.PathEscape(zoneID), nil, nil, &out); err != nil {
+	if err := c.request(ctx, http.MethodGet, c.dnsURL, "/v1/publicZones/"+url.PathEscape(zoneID), nil, nil, &out); err != nil {
 		return nil, errors.Wrapf(err, "failed to read cloud.ru DNS zone %q", zoneID)
-	}
-	return &out, nil
-}
-
-// CreateZone creates a zone under a service instance.
-//
-// Exposed, but NOT reached by the registrar: like the Yandex one, the registrar
-// looks a zone up and never creates it. A public zone is authoritative for a real
-// domain, so creating one from a deploy either collides with the delegation that
-// exists or produces a second zone nobody's nameservers point at. The method is
-// here for `sc` to offer as an explicit operator action.
-func (c *Client) CreateZone(ctx context.Context, parentID, zoneName string) (*DnsZone, error) {
-	body := map[string]string{"name": strings.TrimSuffix(zoneName, "."), "parentId": parentID}
-	var out DnsZone
-	if err := c.request(ctx, http.MethodPost, c.dnsURL, "/v1/zones", nil, body, &out); err != nil {
-		return nil, errors.Wrapf(err, "failed to create cloud.ru DNS zone %q", zoneName)
 	}
 	return &out, nil
 }
 
 // DeleteZone removes a zone. Absence is success.
 func (c *Client) DeleteZone(ctx context.Context, zoneID string) error {
-	err := c.request(ctx, http.MethodDelete, c.dnsURL, "/v1/zones/"+url.PathEscape(zoneID), nil, nil, nil)
+	err := c.request(ctx, http.MethodDelete, c.dnsURL, "/v1/publicZones/"+url.PathEscape(zoneID), nil, nil, nil)
 	if err != nil && !NotFound(err) {
 		return errors.Wrapf(err, "failed to delete cloud.ru DNS zone %q", zoneID)
 	}
 	return nil
 }
 
-// ListRecords returns every record set in a zone.
-func (c *Client) ListRecords(ctx context.Context, zoneID string) ([]DnsRecord, error) {
-	path := "/v1/zones/" + url.PathEscape(zoneID) + "/records"
-	out, err := listDnsCollection[DnsRecord](ctx, c, path, nil)
-	if err != nil {
-		return nil, errors.Wrapf(err, "failed to list records of cloud.ru DNS zone %q", zoneID)
-	}
-	return out, nil
-}
-
-// FindRecord reads one record set, reporting absence rather than erroring on it.
-func (c *Client) FindRecord(ctx context.Context, zoneID, name, recordType string) (*DnsRecord, bool, error) {
-	var out DnsRecord
-	path := "/v1/zones/" + url.PathEscape(zoneID) + "/records/" + dnsRecordKey(name, recordType)
-	err := c.request(ctx, http.MethodGet, c.dnsURL, path, nil, nil, &out)
-	if NotFound(err) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, errors.Wrapf(err, "failed to read %s record %q of cloud.ru DNS zone %q", recordType, name, zoneID)
-	}
-	return &out, true, nil
-}
-
-// CreateRecord creates one record set.
-func (c *Client) CreateRecord(ctx context.Context, record DnsRecord) (*DnsRecord, error) {
-	body := map[string]any{
-		"name":   record.Name,
-		"type":   strings.ToUpper(record.Type),
-		"ttl":    lo.If(record.TTL > 0, record.TTL).Else(DefaultDnsRecordTtl),
-		"values": record.Values,
-	}
-	if record.Enabled != nil {
-		body["enabled"] = *record.Enabled
-	}
-	var out DnsRecord
-	path := "/v1/zones/" + url.PathEscape(record.ZoneID) + "/records"
-	if err := c.request(ctx, http.MethodPost, c.dnsURL, path, nil, body, &out); err != nil {
-		return nil, errors.Wrapf(err, "failed to create %s record %q in cloud.ru DNS zone %q",
-			record.Type, record.Name, record.ZoneID)
-	}
-	return &out, nil
-}
-
-// PatchRecord updates the values and TTL of an existing record set.
+// putZoneRecords replaces a zone's ENTIRE record set, then CHECKS that it did.
 //
-// A patch rather than delete-then-create, and that is not a style choice: a record
-// deleted and recreated is a window in which the name does not resolve, and the
-// window is as long as the old TTL. The `updateMask` is what keeps the patch from
-// clearing the fields it does not name.
-func (c *Client) PatchRecord(ctx context.Context, record DnsRecord) (*DnsRecord, error) {
-	inner := map[string]any{
-		"zoneId": record.ZoneID,
-		"name":   record.Name,
-		"type":   strings.ToUpper(record.Type),
-		"ttl":    lo.If(record.TTL > 0, record.TTL).Else(DefaultDnsRecordTtl),
-		"values": record.Values,
-	}
-	mask := []string{"values", "ttl"}
-	if record.Enabled != nil {
-		inner["enabled"] = *record.Enabled
-		mask = append(mask, "enabled")
-	}
-	body := map[string]any{"record": inner, "updateMask": strings.Join(mask, ",")}
+// Three API properties collapse into this one function, and each of them can
+// destroy an operator's zone quietly:
+//
+//  1. There is no per-record route, so a PATCH carrying one record deletes every
+//     other record in the zone. Callers must pass the full desired set — which is
+//     why this is unexported and ApplyDnsRecord reads before it writes.
+//  2. The write is asynchronous, and the zone reads back `records: []` while it is
+//     in flight. Without the wait, a caller concludes the write destroyed the zone.
+//  3. **`done: true` does not mean converged.** A PATCH issued while the previous
+//     write is still settling drops records — measured twice on 2026-10-24: a
+//     two-record write landed one record, and a following two-record write landed
+//     none, emptying the zone. Both operations reported `done: true` with an empty
+//     `error`, and the zone was still empty 80 seconds later, so this is lost data
+//     and not a stale read. The same three-record write, issued after a quiet
+//     period, applied perfectly.
+//
+// So the operation's own verdict is not trusted. After it reports done, the zone is
+// re-read until it actually holds what was written, and the PATCH is re-issued if it
+// does not. That turns the failure mode from "green deploy, empty zone" into either
+// a correct zone or a loud error.
+func (c *Client) putZoneRecords(ctx context.Context, zoneID string, records []DnsRecord) error {
+	path := "/v1/publicZones/" + url.PathEscape(zoneID)
+	body := map[string]any{"records": records}
 
-	var out DnsRecord
-	path := "/v1/zones/" + url.PathEscape(record.ZoneID) + "/records/" + dnsRecordKey(record.Name, record.Type)
-	if err := c.request(ctx, http.MethodPatch, c.dnsURL, path, nil, body, &out); err != nil {
-		return nil, errors.Wrapf(err, "failed to update %s record %q in cloud.ru DNS zone %q",
-			record.Type, record.Name, record.ZoneID)
+	var lastSeen int
+	for attempt := 1; attempt <= dnsOperationPoll.writeAttempts; attempt++ {
+		var op dnsOperation
+		if err := c.request(ctx, http.MethodPatch, c.dnsURL, path, nil, body, &op); err != nil {
+			return errors.Wrapf(err, "failed to write records of cloud.ru DNS zone %q", zoneID)
+		}
+		if op.ID != "" {
+			if err := c.waitDnsOperation(ctx, op.ID); err != nil {
+				return err
+			}
+		}
+
+		converged, seen, err := c.zoneHoldsRecords(ctx, zoneID, records)
+		if err != nil {
+			return err
+		}
+		lastSeen = seen
+		if converged {
+			return nil
+		}
+		// Diverged. Let the zone settle before trying again — retrying immediately
+		// is the very thing that loses records.
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(dnsOperationPoll.settle):
+		}
 	}
-	return &out, nil
+	return errors.Errorf("cloud.ru DNS zone %q did not converge after %d write attempt(s): %d of %d record(s) "+
+		"present. The API reported every write as successful, which it does even when it discards records, so "+
+		"check the zone in the console before re-running — records that were in the zone before may be gone",
+		zoneID, dnsOperationPoll.writeAttempts, lastSeen, len(records))
 }
 
-// DeleteRecord removes one record set. Absence is success, so a destroy converges
-// when it runs twice or after a create that failed halfway.
-func (c *Client) DeleteRecord(ctx context.Context, zoneID, name, recordType string) error {
-	path := "/v1/zones/" + url.PathEscape(zoneID) + "/records/" + dnsRecordKey(name, recordType)
-	err := c.request(ctx, http.MethodDelete, c.dnsURL, path, nil, nil, nil)
-	if err != nil && !NotFound(err) {
-		return errors.Wrapf(err, "failed to delete %s record %q of cloud.ru DNS zone %q", recordType, name, zoneID)
+// zoneHoldsRecords reports whether the zone's live record set IS what was just
+// written, and how much of it is there.
+//
+// Identity plus values plus TTL: a partial write is the failure being guarded
+// against, so "the record is there but with the old value" has to count as
+// divergence too. The writable count has to match as well — a PATCH carries the
+// whole set, so a record SC meant to drop and that is still there is divergence in
+// the other direction, which is how a destroy is confirmed. Read-only records (the
+// zone's own) are excluded from that count since SC never sends them.
+func (c *Client) zoneHoldsRecords(ctx context.Context, zoneID string, want []DnsRecord) (bool, int, error) {
+	deadline := time.Now().Add(dnsOperationPoll.convergeTimeout)
+	best := 0
+	for {
+		zone, err := c.GetZone(ctx, zoneID)
+		if err != nil {
+			return false, best, err
+		}
+		found, writable := 0, 0
+		for i := range zone.Records {
+			if !zone.Records[i].ReadOnly {
+				writable++
+			}
+		}
+		for _, w := range want {
+			for i := range zone.Records {
+				if dnsRecordsEqual(zone.Records[i], w) && recordMatches(&zone.Records[i], w) {
+					found++
+					break
+				}
+			}
+		}
+		if found > best {
+			best = found
+		}
+		if found == len(want) && writable == len(want) {
+			return true, found, nil
+		}
+		if time.Now().After(deadline) {
+			return false, best, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, best, ctx.Err()
+		case <-time.After(dnsOperationPoll.interval):
+		}
 	}
-	return nil
+}
+
+// dnsOperationPoll is how often a write is polled, and for how long. A var rather
+// than a const only so the tests do not have to sleep through it.
+//
+// convergeTimeout/settle/writeAttempts exist because the operation lies about being
+// finished (see putZoneRecords). settle is generous on purpose: the one probe that
+// applied cleanly waited ~30s after the previous write, and every probe that wrote
+// sooner lost records.
+var dnsOperationPoll = struct {
+	interval        time.Duration
+	timeout         time.Duration
+	convergeTimeout time.Duration
+	settle          time.Duration
+	writeAttempts   int
+}{
+	interval:        2 * time.Second,
+	timeout:         3 * time.Minute,
+	convergeTimeout: 45 * time.Second,
+	settle:          30 * time.Second,
+	writeAttempts:   2,
+}
+
+// waitDnsOperation polls one write to completion.
+func (c *Client) waitDnsOperation(ctx context.Context, opID string) error {
+	interval, timeout := dnsOperationPoll.interval, dnsOperationPoll.timeout
+	deadline := time.Now().Add(timeout)
+	for {
+		var op dnsOperation
+		if err := c.request(ctx, http.MethodGet, c.dnsURL, "/v1/operations/"+url.PathEscape(opID), nil, nil, &op); err != nil {
+			return errors.Wrapf(err, "failed to read cloud.ru DNS operation %q", opID)
+		}
+		if len(op.Error) > 0 {
+			return errors.Errorf("cloud.ru DNS operation %q failed: %v", opID, op.Error)
+		}
+		if op.Done {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return errors.Errorf("cloud.ru DNS operation %q did not complete within %s — the record may still be "+
+				"applied later; re-run to converge", opID, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(interval):
+		}
+	}
 }
 
 // DnsRecordSpec is the desired state of one record set, as the `sc cloudru
 // dns-record` subcommands receive it.
 type DnsRecordSpec struct {
-	// ParentID is the Cloud DNS service instance the zone lives under. Required
-	// unless ZoneID is given, since it is what the zone lookup is scoped to.
-	ParentID string `json:"parentId,omitempty"`
+	// ProjectID scopes the zone lookup. Required unless ZoneID is given. It is the
+	// ordinary Evolution project id — the same one the rest of this package uses.
+	ProjectID string `json:"projectId,omitempty"`
 	// ZoneName is the DNS zone. Looked up, never created.
 	ZoneName string `json:"zoneName,omitempty"`
 	// ZoneID skips the lookup.
@@ -349,14 +474,10 @@ type DnsResult struct {
 	ZoneName   string `json:"zoneName,omitempty"`
 	RecordName string `json:"recordName,omitempty"`
 	RecordType string `json:"recordType,omitempty"`
-	// ZoneDelegated is reported rather than enforced: a record in an undelegated
-	// zone is created successfully and resolves nowhere, and the operator has no
-	// other place to learn that from a deploy log.
-	ZoneDelegated bool `json:"zoneDelegated,omitempty"`
 }
 
-// resolveZone turns a spec's zone reference into a zone id, checking that what
-// came back serves the zone the config names.
+// resolveZone turns a spec's zone reference into a zone, checking that what came
+// back serves the zone the config names.
 //
 // The check matters for the same reason it does in the Yandex registrar: a record
 // written into the wrong zone is inert rather than an error, so it presents as
@@ -367,28 +488,42 @@ func (c *Client) resolveZone(ctx context.Context, spec DnsRecordSpec) (*DnsZone,
 		if err != nil {
 			return nil, err
 		}
-		if spec.ZoneName != "" && !strings.EqualFold(
-			strings.TrimSuffix(zone.Name, "."), strings.TrimSuffix(spec.ZoneName, ".")) {
+		want := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(spec.ZoneName), "."))
+		if want != "" && ZoneDomain(zone) != want {
 			return nil, errors.Errorf("cloud.ru DNS zone %q serves %q, not the configured zoneName %q",
-				spec.ZoneID, zone.Name, spec.ZoneName)
+				spec.ZoneID, ZoneDomain(zone), spec.ZoneName)
 		}
 		return zone, nil
 	}
-	zone, found, err := c.FindZone(ctx, spec.ParentID, spec.ZoneName)
+	// The spec may carry its own project, but the credentials already name one and
+	// that is where the operator put it — a request with `projectId` only at the top
+	// level failed the lookup with "`projectId` is required", which reads like the
+	// field was missing when it was right there (live-caught 2026-10-24).
+	projectID := spec.ProjectID
+	if projectID == "" {
+		projectID = c.creds.ProjectID
+	}
+	zone, found, err := c.FindZone(ctx, projectID, spec.ZoneName)
 	if err != nil {
 		return nil, err
 	}
 	if !found {
-		return nil, errors.Errorf("cloud.ru DNS zone %q was not found under service instance %q. "+
-			"The zone is looked up and never created by a deploy — create it in the console (Cloud DNS → Зоны) "+
-			"and delegate the apex domain's NS records to Cloud.ru first. Note `parentId` is the Cloud DNS "+
-			"SERVICE INSTANCE id, not the project id: a project id here lists an empty set of zones, which "+
-			"looks identical to having none", spec.ZoneName, spec.ParentID)
+		return nil, errors.Errorf("cloud.ru DNS zone %q was not found in project %q. The zone is looked up and "+
+			"never created by a deploy — create it in the console (Cloud DNS → Зоны), then point the domain's "+
+			"registrar at %s. If the zone DOES exist, check that `projectId` names the project that owns it, or "+
+			"set `zoneId` outright: it is the path segment of the zone's own console URL "+
+			"(.../dns/zones/public/<zoneId>/edit) and skips this lookup entirely",
+			spec.ZoneName, projectID, strings.Join(DnsNameservers, " and "))
 	}
 	return zone, nil
 }
 
-// ApplyDnsRecord converges one record set: create when absent, patch when present.
+// ApplyDnsRecord converges one record set inside a zone.
+//
+// Read-modify-write, and not for tidiness: a PATCH carries the zone's whole record
+// array, so writing one record without first reading the others deletes them. The
+// read is the only thing standing between a `domain:` in a client.yaml and a
+// deploy that silently empties a shared zone.
 func (c *Client) ApplyDnsRecord(ctx context.Context, req Request, progress func(string, ...any)) (*Result, error) {
 	if progress == nil {
 		progress = func(string, ...any) {}
@@ -400,8 +535,8 @@ func (c *Client) ApplyDnsRecord(ctx context.Context, req Request, progress func(
 		return nil, errors.Errorf("`dnsSpec` is required")
 	}
 	spec := *req.DnsSpec
-	if spec.Name == "" || spec.Type == "" {
-		return nil, errors.Errorf("`dnsSpec.name` and `dnsSpec.type` are required")
+	if spec.Type == "" {
+		return nil, errors.Errorf("`dnsSpec.type` is required")
 	}
 	if len(spec.Values) == 0 {
 		return nil, errors.Errorf("`dnsSpec.values` is required: a record set with no values is a deletion, "+
@@ -412,47 +547,50 @@ func (c *Client) ApplyDnsRecord(ctx context.Context, req Request, progress func(
 	if err != nil {
 		return nil, err
 	}
-	name := dnsRecordName(spec.Name, zone.Name)
-
-	record := DnsRecord{ZoneID: zone.ID, Name: name, Type: strings.ToUpper(spec.Type), TTL: spec.TTL, Values: spec.Values}
-
-	existing, found, err := c.FindRecord(ctx, zone.ID, name, record.Type)
+	name, err := dnsRecordName(spec.Name, ZoneDomain(zone))
 	if err != nil {
 		return nil, err
 	}
+	desired := DnsRecord{Name: name, Type: dnsRecordType(spec.Type), Values: spec.Values, TTL: spec.TTL}
+
+	records := append([]DnsRecord(nil), zone.Records...)
+	idx := -1
+	for i := range records {
+		if dnsRecordsEqual(records[i], desired) {
+			idx = i
+			break
+		}
+	}
+	label := lo.If(name == "", "the apex").Else(name)
 	switch {
-	case !found:
-		progress("creating %s record %q in zone %q", record.Type, name, zone.Name)
-		if _, err := c.CreateRecord(ctx, record); err != nil {
-			return nil, err
-		}
-	case recordMatches(existing, record):
-		progress("%s record %q in zone %q is already up to date", record.Type, name, zone.Name)
+	case idx < 0:
+		progress("creating %s record %q in zone %q (zone holds %d other record(s))",
+			desired.Type, label, ZoneDomain(zone), len(records))
+		records = append(records, desired)
+	case recordMatches(&records[idx], desired):
+		progress("%s record %q in zone %q is already up to date", desired.Type, label, ZoneDomain(zone))
+		return dnsResultOf(zone, desired), nil
 	default:
-		progress("updating %s record %q in zone %q", record.Type, name, zone.Name)
-		if _, err := c.PatchRecord(ctx, record); err != nil {
-			return nil, err
+		progress("updating %s record %q in zone %q", desired.Type, label, ZoneDomain(zone))
+		// Preserve the fields the API owns (id, wildcard, description) — a PATCH
+		// that dropped them would re-create the record rather than amend it.
+		records[idx].Values = desired.Values
+		// An unset desired TTL leaves the live one alone. Writing 0 here would be a
+		// real change — the API stores a literal 0 — so a caller that simply did not
+		// mention a TTL would silently clear one that was set deliberately.
+		if desired.TTL != 0 {
+			records[idx].TTL = desired.TTL
 		}
 	}
 
-	if !zone.Delegated {
-		progress("WARNING: cloud.ru DNS zone %q reports delegated=false — the record exists but will not "+
-			"resolve until the domain's registrar points its NS records at Cloud.ru", zone.Name)
+	if err := c.putZoneRecords(ctx, zone.ID, records); err != nil {
+		return nil, err
 	}
-
-	return &Result{
-		Name: name,
-		DnsResult: DnsResult{
-			ZoneID:        zone.ID,
-			ZoneName:      zone.Name,
-			RecordName:    name,
-			RecordType:    record.Type,
-			ZoneDelegated: zone.Delegated,
-		},
-	}, nil
+	return dnsResultOf(zone, desired), nil
 }
 
-// DestroyDnsRecord removes one record set. Absence is success.
+// DestroyDnsRecord removes one record set, leaving the zone's others alone.
+// Absence is success, so a destroy converges when it runs twice.
 func (c *Client) DestroyDnsRecord(ctx context.Context, req Request, progress func(string, ...any)) (*Result, error) {
 	if progress == nil {
 		progress = func(string, ...any) {}
@@ -464,42 +602,75 @@ func (c *Client) DestroyDnsRecord(ctx context.Context, req Request, progress fun
 		return nil, errors.Errorf("`dnsSpec` is required")
 	}
 	spec := *req.DnsSpec
-	if spec.Name == "" || spec.Type == "" {
-		return nil, errors.Errorf("`dnsSpec.name` and `dnsSpec.type` are required")
+	if spec.Type == "" {
+		return nil, errors.Errorf("`dnsSpec.type` is required")
 	}
 
 	zone, err := c.resolveZone(ctx, spec)
 	if err != nil {
 		// A destroy must converge against a zone that is already gone: deleting the
 		// zone deletes its records, so there is nothing left to do and nothing wrong.
-		if NotFound(err) || strings.Contains(err.Error(), "was not found under service instance") {
-			return &Result{Name: spec.Name, DnsResult: DnsResult{RecordName: spec.Name, RecordType: spec.Type}}, nil
+		if NotFound(err) || strings.Contains(err.Error(), "was not found in project") {
+			return &Result{Name: spec.Name, DnsResult: DnsResult{RecordName: spec.Name, RecordType: dnsRecordType(spec.Type)}}, nil
 		}
 		return nil, err
 	}
-	name := dnsRecordName(spec.Name, zone.Name)
-	recordType := strings.ToUpper(spec.Type)
-	progress("deleting %s record %q from zone %q", recordType, name, zone.Name)
-	if err := c.DeleteRecord(ctx, zone.ID, name, recordType); err != nil {
+	name, err := dnsRecordName(spec.Name, ZoneDomain(zone))
+	if err != nil {
 		return nil, err
 	}
+	desired := DnsRecord{Name: name, Type: dnsRecordType(spec.Type)}
+
+	kept := make([]DnsRecord, 0, len(zone.Records))
+	removed := false
+	for _, r := range zone.Records {
+		if dnsRecordsEqual(r, desired) {
+			removed = true
+			continue
+		}
+		kept = append(kept, r)
+	}
+	if !removed {
+		progress("%s record %q is already absent from zone %q", desired.Type, spec.Name, ZoneDomain(zone))
+		return dnsResultOf(zone, desired), nil
+	}
+	progress("deleting %s record %q from zone %q (%d record(s) kept)",
+		desired.Type, lo.If(name == "", "the apex").Else(name), ZoneDomain(zone), len(kept))
+	if err := c.putZoneRecords(ctx, zone.ID, kept); err != nil {
+		return nil, err
+	}
+	return dnsResultOf(zone, desired), nil
+}
+
+func dnsResultOf(zone *DnsZone, record DnsRecord) *Result {
 	return &Result{
-		Name: name,
+		Name: record.Name,
 		DnsResult: DnsResult{
-			ZoneID: zone.ID, ZoneName: zone.Name, RecordName: name, RecordType: recordType,
-			ZoneDelegated: zone.Delegated,
+			ZoneID:     zone.ID,
+			ZoneName:   ZoneDomain(zone),
+			RecordName: record.Name,
+			RecordType: record.Type,
 		},
-	}, nil
+	}
 }
 
 // recordMatches reports whether the live record already is the desired one, so an
-// unchanged deploy performs no write. Values are compared as a set: the API is
-// free to return them in its own order, and a reorder is not a change.
+// unchanged deploy performs no write.
+//
+// Values are compared as a set: the API is free to return them in its own order,
+// and a reorder is not a change.
+//
+// TTL is compared only when the desired TTL is set, so an unset TTL means "don't
+// care" rather than "set it to zero". This was briefly the other way round — TTL
+// skipped entirely, on a measurement that said the API ignored the field — and that
+// made a TTL change a silent no-op: SC printed "already up to date" and wrote
+// nothing. The API does honour TTL (900 reads back as 900), so it is a real part of
+// the record's identity.
 func recordMatches(existing *DnsRecord, desired DnsRecord) bool {
 	if existing == nil {
 		return false
 	}
-	if existing.TTL != lo.If(desired.TTL > 0, desired.TTL).Else(DefaultDnsRecordTtl) {
+	if desired.TTL != 0 && existing.TTL != desired.TTL {
 		return false
 	}
 	if len(existing.Values) != len(desired.Values) {
