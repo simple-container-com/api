@@ -45,6 +45,9 @@ const (
 	SCCloudPlugin_InitSecretsProvider_FullMethodName = "/sc.plugin.v1.SCCloudPlugin/InitSecretsProvider"
 	SCCloudPlugin_Provider_FullMethodName            = "/sc.plugin.v1.SCCloudPlugin/Provider"
 	SCCloudPlugin_Provision_FullMethodName           = "/sc.plugin.v1.SCCloudPlugin/Provision"
+	SCCloudPlugin_ComputeProcess_FullMethodName      = "/sc.plugin.v1.SCCloudPlugin/ComputeProcess"
+	SCCloudPlugin_ProvisionRegistrar_FullMethodName  = "/sc.plugin.v1.SCCloudPlugin/ProvisionRegistrar"
+	SCCloudPlugin_PreDestroy_FullMethodName          = "/sc.plugin.v1.SCCloudPlugin/PreDestroy"
 )
 
 // SCCloudPluginClient is the client API for SCCloudPlugin service.
@@ -61,6 +64,9 @@ type SCCloudPluginClient interface {
 	InitSecretsProvider(ctx context.Context, in *InitSecretsProviderRequest, opts ...grpc.CallOption) (*InitSecretsProviderResponse, error)
 	Provider(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
 	Provision(ctx context.Context, in *ProvisionRequest, opts ...grpc.CallOption) (*ProvisionResponse, error)
+	ComputeProcess(ctx context.Context, in *ComputeProcessRequest, opts ...grpc.CallOption) (*ComputeProcessResponse, error)
+	ProvisionRegistrar(ctx context.Context, in *ProvisionRegistrarRequest, opts ...grpc.CallOption) (*ProvisionRegistrarResponse, error)
+	PreDestroy(ctx context.Context, in *PreDestroyRequest, opts ...grpc.CallOption) (*PreDestroyResponse, error)
 }
 
 type sCCloudPluginClient struct {
@@ -121,6 +127,36 @@ func (c *sCCloudPluginClient) Provision(ctx context.Context, in *ProvisionReques
 	return out, nil
 }
 
+func (c *sCCloudPluginClient) ComputeProcess(ctx context.Context, in *ComputeProcessRequest, opts ...grpc.CallOption) (*ComputeProcessResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ComputeProcessResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_ComputeProcess_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) ProvisionRegistrar(ctx context.Context, in *ProvisionRegistrarRequest, opts ...grpc.CallOption) (*ProvisionRegistrarResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProvisionRegistrarResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_ProvisionRegistrar_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) PreDestroy(ctx context.Context, in *PreDestroyRequest, opts ...grpc.CallOption) (*PreDestroyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PreDestroyResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_PreDestroy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SCCloudPluginServer is the server API for SCCloudPlugin service.
 // All implementations must embed UnimplementedSCCloudPluginServer
 // for forward compatibility.
@@ -135,6 +171,9 @@ type SCCloudPluginServer interface {
 	InitSecretsProvider(context.Context, *InitSecretsProviderRequest) (*InitSecretsProviderResponse, error)
 	Provider(context.Context, *ProviderRequest) (*ProviderResponse, error)
 	Provision(context.Context, *ProvisionRequest) (*ProvisionResponse, error)
+	ComputeProcess(context.Context, *ComputeProcessRequest) (*ComputeProcessResponse, error)
+	ProvisionRegistrar(context.Context, *ProvisionRegistrarRequest) (*ProvisionRegistrarResponse, error)
+	PreDestroy(context.Context, *PreDestroyRequest) (*PreDestroyResponse, error)
 	mustEmbedUnimplementedSCCloudPluginServer()
 }
 
@@ -159,6 +198,15 @@ func (UnimplementedSCCloudPluginServer) Provider(context.Context, *ProviderReque
 }
 func (UnimplementedSCCloudPluginServer) Provision(context.Context, *ProvisionRequest) (*ProvisionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Provision not implemented")
+}
+func (UnimplementedSCCloudPluginServer) ComputeProcess(context.Context, *ComputeProcessRequest) (*ComputeProcessResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ComputeProcess not implemented")
+}
+func (UnimplementedSCCloudPluginServer) ProvisionRegistrar(context.Context, *ProvisionRegistrarRequest) (*ProvisionRegistrarResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProvisionRegistrar not implemented")
+}
+func (UnimplementedSCCloudPluginServer) PreDestroy(context.Context, *PreDestroyRequest) (*PreDestroyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PreDestroy not implemented")
 }
 func (UnimplementedSCCloudPluginServer) mustEmbedUnimplementedSCCloudPluginServer() {}
 func (UnimplementedSCCloudPluginServer) testEmbeddedByValue()                       {}
@@ -271,6 +319,60 @@ func _SCCloudPlugin_Provision_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SCCloudPlugin_ComputeProcess_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ComputeProcessRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).ComputeProcess(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_ComputeProcess_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).ComputeProcess(ctx, req.(*ComputeProcessRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_ProvisionRegistrar_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProvisionRegistrarRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).ProvisionRegistrar(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_ProvisionRegistrar_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).ProvisionRegistrar(ctx, req.(*ProvisionRegistrarRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_PreDestroy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreDestroyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).PreDestroy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_PreDestroy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).PreDestroy(ctx, req.(*PreDestroyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SCCloudPlugin_ServiceDesc is the grpc.ServiceDesc for SCCloudPlugin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -297,6 +399,18 @@ var SCCloudPlugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Provision",
 			Handler:    _SCCloudPlugin_Provision_Handler,
+		},
+		{
+			MethodName: "ComputeProcess",
+			Handler:    _SCCloudPlugin_ComputeProcess_Handler,
+		},
+		{
+			MethodName: "ProvisionRegistrar",
+			Handler:    _SCCloudPlugin_ProvisionRegistrar_Handler,
+		},
+		{
+			MethodName: "PreDestroy",
+			Handler:    _SCCloudPlugin_PreDestroy_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

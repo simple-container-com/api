@@ -5,6 +5,7 @@ package pulumi
 
 import (
 	"context"
+	"os"
 
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/pkg/v3/backend"
@@ -113,6 +114,31 @@ func (p *pulumi) loadPreEnginePlugins(ctx context.Context, stack api.Stack) erro
 	}
 	b.RegisterSidecars()
 	p.preEnginePlugins = b
+
+	// If the provisioner's secrets-provider type is now owned by a plugin
+	// sidecar, invoke it to resolve the pulumi provider URL / passphrase.
+	// Sets p.secretsProviderUrl + p.secretsProviderPassphrase which
+	// prepareStackForOperations consumes.
+	if p.provisionerCfg != nil {
+		if fn, ok := pApi.InitSecretsProviderFuncByType[p.provisionerCfg.SecretsProvider.Type]; ok {
+			url, passphrase, env, err := fn(ctx, p.logger)
+			if err != nil {
+				return errors.Wrapf(err, "plugin secrets-provider init for %q",
+					p.provisionerCfg.SecretsProvider.Type)
+			}
+			if url != "" {
+				p.secretsProviderUrl = url
+			}
+			if passphrase != "" {
+				p.secretsProviderPassphrase = passphrase
+			}
+			for k, v := range env {
+				if err := os.Setenv(k, v); err != nil {
+					p.logger.Warn(ctx, "set env %q from secrets-provider plugin: %v", k, err)
+				}
+			}
+		}
+	}
 	return nil
 }
 

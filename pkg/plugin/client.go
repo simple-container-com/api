@@ -112,6 +112,26 @@ func (c *Client) InitStateStore(ctx context.Context, req *scpluginv1.InitStateSt
 	return c.stub.InitStateStore(ctx, req)
 }
 
+// InitSecretsProvider calls through to the plugin's InitSecretsProvider RPC.
+func (c *Client) InitSecretsProvider(ctx context.Context, req *scpluginv1.InitSecretsProviderRequest) (*scpluginv1.InitSecretsProviderResponse, error) {
+	return c.stub.InitSecretsProvider(ctx, req)
+}
+
+// ComputeProcess calls through to the plugin's ComputeProcess RPC.
+func (c *Client) ComputeProcess(ctx context.Context, req *scpluginv1.ComputeProcessRequest) (*scpluginv1.ComputeProcessResponse, error) {
+	return c.stub.ComputeProcess(ctx, req)
+}
+
+// ProvisionRegistrar calls through to the plugin's ProvisionRegistrar RPC.
+func (c *Client) ProvisionRegistrar(ctx context.Context, req *scpluginv1.ProvisionRegistrarRequest) (*scpluginv1.ProvisionRegistrarResponse, error) {
+	return c.stub.ProvisionRegistrar(ctx, req)
+}
+
+// PreDestroy calls through to the plugin's PreDestroy RPC.
+func (c *Client) PreDestroy(ctx context.Context, req *scpluginv1.PreDestroyRequest) (*scpluginv1.PreDestroyResponse, error) {
+	return c.stub.PreDestroy(ctx, req)
+}
+
 // Close terminates the plugin subprocess. Safe to call more than once.
 func (c *Client) Close() {
 	if c.gpClient != nil {
