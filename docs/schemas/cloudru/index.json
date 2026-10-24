@@ -33,6 +33,16 @@
       "schema": {}
     },
     {
+      "name": "DnsRegistrarConfig",
+      "type": "resource",
+      "provider": "cloudru",
+      "description": "CLOUDRU dnsregistrar configuration",
+      "goPackage": "pkg/clouds/cloudru/",
+      "goStruct": "DnsRegistrarConfig",
+      "resourceType": "cloudru-dns",
+      "schema": {}
+    },
+    {
       "name": "EvolutionAccountConfig",
       "type": "auth",
       "provider": "cloudru",

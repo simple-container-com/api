@@ -134,7 +134,7 @@ func ContainerApp(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 	// values are stored and rendered unencrypted in a Pulumi diff, and this spec's
 	// env block holds the stack's secrets inline (see envVars below).
 	buildSpec := func(imageRef string) (evolution.AppSpec, error) {
-		return containerAppSpec(stack, deployParams, params, caInput, extras, appName, containerName, imageRef)
+		return containerAppSpec(ctx, stack, deployParams, params, caInput, extras, appName, containerName, imageRef)
 	}
 
 	requestJSON := image.DeployImageRef.ApplyT(func(imageRef string) (string, error) {
@@ -291,16 +291,14 @@ func buildAndPushImage(
 	// The repository is a path segment under the registry host, as on Yandex and
 	// unlike ECR, so RepositoryUrlWithImage is false and the name is appended.
 	//
-	// The name is the app name, which for a client stack is `<stack>--<env>`. Note
-	// the doubled hyphen: Yandex Container Registry enforces the *legacy* Docker
-	// repository grammar (at most one separator between components) and rejects
-	// exactly this with a bare `400 Bad Request` on the blob HEAD, naming nothing
-	// — see toRepositoryName in pkg/clouds/pulumi/yandex/docker.go. Whether
-	// Cloud.ru's registry does the same is UNVERIFIED as of 2026-10-22: the live
-	// skeleton pushed `react-hello-world`, which has no separator run. Collapsing
-	// runs pre-emptively would rename every image on a cloud that may not care, so
-	// it is not done here; if a first push fails with an unexplained 400, that
-	// function is the fix.
+	// The name is the app name, which cloudru.ToAppName has already collapsed to
+	// single hyphens. That collapse is load-bearing here, and the question the
+	// previous version of this comment left open is now ANSWERED: Cloud.ru's
+	// registry behaves exactly like Yandex's, rejecting a separator run on push
+	// with `invalid repository name` (live smoke 2026-10-23 — the first SC deploy
+	// ever attempted on this driver, which got this far and no further). The
+	// 2026-10-22 skeleton missed it only because it pushed `react-hello-world`,
+	// which has no run.
 	repositoryName := appName
 
 	out, err := pDocker.BuildAndPushImage(ctx, stack, params, deployParams, pDocker.Image{
@@ -330,6 +328,7 @@ func buildAndPushImage(
 
 // containerAppSpec renders the desired state of the app.
 func containerAppSpec(
+	ctx *sdk.Context,
 	stack api.Stack, deployParams api.StackParams, params pApi.ProvisionParams,
 	caInput *cloudru.ContainerAppInput, extras *cloudru.ContainerAppExtras,
 	appName, containerName, imageRef string,
@@ -399,7 +398,7 @@ func containerAppSpec(
 					Memory: fmt.Sprintf("%dMi", memoryMB),
 				},
 				ContainerPort: port,
-				Env:           envVars(stackConfig, params, deployParams, stack, port),
+				Env:           envVars(ctx, stackConfig, params, deployParams, stack, port),
 			}},
 		},
 	}, nil
@@ -418,6 +417,7 @@ func containerAppSpec(
 // Sorted by name, because map iteration order would otherwise change the spec hash
 // on every run and publish a fresh revision for no reason.
 func envVars(
+	ctx *sdk.Context,
 	stackConfig api.StackConfigSingleImage, params pApi.ProvisionParams,
 	deployParams api.StackParams, stack api.Stack, port int,
 ) []evolution.AppEnv {
@@ -425,16 +425,23 @@ func envVars(
 		api.ComputeEnv.StackName:    stack.Name,
 		api.ComputeEnv.StackEnv:     deployParams.Environment,
 		api.ComputeEnv.StackVersion: deployParams.Version,
-		// Cloud.ru injects nothing that names the port (YC defines PORT; a lambda has
-		// no port at all), so the image is told explicitly and the same client.yaml
-		// works on all three.
+		// PORT is NOT set here, and must not be: Cloud.ru reserves it exactly like YC
+		// does, and refuses the whole revision with
+		//   fieldViolations[0]: field "name", "The container env variable name 'PORT'
+		//   is reserved. Give another name for the variable; input=PORT"
+		// Live-caught 2026-10-23 on the first Container Apps deploy; the comment that
+		// used to sit here asserted the opposite ("Cloud.ru injects nothing that names
+		// the port") and was never verified against the API.
+		//
+		// Nothing is lost by dropping it. The port the platform routes to travels in
+		// the app spec as ContainerPort (see the AppContainer literal above), so the
+		// platform already knows it, and the runtime defines PORT itself.
 		//
 		// api.ComputeEnv.CloudProvider is deliberately NOT set. go-aws-lambda-sdk
 		// reads it to choose between serving HTTP and starting a cloud's runtime
 		// loop, and it has no branch for this cloud — an unrecognised value is a
 		// coin-flip over which path an SC-built service takes. A Container App wants
 		// the plain HTTP server, which is what the variable's absence selects.
-		"PORT": fmt.Sprintf("%d", port),
 	}
 	for name, value := range params.BaseEnvVariables {
 		values[name] = value
@@ -452,6 +459,29 @@ func envVars(
 	}
 	for name, value := range stackConfig.Secrets {
 		values[name] = value
+	}
+
+	// A reserved name reaching the API costs the whole revision, so it is dropped
+	// here rather than refused at validation.
+	//
+	// Refusing would be the usual SC rule (support it or reject it; a silently
+	// ignored field is a future incident), and this is the deliberate exception:
+	// a client.yaml that shares one `env:` YAML anchor across an AWS stack — where
+	// PORT is correct and load-bearing — and this one CANNOT remove the inherited
+	// key, because a YAML merge key can add but never delete. That is not
+	// hypothetical; it is what the YC stacks hit, and the workaround there was to
+	// write the whole env block out twice. An error would make a legitimate
+	// multi-cloud stack unshippable, so the drop is logged loudly instead of being
+	// silent.
+	for _, name := range cloudru.ReservedEnvNames {
+		if _, found := values[name]; !found {
+			continue
+		}
+		params.Log.Warn(ctx.Context(), "dropping env variable %q from Container App %q: the name is reserved by the "+
+			"Cloud.ru runtime and a revision that sets it is refused outright. The port is carried by the app spec's "+
+			"containerPort (%d), so nothing is lost; set a differently-named variable if the image needs the value.",
+			name, stack.Name, port)
+		delete(values, name)
 	}
 
 	names := lo.Keys(values)

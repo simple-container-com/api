@@ -56,7 +56,12 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 	}
 
 	switch cfg.Driver {
-	case vm.DriverByo:
+	// Both of these get pulumi-command's provider, for opposite reasons. With `byo`
+	// there is no cloud API in play at all. With `cloudru-evolution-vm` there is one,
+	// but no Pulumi provider for it exists — the machine is converged by
+	// `sc cloudru compute-vm` inside a local.Command, so the only provider the
+	// resource needs is the one that runs commands (see cloudru_evolution.go).
+	case vm.DriverByo, vm.DriverCloudruEvolution:
 		provider, err := command.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &command.ProviderArgs{})
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to init command provider for vm %q", input.Descriptor.Name)

@@ -131,10 +131,16 @@ func (r *AccountConfig) Validate() error {
 		return errors.Errorf("`accessKey` is required for auth type %q", AuthTypeCloudruAccessKey)
 	}
 	if r.SecretKey == "" {
-		return errors.Errorf(
-			"`secretKey` is required for auth type %q — write it as `${secret:<name>}`", AuthTypeCloudruAccessKey)
+		return errors.Errorf("`secretKey` is required for auth type %q", AuthTypeCloudruAccessKey)
 	}
-	return nil
+	// Same trap as Evolution, and it belongs to `secrets.yaml` rather than to either
+	// cloud — see unexpandedPlaceholder.
+	return unexpandedPlaceholder(AuthTypeCloudruAccessKey, map[string]string{
+		"accessKey":   r.AccessKey,
+		"secretKey":   r.SecretKey,
+		"projectName": r.ProjectName,
+		"region":      r.Region,
+	})
 }
 
 func ReadAuthAccessKeyConfig(config *api.Config) (api.Config, error) {

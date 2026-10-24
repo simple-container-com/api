@@ -16,6 +16,16 @@ type Capabilities struct {
 	// CloudInitNeedsEgress — cloud-init needs a public address AT CREATION TIME,
 	// which forces the floating IP to be created before the machine (Timeweb).
 	CloudInitNeedsEgress bool
+	// Regionless — the cloud's API has NO region dimension: one global endpoint,
+	// and placement is by availability zone alone.
+	//
+	// The zero value is the common case (a region is required), so only a cloud
+	// that genuinely has none sets this. Cloud.ru Evolution is the first: its
+	// compute API is `compute.api.cloud.ru` with no region in the host, the path or
+	// any request, and placement is the `ru.AZ-*` availability zone. Requiring
+	// `region:` there would be a mandatory field with nowhere to go — exactly the
+	// dead config this package refuses elsewhere.
+	Regionless bool
 	// MultiAZInRegion is how many availability zones are usable in one region.
 	// Zero means "not measured yet" — do not validate against it until a driver
 	// fills it in from the cloud's own API.
@@ -107,6 +117,51 @@ var Drivers = map[string]DriverInfo{
 			//   - BlockStorageCSI: `evs_volume`/`evs_snapshot` are bridged, but
 			//     whether a k3s cluster on Cloud.ru can run the EVS CSI driver is a
 			//     k3s question (track K), unasked and therefore unanswered.
+		},
+	},
+	DriverCloudruEvolution: {
+		Implemented: true,
+		RoadmapItem: "sc-cloudru-evolution-vm-driver",
+		Capabilities: Capabilities{
+			// No region anywhere in this cloud's compute API — see Regionless. The
+			// AZ names (`ru.AZ-1`…`ru.AZ-3`) are the whole placement vocabulary.
+			Regionless: true,
+			// Measured, not assumed, on 2026-10-24: `POST /vms` answers
+			// `extra_forbidden` to `user_data` (and to every spelling of it), because
+			// the image renders a fixed template from the slots it declares in
+			// `image_metadata` and nothing else reaches the first boot. So there is
+			// no cloud-init on this cloud, which cascades into three things the
+			// driver has to do differently from `cloudru-vm`: docker is installed
+			// afterwards over SSH, the readiness gate is the byo one (preconditions,
+			// not a marker file), and SC cannot pre-seed the machine's SSH host key —
+			// hence trust-on-first-use and the `hostKey:` escape hatch.
+			CloudInit: false,
+			// Irrelevant with CloudInit false, and stated rather than left to the
+			// zero value so it reads as answered: nothing has to happen before the
+			// first boot, so the floating IP is attached after the machine exists.
+			CloudInitNeedsEgress: false,
+			// The VM lands on the availability zone's DEFAULT subnet and DEFAULT
+			// security group, and that is not a simplification: `POST /vms` refuses
+			// `subnet_id`, `security_group_ids`, `interfaces`, `networks`, `nics` and
+			// `floating_ip` alike (measured, same run). Both are still true — there
+			// IS a private network and filtering IS per-interface — SC just does not
+			// get to choose them at create time. Ingress rules are therefore opened
+			// on whichever group the machine actually joined, read back off its own
+			// interface (see ApplyVm → ensureIngress).
+			PrivateNetwork: true,
+			FloatingIP:     true,
+			SecurityGroups: true,
+			// The project's Artifact Registry, which the Container App driver already
+			// creates and pushes to with the same key pair.
+			ContainerRegistry: true,
+			// Evolution has a public DNS service and its REST routes are mapped, but
+			// the service account lacks the role and no apex is delegated to it, so
+			// nothing has been exercised end to end. False until it is — roadmap item
+			// sc-cloudru-dns-registrar.
+			DNSInIaC: false,
+			// MultiAZInRegion left at "not measured": the driver resolves zones from
+			// `GET /availability-zones` at deploy time and never needs a number
+			// compiled in, and a wrong one here would be branched on.
 		},
 	},
 	DriverTimeweb: {RoadmapItem: "sc-ru-clouds-beyond-yandex"},

@@ -149,6 +149,19 @@ func TestValidate(t *testing.T) {
 			},
 			errMatch: "",
 		},
+		{
+			// Refused rather than merged into hosts[0].hostKey: on this path the host
+			// key already has a per-host spelling, and a pool of byo hosts does not
+			// share one. Accepting both would make whichever lost look applied.
+			name:     "byo with a resource-level hostKey",
+			mutate:   func(c *VmConfig) { c.HostKey = "ssh-ed25519 AAAAC3Nz" },
+			errMatch: "pin it per machine, as `hosts[].hostKey`",
+		},
+		{
+			name:     "byo with a per-host hostKey",
+			mutate:   func(c *VmConfig) { c.Hosts[0].HostKey = "203.0.113.10 ssh-ed25519 AAAAC3Nz" },
+			errMatch: "",
+		},
 	}
 
 	for _, tc := range cases {
@@ -247,6 +260,16 @@ func TestValidateCloud(t *testing.T) {
 			mutate:   func(c *VmConfig) { c.Ingress = &VmIngress{Enable: true} },
 			errMatch: "requires `ingress.email`",
 		},
+		{
+			// cloudConfig() is `cloudru-vm`, which runs cloud-init and therefore gets
+			// an SC-generated host key. A pasted one would never be used, so it is
+			// refused rather than stored — the whole point of the field is that on the
+			// clouds where it IS accepted, it closes a real exposure, and a config that
+			// looked accepted here would read as having closed one that is already shut.
+			name:     "hostKey on a cloud that seeds its own",
+			mutate:   func(c *VmConfig) { c.HostKey = "ssh-ed25519 AAAAC3Nz" },
+			errMatch: "this cloud runs cloud-init",
+		},
 	}
 
 	for _, tc := range cases {
@@ -265,6 +288,36 @@ func TestValidateCloud(t *testing.T) {
 			Expect(err.Error()).To(ContainSubstring(tc.errMatch))
 		})
 	}
+}
+
+// The mirror image of the "hostKey on a cloud that seeds its own" case above, and
+// the reason that rule is written against a CAPABILITY rather than a driver name.
+//
+// Cloud.ru Evolution refuses `user_data` at VM create (measured: HTTP 422
+// `extra_forbidden`, 2026-10-24), so SC cannot write a host key into the machine and
+// cannot ever learn the real one from the API either. Without this field the only
+// options are trust-on-first-use forever or no SSH at all — so here, uniquely, a
+// pasted `ssh-keyscan` line is load-bearing config and must validate.
+func TestValidateCloudAcceptsHostKeyWhereCloudInitIsImpossible(t *testing.T) {
+	RegisterTestingT(t)
+
+	// The premise. If this ever flips — Evolution grows user-data, somebody fills the
+	// row in from a newer measurement — the acceptance below becomes dead config and
+	// this test is where that gets noticed.
+	Expect(Drivers[DriverCloudruEvolution].Capabilities.CloudInit).To(BeFalse())
+
+	cfg := cloudConfig()
+	cfg.Driver = DriverCloudruEvolution
+	// This cloud has no regions, and cloudConfig() sets one for the region-scoped
+	// majority — see TestValidateCloudRegionFollowsTheCapability.
+	cfg.Region = ""
+	cfg.HostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"
+	Expect(cfg.Validate()).ToNot(HaveOccurred())
+
+	// And the cloud invariants still apply to it — the escape hatch is one field, not
+	// a bypass of the path.
+	cfg.PublicIP = false
+	Expect(cfg.Validate().Error()).To(ContainSubstring("requires `publicIP: true`"))
 }
 
 // CredentialsValue must not become a dumping ground for the config: with `byo` the
@@ -350,4 +403,39 @@ func TestEffectiveSize(t *testing.T) {
 	Expect(full).To(Equal(VmSize{Cores: 4, Memory: "16Gi", Disk: "60Gi", DiskType: "SSD"}))
 	Expect(absent.Disk).To(BeEmpty())
 	Expect(absent.DiskType).To(BeEmpty())
+}
+
+// `region` is required on a region-scoped cloud and REFUSED on a regionless one,
+// and the condition is the capability rather than a driver name.
+//
+// Cloud.ru Evolution is the first cloud with no region at all: one global compute
+// endpoint, placement by `ru.AZ-*` availability zone. `provision` against it failed
+// on the blanket `requires region` check (live, 2026-10-24) — and the fix is a
+// refusal rather than a quiet acceptance, because a `region:` SC dropped would read
+// as placement the operator had chosen.
+func TestValidateCloudRegionFollowsTheCapability(t *testing.T) {
+	RegisterTestingT(t)
+
+	// The premise, so that filling this row in from a newer measurement is noticed
+	// here rather than becoming a refusal operators cannot satisfy.
+	Expect(Drivers[DriverCloudruEvolution].Capabilities.Regionless).To(BeTrue())
+	Expect(Drivers[DriverCloudru].Capabilities.Regionless).To(BeFalse(),
+		"Advanced IS region-scoped: the region selects the IAM endpoint too")
+
+	regionless := cloudConfig()
+	regionless.Driver = DriverCloudruEvolution
+	regionless.Region = ""
+	Expect(regionless.Validate()).ToNot(HaveOccurred())
+
+	regionless.Region = "ru-moscow-1"
+	err := regionless.Validate()
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("`region` is not valid"))
+	Expect(err.Error()).To(ContainSubstring("zones:"), "the refusal has to say what to use instead")
+
+	// And the majority case is untouched.
+	scoped := cloudConfig()
+	scoped.Driver = DriverCloudru
+	scoped.Region = ""
+	Expect(scoped.Validate().Error()).To(ContainSubstring("requires `region`"))
 }
