@@ -107,6 +107,21 @@ func (p *MonitorProxy) RegisterResourceOutputs(ctx context.Context, req *pulumir
 	return p.monitor.RegisterResourceOutputs(ctx, req)
 }
 
+// Invoke forwards — data-source lookups (e.g. LookupZone) use this.
+func (p *MonitorProxy) Invoke(ctx context.Context, req *pulumirpc.ResourceInvokeRequest) (*pulumirpc.InvokeResponse, error) {
+	return p.monitor.Invoke(ctx, req)
+}
+
+// Call forwards — resource-method invocations.
+func (p *MonitorProxy) Call(ctx context.Context, req *pulumirpc.ResourceCallRequest) (*pulumirpc.CallResponse, error) {
+	return p.monitor.Call(ctx, req)
+}
+
+// ReadResource forwards — resource imports / reads.
+func (p *MonitorProxy) ReadResource(ctx context.Context, req *pulumirpc.ReadResourceRequest) (*pulumirpc.ReadResourceResponse, error) {
+	return p.monitor.ReadResource(ctx, req)
+}
+
 // monitorFromContext reads the unexported `monitor` field from
 // pulumi.Context.state. If the field name or path changes in a Pulumi SDK
 // upgrade, this returns an error (callers get a clear message instead of a

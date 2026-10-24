@@ -5,6 +5,7 @@ package pulumi
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 
@@ -136,9 +137,16 @@ func (b *preEnginePluginBundle) makeRegistrarSidecar(cli *scPlugin.Client, plugi
 		if err != nil {
 			return nil, err
 		}
+		// Serialize the registrar config into the plugin bus input map.
+		// Handle both cases: PluginFieldConfig passthrough (for `:`-prefixed
+		// types) and typed configs produced when the plugin's /api module
+		// registered a provider-config reader (type sans `:`). JSON round-trip
+		// handles both uniformly.
+		configMap := serializeConfigToInputs(desc.Config.Config)
 		resp, err := cli.ProvisionRegistrar(sdkCtx.Context(), &scpluginv1.ProvisionRegistrarRequest{
 			Header:        &scpluginv1.RequestHeader{MonitorAddress: addr},
 			RegistrarType: typeToken,
+			Config:        configMap,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q ProvisionRegistrar(%q)", pluginName, typeToken)
@@ -244,6 +252,37 @@ func recordProviderURN(providerType, urn string) {
 		activeSession.providerURNs = map[string]string{}
 	}
 	activeSession.providerURNs[providerType] = urn
+}
+
+// serializeConfigToInputs converts an arbitrary config value (either an
+// api.PluginFieldConfig or a plugin-typed struct the plugin's /api module
+// registered) to the plugin bus's InputValue map via JSON round-trip. Only
+// string-valued fields propagate for v1; richer types land in Phase 1c.
+func serializeConfigToInputs(cfg any) map[string]*scpluginv1.InputValue {
+	out := map[string]*scpluginv1.InputValue{}
+	if cfg == nil {
+		return out
+	}
+	// JSON round-trip to map[string]any.
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return out
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return out
+	}
+	for k, v := range raw {
+		switch sv := v.(type) {
+		case string:
+			out[k] = &scpluginv1.InputValue{Value: &scpluginv1.InputValue_StringValue{StringValue: sv}}
+		case bool:
+			out[k] = &scpluginv1.InputValue{Value: &scpluginv1.InputValue_BoolValue{BoolValue: sv}}
+		case float64:
+			out[k] = &scpluginv1.InputValue{Value: &scpluginv1.InputValue_DoubleValue{DoubleValue: sv}}
+		}
+	}
+	return out
 }
 
 // pluginRegistrar is the SC-core-side wrapper around a plugin's Registrar
