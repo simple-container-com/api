@@ -26,36 +26,41 @@ const RegistrarTypeCloudruDns = "cloudru-dns"
 // registrar: a public zone is authoritative for a real domain, so creating one from
 // a deploy either collides with the delegation that already exists or produces a
 // second zone nobody's nameservers point at.
+//
+// Delegate the domain to the nameservers in evolution.DnsNameservers before
+// expecting a record written here to resolve. There is no verification step and no
+// TXT challenge — a zone is authoritative as soon as it exists (the API has no
+// `valid` field at all; an earlier version of this package gated on one, which the
+// live API would have left false forever).
 type DnsRegistrarConfig struct {
+	// EvolutionAccountConfig supplies the credential AND `projectId`, which is what
+	// a lookup-by-name is scoped to. There is no separate DNS-specific scope: an
+	// earlier version of this struct carried a `parentId` for a "Cloud DNS parent"
+	// that the real API does not have.
 	EvolutionAccountConfig `json:",inline" yaml:",inline"`
 
 	// ZoneName is the DNS zone this registrar serves, e.g. `simple-forge.ru`,
 	// written the way it appears in a domain. It is what routing matches a
 	// service's `domain:` against, and it is checked against the zone actually
 	// looked up.
+	//
+	// Matched against the zone's `domain`, not its `name` — in the console those
+	// differ: `atriumdev.online` is stored with `name: atriumdev-online` and
+	// `domain: atriumdev.online.`. Write the domain.
 	ZoneName string `json:"zoneName" yaml:"zoneName"`
 
-	// ZoneID skips the lookup-by-name. The surest form, and the one to reach for
-	// when the error below says the zone could not be found.
+	// ZoneID skips the lookup-by-name. Optional, and worth setting when a project
+	// holds several zones: it is the path segment of the zone's own console URL,
+	// `/spa/dns/zones/public/<zoneId>/edit`.
 	ZoneID string `json:"zoneId,omitempty" yaml:"zoneId,omitempty"`
 
-	// ParentID is the **Cloud DNS service instance** id the zone lives under —
-	// NOT the project id, even though every other Evolution API in this package
-	// is scoped by project.
+	// RecordTtl is the TTL in seconds for records written here.
 	//
-	// This is the single most expensive thing to get wrong on this cloud, because
-	// it does not fail: Cloud DNS answers a list scoped to an unrelated parent
-	// with an empty set, which is indistinguishable from a project that has no
-	// zones. The id is visible in the console URL of the Cloud DNS service
-	// instance (Сервисы → Cloud DNS → the instance), and `sc cloudru dns-record
-	// apply` prints the zones it can see when the lookup comes up empty.
-	//
-	// Required unless ZoneID is set, since it is what the lookup is scoped to.
-	ParentID string `json:"parentId,omitempty" yaml:"parentId,omitempty"`
-
-	// RecordTtl is the TTL in seconds for every record written here. Cloud DNS has
-	// no automatic-TTL sentinel (unlike Cloudflare's ttl=1), so some number is
-	// always picked — see evolution.DefaultDnsRecordTtl.
+	// Cloud DNS honours it (a record written with 900 reads back as 900), but has no
+	// "automatic" sentinel the way Cloudflare's `ttl: 1` does — omitting the field
+	// stores a literal 0. So some number always has to be chosen, and leaving this
+	// unset picks evolution.DefaultDnsRecordTtl rather than writing a zero TTL into
+	// the operator's zone.
 	RecordTtl int `json:"recordTtl,omitempty" yaml:"recordTtl,omitempty"`
 
 	Records []api.DnsRecord `json:"dnsRecords,omitempty" yaml:"dnsRecords,omitempty"`
@@ -78,8 +83,9 @@ func (r *DnsRegistrarConfig) Zones() []string {
 	return []string{r.ZoneName}
 }
 
-// EffectiveRecordTtl resolves the configured TTL, falling back to the cloud's
-// documented default.
+// EffectiveRecordTtl resolves the configured TTL, defaulting rather than sending a
+// zero — an omitted ttl is stored as a literal 0 by Cloud DNS, not replaced by a
+// platform default. See RecordTtl.
 func (r *DnsRegistrarConfig) EffectiveRecordTtl() int {
 	if r.RecordTtl <= 0 {
 		return evolution.DefaultDnsRecordTtl
@@ -92,14 +98,22 @@ func (r *DnsRegistrarConfig) Validate() error {
 		return errors.Errorf("`zoneName` is required for registrar type %q: it is the DNS zone this registrar "+
 			"serves, e.g. %q", RegistrarTypeCloudruDns, "simple-forge.ru")
 	}
-	if r.ParentID == "" && r.ZoneID == "" {
-		return errors.Errorf("registrar type %q for zone %q requires `parentId` (or an explicit `zoneId`): a zone "+
-			"is looked up within a Cloud DNS service instance. Note `parentId` is the service INSTANCE id, not the "+
-			"project id — a project id there lists an empty set of zones, which looks identical to having none",
+	if r.ZoneID == "" && r.EvolutionAccountConfig.ProjectID == "" {
+		return errors.Errorf("registrar type %q for zone %q needs either `zoneId` or a `projectId` on its auth "+
+			"entry to look the zone up in. `zoneId` is the path segment of the zone's own console URL "+
+			"(.../dns/zones/public/<zoneId>/edit); `projectId` is the project that owns the zone, and a lookup "+
+			"scoped to the wrong one does not error — it finds no zones, which looks identical to having none",
 			RegistrarTypeCloudruDns, r.ZoneName)
 	}
 	// The credential half is validated by the embedded config, which also refuses
 	// an unexpanded `${…}` placeholder — the mistake that costs a mid-deploy
 	// failure rather than a config error (see unexpandedPlaceholder).
 	return r.EvolutionAccountConfig.Validate()
+}
+
+// Nameservers is the NS set `atriumdev.online`'s registrar must point at for this
+// registrar to be able to serve it. Surfaced here so the error paths and the CLI can
+// name them without reaching into the evolution package.
+func (r *DnsRegistrarConfig) Nameservers() []string {
+	return evolution.DnsNameservers
 }

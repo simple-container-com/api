@@ -37,10 +37,9 @@ stacks:
       # has to answer itself, which is why `domainProxied` is refused outright here rather
       # than accepted and ignored.
       #
-      # Cloud.ru has its own Cloud DNS, and SC has a `cloudru-dns` registrar for it — but
-      # it has not been exercised end to end (the service account needs the Cloud DNS role
-      # and an apex has to be delegated), so for now this record is a console step like
-      # any other.
+      # Cloud.ru has its own Cloud DNS, and SC's `cloudru-dns` registrar for it is
+      # live-verified: add the registrar to the parent stack and SC writes this record
+      # itself. The service account needs the `cdns.admin` role in the project.
       #
       # On a `.ru` domain opened from inside Russia, read `ingress.acmeCa` in server.yaml
       # before relying on Let's Encrypt: whether the certificate the browser there wants

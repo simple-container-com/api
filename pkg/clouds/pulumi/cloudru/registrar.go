@@ -4,8 +4,6 @@
 package cloudru
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -37,14 +35,45 @@ import (
 // The zone is NOT resolved here, unlike the Yandex registrar, which looks its zone up
 // at plan time. There is nothing to look it up with: a lookup is a REST call, and this
 // tier may not make one. The zone is therefore resolved inside each command, against
-// the same credentials — which also means a misconfigured `parentId` surfaces on the
-// first record rather than on the plan. The config's Validate catches the shape of the
-// mistake; only the cloud can catch the value.
+// the same credentials — which also means a misconfigured `projectId` or `zoneId`
+// surfaces on the first record rather than on the plan. The config's Validate catches
+// the shape of the mistake; only the cloud can catch the value.
+//
+// One Cloud DNS property leaks into this tier and is worth knowing before reading
+// NewRecord: a record is not addressable on that API, so applying one is a
+// read-modify-write of the zone's entire record array (evolution.ApplyDnsRecord). Two
+// records provisioned concurrently would each write the array they read, and the
+// loser's record would vanish. ProvisionRecords therefore builds them in sequence,
+// and each command re-reads the zone when it runs.
 type registrar struct {
+	// provider is almost always nil here, and that is not an oversight to be
+	// "fixed" by passing sdk.Provider(nil) anyway: a registrar is constructed from
+	// initRegistrar, which builds its ProvisionParams with Log and DnsPreference
+	// only — there is no Provider to inherit, unlike the resource tier where
+	// container_app.go gets the command provider. Every other registrar
+	// (cloudflare, yandex) sidesteps this by constructing its own cloud provider;
+	// this one has no cloud provider to construct, because Cloud DNS exists in
+	// none. local.Command needs no provider at all, so the option is added only
+	// when there is genuinely one to add — see recordOptions.
+	//
+	// Live-caught 2026-10-24: passing it unconditionally panicked the whole
+	// program with `runtime error: invalid memory address or nil pointer
+	// dereference` during `pulumi preview`, before a single record was written.
+	// sdk.Provider does not nil-check, and Pulumi surfaces the panic as an
+	// unattributed "go inline source runtime error" naming neither this file nor
+	// the registrar, which is why it took a real `sc provision` to find.
 	provider sdk.ProviderResource
 	config   *cloudru.DnsRegistrarConfig
 	creds    evolution.Credentials
 	log      logger.Logger
+
+	// lastRecord is the previously-created record command, and every new one
+	// depends on it. This is a correctness requirement, not tidiness: see the
+	// read-modify-write note above. Pulumi runs sibling resources concurrently by
+	// default, so without this chain two records in one zone race and the deploy
+	// reports green having written only one of them — the classic shape of "the
+	// record was there a minute ago".
+	lastRecord sdk.Resource
 }
 
 // Registrar builds the Cloud.ru Cloud DNS registrar for a server.yaml `registrar:`
@@ -64,8 +93,8 @@ func Registrar(ctx *sdk.Context, config api.RegistrarDescriptor, params pApi.Pro
 		return nil, err
 	}
 
-	params.Log.Info(ctx.Context(), "configure cloud.ru DNS registrar for zone %q (service instance %q)...",
-		cfg.ZoneName, lo.If(cfg.ZoneID != "", "by zoneId "+cfg.ZoneID).Else(cfg.ParentID))
+	params.Log.Info(ctx.Context(), "configure cloud.ru DNS registrar for zone %q (%s)...",
+		cfg.ZoneName, lo.If(cfg.ZoneID != "", "by zoneId "+cfg.ZoneID).Else("by name in project "+cfg.ProjectID))
 
 	return &registrar{
 		provider: params.Provider,
@@ -119,12 +148,14 @@ func (r *registrar) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.R
 	// the IAM key secret.
 	buildSpec := func(target string) evolution.DnsRecordSpec {
 		return evolution.DnsRecordSpec{
-			ParentID: r.config.ParentID,
-			ZoneName: r.config.ZoneName,
-			ZoneID:   r.config.ZoneID,
-			Name:     dnsRecord.Name,
-			Type:     recordType,
-			TTL:      r.config.EffectiveRecordTtl(),
+			// The lookup scope is the ordinary Evolution project id, carried on the
+			// auth entry. Cloud DNS has no scope of its own.
+			ProjectID: r.creds.ProjectID,
+			ZoneName:  r.config.ZoneName,
+			ZoneID:    r.config.ZoneID,
+			Name:      dnsRecord.Name,
+			Type:      recordType,
+			TTL:       r.config.EffectiveRecordTtl(),
 			// One record set holds every value for a name+type, so a multi-valued
 			// record is one resource here. SC's DnsRecord carries a single value, so
 			// this is a one-element list until something needs more.
@@ -145,44 +176,79 @@ func (r *registrar) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.R
 		return string(encoded), nil
 	}).(sdk.StringOutput)
 
-	specHash := value.ApplyT(func(target string) (string, error) {
-		spec := buildSpec(target)
-		encoded, err := json.Marshal(spec)
-		if err != nil {
-			return "", errors.Wrapf(err, "failed to hash cloud.ru DNS spec for record %q", dnsRecord.Name)
-		}
-		sum := sha256.Sum256(encoded)
-		return hex.EncodeToString(sum[:]), nil
-	}).(sdk.StringOutput)
-
 	applyScript := scScript("cloudru", "dns-record", "apply")
 	destroyScript := scScript("cloudru", "dns-record", "destroy")
 
+	opts := r.recordOptions()
+
 	cmd, err := local.NewCommand(ctx, dnsRecordResourceName(dnsRecord.Name, recordType), &local.CommandArgs{
 		Create: sdk.String(applyScript),
-		// Update is the same script, not absent: without it pulumi-command treats any
-		// input change as a replacement and runs Delete before Create, which would
-		// take the name off the air for the length of a delete+create instead of
-		// patching it in place. `apply` is a create-or-patch.
+		// Update is the same script, not absent: `apply` is a create-or-patch, so the
+		// same command converges either way, and providing it is what keeps a changed
+		// record an in-place patch instead of a delete+create that takes the name off
+		// the air.
 		Update: sdk.String(applyScript),
 		Delete: sdk.StringPtr(destroyScript),
-		// The script text is a constant, so without a trigger over the *content* a
-		// changed target would not re-run the command at all and the deploy would
-		// report green while DNS kept answering the old address. The hash covers the
-		// target, the TTL, the type and the zone reference.
-		Triggers: sdk.Array{specHash},
-		// Credentials and the spec on stdin, marked secret so the state file holds it
-		// encrypted; LoggingNone so neither the request nor the command's output
+		// NOTE: deliberately NO Triggers. The obvious shape here is a hash of the record
+		// spec in Triggers, on the reasoning that the three script texts are constants
+		// and so a changed target would otherwise not re-run anything. That is wrong on
+		// both halves, and the wrong version was live-caught on 2026-10-24 (see below):
+		//
+		//  - It is not needed. Stdin carries the whole request — credentials AND the
+		//    record spec — so any change to the target, the TTL, the type or the zone
+		//    reference already shows up as an ordinary `stdin` diff, which pulumi-command
+		//    answers by running Update. Measured: `~ stdin: [secret] => [secret]`
+		//    diffs as `stdin : update`.
+		//  - It is actively destructive. pulumi-command v1.2.1's own docs promise that a
+		//    trigger change updates rather than replaces "if the `update` command was
+		//    provided" (sdk/go/command/local/command.go:492-497) — the provider does not
+		//    honour it. With Update set, a trigger change still diffs as
+		//    `triggers[0] : update-replace`, and local.Command replaces
+		//    create-before-delete: the create-replacement patched the record, then
+		//    delete-replaced ran `destroy` on the same name+type and took it straight
+		//    back out of the zone. Pulumi reported `+-1 replaced, 2 unchanged` — green —
+		//    with the record gone from DNS and present in state. A record keyed by
+		//    name+type on the server cannot survive create-before-delete, because old
+		//    and new carry the same key.
+		//
+		// Credentials and the spec go on stdin, marked secret so the state file holds
+		// them encrypted; LoggingNone so neither the request nor the command's output
 		// reaches the Actions log; no AddPreviousOutputInEnv, because the previous
 		// run's stdout is a JSON document this script has no use for.
 		Stdin:                  sdk.ToSecret(requestJSON).(sdk.StringOutput).ToStringPtrOutput(),
 		Logging:                local.LoggingNone.ToLoggingPtrOutput(),
 		AddPreviousOutputInEnv: sdk.Bool(false),
-	}, sdk.Provider(r.provider))
+	}, opts...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to configure cloud.ru DNS %s record %q", recordType, dnsRecord.Name)
 	}
+	r.lastRecord = cmd
 	return &api.ResourceOutput{Ref: cmd.ID()}, nil
+}
+
+// recordOptions builds the resource options every record command gets: the provider
+// if there is one, the dependency on the previous record that serialises writes to the
+// zone, and delete-before-replace.
+//
+// The nil check on provider is the load-bearing part — sdk.Provider(nil) panics the
+// program rather than being ignored. See the registrar struct's provider field.
+//
+// DeleteBeforeReplace is the second half of the Triggers fix in NewRecord. Dropping
+// Triggers removes the only input this resource has that the provider insists on
+// replacing for, so a replacement should no longer happen at all; this makes the
+// ordering correct if one ever does. These records are keyed on the server by
+// name+type, so old and new are the same record: Pulumi's default create-then-delete
+// has the delete remove what the create just wrote. Reversed, the worst case is a brief
+// NXDOMAIN rather than a record that is silently gone until someone re-provisions.
+func (r *registrar) recordOptions() []sdk.ResourceOption {
+	opts := []sdk.ResourceOption{sdk.DeleteBeforeReplace(true)}
+	if r.provider != nil {
+		opts = append(opts, sdk.Provider(r.provider))
+	}
+	if r.lastRecord != nil {
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{r.lastRecord}))
+	}
+	return opts
 }
 
 // ProvisionDomainForEndpoint has no Cloud.ru implementation yet, and says so rather
