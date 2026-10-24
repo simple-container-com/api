@@ -148,6 +148,7 @@ func (b *preEnginePluginBundle) makeRegistrarSidecar(cli *scPlugin.Client, plugi
 			log:        params.Log,
 			pluginName: pluginName,
 			typeToken:  typeToken,
+			cli:        cli,
 		}, nil
 	}
 }
@@ -255,6 +256,7 @@ type pluginRegistrar struct {
 	log        logger.Logger
 	pluginName string
 	typeToken  string
+	cli        *scPlugin.Client
 }
 
 func (r *pluginRegistrar) MainDomain() string { return r.mainDomain }
@@ -264,16 +266,103 @@ func (r *pluginRegistrar) ProvisionRecords(ctx *sdk.Context, _ pApi.ProvisionPar
 	return &api.ResourceOutput{Ref: fmt.Sprintf("plugin-registrar:%s", r.pluginName)}, nil
 }
 
-func (r *pluginRegistrar) NewRecord(_ *sdk.Context, _ api.DnsRecord) (*api.ResourceOutput, error) {
-	return nil, errors.Errorf("pluginRegistrar.NewRecord not yet wired for plugin %q (Phase 1b)", r.pluginName)
+// NewRecord — Phase 1b. Resolves the record's value (either the raw string
+// or the Output) via ApplyT before dispatching the gRPC call; the plugin
+// receives a plain string.
+func (r *pluginRegistrar) NewRecord(ctx *sdk.Context, record api.DnsRecord) (*api.ResourceOutput, error) {
+	addr, err := requireMonitorAddr(r.typeToken)
+	if err != nil {
+		return nil, err
+	}
+	valueOutput := record.ValueOut
+	if record.Value != "" {
+		valueOutput = sdk.String(record.Value).ToStringOutput()
+	}
+	urnOut := valueOutput.ApplyT(func(resolved string) (string, error) {
+		resp, err := r.cli.NewDnsRecord(ctx.Context(), &scpluginv1.NewDnsRecordRequest{
+			Header:        &scpluginv1.RequestHeader{MonitorAddress: addr},
+			RegistrarType: r.typeToken,
+			RecordName:    record.Name,
+			RecordType:    record.Type,
+			ValueResolved: resolved,
+			Proxied:       record.Proxied,
+		})
+		if err != nil {
+			return "", errors.Wrapf(err, "plugin %q NewDnsRecord(%q)", r.pluginName, record.Name)
+		}
+		return resp.GetUrn(), nil
+	})
+	return &api.ResourceOutput{Ref: urnOut}, nil
 }
 
-func (r *pluginRegistrar) NewOverrideHeaderRule(_ *sdk.Context, _ api.Stack, _ pApi.OverrideHeaderRule) (*api.ResourceOutput, error) {
-	return nil, errors.Errorf("pluginRegistrar.NewOverrideHeaderRule not yet wired for plugin %q (Phase 1b)", r.pluginName)
+// NewOverrideHeaderRule — Phase 1b. Resolves rule.ToHost via ApplyT.
+func (r *pluginRegistrar) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule pApi.OverrideHeaderRule) (*api.ResourceOutput, error) {
+	addr, err := requireMonitorAddr(r.typeToken)
+	if err != nil {
+		return nil, err
+	}
+	toHost := rule.ToHost
+	if toHost == nil {
+		toHost = sdk.String("")
+	}
+	urnOut := toHost.ToStringOutput().ApplyT(func(resolvedToHost string) (string, error) {
+		req := &scpluginv1.NewOverrideHeaderRuleRequest{
+			Header:         &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stack.Name},
+			RegistrarType:  r.typeToken,
+			StackName:      stack.Name,
+			RuleName:       rule.Name,
+			FromHost:       rule.FromHost,
+			ToHostResolved: resolvedToHost,
+			PathPrefix:     rule.PathPrefix,
+		}
+		if rule.BasicAuth != nil {
+			req.BasicAuth = &scpluginv1.BasicAuthMsg{
+				Username: rule.BasicAuth.Username,
+				Password: rule.BasicAuth.Password,
+				Realm:    rule.BasicAuth.Realm,
+			}
+		}
+		if rule.OverridePages != nil {
+			req.OverridePages = &scpluginv1.OverridePagesMsg{
+				IndexPage:    rule.OverridePages.IndexPage,
+				NotFoundPage: rule.OverridePages.NotFoundPage,
+			}
+		}
+		resp, err := r.cli.NewOverrideHeaderRule(ctx.Context(), req)
+		if err != nil {
+			return "", errors.Wrapf(err, "plugin %q NewOverrideHeaderRule(%q)", r.pluginName, rule.Name)
+		}
+		return resp.GetUrn(), nil
+	})
+	return &api.ResourceOutput{Ref: urnOut}, nil
 }
 
-func (r *pluginRegistrar) ProvisionDomainForEndpoint(_ *sdk.Context, _ api.Stack, _ pApi.DomainEndpoint) (*api.ResourceOutput, error) {
-	return nil, errors.Errorf("pluginRegistrar.ProvisionDomainForEndpoint not yet wired for plugin %q (Phase 1b)", r.pluginName)
+// ProvisionDomainForEndpoint — Phase 1b. Resolves endpoint.TargetHost via ApplyT.
+func (r *pluginRegistrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack, endpoint pApi.DomainEndpoint) (*api.ResourceOutput, error) {
+	addr, err := requireMonitorAddr(r.typeToken)
+	if err != nil {
+		return nil, err
+	}
+	target := endpoint.TargetHost
+	if target == nil {
+		target = sdk.String("")
+	}
+	urnOut := target.ToStringOutput().ApplyT(func(resolvedTarget string) (string, error) {
+		resp, err := r.cli.ProvisionDomainForEndpoint(ctx.Context(), &scpluginv1.ProvisionDomainForEndpointRequest{
+			Header:             &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stack.Name},
+			RegistrarType:      r.typeToken,
+			StackName:          stack.Name,
+			EndpointName:       endpoint.Name,
+			Domain:             endpoint.Domain,
+			TargetHostResolved: resolvedTarget,
+			Websocket:          endpoint.WebSocket,
+		})
+		if err != nil {
+			return "", errors.Wrapf(err, "plugin %q ProvisionDomainForEndpoint(%q)", r.pluginName, endpoint.Domain)
+		}
+		return resp.GetUrn(), nil
+	})
+	return &api.ResourceOutput{Ref: urnOut}, nil
 }
 
 // pluginProviderResource is a thin shim that satisfies sdk.ProviderResource
