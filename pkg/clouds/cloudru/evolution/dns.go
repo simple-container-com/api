@@ -73,49 +73,93 @@ const DefaultDnsEndpoint = "https://console.cloud.ru/api/clouddns"
 // report in a diff.
 const DefaultDnsRecordTtl = 3600
 
-// DnsNameservers is the NS set a domain's registrar must point at for Cloud DNS to
-// become authoritative for it.
+// DnsNameservers is the FALLBACK NS set a domain's registrar must point at for
+// Evolution Cloud DNS to become authoritative for it. Prefer ZoneNameservers,
+// which reads the pair the zone itself publishes.
 //
-// Note the domain: `sbercloud.ru`, not `cloud.ru`, and the same pair serves zones
-// on BOTH estates — there is no Evolution-specific nameserver and no
-// `ns1.cloud.ru`. Source: Cloud.ru's own Cloud DNS documentation (the quickstart
-// and the delegation guide, which agree). Both hosts resolved 2026-10-24
-// (37.18.8.44, 37.18.8.88); whether they answer *authoritatively* was not
-// established, because the box this was checked from runs a fake-IP DNS proxy
-// that intercepts `@server` queries and answers them itself.
+// **The two estates have different nameservers, and an earlier version of this
+// comment got it backwards.** It asserted — from Cloud.ru's own quickstart and
+// delegation guide, which agree with each other — that `cdns-ns01/cdns-ns02.
+// sbercloud.ru` serves zones on BOTH estates and "there is no Evolution-specific
+// nameserver". A real Evolution zone page says otherwise: it publishes
 //
-// Hardcoded rather than read from the zone, because the zone shape the API
-// publishes has no nameservers field — so this list is the only place in SC that
-// can answer "what do I put at my registrar", and that question is asked while
-// standing in front of exactly the two errors below.
-var DnsNameservers = []string{"cdns-ns01.sbercloud.ru", "cdns-ns02.sbercloud.ru"}
+//	evo-cns01.cloud.ru.   evo-cns02.cloud.ru.
+//
+// and those are not aliases of the other pair — they resolve into a different
+// network entirely (94.158.23.11 / 94.158.23.22, against 37.18.8.44 / 37.18.8.88
+// for the sbercloud pair, measured 2026-10-24 over TCP via a public resolver).
+// The `evo-` prefix is doing exactly what it looks like it is doing. So those two
+// docs pages describe the Advanced/ex-SberCloud estate, and this package is
+// Evolution.
+//
+// The lesson generalises past DNS: on this cloud, documentation that does not say
+// which estate it is about should be assumed to be about the other one.
+//
+// Whether these hosts answer *authoritatively* is still not established from here
+// — the box this was measured on runs a fake-IP DNS proxy that intercepts
+// `@server` queries and answers them itself.
+var DnsNameservers = []string{"evo-cns01.cloud.ru", "evo-cns02.cloud.ru"}
+
+// ZoneNameservers is what to put at the registrar for this zone.
+//
+// Prefer the zone's own list over the package default. The console shows an
+// "NS-серверы" field per zone, so the API plausibly carries one too — and a value
+// the zone states about itself cannot go stale the way a constant in SC can, which
+// it just did (see DnsNameservers). The wire name `nameservers` is a guess until
+// the first live call; when it is absent or empty we fall back, so being wrong
+// about it costs nothing worse than today's behaviour.
+func ZoneNameservers(zone *DnsZone) []string {
+	if zone != nil && len(zone.Nameservers) > 0 {
+		return zone.Nameservers
+	}
+	return DnsNameservers
+}
 
 // DnsZone is a zone as the API returns it.
 //
-// `Delegated`, `Valid` and `ValidationText` are the fields worth surfacing in an
-// error, and they are two DIFFERENT gates that must be passed in a fixed order:
+// `Valid`, `ValidationText` and `Delegated` describe two different gates, and
+// **how many of them actually apply on Evolution is not settled**:
 //
 //  1. `Valid` — the zone is *verified*: the operator published the TXT record in
 //     `ValidationText` (shape `sbc-verification: <uuid>`) at the apex, proving
-//     they control the domain. Cloud DNS **refuses record creation** in a zone
-//     that is not verified, so this one is a hard gate.
-//  2. `Delegated` — the registrar's NS records point at DnsNameservers. The API
-//     reports this state rather than refusing the zone, so a record written into
-//     an undelegated zone is created successfully and resolves nowhere, which is
-//     the single most confusing way for this path to fail.
+//     they control the domain, and Cloud DNS refuses record creation until they
+//     have. These three fields are a faithful transcription of the API reference,
+//     but an Evolution zone created in the console on 2026-10-24 went straight to
+//     **Активен** with its NS pair published and **no verification value anywhere
+//     on the page** — which is the DNS-hosting model (Route 53, Yandex), not the
+//     domain-verification model. So verification may well be an Advanced-estate
+//     concept that the shared reference documents without saying so, exactly like
+//     the nameservers were (see DnsNameservers).
+//  2. `Delegated` — the registrar's NS records point at the zone's nameservers.
+//     Reported rather than enforced, so a record written into an undelegated zone
+//     is created successfully and resolves nowhere, which is the single most
+//     confusing way for this path to fail.
 //
-// The order matters operationally and not just logically: verification is done
-// while the OLD nameservers are still authoritative, because that is where the
-// operator can publish a TXT record. Switching NS first produces a window in
-// which Cloud DNS is authoritative for the domain and still refuses to hold any
-// records for it — i.e. the domain goes dark, and SC's own deploy is what fails.
+// IF verification applies, the order matters operationally and not just logically:
+// it is done while the OLD nameservers are still authoritative, because that is
+// where the operator can publish a TXT record. Switching NS first would produce a
+// window in which Cloud DNS is authoritative for the domain and still refuses to
+// hold records for it — the domain goes dark and SC's own deploy is what fails.
+//
+// **`Valid` and `Delegated` are pointers, and that is load-bearing.** As plain
+// bools they were indistinguishable from absent — Go decodes a missing JSON field
+// to `false` — so a response that simply does not carry `valid` read as
+// "affirmatively unverified" and `checkZoneVerified` refused every write, naming a
+// TXT record that does not exist. A gate meant to turn one confusing failure into
+// a clear message would instead have manufactured a hard block out of a field the
+// API may never send. Both are now only acted on when the API says so.
 type DnsZone struct {
 	ID       string `json:"id,omitempty"`
 	Name     string `json:"name,omitempty"`
 	ParentID string `json:"parentId,omitempty"`
 
-	Delegated      bool   `json:"delegated,omitempty"`
-	Valid          bool   `json:"valid,omitempty"`
+	// Nameservers is the NS pair this zone publishes for itself, shown in the
+	// console as "NS-серверы". The wire name is a guess; ZoneNameservers falls
+	// back to the package default when it is absent.
+	Nameservers []string `json:"nameservers,omitempty"`
+
+	Delegated      *bool  `json:"delegated,omitempty"`
+	Valid          *bool  `json:"valid,omitempty"`
 	ValidationText string `json:"validationText,omitempty"`
 	LastCheck      string `json:"lastCheck,omitempty"`
 	CreatedAt      string `json:"createdAt,omitempty"`
@@ -395,7 +439,11 @@ type DnsResult struct {
 	// ZoneDelegated is reported rather than enforced: a record in an undelegated
 	// zone is created successfully and resolves nowhere, and the operator has no
 	// other place to learn that from a deploy log.
-	ZoneDelegated bool `json:"zoneDelegated,omitempty"`
+	//
+	// A pointer so that "the API did not tell us" is omitted from the JSON rather
+	// than printed as `false` — carrying the tri-state only as far as the Client
+	// and then flattening it here would put the same lie in the CLI's output.
+	ZoneDelegated *bool `json:"zoneDelegated,omitempty"`
 }
 
 // resolveZone turns a spec's zone reference into a zone id, checking that what
@@ -434,14 +482,21 @@ func (c *Client) resolveZone(ctx context.Context, spec DnsRecordSpec) (*DnsZone,
 	return zone, nil
 }
 
-// checkZoneVerified refuses a write into an unverified zone.
+// checkZoneVerified refuses a write into a zone the API says is unverified.
 //
-// Worth a pre-check rather than letting the write fail, for two reasons. The API
+// Worth a pre-check rather than letting the write fail, for two reasons: the API
 // rejects the create itself, so without this the operator gets Cloud DNS's own
-// error for a cause that is nowhere in it; and the remedy is a value only the zone
-// carries, which this is the one place holding it.
+// error for a cause that is nowhere in it, and the remedy is a value only the zone
+// carries.
+//
+// **Silence is not a refusal.** It acts only on `valid: false` arriving on the
+// wire, never on the field being absent — an Evolution zone appears to have no
+// verification step at all, so a gate that treated "no field" as "not verified"
+// would hard-block every deploy over a TXT record that does not exist. The same
+// reasoning is why a zone that IS affirmatively unverified still fails loudly:
+// there the API has told us something true and specific.
 func checkZoneVerified(zone *DnsZone) error {
-	if zone.Valid {
+	if zone.Valid == nil || *zone.Valid {
 		return nil
 	}
 	hint := "the zone page in the console shows the value to publish"
@@ -452,7 +507,7 @@ func checkZoneVerified(zone *DnsZone) error {
 		"to create records in an unverified zone — so this is not something a retry fixes. To verify it, %s. "+
 		"Do this BEFORE moving the domain's NS records to %s: verification needs a TXT record published where "+
 		"the domain resolves TODAY, which is the registrar or the current DNS provider, not Cloud.ru",
-		zone.Name, zone.ID, hint, strings.Join(DnsNameservers, " and "))
+		zone.Name, zone.ID, hint, strings.Join(ZoneNameservers(zone), " and "))
 }
 
 // ApplyDnsRecord converges one record set: create when absent, patch when present.
@@ -505,10 +560,13 @@ func (c *Client) ApplyDnsRecord(ctx context.Context, req Request, progress func(
 		}
 	}
 
-	if !zone.Delegated {
+	// Only when the API affirmatively says so — an absent `delegated` would
+	// otherwise warn on every deploy of a perfectly delegated zone, and a warning
+	// that cries wolf is one nobody reads on the day it is true.
+	if zone.Delegated != nil && !*zone.Delegated {
 		progress("WARNING: cloud.ru DNS zone %q reports delegated=false — the record exists but will not "+
 			"resolve until the domain's registrar points its NS records at %s",
-			zone.Name, strings.Join(DnsNameservers, " and "))
+			zone.Name, strings.Join(ZoneNameservers(zone), " and "))
 	}
 
 	return &Result{

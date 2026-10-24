@@ -201,43 +201,47 @@ reason: a public zone is authoritative for a real domain, so creating one from a
 either collides with the delegation that exists or produces a second zone nobody's
 nameservers point at.
 
-#### Getting the zone ready: two gates, in this order
+#### Getting the zone ready: delegation, and maybe verification
 
-A Cloud DNS zone has to clear **two separate** states before SC can use it, and doing
-them in the wrong order takes the domain down.
-
-**1. Verify the zone (`valid`) — a hard gate.** Cloud DNS **refuses to create records**
-in an unverified zone. Verification is a TXT record at the apex carrying the value from
-the zone's own page in the console, shaped
-`sbc-verification: 4a420000-4700-000d-a0f0-8b71933f0000`. Publish it **where the domain
-resolves today** — i.e. at your registrar or current DNS provider, *not* at Cloud.ru.
-SC pre-checks this and refuses the deploy with the value to publish quoted in the
-error, rather than letting Cloud DNS reject the write for a reason that is nowhere in
-its own message.
-
-**2. Delegate the zone (`delegated`) — a silent one.** Once verification clears (the
-"требуется подтверждение" badge disappears and NS + SOA records appear on the zone
-page), point the domain's nameservers at:
+**Point the domain's nameservers at the pair your zone publishes.** Open the zone in the
+console and read the **NS-серверы** field — for an Evolution zone that is:
 
 ```
-cdns-ns01.sbercloud.ru
-cdns-ns02.sbercloud.ru
+evo-cns01.cloud.ru
+evo-cns02.cloud.ru
 ```
 
-Note the domain — **`sbercloud.ru`, not `cloud.ru`**, and the same pair serves zones on
-both Cloud.ru estates. There is no `ns1.cloud.ru`. (The zone shape the API publishes
-carries no nameservers field, so SC cannot read these back from your zone; they are
-constants in `evolution.DnsNameservers`.)
+**Read it off your own zone rather than copying the pair above**, because the two
+Cloud.ru estates do not share nameservers and the documentation mostly does not say
+which estate it is describing. Cloud.ru's Cloud DNS quickstart and delegation guide both
+name `cdns-ns01/cdns-ns02.sbercloud.ru` — that is the **Advanced** (ex-SberCloud) estate.
+An Evolution zone publishes the `evo-` pair above, which is a genuinely different
+network (`94.158.23.11` / `94.158.23.22`, against `37.18.8.44` / `37.18.8.88`). SC keeps
+the Evolution pair in `evolution.DnsNameservers` as a fallback and prefers your zone's
+own list when the API returns one.
 
-Unlike verification, delegation is **not** enforced: Cloud DNS reports `delegated:
-false` and accepts the write anyway, so a record in an undelegated zone is **created
-successfully and resolves nowhere**. SC warns on it and continues. If a new record
+Delegation is **not enforced**: Cloud DNS reports `delegated: false` and accepts the
+write anyway, so a record in an undelegated zone is **created successfully and resolves
+nowhere**. SC warns on it and continues — but only when the API affirmatively says
+`false`, so a silent API does not produce a warning on every deploy. If a new record
 never appears in `dig`, check the delegation before you check SC.
 
-**Why the order matters.** Verification needs a TXT record served by whoever is
-authoritative now. Switch the NS first and you get a window where Cloud.ru is
-authoritative for the domain, still refuses to hold records for it, and has no way to
-be verified — the domain goes dark and the SC deploy is what fails.
+**Zone verification (`valid`) may not apply on Evolution.** The API reference documents
+`valid` / `validationText` — a TXT record at the apex carrying a value shaped
+`sbc-verification: <uuid>`, proving you control the domain, with Cloud DNS refusing
+record creation until it clears. An Evolution zone created in the console on 2026-10-24
+went straight to **Активен** with its NS pair published and **no verification value
+anywhere on the page**, which is the DNS-hosting model rather than the
+domain-verification one. So this is likely another Advanced-estate concept in shared
+documentation.
+
+SC handles both worlds by acting only on what the API actually says: it refuses the
+deploy — quoting the value to publish — when a zone comes back `valid: false`, and
+proceeds normally when the field is simply absent. **If your zone page does show a
+verification value, publish it before you move the nameservers.** Verification needs a
+TXT record served by whoever is authoritative *now*; switch NS first and you get a window
+where Cloud.ru is authoritative for the domain, still refuses to hold records for it, and
+cannot be verified — the domain goes dark and the SC deploy is what fails.
 
 **Multi-valued records** are one recordset with N values, as on `yc-dns` and unlike
 Cloudflare. **`proxied`** has no meaning here and is dropped.
