@@ -11,18 +11,24 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 )
 
-// The default has to stay exactly what kubernetes-cloudrun has always asked for. The
-// extraction that introduced KubeRunOpts moved this lookup behind a method, and the
-// cheap way to get that wrong is to "fix" the default to the spelling the exporters
-// actually use (ToIngressIpExport of the cluster resource + env suffix, which is what
-// caddy.go and adopt_gke_autopilot.go export and what GkeAutopilotStack reads). That
-// may well be the right fix, but it changes what a live fleet looks up and needs its
-// own smoke — so it is not this change, and this test is what says so.
+// Without caddyResource the default stays exactly what kubernetes-cloudrun has always
+// asked for: the bare parent stack name.
 func TestKubeRunOptsIngressIPExportDefaultsToTheParentStackName(t *testing.T) {
 	RegisterTestingT(t)
 
-	Expect(KubeRunOpts{}.ingressIPExport("my-parent")).To(Equal("my-parent-ingress-ip"))
-	Expect(KubeRunOpts{}.ingressIPExport("my-parent")).To(Equal(ToIngressIpExport("my-parent")))
+	Expect(KubeRunOpts{}.ingressIPExport("my-parent", "")).To(Equal("my-parent-ingress-ip"))
+	Expect(KubeRunOpts{}.ingressIPExport("my-parent", "")).To(Equal(ToIngressIpExport("my-parent")))
+}
+
+// With caddyResource the child reads the address of that Caddy, under the name
+// caddy.go exports it. Nothing exports the bare parent stack name, so that lookup
+// only ever produced an empty IP; and a parent with two Caddies in one environment
+// has one address per Caddy.
+func TestKubeRunOptsIngressIPExportFollowsTheCaddyResource(t *testing.T) {
+	RegisterTestingT(t)
+
+	input := api.ResourceInput{StackParams: &api.StackParams{Environment: "work-dev", ParentEnv: "likeclaw-us"}}
+	Expect(KubeRunOpts{}.ingressIPExport("root", ToClusterName(input, "caddy-std"))).To(Equal("caddy-std--likeclaw-us-ingress-ip"))
 }
 
 // And an explicitly-set name must win outright, with no suffixing or decoration: the
@@ -33,7 +39,8 @@ func TestKubeRunOptsIngressIPExportOverrideIsUsedVerbatim(t *testing.T) {
 	RegisterTestingT(t)
 
 	opts := KubeRunOpts{IngressIPExport: "ru-cluster--staging-ingress-ip"}
-	Expect(opts.ingressIPExport("my-parent")).To(Equal("ru-cluster--staging-ingress-ip"))
+	Expect(opts.ingressIPExport("my-parent", "")).To(Equal("ru-cluster--staging-ingress-ip"))
+	Expect(opts.ingressIPExport("my-parent", "caddy-std--likeclaw-us")).To(Equal("ru-cluster--staging-ingress-ip"))
 }
 
 // A cloud-compose client stack that omits `size:` leaves StackConfig.Size nil, and

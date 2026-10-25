@@ -10,6 +10,19 @@ const ResourceTypeCaddy = "kubernetes-caddy"
 type CaddyResource struct {
 	*KubernetesConfig `json:",inline" yaml:",inline"`
 	*CaddyConfig      `json:",inline" yaml:",inline"`
+	// UseResourceName names every object of this Caddy <resource name>-<env> instead of
+	// caddy-<env>, so a second Caddy fits in an environment that already has one.
+	//
+	// Switching it on an existing Caddy renames it, which makes Pulumi REPLACE it — and
+	// that is not confined to the parent stack. The replacement swaps the Caddy's
+	// LoadBalancer Service, so the parent exports a new ingress IP, while the A records
+	// pointing at the old one were written by the CHILD stacks and live in their state:
+	// they are rewritten only on the next child deploy. Flipping this on a live Caddy
+	// therefore blackholes every domain it serves until each child stack is redeployed.
+	//
+	// A second Caddy on the SAME cluster also needs its own namespace: — this flag renames
+	// the objects, not the namespace they live in (it defaults to "caddy" either way).
+	UseResourceName bool `json:"useResourceName,omitempty" yaml:"useResourceName,omitempty"`
 }
 
 func CaddyReadConfig(config *api.Config) (api.Config, error) {

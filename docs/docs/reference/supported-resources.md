@@ -2098,6 +2098,9 @@ resources:
             useSSL: true                            # Use SSL by default (optional, default: true)
             usePrefixes: false                      # Use prefixes instead of domains (optional, default: false)
             provisionIngress: false                 # Provision ingress for Caddy (optional, default: false)
+            useResourceName: false                  # Name every object <resource>-<env> instead of caddy-<env>,
+                                                    # so a second Caddy fits in an env that has one (optional, default: false).
+                                                    # See the warning below before setting it on a live Caddy.
 
             # Scheduling (optional)
             podAnnotations:                         # Pod template only; simple-container.com/ and pulumi.com/ keys rejected
@@ -2128,6 +2131,19 @@ resources:
                 cpu: "100m"
                 memory: "128Mi"
 ```
+
+> **Setting `useResourceName` on a Caddy that is already live blackholes its domains
+> until every child stack is redeployed.** The rename makes Pulumi *replace* the Caddy,
+> which swaps its `LoadBalancer` Service, so the parent stack exports a new ingress IP.
+> The A records pointing at the old IP were written by the **child** stacks and live in
+> *their* Pulumi state — the parent deploy cannot rewrite them. So the parent goes green
+> while every domain that Caddy serves still resolves to a dead address, until each child
+> stack deploys again. Set the flag when adding a **new** Caddy; to split an existing one,
+> plan the child redeploys as part of the same change.
+>
+> A second Caddy on the **same cluster** also needs its own `namespace:`. `useResourceName`
+> renames the Caddy's objects, not the namespace they live in — that defaults to `caddy`
+> either way, and two Caddies sharing a cluster will collide on it at apply time.
 
 ### **Database Operators (Helm Charts)**
 

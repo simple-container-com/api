@@ -42,14 +42,19 @@ type KubeRunOpts struct {
 	// export — while the default here asks for the bare parent stack name. A flavour
 	// whose cluster exports under the resource-name spelling (k3s does) has to say so,
 	// or the lookup misses and every domain-bearing workload fails at deploy with an
-	// empty IP. Left as-is for kubernetes-cloudrun on purpose: changing the name a
-	// live fleet reads is a separate change with its own smoke.
+	// empty IP. kubernetes-cloudrun with caddyResource reads the export of that Caddy
+	// (caddy.go exports it under ToClusterName(input, caddyResource)): nothing exports
+	// the bare parent stack name, and a parent may run several Caddies. Without
+	// caddyResource it keeps asking for the bare parent stack name.
 	IngressIPExport string
 }
 
-func (o KubeRunOpts) ingressIPExport(parentStack string) string {
+func (o KubeRunOpts) ingressIPExport(parentStack, caddyCluster string) string {
 	if o.IngressIPExport != "" {
 		return o.IngressIPExport
+	}
+	if caddyCluster != "" {
+		return ToIngressIpExport(caddyCluster)
 	}
 	return ToIngressIpExport(parentStack)
 }
@@ -124,9 +129,11 @@ func KubeRunWithProvider(
 	}
 
 	var caddyConfig *k8s.CaddyConfig
+	var caddyCluster string
 	if kubeRunInput.CaddyResource != nil {
 		caddyResource := lo.FromPtr(kubeRunInput.CaddyResource)
 		clusterName := ToClusterName(input, caddyResource)
+		caddyCluster = clusterName
 		suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
 		params.Log.Info(ctx.Context(), "Getting caddy config for %q from parent stack %q (%s)", caddyResource, fullParentReference, suffix)
 		params.Log.Debug(ctx.Context(), "🔧 DEBUG: caddyResource=%q, clusterName=%q, suffix=%q", caddyResource, clusterName, suffix)
@@ -251,7 +258,7 @@ func KubeRunWithProvider(
 		} else {
 			params.Log.Info(ctx.Context(), "Using provisioned cluster IP address for domain %q", domain)
 			suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
-			clusterIPAddress, err = pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ip", stackName, input.StackParams.Environment, suffix), fullParentReference, opts.ingressIPExport(parentStack), false)
+			clusterIPAddress, err = pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ip", stackName, input.StackParams.Environment, suffix), fullParentReference, opts.ingressIPExport(parentStack, caddyCluster), false)
 			if err != nil {
 				return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
 			}
@@ -281,8 +288,7 @@ func KubeRunWithProvider(
 		// parentEnv lives on params.ParentStack — input.StackParams.ParentEnv is empty for client
 		// stack deploys (matches the pattern in aws/compute_proc.go and gcp/compute_proc.go).
 		parentEnv := lo.FromPtr(params.ParentStack).ParentEnv
-		defaultCaddyName := CaddyDeploymentNameForChild(input.StackParams.Environment, parentEnv)
-		caddyServiceName := lo.If(caddyConfig.DeploymentName != nil, lo.FromPtr(caddyConfig.DeploymentName)).Else(defaultCaddyName)
+		caddyServiceName, caddyNamespace := ChildCaddyTarget(caddyConfig, input.StackParams.Environment, parentEnv)
 
 		// Cast params.Provider to Kubernetes provider for patch operations
 		kubeProvider, ok := params.Provider.(*sdkK8s.Provider)
@@ -293,7 +299,7 @@ func KubeRunWithProvider(
 			patchResult, patchErr := PatchDeployment(ctx, &DeploymentPatchArgs{
 				PatchName:    input.ToResName(stackName),
 				ServiceName:  caddyServiceName, // Use helper to add environment suffix consistently
-				Namespace:    lo.If(caddyConfig.Namespace != nil, lo.FromPtr(caddyConfig.Namespace)).Else("caddy"),
+				Namespace:    caddyNamespace,
 				KubeProvider: kubeProvider,
 				Kubeconfig:   &kubeconfigOutput,
 				// caddy-update-hash goes into spec.template.metadata so Caddy pods roll only when

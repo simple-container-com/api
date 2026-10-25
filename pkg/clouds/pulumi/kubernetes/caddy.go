@@ -28,7 +28,12 @@ import (
 
 type CaddyDeployment struct {
 	*k8s.CaddyConfig
-	ClusterName        string
+	ClusterName string
+	// ObjectsName overrides caddy-<env> for every object of this Caddy. Empty keeps
+	// caddy-<env>; see KubernetesCaddyDeploymentName. Deliberately NOT named
+	// DeploymentName: that would shadow the promoted CaddyConfig.DeploymentName, which is
+	// the user-facing adoption override and a different thing.
+	ObjectsName        string
 	ClusterResource    sdk.Resource
 	CaddyfilePrefixOut sdk.StringOutput // Dynamic Caddyfile prefix for cloud storage (e.g., GCS config from GCP)
 	// Cloud-specific configuration (following SimpleContainer patterns)
@@ -86,10 +91,17 @@ func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		return nil, errors.Errorf("failed to convert caddy config for %q", input.Descriptor.Type)
 	}
 
+	objectsName, err := KubernetesCaddyDeploymentName(input.Descriptor.Name, input.StackParams.Environment, caddyCfg.UseResourceName,
+		stack.Server.Resources.Resources)
+	if err != nil {
+		return nil, err
+	}
+
 	params.Log.Info(ctx.Context(), "Deploying caddy service...")
 	caddyService, err := DeployCaddyService(ctx, CaddyDeployment{
 		CaddyConfig: caddyCfg.CaddyConfig,
 		ClusterName: input.Descriptor.Name,
+		ObjectsName: objectsName,
 	}, input, params, sdk.String(caddyCfg.Kubeconfig).ToStringOutput())
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to deploy caddy service for stack %q", stack.Name)
@@ -117,7 +129,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 			input.StackParams.StackName, input.Descriptor.Name, input.StackParams.Environment)
 	}
 	// Use the same naming convention as the patch operation for consistency
-	deploymentName := GenerateCaddyDeploymentName(input.StackParams.Environment)
+	deploymentName := lo.If(caddy.ObjectsName != "", caddy.ObjectsName).Else(GenerateCaddyDeploymentName(input.StackParams.Environment))
 	namespace := lo.If(caddy.Namespace != nil, lo.FromPtr(caddy.Namespace)).Else("caddy")
 	caddyImage := lo.If(caddy.Image != nil, lo.FromPtr(caddy.Image)).Else(fmt.Sprintf("simplecontainer/caddy:%s", build.Version))
 
@@ -429,12 +441,28 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	}))
 	// Only marshal the CaddyConfig, not the entire CaddyDeployment struct
 	// to avoid marshaling ClusterResource which contains Pulumi outputs
-	if caddyJson, err := json.Marshal(caddy.CaddyConfig); err != nil {
+	if caddyJson, err := json.Marshal(exportedCaddyConfig(caddy)); err != nil {
 		return nil, errors.Wrapf(err, "failed to marshal caddy config")
 	} else {
 		ctx.Export(ToCaddyConfigExport(clusterName), sdk.String(string(caddyJson)))
 	}
 	return sc, nil
+}
+
+// exportedCaddyConfig is the caddy config children read. A Caddy with a derived name
+// carries that name, or its children would patch caddy-<env>, the other Caddy of the
+// environment. A Caddy named caddy-<env> exports its config unchanged.
+//
+// Note this overwrites the adoption override CaddyConfig.DeploymentName: a Caddy that
+// sets both deploymentName: and useResourceName: true exports the derived name, since
+// that is the deployment its children actually have to patch.
+func exportedCaddyConfig(caddy CaddyDeployment) *k8s.CaddyConfig {
+	if caddy.ObjectsName == "" {
+		return caddy.CaddyConfig
+	}
+	cfg := lo.FromPtr(caddy.CaddyConfig)
+	cfg.DeploymentName = lo.ToPtr(caddy.ObjectsName)
+	return &cfg
 }
 
 func ToIngressIpExport(clusterName string) string {
