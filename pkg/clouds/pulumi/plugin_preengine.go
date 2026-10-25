@@ -261,7 +261,7 @@ func (b *preEnginePluginBundle) RegisterSidecars() error {
 		// `provider:` field, so the two registrations are into the vm tiers
 		// themselves (see the header note).
 		for _, spec := range schema.GetVmDrivers() {
-			if err := scVm.RegisterPluginDriver(pluginName, spec.GetDriver(), vmDriverInfo(spec)); err != nil {
+			if err := scVm.RegisterPluginDriver(pluginName, spec.GetDriver(), scVm.DriverInfoFromProto(spec)); err != nil {
 				return err
 			}
 		}

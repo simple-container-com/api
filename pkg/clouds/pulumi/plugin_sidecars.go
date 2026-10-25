@@ -18,7 +18,6 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	pulumiVm "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
-	scVm "github.com/simple-container-com/api/pkg/clouds/vm"
 	scPlugin "github.com/simple-container-com/api/pkg/plugin"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
 )
@@ -220,33 +219,6 @@ func (b *preEnginePluginBundle) makeVmHostsSidecar(cli *scPlugin.Client, pluginN
 		req.Header.MonitorAddress = addr
 		req.Header.ProviderUrns = activeProviderURNs()
 		return cli.VmHosts(ctx, req)
-	}
-}
-
-// vmDriverInfo converts a plugin's advertised driver spec into the config-tier row.
-//
-// Every field is taken verbatim, including `unverified` and `roadmap_item`: those are
-// quoted back to the operator by Validate, and a plugin that ships a driver it has
-// never run against a real project must be able to say so in its own words — the
-// same claim the in-tree `cloudru-vm` row makes.
-func vmDriverInfo(spec *scpluginv1.VmDriverSpec) scVm.DriverInfo {
-	c := spec.GetCapabilities()
-	return scVm.DriverInfo{
-		Implemented: spec.GetImplemented(),
-		Unverified:  spec.GetUnverified(),
-		RoadmapItem: spec.GetRoadmapItem(),
-		Capabilities: scVm.Capabilities{
-			CloudInit:            c.GetCloudInit(),
-			CloudInitNeedsEgress: c.GetCloudInitNeedsEgress(),
-			Regionless:           c.GetRegionless(),
-			MultiAZInRegion:      int(c.GetMultiAzInRegion()),
-			PrivateNetwork:       c.GetPrivateNetwork(),
-			FloatingIP:           c.GetFloatingIp(),
-			SecurityGroups:       c.GetSecurityGroups(),
-			BlockStorageCSI:      c.GetBlockStorageCsi(),
-			ContainerRegistry:    c.GetContainerRegistry(),
-			DNSInIaC:             c.GetDnsInIac(),
-		},
 	}
 }
 
