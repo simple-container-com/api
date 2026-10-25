@@ -30,6 +30,26 @@ type ServerDescriptor struct {
 	Templates     map[string]StackDescriptor    `json:"templates" yaml:"templates"`
 	Resources     PerStackResourcesDescriptor   `json:"resources" yaml:"resources"`
 	Variables     map[string]VariableDescriptor `json:"variables" yaml:"variables"`
+
+	// Plugins advertises out-of-tree cloud plugins SC core should spawn and
+	// route resource dispatch to. Phase 0 Step 4 of sc-plugin-architecture;
+	// details in forge/docs/design/2026-10-24/sc-plugin-architecture/03-architecture.md.
+	Plugins map[string]PluginSpec `json:"plugins,omitempty" yaml:"plugins,omitempty"`
+}
+
+// PluginSpec configures one SC plugin that will be loaded at provision time.
+// v1 is deliberately minimal: a path to a locally-available binary plus an
+// optional SHA256 to verify. Future versions will add source (github-release,
+// OCI image, local-dev symlink) and version pins per 03 §6.2.
+type PluginSpec struct {
+	// Path to the plugin binary on disk. Required. May be absolute or
+	// resolved relative to the SC project root.
+	Path string `json:"path" yaml:"path"`
+
+	// SHA256 hex digest of the binary. When set, SC refuses to spawn a
+	// binary whose hash does not match — the integrity guard from D10.
+	// When empty, SC logs a WARN but proceeds.
+	SHA256 string `json:"sha256,omitempty" yaml:"sha256,omitempty"`
 }
 
 // ValuesOnly returns copy of descriptor without additional state (e.g. provisioner reference etc.)
@@ -42,6 +62,7 @@ func (sd *ServerDescriptor) ValuesOnly() *ServerDescriptor {
 		Templates:     sd.Templates,
 		Resources:     sd.Resources,
 		Variables:     sd.Variables,
+		Plugins:       sd.Plugins,
 	}
 }
 
