@@ -31,7 +31,33 @@ var (
 	RegistrarFuncByType           = map[string]RegistrarFunc{}
 	ComputeProcessorFuncByType    = map[string]ComputeProcessorFunc{}
 	PreDestroyHookFuncs           []PreDestroyHookFunc
+
+	// PluginResourceTypes names every resource / provider / compute-processor
+	// / registrar type that a plugin has advertised in its Schema. SC core's
+	// configureResource and getProvisionParams consult it to decide whether
+	// to run initProvider — plugin-managed types own their provider
+	// construction internally, in the plugin's own pulumi.Context, since a
+	// ProviderResource handle doesn't cross pctx boundaries. See
+	// forge/docs/design/2026-10-24/sc-plugin-architecture/04 Addendum H.
+	PluginResourceTypes = map[string]struct{}{}
 )
+
+// RegisterPluginType marks a resource type as plugin-dispatched. Called
+// by preEnginePluginBundle.RegisterSidecars for every type the plugin
+// advertises in Schema (resource / provider / compute-processor). SC
+// core's provision flow uses this to skip initProvider for the type.
+func RegisterPluginType(resourceType string) {
+	if resourceType == "" {
+		return
+	}
+	PluginResourceTypes[resourceType] = struct{}{}
+}
+
+// IsPluginType reports whether a resource type is plugin-dispatched.
+func IsPluginType(resourceType string) bool {
+	_, ok := PluginResourceTypes[resourceType]
+	return ok
+}
 
 func RegisterInitStateStore(providerType string, fnc InitStateStoreFunc) {
 	InitStateStoreFuncByType = lo.Assign(InitStateStoreFuncByType, map[string]InitStateStoreFunc{

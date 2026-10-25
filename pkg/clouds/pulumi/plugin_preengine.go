@@ -207,11 +207,15 @@ func (b *preEnginePluginBundle) RegisterSidecars() {
 			pApi.RegisterInitSecretsProvider(typeToken, b.makeSecretsProviderSidecar(cli, pluginName, typeToken))
 		}
 
-		// Resource types: in-engine, needs monitor address.
+		// Resource types: in-engine, needs monitor address. Also tagged in
+		// PluginResourceTypes so provision.go's getProvisionParams knows to
+		// skip initProvider — the plugin owns provider construction in its
+		// own pctx (ProviderResource handles don't cross pctx boundaries).
 		resMap := map[string]pApi.ProvisionFunc{}
 		for _, t := range schema.GetResourceTypes() {
 			typeToken := t
 			resMap[typeToken] = b.makeResourceSidecar(cli, pluginName, typeToken)
+			pApi.RegisterPluginType(typeToken)
 		}
 		if len(resMap) > 0 {
 			pApi.RegisterResources(resMap)
