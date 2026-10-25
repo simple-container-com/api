@@ -10,7 +10,7 @@ import (
 	"testing"
 
 	"github.com/simple-container-com/api/pkg/clouds/aws"
-	"github.com/simple-container-com/api/pkg/clouds/cloudflare"
+	"github.com/simple-container-com/sc-plugin-cloudflare/api"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
