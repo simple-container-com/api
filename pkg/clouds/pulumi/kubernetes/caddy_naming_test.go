@@ -200,43 +200,109 @@ func TestCaddyResource_TwoCaddiesInOneEnvHaveDisjointNames(t *testing.T) {
 	Expect(b).To(ContainElement("kubernetes:apps/v1:Deployment::caddy-b-likeclaw-us (caddy-b-likeclaw-us)"))
 }
 
+// oneEnv wraps a single environment's resources in the per-env map the namer scans.
+func oneEnv(env string, resources map[string]api.ResourceDescriptor) map[string]api.PerEnvResourcesDescriptor {
+	return map[string]api.PerEnvResourcesDescriptor{env: {Resources: resources}}
+}
+
 func TestKubernetesCaddyDeploymentName(t *testing.T) {
 	RegisterTestingT(t)
 
-	name, err := KubernetesCaddyDeploymentName("caddy-std", "likeclaw-us", false, map[string]api.ResourceDescriptor{
+	name, err := KubernetesCaddyDeploymentName("caddy-std", "likeclaw-us", false, oneEnv("likeclaw-us", map[string]api.ResourceDescriptor{
 		"caddy-std": caddyDescriptor("caddy-std", nil),
-	})
+	}))
 	Expect(err).ToNot(HaveOccurred())
 	Expect(name).To(BeEmpty())
 
-	name, err = KubernetesCaddyDeploymentName("caddy-std", "likeclaw-us", true, map[string]api.ResourceDescriptor{
+	name, err = KubernetesCaddyDeploymentName("caddy-std", "likeclaw-us", true, oneEnv("likeclaw-us", map[string]api.ResourceDescriptor{
 		"caddy-std": namedCaddyDescriptor("caddy-std", nil),
-	})
+	}))
 	Expect(err).ToNot(HaveOccurred())
 	Expect(name).To(Equal("caddy-std-likeclaw-us"))
 
 	// Config maps the reader did not type yet are read the same way.
-	name, err = KubernetesCaddyDeploymentName("caddy-std", "likeclaw-us", true, map[string]api.ResourceDescriptor{
+	name, err = KubernetesCaddyDeploymentName("caddy-std", "likeclaw-us", true, oneEnv("likeclaw-us", map[string]api.ResourceDescriptor{
 		"gke": {Type: gcloud.ResourceTypeGkeAutopilot, Config: api.Config{Config: map[string]any{
 			"caddy": map[string]any{"enable": true},
 		}}},
 		"other": {Type: k8s.ResourceTypeCaddy, Config: api.Config{Config: map[string]any{
 			"kubeconfig": "x", "useResourceName": true,
 		}}},
-	})
+	}))
 	Expect(err).ToNot(HaveOccurred())
 	Expect(name).To(Equal("caddy-std-likeclaw-us"))
 
-	_, err = KubernetesCaddyDeploymentName("ingress", "likeclaw-us", false, map[string]api.ResourceDescriptor{
+	_, err = KubernetesCaddyDeploymentName("ingress", "likeclaw-us", false, oneEnv("likeclaw-us", map[string]api.ResourceDescriptor{
 		"other": {Type: k8s.ResourceTypeCaddy, Config: api.Config{Config: map[string]any{"kubeconfig": "x"}}},
-	})
+	}))
 	Expect(err).To(MatchError(ContainSubstring(`as [other] already does`)))
 
 	// useResourceName on a resource called caddy still lands on caddy-<env>.
-	_, err = KubernetesCaddyDeploymentName("caddy", "likeclaw-us", true, map[string]api.ResourceDescriptor{
+	_, err = KubernetesCaddyDeploymentName("caddy", "likeclaw-us", true, oneEnv("likeclaw-us", map[string]api.ResourceDescriptor{
 		"gke": autopilotWithCaddy(false),
-	})
+	}))
 	Expect(err).To(MatchError(ContainSubstring(`names its objects "caddy-likeclaw-us"`)))
+}
+
+// A Caddy that sets `name:` explicitly is provisioned under that name, not under its map
+// key, so the scan has to recognise its own entry by the same rule provision.go uses.
+// Comparing the bare key made the sole Caddy of an environment clash with itself — a
+// configuration that provisioned fine before useResourceName existed.
+func TestKubernetesCaddyDeploymentName_ExplicitNameDoesNotClashWithItself(t *testing.T) {
+	RegisterTestingT(t)
+
+	env := map[string]api.ResourceDescriptor{"ingress": caddyDescriptor("myingress", nil)}
+
+	name, err := KubernetesCaddyDeploymentName("myingress", "env1", false, oneEnv("env1", env))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(name).To(BeEmpty())
+
+	env = map[string]api.ResourceDescriptor{"ingress": namedCaddyDescriptor("myingress", nil)}
+	name, err = KubernetesCaddyDeploymentName("myingress", "env1", true, oneEnv("env1", env))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(name).To(Equal("myingress-env1"))
+
+	// A real neighbour is still caught when this one carries an explicit name.
+	_, err = KubernetesCaddyDeploymentName("myingress", "env1", false, oneEnv("env1", map[string]api.ResourceDescriptor{
+		"ingress": caddyDescriptor("myingress", nil),
+		"gke":     autopilotWithCaddy(false),
+	}))
+	Expect(err).To(MatchError(ContainSubstring(`as [gke] already does`)))
+}
+
+// Every environment is provisioned in one Pulumi program, and <resource>-<env> aliases
+// across environments where caddy-<env> could not.
+func TestKubernetesCaddyDeploymentName_ClashAcrossEnvironments(t *testing.T) {
+	RegisterTestingT(t)
+
+	all := map[string]api.PerEnvResourcesDescriptor{
+		"us":     {Resources: map[string]api.ResourceDescriptor{"caddy-std": namedCaddyDescriptor("caddy-std", nil)}},
+		"std-us": {Resources: map[string]api.ResourceDescriptor{"edge": caddyDescriptor("edge", nil)}},
+	}
+
+	_, err := KubernetesCaddyDeploymentName("caddy-std", "us", true, all)
+	Expect(err).To(MatchError(ContainSubstring(`names its objects "caddy-std-us", as [edge in "std-us"] already does`)))
+
+	// An unrelated Caddy in another environment is not a clash.
+	_, err = KubernetesCaddyDeploymentName("caddy-std", "us", true, map[string]api.PerEnvResourcesDescriptor{
+		"us": {Resources: map[string]api.ResourceDescriptor{"caddy-std": namedCaddyDescriptor("caddy-std", nil)}},
+		"eu": {Resources: map[string]api.ResourceDescriptor{"edge": caddyDescriptor("edge", nil)}},
+	})
+	Expect(err).ToNot(HaveOccurred())
+}
+
+// caddyObjectsName mirrors GenerateCaddyDeploymentName's empty-env handling rather than
+// trailing a hyphen that would reach the Pulumi logical name verbatim.
+func TestKubernetesCaddyDeploymentName_EmptyEnv(t *testing.T) {
+	RegisterTestingT(t)
+
+	name, err := KubernetesCaddyDeploymentName("caddy-std", "", true, nil)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(name).To(Equal("caddy-std"))
+
+	name, err = KubernetesCaddyDeploymentName("caddy", "", true, nil)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(name).To(BeEmpty())
 }
 
 // The parent exports the derived name in the caddy config; the child patches that
@@ -260,11 +326,11 @@ func TestExportedCaddyConfig(t *testing.T) {
 	RegisterTestingT(t)
 
 	cfg := &k8s.CaddyConfig{Namespace: strPtr("caddy"), DeploymentName: strPtr("caddy")}
-	Expect(exportedCaddyConfig(CaddyDeployment{CaddyConfig: cfg}, "caddy-likeclaw-us")).To(BeIdenticalTo(cfg))
+	Expect(exportedCaddyConfig(CaddyDeployment{CaddyConfig: cfg})).To(BeIdenticalTo(cfg))
 
-	got := exportedCaddyConfig(CaddyDeployment{CaddyConfig: cfg, DeploymentName: "caddy-std-likeclaw-us"}, "caddy-std-likeclaw-us")
+	got := exportedCaddyConfig(CaddyDeployment{CaddyConfig: cfg, ObjectsName: "caddy-std-likeclaw-us"})
 	Expect(*got.DeploymentName).To(Equal("caddy-std-likeclaw-us"))
 	Expect(*cfg.DeploymentName).To(Equal("caddy"))
 
-	Expect(*exportedCaddyConfig(CaddyDeployment{DeploymentName: "caddy-std-likeclaw-us"}, "caddy-std-likeclaw-us").DeploymentName).To(Equal("caddy-std-likeclaw-us"))
+	Expect(*exportedCaddyConfig(CaddyDeployment{ObjectsName: "caddy-std-likeclaw-us"}).DeploymentName).To(Equal("caddy-std-likeclaw-us"))
 }

@@ -148,26 +148,44 @@ func CaddyDeploymentNameForChild(stackEnv, parentEnv string) string {
 //
 // The rule reads only the resource itself, never its neighbours: if it depended on
 // whether the environment holds another Caddy, adding or removing that Caddy would
-// rename this one, and Pulumi replaces a renamed Caddy. Two Caddies of one environment
-// that end up with the same name are refused here, before Pulumi reports a duplicate URN.
+// rename this one, and Pulumi replaces a renamed Caddy. Two Caddies that end up with the
+// same name are refused here, before Pulumi reports a duplicate URN.
+//
+// The scan spans every environment of the stack, not just env: provision.go provisions
+// all of them inside one Pulumi program sharing one ctx, so a logical name may not repeat
+// across environments either. caddy-<env> could not collide that way; <resource>-<env>
+// can, because the joining hyphen aliases — env "us" with a resource called "caddy-std"
+// renders the same string as env "std-us" with a default-named Caddy.
 //
 // caddy.deploymentName is not the switch: it is an adoption field, and live configs carry
 // values that do not match the deployment SC created (an Autopilot caddy with
 // deploymentName "caddy" runs as caddy-<env>).
-func KubernetesCaddyDeploymentName(resName, env string, useResourceName bool, envResources map[string]api.ResourceDescriptor) (string, error) {
+func KubernetesCaddyDeploymentName(resName, env string, useResourceName bool, allResources map[string]api.PerEnvResourcesDescriptor) (string, error) {
 	name := caddyObjectsName(resName, env, useResourceName)
 	var clashes []string
-	for other, res := range envResources {
-		if other == resName {
-			continue
-		}
-		if otherName, ok := envCaddyObjectsName(other, env, res); ok && otherName == name {
+	for otherEnv, envResources := range allResources {
+		for key, res := range envResources.Resources {
+			// resName is the caller's Descriptor.Name, which provision.go fills from the
+			// map key ONLY when the config leaves `name:` unset. Comparing the bare key
+			// would miss the resource's own entry whenever `name:` IS set, and the scan
+			// would then report the resource as clashing with itself.
+			other := descriptorName(key, res)
+			if otherEnv == env && other == resName {
+				continue
+			}
+			otherName, ok := envCaddyObjectsName(other, otherEnv, res)
+			if !ok || otherName != name {
+				continue
+			}
+			if otherEnv != env {
+				other = fmt.Sprintf("%s in %q", other, otherEnv)
+			}
 			clashes = append(clashes, other)
 		}
 	}
 	if len(clashes) > 0 {
 		sort.Strings(clashes)
-		return "", errors.Errorf("kubernetes-caddy %q in %q names its objects %q, as %v already does: set useResourceName: true on %q (and give it a name other than \"caddy\")",
+		return "", errors.Errorf("kubernetes-caddy %q in %q names its objects %q, as %v already does: set useResourceName: true on %q, and give it a name other than \"caddy\" — plus its own namespace:, if the two Caddies share a cluster",
 			resName, env, name, clashes, resName)
 	}
 	if name == GenerateCaddyDeploymentName(env) {
@@ -176,9 +194,26 @@ func KubernetesCaddyDeploymentName(resName, env string, useResourceName bool, en
 	return name, nil
 }
 
+// descriptorName is the name a resource is provisioned under: its own `name:` when the
+// config sets one, and the key it sits under otherwise. Mirrors provision.go's
+// configureResource, which fills Descriptor.Name from the key only when it is empty.
+func descriptorName(key string, res api.ResourceDescriptor) string {
+	if res.Name != "" {
+		return res.Name
+	}
+	return key
+}
+
 func caddyObjectsName(resName, env string, useResourceName bool) string {
 	if !useResourceName {
 		return GenerateCaddyDeploymentName(env)
+	}
+	if env == "" {
+		// GenerateCaddyDeploymentName drops the suffix for an empty env rather than
+		// trailing a hyphen, and so does the derived name. A trailing hyphen would reach
+		// Pulumi's logical name and the exported deploymentName verbatim — only the k8s
+		// name gets it trimmed, by SanitizeK8sResourceName.
+		return resName
 	}
 	return fmt.Sprintf("%s-%s", resName, env)
 }
