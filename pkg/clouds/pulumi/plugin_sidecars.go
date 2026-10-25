@@ -33,10 +33,10 @@ import (
 
 func (b *preEnginePluginBundle) makeStateStoreSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.InitStateStoreFunc {
 	return func(ctx context.Context, authCfg api.StateStorageConfig, log logger.Logger) error {
-		_ = authCfg
 		resp, err := cli.InitStateStore(ctx, &scpluginv1.InitStateStoreRequest{
 			Header:         &scpluginv1.RequestHeader{},
 			StateStoreType: typeToken,
+			Config:         serializeConfigToInputs(authCfg),
 		})
 		if err != nil {
 			return errors.Wrapf(err, "plugin %q InitStateStore(%q)", pluginName, typeToken)
