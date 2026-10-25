@@ -35,6 +35,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [postgres-db, s3-storage]
       runs: [web-app, worker]
 ```
@@ -52,6 +53,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [redis-cache]
       runs: [api-service]
       dependencies:
@@ -73,6 +75,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [postgres-db, s3-storage, redis-cache]
       runs: [web-app]
       env:
@@ -92,6 +95,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [redis-cache]
       runs: [api-service]
       dependencies:
@@ -379,6 +383,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [file-storage]
       runs: [web-app]
 ```
@@ -420,6 +425,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [main-db]
       runs: [api-service]
 ```
@@ -448,6 +454,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [main-db, redis-cache, file-storage]
       runs: [api-service]
       env:

@@ -13,10 +13,25 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-const testDeployPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest sc-deploy"
+const (
+	testDeployPublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItest sc-deploy"
+	testHostPublicKey   = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIhost root@host"
+	// Shaped like what tls.PrivateKey.PrivateKeyOpenssh returns, trailing newline
+	// included: the newline is the thing the renderer has to handle, because a padded
+	// blank line inside a YAML block scalar becomes part of the key file.
+	testHostPrivateKey = "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAA\nAAAA\n-----END OPENSSH PRIVATE KEY-----\n"
+)
 
 func cloudConfig() *VmConfig {
-	return &VmConfig{Driver: DriverCloudru, Region: "ru-moscow-1"}
+	return &VmConfig{Driver: DriverCloudru, Region: "ru-moscow-1", PublicIP: true}
+}
+
+func testKeys() HostKeys {
+	return HostKeys{
+		DeployPublicKey: testDeployPublicKey,
+		HostPrivateKey:  testHostPrivateKey,
+		HostPublicKey:   testHostPublicKey,
+	}
 }
 
 // The rendered user-data has to be valid YAML before anything else is true about
@@ -25,7 +40,7 @@ func cloudConfig() *VmConfig {
 func TestRenderCloudInitIsValidYaml(t *testing.T) {
 	RegisterTestingT(t)
 
-	out, err := RenderCloudInit(cloudConfig(), RoleCompose, testDeployPublicKey)
+	out, err := RenderCloudInit(cloudConfig(), RoleCompose, testKeys())
 	Expect(err).ToNot(HaveOccurred())
 	Expect(out).To(HavePrefix("#cloud-config\n"))
 
@@ -77,7 +92,7 @@ func TestRenderCloudInitIsValidYaml(t *testing.T) {
 func TestRenderCloudInitDockerInstallIsIdempotent(t *testing.T) {
 	RegisterTestingT(t)
 
-	out, err := RenderCloudInit(cloudConfig(), RoleCompose, testDeployPublicKey)
+	out, err := RenderCloudInit(cloudConfig(), RoleCompose, testKeys())
 	Expect(err).ToNot(HaveOccurred())
 	Expect(out).To(ContainSubstring("command -v docker"))
 	Expect(out).To(ContainSubstring(DefaultDockerInstallScript))
@@ -90,7 +105,7 @@ func TestRenderCloudInitHonoursSshUserAndExtraKeys(t *testing.T) {
 	cfg.SshUser = "deployer"
 	cfg.ExtraSshKeys = []string{"ssh-rsa AAAAoncall oncall@example.com", ""}
 
-	out, err := RenderCloudInit(cfg, RoleK3sServer, testDeployPublicKey)
+	out, err := RenderCloudInit(cfg, RoleK3sServer, testKeys())
 	Expect(err).ToNot(HaveOccurred())
 
 	var parsed struct {
@@ -110,27 +125,128 @@ func TestRenderCloudInitHonoursSshUserAndExtraKeys(t *testing.T) {
 	Expect(out).To(ContainSubstring("-o deployer -g deployer " + ConfigDir + " " + StateDir))
 }
 
+// `packageMirror` was accepted by the config, documented as the answer to
+// unreachable distribution mirrors, and never rendered into anything — a field
+// silently dropped, which is the exact failure mode the refuse-don't-ignore table
+// exists to prevent, and no test caught it because every test asserted on what IS
+// rendered. This one asserts on the field.
+//
+// It is expressed through cloud-init's apt module rather than a runcmd because the
+// module rewrites the sources before any package-installing module runs; by the time
+// runcmd runs, the boot has already spent its timeout on the default mirror.
+func TestRenderCloudInitHonoursPackageMirror(t *testing.T) {
+	RegisterTestingT(t)
+
+	type aptEntry struct {
+		Arches []string `yaml:"arches"`
+		URI    string   `yaml:"uri"`
+	}
+	type parsedApt struct {
+		Apt *struct {
+			Primary  []aptEntry `yaml:"primary"`
+			Security []aptEntry `yaml:"security"`
+		} `yaml:"apt"`
+	}
+
+	// Absent, not empty: a machine with no mirror configured must get no apt block at
+	// all, rather than one pointing at "".
+	var without parsedApt
+	out, err := RenderCloudInit(cloudConfig(), RoleCompose, testKeys())
+	Expect(err).ToNot(HaveOccurred())
+	Expect(yaml.Unmarshal([]byte(out), &without)).To(Succeed())
+	Expect(without.Apt).To(BeNil())
+	Expect(out).ToNot(ContainSubstring("apt:"))
+
+	cfg := cloudConfig()
+	cfg.PackageMirror = "  https://mirror.yandex.ru/ubuntu  "
+
+	var with parsedApt
+	out, err = RenderCloudInit(cfg, RoleCompose, testKeys())
+	Expect(err).ToNot(HaveOccurred())
+	Expect(yaml.Unmarshal([]byte(out), &with)).To(Succeed())
+	Expect(with.Apt).ToNot(BeNil())
+
+	// Both primary AND security, from the same value: a mirror that carries the main
+	// archive but leaves security pointing at security.ubuntu.com makes every boot
+	// wait on the host this field exists to avoid, and the machine still comes up —
+	// just slowly, which is the kind of thing nobody traces back here.
+	Expect(with.Apt.Primary).To(Equal([]aptEntry{{Arches: []string{"default"}, URI: "https://mirror.yandex.ru/ubuntu"}}))
+	Expect(with.Apt.Security).To(Equal(with.Apt.Primary))
+
+	// The docker install is NOT affected, and the comment on
+	// DefaultDockerInstallScript says so: the script curls a host of Docker's own and
+	// then installs from Docker's apt repository, neither of which an apt mirror
+	// redirects. Asserted here so the two do not drift into implying each other.
+	Expect(out).To(ContainSubstring(DefaultDockerInstallScript))
+}
+
 func TestRenderCloudInitRefusals(t *testing.T) {
 	RegisterTestingT(t)
 
 	// byo: not a limitation but a definition — the operator's machine already
 	// booted, so there is no first boot to hook into.
-	_, err := RenderCloudInit(byoConfig(), RoleCompose, testDeployPublicKey)
+	_, err := RenderCloudInit(byoConfig(), RoleCompose, testKeys())
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("the machine already booted"))
 
 	// A machine with no authorised key is a machine SC cannot deploy to, and finding
 	// that out after creation means destroying and recreating it.
-	_, err = RenderCloudInit(cloudConfig(), RoleCompose, "  ")
+	_, err = RenderCloudInit(cloudConfig(), RoleCompose, HostKeys{DeployPublicKey: "  "})
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("deploy public key"))
 
-	_, err = RenderCloudInit(cloudConfig(), "", testDeployPublicKey)
+	_, err = RenderCloudInit(cloudConfig(), "", testKeys())
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("host role"))
 
-	_, err = RenderCloudInit(nil, RoleCompose, testDeployPublicKey)
+	_, err = RenderCloudInit(nil, RoleCompose, testKeys())
 	Expect(err).To(HaveOccurred())
+
+	// Half a host key is worse than none: cloud-init writes a private key whose .pub
+	// does not match it, sshd refuses to start, and the machine presents as one that
+	// never answers SSH at all.
+	for _, half := range []HostKeys{
+		{DeployPublicKey: testDeployPublicKey, HostPrivateKey: testHostPrivateKey},
+		{DeployPublicKey: testDeployPublicKey, HostPublicKey: testHostPublicKey},
+	} {
+		_, err = RenderCloudInit(cloudConfig(), RoleCompose, half)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("both halves"))
+	}
+}
+
+// The host key rides in user-data under a YAML block scalar, and the two ways that
+// can go wrong both present as a machine that never answers SSH: an unparseable
+// document (cloud-init does nothing) or a key file with a line of whitespace in it
+// (sshd refuses to start).
+func TestRenderCloudInitPinsHostKey(t *testing.T) {
+	RegisterTestingT(t)
+
+	out, err := RenderCloudInit(cloudConfig(), RoleCompose, testKeys())
+	Expect(err).ToNot(HaveOccurred())
+
+	var parsed struct {
+		SshKeys struct {
+			Ed25519Private string `yaml:"ed25519_private"`
+			Ed25519Public  string `yaml:"ed25519_public"`
+		} `yaml:"ssh_keys"`
+	}
+	Expect(yaml.Unmarshal([]byte(out), &parsed)).To(Succeed())
+
+	Expect(parsed.SshKeys.Ed25519Public).To(Equal(testHostPublicKey))
+	// Round-trips byte for byte apart from the trailing newline the renderer trims
+	// and YAML's block scalar puts back.
+	Expect(parsed.SshKeys.Ed25519Private).To(Equal(testHostPrivateKey))
+	for i, line := range strings.Split(out, "\n") {
+		Expect(line).To(Equal(strings.TrimRight(line, " \t")),
+			"line %d has trailing whitespace, which inside a `|` block becomes part of the key file", i+1)
+	}
+
+	// And the else-branch: no key pair given, no ssh_keys block, so the machine
+	// generates its own and no deploy can verify it.
+	out, err = RenderCloudInit(cloudConfig(), RoleCompose, HostKeys{DeployPublicKey: testDeployPublicKey})
+	Expect(err).ToNot(HaveOccurred())
+	Expect(out).ToNot(ContainSubstring("ssh_keys"))
 }
 
 // The log caps are not tidiness. A VM does not rotate container logs for you; an
@@ -164,7 +280,7 @@ func TestDockerDaemonJSONSurvivesHostileMirror(t *testing.T) {
 	cfg := cloudConfig()
 	cfg.RegistryMirrors = []string{`https://x.example.ru"}`}
 
-	out, err := RenderCloudInit(cfg, RoleCompose, testDeployPublicKey)
+	out, err := RenderCloudInit(cfg, RoleCompose, testKeys())
 	Expect(err).ToNot(HaveOccurred())
 
 	var parsed struct {

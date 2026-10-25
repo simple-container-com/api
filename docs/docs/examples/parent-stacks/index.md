@@ -330,24 +330,32 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
-      min: 1
-      max: 3
+      dockerComposeFile: ./docker-compose.yaml
+      # Replica bounds are nested under `scale:` on a `cloud-compose` stack.
+      # (Bare `min`/`max` at config level is the `single-image` shape.)
+      scale:
+        min: 1
+        max: 3
       uses: [shared-database, shared-storage]
       # Other stack configuration properties...
   staging:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
-      min: 2
-      max: 10
+      dockerComposeFile: ./docker-compose.yaml
+      scale:
+        min: 2
+        max: 10
       uses: [shared-database, shared-storage]
       # Other stack configuration properties...
   production:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
-      min: 5
-      max: 100
+      dockerComposeFile: ./docker-compose.yaml
+      scale:
+        min: 5
+        max: 100
       uses: [shared-database, shared-storage]
       # Other stack configuration properties...
 ```

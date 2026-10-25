@@ -1,0 +1,172 @@
+schemaVersion: 1.0
+
+# A parent stack where SC creates the machine itself, in Cloud.ru **Evolution**.
+#
+# WHICH Cloud.ru this is decides everything in this file. Cloud.ru sells two unrelated
+# estates under one brand, one console and one bill:
+#
+#   - **Evolution** — this driver (`cloudru-evolution-vm`). Cloud.ru's own platform.
+#     Authenticates a service-account key id + secret against `iam.api.cloud.ru`. Has
+#     NO regions. Its Terraform provider ships as a binary only, so this driver talks
+#     to the public REST API instead of riding a provider at all.
+#   - **Advanced** (ex-SberCloud) — `cloudru-vm`, the example next door. OpenStack
+#     descended, a Keystone access/secret pair, `region: ru-moscow-1`.
+#
+# A key pair from one does not authenticate against the other. If `region:` below looks
+# missing to you, you are thinking of Advanced.
+#
+# Everything from the SSH connection upwards — readiness, image delivery, the generated
+# compose project, Caddy, TLS, blue-green — is the SAME code the `byo` path runs. That
+# is why `byo` came first: by the time this driver existed, everything above SSH had
+# already been proven live on a machine made by hand.
+#
+# `fs` + `passphrase` keep this example runnable with nothing but the Cloud.ru account:
+# Pulumi state lives next to the checkout. Swap in an S3-compatible bucket once more
+# than one person deploys this stack. Add `.sc/state` to .gitignore yourself — the
+# checkpoint under it carries the stack's inputs and outputs, the generated deploy key
+# among them, encrypted with the passphrase below and no stronger than it.
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: fs
+      config:
+        path: ${git:root}/.sc/state
+    secrets-provider:
+      type: passphrase
+      config:
+        passPhrase: ${secret:SC_STATE_PASSPHRASE}
+
+templates:
+  # Delivery behaviour ONLY — identical to the `byo` and `cloudru-vm` examples. The
+  # template never learns which cloud the machine is in; it reads the host facts the
+  # `vm` resource exports.
+  compose-on-vm:
+    type: vm-compose
+    config:
+      vmResource: portal-vm
+      # Streams the built image over the same SSH connection, so no registry has to be
+      # reachable from the machine. The alternative on this cloud is the project's own
+      # Artifact Registry, which the Container App template already uses — but then the
+      # machine needs to reach it, and `ssh-tar` needs nothing.
+      imageDelivery: ssh-tar
+      strategy: blue-green
+      keepImages: 3
+
+resources:
+  resources:
+    staging:
+      template: compose-on-vm
+      resources:
+        portal-vm:
+          type: vm
+          config:
+            provider: cloudru-evolution-vm
+            # The Evolution service-account key, declared under `auth:` in secrets.yaml
+            # as `type: cloudru-evolution-key`. Its `projectId` is required there and is
+            # not inferable from the key: every Evolution endpoint is project-scoped, and
+            # a call that omits it answers 403 `non_authorized` — which reads exactly
+            # like a missing role and sends you off granting permissions that were never
+            # the problem.
+            credentials: ${auth:cloudru}
+
+            # NO `region:` — and it is refused, not merely optional. This cloud's compute
+            # API has no region dimension at all: one global endpoint
+            # (`compute.api.cloud.ru`), with no region in the host, the path or any
+            # request. Placement is the availability zone. A `region:` SC silently
+            # dropped would read as placement you controlled.
+            #
+            # One entry at most: this is a single machine. Left out, SC takes the first
+            # zone `GET /availability-zones` reports.
+            zones: [ru.AZ-1]
+
+            # Required on every cloud driver, and refused if false: every delivery step
+            # is an outbound SSH connection FROM wherever `sc deploy` runs, and SC has no
+            # bastion and no VPN, so a machine with no public address is created, billed
+            # and unreachable.
+            publicIP: true
+
+            # A portable alias, mapped to this cloud's catalogue name at deploy time
+            # (`ubuntu-2404-lts` → `Ubuntu-24.04`, which is what Cloud.ru calls it). An
+            # exact catalogue name, a display name or a raw image UUID also work.
+            image: ubuntu-2404-lts
+
+            # Resolved to a flavour by CORES AND MEMORY, never by flavour name — the
+            # catalogue renames sizes underneath you: the 2 vCPU / 4 GiB flavour was
+            # `low-2-4` on 2026-10-23 and `lowcost10-2-4` a day later, with no `low-2-4`
+            # left in the catalogue. A name pinned here would have failed a deploy on
+            # Cloud.ru's schedule. Defaults are 2 cores / 4Gi.
+            size:
+              cores: 2
+              memory: 4Gi
+              # Disk is NOT defaulted: left out, the image keeps its own root-disk size.
+              disk: 40Gi
+              # Left out, the project's default disk type is used. SC invents no default
+              # here — the type names are not the same across projects, and a guess would
+              # be a guess about your quota.
+              # diskType: ssd
+
+            # The login SC creates and connects as. Defaults to `sc` — deliberately not
+            # root and not the image's own stock account, so the deploy path has no `if`
+            # by image.
+            sshUser: sc
+
+            # THE ONE THING THIS CLOUD MAKES YOU DO BY HAND.
+            #
+            # Evolution's `POST /vms` refuses `user_data` — every spelling of it
+            # (measured 2026-10-24: HTTP 422 `extra_forbidden`), because the image renders
+            # a fixed template from the slots it declares and nothing else reaches the
+            # first boot. So SC cannot write a host key into the machine, and cannot learn
+            # the real one from the API either. The FIRST connection therefore has nothing
+            # to verify, and that connection carries the deploy key and every
+            # `${secret:...}` of every stack on the machine.
+            #
+            # Close it after the first provision: read the key off the Cloud.ru console,
+            # or `ssh-keyscan -t ed25519 <the floating IP>`, and paste the line here. The
+            # next provision pins it. SC warns loudly while this is unset.
+            #
+            # On `cloudru-vm` and every other cloud-init cloud this field is REFUSED,
+            # because there SC generates and pins the key itself and a pasted one would
+            # never be used.
+            # hostKey: "45.132.179.77 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+
+            # `network:` is refused here, not ignored. The same create call rejects
+            # `subnet_id`, `security_group_ids`, `interfaces`, `networks`, `nics` and
+            # `floating_ip` alike, so the machine always lands on the availability zone's
+            # DEFAULT subnet and DEFAULT security group. SC opens its ingress rules on
+            # whichever group the machine actually joined, read back off its own
+            # interface. To place a machine on your own network, create it in the console
+            # and declare it with `provider: byo` and `hosts:`.
+            #
+            # `extraSshKeys:` is refused for the same root cause: extra keys are
+            # authorised through user-data, and the create call takes exactly one public
+            # key — the deploy key SC generates. Add one by hand, or keep console access
+            # for incidents.
+
+            # Optional: Docker registry mirrors and an apt mirror. There is no cloud-init
+            # on this cloud, so these are applied by the docker bootstrap SC runs over
+            # SSH after the machine exists — same effect, later.
+            # registryMirrors:
+            #   - https://mirror.gcr.io
+            # packageMirror: https://mirror.yandex.ru/ubuntu
+
+            # The front door: a Caddy container in its own compose project, terminating
+            # TLS for every stack on this machine. With this on, SC opens 80 and 443 (TCP
+            # and UDP, for HTTP/3) in the security group; with it off, only 22.
+            #
+            # NOTHING ELSE IS EVER OPENED. A stack that falls back to a host port (no
+            # `domain:`, or no ingress) is reachable from inside the cloud but not from
+            # the internet until you open that port in the security group yourself.
+            ingress:
+              enable: true
+              # The ACME account address. Required — no CA issues without one.
+              email: ops@example.ru
+              #
+              # A certificate authority other than Let's Encrypt. This field exists for
+              # this market: a `.ru` domain opened from inside Russia in a browser without
+              # foreign roots wants a Russian Trusted CA certificate. Whether that CA
+              # speaks ACME is UNVERIFIED — the field is here so there is an option, not
+              # because the path is known to work.
+              # acmeCa: https://acme.example-ca.ru/directory
+              # acmeEabKeyId: "kid-from-your-ca"
+              # acmeEabMacKey: ${secret:PORTAL_VM_ACME_EAB_MAC_KEY}

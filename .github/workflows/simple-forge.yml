@@ -57,12 +57,18 @@ jobs:
           persist-credentials: false
 
       - name: Setup Go with Blacksmith Cache
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
 
       - name: Install welder
-        uses: simple-container-com/actions/install-welder@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-welder@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
 
       - name: Run Simple Forge
         uses: simple-container-com/forge-action/.github/actions/dockerless@b85c96d5f597a28e9dc7528b818c5c79e6575ad5 # v1

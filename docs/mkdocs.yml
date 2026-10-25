@@ -56,6 +56,7 @@ nav:
     - GKE Autopilot: guides/parent-gcp-gke-autopilot.md
     - Pure Kubernetes: guides/parent-pure-kubernetes.md
     - Yandex Cloud: guides/parent-yandex-cloud.md
+    - Cloud.ru: guides/parent-cloudru.md
     - Service Deploy Steps: guides/service-steps-to-deploy.md
     - CI/CD with GitHub Actions: guides/cicd-github-actions.md
     - Secrets Management: guides/secrets-management.md
@@ -65,17 +66,73 @@ nav:
     - Resource Adoption: guides/resource-adoption.md
     - AI Assistant: ai-assistant/index.md
     - Migration: guides/migration.md
+  # Every example page is listed, not just the section index. A page absent from
+  # `nav` renders with no sidebar position in this theme (navigation.sections +
+  # navigation.expand), so it is reachable only by following a link from its index
+  # — which is how examples/k3s/byo-host/ came to be invisible in the menu while
+  # being the only page documenting the `byo` driver end to end.
   - Examples:
     - Overview: examples/README.md
-    - Static Websites: examples/static-websites/index.md
-    - ECS Deployments: examples/ecs-deployments/index.md
-    - Lambda Functions: examples/lambda-functions/index.md
-    - GKE Autopilot: examples/gke-autopilot/index.md
-    - Kubernetes Native: examples/kubernetes-native/index.md
-    - Compose on a VM: examples/vm-compose/index.md
-    - k3s Clusters: examples/k3s/index.md
-    - Advanced Configs: examples/advanced-configs/index.md
-    - Parent Stacks: examples/parent-stacks/index.md
+    - Static Websites:
+      - Overview: examples/static-websites/index.md
+      - Landing Page: examples/static-websites/landing-page/README.md
+      - Documentation Site: examples/static-websites/documentation-site/README.md
+      - Customer Portal: examples/static-websites/customer-portal/README.md
+      - Admin Dashboard: examples/static-websites/admin-dashboard/README.md
+      - Media Store: examples/static-websites/media-store/README.md
+    - ECS Deployments:
+      - Overview: examples/ecs-deployments/index.md
+      - Backend Service: examples/ecs-deployments/backend-service/README.md
+      - Blog Platform: examples/ecs-deployments/blog-platform/README.md
+      - Meteor.js Application: examples/ecs-deployments/meteor-app/README.md
+      - Vector Database: examples/ecs-deployments/vector-database/README.md
+      - Blockchain Service: examples/ecs-deployments/blockchain-service/README.md
+    - Lambda Functions:
+      - Overview: examples/lambda-functions/index.md
+      - AI Gateway: examples/lambda-functions/ai-gateway/README.md
+      - Billing System: examples/lambda-functions/billing-system/README.md
+      - Cost Analytics: examples/lambda-functions/cost-analytics/README.md
+      - Scheduler: examples/lambda-functions/scheduler/README.md
+      - Storage Service: examples/lambda-functions/storage-service/README.md
+    - GKE Autopilot:
+      - Overview: examples/gke-autopilot/index.md
+      - Comprehensive Setup: examples/gke-autopilot/comprehensive-setup/README.md
+      - Pod Priority and Large Storage: examples/gke-autopilot/priority-and-storage/README.md
+    - Kubernetes Native:
+      - Overview: examples/kubernetes-native/index.md
+      - Streaming Platform: examples/kubernetes-native/streaming-platform/README.md
+    - Kubernetes Affinity:
+      - Overview: examples/kubernetes-affinity/README.md
+      - Multi-Tier Node Isolation: examples/kubernetes-affinity/multi-tier-node-isolation/README.md
+    - Vertical Pod Autoscaler: examples/kubernetes-vpa/README.md
+    - Compose on a VM:
+      - Overview: examples/vm-compose/index.md
+      - A Machine You Brought (byo): examples/vm-compose/byo-host/README.md
+      - Cloud.ru Advanced (cloudru-vm): examples/vm-compose/cloudru/README.md
+      - Cloud.ru Evolution (cloudru-evolution-vm): examples/vm-compose/cloudru-evolution/README.md
+    - k3s Clusters:
+      - Overview: examples/k3s/index.md
+      - k3s on a Machine You Brought (byo): examples/k3s/byo-host/README.md
+      - k3s on Cloud.ru (cloudru-evolution-vm): examples/k3s/cloudru-evolution/README.md
+    - CI/CD with GitHub Actions:
+      - Overview: examples/cicd-github-actions/README.md
+      - Basic Setup: examples/cicd-github-actions/basic-setup/README.md
+      - Multi-Stack Deployment: examples/cicd-github-actions/multi-stack/README.md
+      - Preview Deployments: examples/cicd-github-actions/preview-deployments/README.md
+      - Advanced Notifications: examples/cicd-github-actions/advanced-notifications/README.md
+    - Secrets:
+      - Overview: examples/secrets/README.md
+      - AWS + MongoDB Atlas: examples/secrets/aws-mongodb-atlas/README.md
+      - GCP Multi-Service Integration: examples/secrets/gcp-auth-cloudflare-mongodb-discord-telegram/README.md
+      - Kubernetes + GCP Dual Auth: examples/secrets/kube-and-gcp-auth/README.md
+    - Resource Management: examples/resource-management/README.md
+    - Resource Adoption: examples/resource-adoption/README.md
+    - Advanced Configs:
+      - Overview: examples/advanced-configs/index.md
+      - High-Resource AI Environment: examples/advanced-configs/high-resource/README.md
+    - Parent Stacks:
+      - Overview: examples/parent-stacks/index.md
+      - AWS Multi-Region: examples/parent-stacks/aws-multi-region/README.md
   - Reference:
     - Supported Resources: reference/supported-resources.md
     - Deployment Schemas: reference/service-available-deployment-schemas.md

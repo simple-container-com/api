@@ -1,0 +1,51 @@
+schemaVersion: 1.0
+stacks:
+  staging:
+    # Byte-for-byte the `byo` and `cloudru-vm` examples' client stack, and that is the
+    # point: the client stack never learns which cloud — or which Cloud.ru estate, or
+    # whether SC created the machine at all. The parent stack's template decides where it
+    # lands, and SC projects this into a one-service compose project on the machine.
+    #
+    # The same file also deploys to Lambda, to a Yandex Serverless Container, or to a
+    # Cloud.ru Evolution Container App by pointing `template:` at a different template in
+    # the parent stack.
+    type: single-image
+    template: compose-on-vm
+    parent: mycompany/mycompany
+    config:
+      image:
+        dockerfile: ${git:root}/Dockerfile
+      # SC passes PORT=8080 to the container, which is what Lambda and a YC Serverless
+      # Container already do — an image that runs on either needs no change. (A Cloud.ru
+      # Container App is the exception: there, `PORT` is a reserved name the platform
+      # refuses, and the port is `cloudExtras.containerPort` instead. On this path the
+      # machine is yours and PORT is ordinary.)
+      maxMemory: 512
+      env:
+        ENV: staging
+      secrets:
+        MONGO_URI: ${secret:staging-portal-mongo-uri}
+
+      # Served over HTTPS by the machine's own Caddy, which requires `ingress.enable:
+      # true` on the `vm` resource this template points at. With both in place the stack
+      # publishes NO host port — 443 is the only way in — and `<stack>-vm-compose-url`
+      # becomes `https://portal.example.ru`.
+      #
+      # You create the DNS record yourself: an A record at the floating address SC
+      # created (`sc stack outputs -s mycompany | jq -r '."portal-vm-vm-host-0-address"'`),
+      # **not** proxied. Cloudflare's orange cloud breaks the ACME challenge the machine
+      # has to answer itself, which is why `domainProxied` is refused outright here rather
+      # than accepted and ignored.
+      #
+      # Cloud.ru has its own Cloud DNS, and SC's `cloudru-dns` registrar for it is
+      # live-verified: add the registrar to the parent stack and SC writes this record
+      # itself. The service account needs the `cdns.admin` role in the project.
+      #
+      # On a `.ru` domain opened from inside Russia, read `ingress.acmeCa` in server.yaml
+      # before relying on Let's Encrypt: whether the certificate the browser there wants
+      # can be obtained over ACME is unverified.
+      domain: portal.example.ru
+
+  # A second stack on the same machine is fine: they share the machine, each gets its own
+  # compose project, its own env file and its own pair of blue/green slots. The machine is
+  # described once, in the parent stack's `resources:`.

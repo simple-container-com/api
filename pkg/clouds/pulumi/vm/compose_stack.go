@@ -202,11 +202,27 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	// First, before anything runs `docker`: the preconditions this path needs from
 	// the machine. See composePreflightScript for why they are not in the vm
 	// resource's readiness gate.
-	if _, err := step("preflight", composePreflightScript(host.User), nil, false); err != nil {
+	//
+	// runNonce because this command only READS. Its script depends on nothing but
+	// the ssh user, so its default trigger set never moves: without the nonce it
+	// checks the machine on the first deploy of a stack and is reported unchanged
+	// forever after, which is precisely the case it exists to catch (docker removed,
+	// the daemon down, the user dropped from the docker group — all of them happen
+	// to a host SC does not own, and all of them between deploys, never before the
+	// first one).
+	if _, err := step("preflight", composePreflightScript(host.User), nil, false, sdk.String(runNonce)); err != nil {
 		return nil, err
 	}
 
-	if _, err := step("prepare", prepareScript(stackName, env, in.ExternalVolumes()), nil, false); err != nil {
+	// runNonce again, this time for a command that DOES change the machine — every
+	// line of prepareScript is inspect-or-create, and the drift it repairs (a pruned
+	// `sc-ingress` network, a removed external volume, a deleted stack directory) is
+	// invisible to every input this command has. Without the nonce the deploy that
+	// would put them back is the one deploy that is skipped, and the failure surfaces
+	// one step later as a compose error about a missing network. See
+	// TriggersForGuardedChange for the three preconditions this satisfies.
+	if _, err := step("prepare", prepareScript(stackName, env, in.ExternalVolumes()), nil, false,
+		sdk.String(runNonce)); err != nil {
 		return nil, err
 	}
 
@@ -266,6 +282,11 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	}
 
 	pull := pullBestEffort
+	if in.ShipsExternalImages() {
+		// Every image in the file arrived over SSH, so the machine has nothing to
+		// fetch. See pullNone for why this is silence rather than best-effort.
+		pull = pullNone
+	}
 	if in.EffectiveImageDelivery() == vm.ImageDeliveryRegistry {
 		pull = pullRequired
 		if in.RegistryRequiresAuth() {
@@ -286,7 +307,21 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	// state because the machine is the only place that knows: a stack can be
 	// deployed from two checkouts, and a container that was stopped by hand is the
 	// machine's truth, not the checkpoint's.
-	readState, err := step("read-state", readStateScript(stackName, env), nil, false)
+	//
+	// runNonce is what makes that true. Every other command in this file is
+	// triggered by what it would DO, which is right for a command that changes the
+	// machine and wrong for the one command that only asks it a question: the
+	// address and the script are both invariant, so without a per-run trigger this
+	// command runs once, ever, and every later deploy reads its answer out of the
+	// checkpoint — the one place the comment above says not to read it from.
+	//
+	// Live-caught 2026-10-18: the first deploy of the smoke stack read an empty
+	// state file (nothing deployed yet) and cached `""`. The machine then recorded
+	// `activeSlot: "a"`. The next deploy still saw `""`, so OtherSlot gave it SlotA
+	// again — i.e. `strategy: blue-green` would have recreated the slot that was
+	// serving, in place, instead of bringing the other one up beside it. Silent, and
+	// it converts the one promise of blue-green (no downtime) into a restart.
+	readState, err := step("read-state", readStateScript(stackName, env), nil, false, sdk.String(runNonce))
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +395,16 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 		// what the deploy would do: the slot, every image reference, the rendered
 		// compose files, the host port. The version is listed separately so that a
 		// forced redeploy of a byte-identical render still runs.
-		Triggers: sdk.Array{host.Address, sdk.String(version), upScriptOut, sdk.String(envHash)},
+		//
+		// But a reference is not a content identity, so plan.ContentIDs is listed
+		// too: under `ssh-tar` delivery the reference in that render is a local TAG,
+		// which is the same string before and after a rebuild. Without the content
+		// ids, a stack deployed at the default version (`latest`) renders byte for
+		// byte identically after a code change and this command does not run —
+		// see the Triggers of the ship command in compose_images.go.
+		Triggers: append(
+			sdk.Array{host.Address, sdk.String(version), upScriptOut, sdk.String(envHash)},
+			plan.triggerInputs()...),
 	}), append(plan.Opts, sdk.DependsOn(prev))...)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to bring stack %q up on vm %q", stackName, in.VmResource)
@@ -399,7 +443,22 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 			// Delete: the route is removed by teardownScript along with the rest of
 			// the stack, in one place, so that a replacement of THIS resource cannot
 			// delete the route moments after writing it.
-			Triggers: sdk.Array{host.Address, routeOut},
+			//
+			// Guarded change on top of that (the no-Delete above is precondition 3 of
+			// three; the other two hold: the script writes identical bytes and
+			// reloads gracefully). Under `blue-green` the rendered site file names
+			// the slot, so it already changed on every deploy and the nonce adds
+			// nothing — it is `recreate` and the drift cases that need it. This file
+			// is the ONE thing that puts a stack on the machine's ingress, and it
+			// lives in a tree the vm resource owns: rebuilding the ingress removes
+			// /etc/sc/caddy and every stack's route with it, and so does an operator
+			// who cleans up by hand. Without the nonce a `recreate` stack whose route
+			// file is gone is served by nobody, and its next deploy — which changes
+			// nothing, so it re-runs nothing — reports success and leaves it that
+			// way. Live-caught 2026-10-18: a teardown took /etc/sc/caddy with it, the
+			// re-provision brought Caddy back with only its catch-all, and the stack's
+			// domain answered 503 on :80 and nothing at all on :443.
+			Triggers: TriggersForGuardedChange(host.Address, routeOut),
 		}), sdk.DependsOn([]sdk.Resource{up}))
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to route %q to stack %q on vm %q",
@@ -425,9 +484,15 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	}).(sdk.StringOutput)
 
 	if _, err := remote.NewCommand(ctx, input.ToResName(stackName+"-vmc-finalize"), baseArgs(&remote.CommandArgs{
-		Create:   finalizeOut,
-		Update:   finalizeOut,
-		Triggers: sdk.Array{host.Address, sdk.String(version), finalizeOut},
+		Create: finalizeOut,
+		Update: finalizeOut,
+		// The content ids for the same reason as on `up`, and it matters more here:
+		// this is the command that records the active slot and retires the other
+		// one. An `up` that ran while this did not leaves the machine serving the new
+		// slot with the state file still naming the old one.
+		Triggers: append(
+			sdk.Array{host.Address, sdk.String(version), finalizeOut},
+			plan.triggerInputs()...),
 	}), sdk.DependsOn(routeDeps)); err != nil {
 		return nil, errors.Wrapf(err, "failed to finalize deploy of stack %q on vm %q", stackName, in.VmResource)
 	}
@@ -585,8 +650,13 @@ func hostFromParent(
 		Port:               port,
 		PrivateKey:         secretString(privateKey),
 		PrivateKeyPassword: secretString(keyPassword),
-		HostKey:            hostKey,
-		Role:               vm.RoleCompose,
+		// Lifted into an Output only to satisfy HostFacts, which carries one because a
+		// cloud driver GENERATES the host key and therefore only knows it once the
+		// resource exists. On this side it is already a resolved string: it came out of
+		// the parent stack's exports.
+		HostKey:       sdk.String(hostKey).ToStringOutput(),
+		HostKeyPinned: hostKey != "",
+		Role:          vm.RoleCompose,
 	}, ingressEnabled, nil
 }
 

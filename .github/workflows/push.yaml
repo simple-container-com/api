@@ -5,7 +5,11 @@ on:
     branches:
       - 'main'
 
-# allow only one concurrent build
+# allow only one concurrent build. The `cancel-in-progress: false` here is
+# DELIBERATE and is the asymmetry vs branch.yaml / coverage.yml / the scan
+# workflows, which all cancel-in-progress: this workflow publishes a release
+# — tags, images, the CDN bundle — and a release must never be cancelled
+# mid-flight by the next push. The next run simply queues behind it.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
@@ -48,6 +52,7 @@ jobs:
   build-setup:
     name: Build Setup (clean, tools, schemas, lint, fmt)
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: prepare
     outputs:
       cicd-bot-telegram-token: ${{ steps.telegram-secrets.outputs.cicd-bot-telegram-token }}
@@ -57,12 +62,51 @@ jobs:
         with:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: install sc + welder tools
-        uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/setup-sc-tooling@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
+        with:
+          # Pinned through variables, not literals, for the same reason
+          # FORGE_CI_RUNNER is: one place to change, and `gh variable delete`
+          # restores the previous behaviour completely.
+          #
+          # WHY PIN AT ALL. The CI fleet's guest rootfs now carries sc + welder
+          # preinstalled (forge/provisioning/firecracker-buildvm/
+          # bake-sc-welder-into-rootfs.sh), and setup-sc-tooling skips the
+          # download only when the preinstalled version matches EXACTLY.
+          # Unpinned means "latest", which never equals a preinstalled version
+          # string and so always downloads: `sc` is a 565 MB binary behind a
+          # 100 MB tarball, and this step measured 320-362 s on EVERY fleet job
+          # (api runs 39443088291, 39458652001).
+          #
+          # LOCKSTEP. These values must equal what is baked into the rootfs. A
+          # mismatch is SAFE — it falls back to downloading, exactly as today —
+          # but silently forfeits the win, so it is the first thing to check if
+          # this step becomes slow again.
+          #
+          # Note `vars.*` also resolves ORGANISATION variables (same caveat as
+          # the release gate below), and the pin applies on hosted/Blacksmith
+          # runners too: there nothing is preinstalled, so the effect is only
+          # that a known sc version is fetched instead of a floating `latest`.
+          #
+          # welder uses `accept-preinstalled-welder` rather than
+          # `welder-version` because welder CANNOT be pinned by URL — every
+          # welder.simple-container.com/releases/<version>/ path returns the
+          # dist server's HTML 404, so only `latest` resolves (verified
+          # 2026-10-20). That artifact has been byte-identical since
+          # 2024-05-13, which is what makes accepting a preinstalled copy by
+          # version safe.
+          sc-version: ${{ vars.FORGE_CI_SC_VERSION }}
+          accept-preinstalled-welder: ${{ vars.FORGE_CI_WELDER_VERSION }}
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -97,7 +141,24 @@ jobs:
           rm -fR docs/schemas/*
       - name: tools
         run: |
-          cat tools.go | grep _ | awk -F'"' '{print $2}' | xargs -tI % go get %
+          # NO `go get` here, deliberately. It used to run
+          #   cat tools.go | grep _ | ... | xargs -tI % go get %
+          # which resolves each tool to its LATEST version on every run. That
+          # was three separate problems, not just the obvious network cost the
+          # operator spotted:
+          #   1. ~5 network round-trips per job even with a warm GOMODCACHE;
+          #   2. it could silently BUMP golangci-lint / gofumpt — the very
+          #      tools that gate this build — so a PR could fail lint for
+          #      reasons unrelated to its diff, and the version that ran was
+          #      never the version committed;
+          #   3. a bumped tool is a different module version, so it misses the
+          #      seeded build cache and recompiles.
+          # None of it is needed: tools.go blank-imports all five tools and
+          # go.mod pins them (mockery/v2 v2.53.6, golangci-lint v1.64.8,
+          # gofumpt v0.11.0, delve v1.27.0, go-jsonschema v0.24.1), and the
+          # //go:generate lines in tools.go `go build` them from those pinned
+          # versions. `go mod download` then serves straight from the warm
+          # GOMODCACHE.
           go mod download
           go generate -tags tools
           go mod tidy
@@ -111,7 +172,17 @@ jobs:
         run: |
           go mod tidy
           bin/gofumpt -l -w ./
-          bin/golangci-lint run --fix --timeout 3m -v
+          # --timeout 15m, not 3m. The 3m budget was always marginal and only
+          # passed because `welder run rebuild` happened to run first and warm
+          # the export data that golangci-lint's go/packages loader needs.
+          # With that build removed (nothing consumed it here), the loader does
+          # the work itself and measured 3m6s on 6 oversubscribed vCPU —
+          # failing with "context loading failed: context deadline exceeded",
+          # exit 4, which reads like a lint error but is a timeout.
+          # api#461 run 39318720877. Package loading is the floor for a
+          # 2143-package graph; the limit only needs to not be the thing that
+          # fails.
+          bin/golangci-lint run --fix --timeout 15m -v
       - name: get telegram secrets
         id: telegram-secrets
         run: |
@@ -127,33 +198,58 @@ jobs:
         with:
           name: bin-tools
           path: bin
+          # `warn` (the default) uploads an EMPTY artifact when nothing matched and
+          # defers the failure to whoever consumes it — on the release path that is
+          # a silently missing platform/binary/image digest (see docker-finalize's
+          # Sidecar assertion for the bundle-level backstop).
+          if-no-files-found: error
           retention-days: 1
 
   build-platforms:
     name: Build sc for ${{ matrix.os }}/${{ matrix.arch }}
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup]
     permissions:
       contents: read
       id-token: write       # OIDC for keyless cosign + attest-build-provenance
       attestations: write
     strategy:
+      # fail-fast must be false for the continue-on-error contract below to
+      # hold ACROSS legs, not just within one. With the default (true), a
+      # gate failure in one leg CANCELS the sibling legs mid-attestation —
+      # and the "complete picture of which sidecars are missing" the steps
+      # below promise is exactly what you lose, most notably during a
+      # Sigstore/Rekor outage, which hits all three platforms at once.
+      fail-fast: false
       matrix:
+          # darwin/amd64 was DROPPED 2026-10-20 (operator decision, CI capacity).
+          # Consequence to keep in mind: Rosetta 2 runs amd64 on Apple Silicon
+          # but NOT arm64 on Intel, so there is no working `sc` for a pre-2020
+          # Mac. sc.sh fails with an explicit message rather than a bare 404.
+          # Re-adding it means: this matrix, the expected-platform list in
+          # docker-finalize, verify-attestations.yml, scripts/verify-preview.sh,
+          # AND the required-check list in ruleset 9144757 (a required check
+          # whose job no longer exists blocks every merge, and vice versa).
         include:
           - os: linux
             arch: amd64
           - os: darwin
             arch: arm64
-          - os: darwin
-            arch: amd64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: create build directories
         run: |
           mkdir -p dist
@@ -180,7 +276,10 @@ jobs:
       # rest: the run still produces a complete picture of which sidecars are
       # missing. The trailing gate then decides whether that is publishable.
       # On this workflow it is not — see the gate step for the release policy
-      # and the break-glass variable.
+      # and the break-glass variable. (`fail-fast: false` on the strategy
+      # above is what makes this hold ACROSS legs too — with the default
+      # fail-fast, a gate failure in one leg would cancel the siblings and
+      # the complete picture is exactly what you would lose.)
       - name: SHA-256 sidecars for ${{ matrix.os }}/${{ matrix.arch }}
         id: sha256
         env:
@@ -198,7 +297,7 @@ jobs:
                                   # sign/SBOM/SLSA steps soft-skip via their own
                                   # outcome guards and the gate below reports
                                   # every one of them at once.
-        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-attest-tools@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       - name: Generate CycloneDX SBOM for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: sbom_tarball
         continue-on-error: true
@@ -224,10 +323,27 @@ jobs:
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
+          # Retry: on the self-hosted fleet the Actions OIDC fetch can hit a
+          # transient `i/o timeout` (egress is a fake-IP hijack), and cosign then
+          # falls back to INTERACTIVE device flow and dies with `expired_token` —
+          # a confusing failure for what is just a blip. Both hosts and the guest
+          # reach the OIDC endpoint, Fulcio and Rekor fine when retried, so one
+          # attempt is simply too few. This step is continue-on-error, so without
+          # a retry a blip silently produces an UNSIGNED release artifact.
           for tarball in "sc-${GOOS}-${GOARCH}-v${VERSION}.tar.gz" "sc-${GOOS}-${GOARCH}.tar.gz"; do
-            cosign sign-blob --yes \
-              --bundle "${tarball}.cosign-bundle" \
-              "${tarball}"
+            for attempt in 1 2 3; do
+              if cosign sign-blob --yes \
+                   --bundle "${tarball}.cosign-bundle" \
+                   "${tarball}"; then
+                break
+              fi
+              if [ "$attempt" = 3 ]; then
+                echo "::error::cosign sign-blob failed 3x for ${tarball} — artifact is UNSIGNED"
+                exit 1
+              fi
+              echo "::warning::cosign sign-blob attempt ${attempt} failed for ${tarball}; retrying"
+              sleep $((attempt * 10))
+            done
           done
       - name: SLSA build provenance for sc-${{ matrix.os }}-${{ matrix.arch }}
         id: slsa_tarball
@@ -326,62 +442,46 @@ jobs:
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.cosign-bundle
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sigstore.json
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}*.tar.gz.sbom.cdx.json
+          if-no-files-found: error
           retention-days: 1
 
-  build-binaries:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
-    needs: [prepare, build-setup]
-    strategy:
-      matrix:
-        include:
-          - target: github-actions
-            cmd: github-actions
-            output: dist/github-actions
-          - target: cloud-helpers
-            cmd: cloud-helpers
-            output: dist/cloud-helpers
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
-        with:
-          go-version: '1.25'
-      - name: create build directories
-        run: |
-          mkdir -p dist
-      - name: build ${{ matrix.target }}
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-          CGO_ENABLED: "0"
-        run: |
-          go build -trimpath -buildvcs=false -a -installsuffix cgo -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
-      - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ matrix.target }}-binary
-          path: ${{ matrix.output }}
-          retention-days: 1
-
-  # Note (PR #257): the `build-github-actions-staging` job was removed
-  # alongside its sole consumer — the `github-actions-staging` matrix
-  # entry in docker-build. The `:staging` image tag is now exclusively
-  # published by build-staging.yml under the staging trust root.
+  # build-binaries was REMOVED here (it stays in branch.yaml, where "Build
+  # github-actions" and "Build cloud-helpers" are two of the seven
+  # ruleset-required checks and are the only compile of those packages).
+  #
+  # On THIS workflow it had become pure duplicate work: the in-image `gobuild`
+  # stages earlier in this PR made docker-build compile ./cmd/github-actions
+  # and ./cmd/cloud-helpers itself, and that same change removed this job's
+  # upload steps — so it compiled both binaries and threw them away. It was not
+  # even a useful compile gate, because the image build compiles the same
+  # packages and fails on the same error.
+  #
+  # The binaries ship nowhere else: their only distribution is the
+  # simplecontainer/github-actions and simplecontainer/cloud-helpers images
+  # (github-actions is also symlinked as `sc` inside its image). The released
+  # tarballs are ./cmd/sc only.
+  #
+  # Saves two fleet jobs per release — the compiles plus their runner handoffs.
 
   test:
     name: Run tests
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     needs: [prepare, build-setup]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: Set up Go with Blacksmith caching
-        uses: useblacksmith/setup-go@647ac649bd5b480f2a262e3e3e5f4d150ed452ad  # v6.0.1
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: test
         run: |
           go test ./...
@@ -419,17 +519,72 @@ jobs:
         with:
           name: docs-site
           path: docs/site
+          if-no-files-found: error
           retention-days: 1
 
   docker-build:
     name: Docker build and push ${{ matrix.image }}
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
-    needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs]
+    # Routed to a GitHub-hosted runner whenever the fleet shape is ACTIVE —
+    # the inverse of every build job's runs-on, and deliberate.
+    #
+    # No leg of this matrix has a fleet requirement. The longest leg
+    # (github-actions, 13.2 min on run 39227894781) is dominated by
+    # downloading pulumi + the ~500 MB gcloud SDK (github-actions.Dockerfile)
+    # and `type=gha` cache traffic — all GitHub/internet egress, i.e. the
+    # work is worst exactly where the fleet is worst (fake-IP hijack egress).
+    # kubectl.Dockerfile and caddy.Dockerfile consume no Go artifact at all,
+    # yet all four legs waited on the 2 fleet slots behind the Go phase.
+    # Hosted, the four legs run fully parallel and the phase is the ~13.2 min
+    # long pole instead of the measured 20.3.
+    #
+    # Posture: this job ran on Blacksmith — a third party — before the fleet
+    # cutover, so SC_CONFIG + the Docker Hub token on GitHub-hosted runners
+    # is not a new exposure; the repo is public, so ubuntu-latest is free;
+    # and the cosign identity is `push.yaml@refs/heads/main` (workflow+ref,
+    # not runner), so the documented trust root is untouched.
+    #
+    # Tests the variable's PRESENCE, not its value (a future fleet-label
+    # change must not touch this line), and `gh variable delete
+    # FORGE_CI_RUNNER` restores Blacksmith here exactly as everywhere else.
+    # PER-LEG routing, because two of these legs compile Go and two do not.
+    #
+    # The `github-actions` and `cloud-helpers-aws` Dockerfiles each build their
+    # binary in a `gobuild` stage, and that link is the 12.9 GB-class peak. A
+    # GitHub-hosted runner has 16 GB and CANNOT take it: this exact build died
+    # with `compile: signal: killed` / `cannot allocate memory` on
+    # pulumi-yandex while linking ./cmd/cloud-helpers (run 39402578614,
+    # 2026-10-20) — the same OOM that already killed `build-binaries` when it
+    # was routed hosted, which is why that re-route was reverted. Moving the
+    # compile into the image moved the OOM, it did not remove it.
+    #
+    # So: legs that compile Go run on the FLEET (20 GiB guests, and their
+    # per-guest dockerd keeps the gobuild cache mounts warm across builds);
+    # `kubectl` and `caddy` compile nothing and are dominated by registry and
+    # apk/dnf egress, so they stay hosted where that egress is fast and the
+    # two run in parallel for free.
+    #
+    # `matrix.heavy_go` absent is falsy, so a new leg defaults to hosted and
+    # must opt in — the safe direction, since the failure mode of guessing
+    # wrong is an OOM nine minutes into a release.
+    runs-on: >-
+      ${{ vars.FORGE_CI_RUNNER
+          && (matrix.heavy_go && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["ubuntu-latest"]'))
+          || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
+    needs: [prepare, build-setup, build-platforms, test, build-docs]
     permissions:
       contents: read
       id-token: write       # OIDC token for keyless cosign + attest-build-provenance
       attestations: write   # required by actions/attest-build-provenance
     strategy:
+      # fail-fast: false is a CORRECTNESS requirement here, not just
+      # diagnostics: `Promote release tags` below does one registry PUT per
+      # tag (:latest, :<version>). With the default fail-fast (true), a gate
+      # failure in one image CANCELS the sibling legs mid-run — and a cancel
+      # landing between a leg's two PUTs leaves :latest and :<version>
+      # pointing at DIFFERENT digests. Also keeps per-image attestation
+      # diagnostics alive across legs (see build-platforms).
+      fail-fast: false
       matrix:
         include:
           - image: kubectl
@@ -445,19 +600,26 @@ jobs:
               simplecontainer/caddy:latest
               simplecontainer/caddy:${{ needs.prepare.outputs.version }}
           - image: github-actions
+            heavy_go: true   # gobuild stage: needs fleet RAM, see runs-on
             dockerfile: github-actions.Dockerfile
             image_repo: simplecontainer/github-actions
             tags: |
               simplecontainer/github-actions:latest
               simplecontainer/github-actions:${{ needs.prepare.outputs.version }}
-          # The :staging tag is intentionally NOT published from this workflow.
-          # build-staging.yml (triggered on the `staging` branch) is the
-          # canonical owner of `simplecontainer/github-actions:staging` and signs
-          # it under the staging trust root. Publishing :staging here from main
-          # would either (a) double-sign with the production identity — breaking
-          # the SECURITY.md identity-regex contract — or (b) leave it unsigned,
-          # so consumers following the documented verification path would fail.
+          # The :staging tag is RETIRED, not merely unpublished here. Its
+          # owner, build-staging.yml, was removed 2026-10-20: the `staging`
+          # branch had been dead since 2026-04-19 and preview builds
+          # (branch-preview.yaml) now cover the same need, publishing
+          # github-actions + cloud-helpers under the preview trust root.
+          #
+          # Do NOT "restore" :staging by adding it to the tags above. That
+          # would either double-sign it with the production identity — breaking
+          # the SECURITY.md identity-regex contract — or leave it unsigned, so
+          # consumers following the documented verification path would fail.
+          # The pre-existing `:staging` tag is left on Docker Hub, frozen at
+          # its 2026-04-19 build.
           - image: cloud-helpers-aws
+            heavy_go: true   # gobuild stage: needs fleet RAM, see runs-on
             dockerfile: cloud-helpers.aws.Dockerfile
             image_repo: simplecontainer/cloud-helpers
             tags: |
@@ -467,20 +629,14 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: download github-actions binary
-        if: matrix.image == 'github-actions'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: github-actions-binary
-          path: dist
-      - name: download cloud-helpers binary
-        if: matrix.image == 'cloud-helpers-aws'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
-        with:
-          name: cloud-helpers-binary
-          path: dist
+      # The github-actions / cloud-helpers-aws images no longer download a
+      # `dist/` binary artifact: their Dockerfiles build the binary in a
+      # `gobuild` stage (same flags, same -X stamp via the VERSION build-arg
+      # below). That artifact round-trip measured 448 s per ~70 MB binary
+      # (run 39253348066) and happened twice per release for bytes the
+      # pipeline had compiled minutes earlier.
       - name: install sc tool
-        uses: simple-container-com/actions/install-sc@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-sc@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -493,8 +649,197 @@ jobs:
       - name: Setup Docker Buildx with advanced caching
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
         with:
+          # A STABLE builder name + no teardown, which is what actually makes
+          # the gobuild stage's `RUN --mount=type=cache` Go caches survive
+          # between jobs. Without these three inputs the action generates a
+          # random builder name and REMOVES the builder in its post step, so
+          # every release recompiled the full ~2095-package closure from cold
+          # inside buildkit — the Dockerfile comment claiming an incremental
+          # compile "on a persistent builder" was simply not true.
+          #
+          # This cannot be achieved with `cache-to` instead: buildkit does NOT
+          # export `type=cache` mount contents through ANY cache exporter
+          # (gha or registry). Mount contents are builder-local state, so
+          # keeping the builder IS the only mechanism.
+          #
+          # Shared across all four matrix legs on purpose: `cmd/github-actions`
+          # and `cmd/cloud-helpers` share 2092 of ~2095 packages, so whichever
+          # runs second on a given guest gets a near-warm cache.
+          #
+          # On an EPHEMERAL runner (ubuntu-latest / Blacksmith) there is
+          # nothing to reuse and nothing to leak — the VM is discarded. So
+          # this is a no-op there, not a behaviour change.
+          name: forge-ci
+          cleanup: false
+          keep-state: true
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
+
+      # Persistent state needs a bound, and a COLD builder needs room to go
+      # warm again. Those are two different problems and this step does both.
+      #
+      # Deliberately NOT a buildkitd.toml gc policy: a TOML the daemon fails
+      # to parse takes down every release build, and it could not be verified
+      # locally (bootstrapping moby/buildkit timed out pulling the image).
+      # buildkit's own GC is enabled by default; this step adds an age bound
+      # plus a free-space floor, in shell, where a mistake is visible.
+      #
+      # `--filter until=` is the one prune flag whose name has been stable
+      # across buildx versions — `--keep-storage` was REPLACED by
+      # `--max-used-space` in buildx v0.17, and the runner image upgrades
+      # buildx on its own schedule, so naming either one invites a break.
+      # continue-on-error + `|| true`: cache hygiene must never fail a release.
+      #
+      # ---------------------------------------------------------------------
+      # Why the floor is 25 GB and why pruning buildkit alone cannot hold it
+      #
+      # Release run 39804179733 (2026-10-22) failed this leg TWICE with
+      # `mkdir /tmp/go-build.../: no space left on device` in `gobuild 6/6`,
+      # on two different guests, with byte-identical numbers:
+      #
+      #   pc-build-5 (cache-5, 60 GB): buildx du 0B, free 13 GB -> ENOSPC
+      #   pc-build-4 (cache-4, 60 GB): buildx du 0B, free 13 GB -> ENOSPC
+      #   pc-build-3 (cache-3, 80 GB): buildx du 19.69GB, free 31 GB -> OK
+      #
+      # Same closure, same run, same minute. The drives carry an identical
+      # ~48 GB resident set, so drive size alone decides: 60 GB leaves 13,
+      # 80 GB leaves 31. A COLD build of the ~2095-package closure needs both
+      # cache mounts (`/root/.cache/go-build` + `/go/pkg/mod`) built from
+      # scratch plus `$WORK` scratch, and 13 GB does not cover it.
+      #
+      # `buildx du` reporting 0B is the tell, and it is not random: the guest's
+      # `guest-cache-gc` runs once per boot and at >=88% usage does
+      # `rm -rf /cache/docker/*`, which destroys dockerd's data-root INCLUDING
+      # this persistent builder. That frees ~20 GB and then costs more than it
+      # freed, because the next build is cold. So on a tight guest the old
+      # backstop was a no-op exactly when it was needed: `buildx prune` on a
+      # 0B builder reclaims nothing, and the 10 GB trigger sat below the 13 GB
+      # at which the build already dies.
+      #
+      # So: escalate, cheapest-to-re-earn first, and only as far as needed.
+      # `/cache/go-build` and `/cache/go-mod` are the GUEST's Go caches — this
+      # job does not read them at all (buildkit's cache mounts live inside
+      # /cache/docker), so reclaiming them costs the NEXT Go job on this
+      # guest, never this build. Ordered by what that next job pays:
+      #   go-mod    — refetches from the host-side Athens mirror on the
+      #               bridge gateway: local, fast, cheap.
+      #   images    — refetch from the host-side registry mirror: also local.
+      #   go-build  — LAST RESORT. A cold guest-level `go build ./...` was
+      #               measured at 76 min, so this is the expensive one.
+      # Each tier re-measures and stops as soon as the floor is met, and every
+      # tier logs the free-space delta — nobody has ever measured what the
+      # ~48 GB resident set is actually made of, and these deltas say.
+      - name: Bound the persistent builder's cache
+        if: vars.FORGE_CI_RUNNER != ''
+        continue-on-error: true
+        env:
+          # A cold gobuild of the ~2095-package closure. 13 GB is proven to
+          # fail and 31 GB proven to pass (run 39804179733); 25 GB sits above
+          # the failure with headroom and below what an 80 GB guest already
+          # has, so a healthy guest never triggers any reclaim below.
+          FLOOR_GB: "25"
+        run: |
+          set -uo pipefail
+
+          # Ask dockerd where its data-root actually is — do NOT assume
+          # /var/lib/docker. The fleet guests put it on the persistent cache
+          # drive at /cache/docker, so a hardcoded path would `df` a
+          # non-existent directory, yield an empty string, and skip the
+          # reclaim silently on the one runner class that needs it.
+          root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)
+          root="${root:-/var/lib/docker}"
+
+          # `|| true` on the pipeline, not just on df: the step inherits
+          # GitHub's default `bash -e {0}`, and `set -o pipefail` above turns a
+          # df failure (missing path) into a non-zero pipeline, which under
+          # -e aborts the whole step before any reclaim tier runs. Caught by
+          # the local harness, not in CI.
+          free_gb() {
+            { df -BG --output=avail "$1" 2>/dev/null | tail -1 | tr -dc '0-9'; } || true
+          }
+
+          # Reclaim a tier, then report what it bought. Never fails: a tier
+          # whose target does not exist is a no-op, not an error.
+          reclaim() {
+            label="$1"; shift
+            before=$(free_gb "${root}")
+            "$@" >/dev/null 2>&1 || true
+            after=$(free_gb "${root}")
+            echo "  ${label}: ${before:-?} GB -> ${after:-?} GB free"
+            avail="${after}"
+          }
+
+          echo "dockerd data-root: ${root}"
+
+          # Is the builder warm? A 0B total means guest-cache-gc wiped the
+          # data-root, so the tiers that prune buildkit cannot help and the
+          # ones that free the guest's Go caches are the only lever.
+          #
+          # Parsed from the human-readable total on purpose: `docker buildx du`
+          # grew a `--bytes`-style machine output only in later buildx
+          # versions, and the runner image upgrades buildx on its own
+          # schedule — the same reason `--filter until=` is used above. An
+          # unrecognised flag here would make every builder look cold.
+          #
+          # Two statements, not one pipeline: `docker buildx du` exits non-zero
+          # when the builder does not exist yet, and with pipefail + the
+          # inherited -e that would abort the step instead of reporting "cold".
+          du_raw=$(docker buildx du --builder forge-ci 2>/dev/null || true)
+          du_total=$(printf '%s\n' "${du_raw}" | awk '/^Total:/ {print $NF; exit}')
+          echo "builder cache total: ${du_total:-unknown}"
+          case "${du_total:-}" in
+            0B|0|"") echo "::notice::builder is COLD — this build compiles the ~2095-package closure from scratch" ;;
+          esac
+
+          # Tier 0 — the standing age bound, applied unconditionally.
+          reclaim "prune >168h" \
+            docker buildx prune --builder forge-ci --force --filter until=168h
+
+          if [ -z "${avail:-}" ]; then
+            echo "::warning::could not read free space for ${root} — skipping the reclaim tiers"
+            exit 0
+          fi
+
+          echo "free: ${avail} GB (floor ${FLOOR_GB} GB)"
+          [ "${avail}" -ge "${FLOOR_GB}" ] && { echo "above the floor — nothing to reclaim"; exit 0; }
+
+          echo "::warning::under ${FLOOR_GB} GB free for dockerd — escalating reclaim"
+
+          # Tier 1 — the whole buildkit cache. Reclaims nothing when cold,
+          # which is why it is no longer the only tier.
+          reclaim "prune all buildkit" \
+            docker buildx prune --builder forge-ci --all --force
+          [ "${avail:-0}" -ge "${FLOOR_GB}" ] && exit 0
+
+          # Everything below touches the guest's persistent cache drive and is
+          # meaningless anywhere else, so require that the data-root really is
+          # on it. On a hosted runner this is false and the step stops here.
+          case "${root}" in
+            /cache/*) ;;
+            *) echo "data-root is not on the guest cache drive — no further tiers"; exit 0 ;;
+          esac
+
+          # Tier 2 — images and containers. Layers come back from the
+          # host-side registry mirror on the bridge gateway.
+          reclaim "docker image prune -af" docker image prune -af
+          [ "${avail:-0}" -ge "${FLOOR_GB}" ] && exit 0
+
+          # Tier 3 — the guest's module cache. Refetches from Athens on the
+          # bridge gateway. Unused by this job; cheapest thing left to lose.
+          reclaim "drop /cache/go-mod" \
+            sh -c 'rm -rf /cache/go-mod/* /cache/go-mod/.[!.]* 2>/dev/null; mkdir -p /cache/go-mod'
+          [ "${avail:-0}" -ge "${FLOOR_GB}" ] && exit 0
+
+          # Tier 4 — the golden Go build cache. Costs the next guest-level Go
+          # job a cold compile (76 min measured), so it is strictly last and
+          # still better than failing the release.
+          echo "::warning::dropping the golden go-build cache — the next Go job on this guest compiles cold"
+          reclaim "drop /cache/go-build" \
+            sh -c 'rm -rf /cache/go-build/* /cache/go-build/.[!.]* 2>/dev/null; mkdir -p /cache/go-build'
+
+          if [ "${avail:-0}" -lt "${FLOOR_GB}" ]; then
+            echo "::error::still only ${avail:-?} GB free after every reclaim tier — this guest's cache drive is too small for a cold gobuild; grow ${root%/docker}'s backing image"
+          fi
       - name: Docker login using SC secrets
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
@@ -505,6 +850,10 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
+          # Consumed by the gobuild stages (github-actions.Dockerfile,
+          # cloud-helpers.aws.Dockerfile); an unused ARG in kubectl/caddy.
+          build-args: |
+            VERSION=${{ needs.prepare.outputs.version }}
           # Build to a throwaway CI tag, never straight to the release tags.
           # cosign signs by digest, so the image has to exist in the registry
           # before `Sign + attest` can run; but pushing `:latest` and
@@ -521,8 +870,33 @@ jobs:
           # reads: `mode=max` exports the builder stage, so a poisoned hit
           # would skip the SHA-256-verified gcloud/Pulumi downloads entirely.
           # Release builds read and write `prod-*` only.
-          cache-from: type=gha,scope=prod-${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=prod-${{ matrix.image }}
+          #
+          # TWO exporters, and the registry one is not redundant. The repo's
+          # Actions cache sits at 8 GB of its 10 GB budget across 119 entries
+          # (measured 2026-10-20), so buildx scopes are exposed to LRU
+          # eviction — and what gets evicted is the expensive builder stage
+          # (SHA-256-verified Pulumi + the ~500 MB gcloud SDK). The registry
+          # exporter has no such budget and is not evicted, so the layer cache
+          # stops depending on how much OTHER cache the repo happened to write
+          # this week. gha stays first because it is the faster read when it
+          # is warm; buildkit takes the first hit.
+          #
+          # This publishes a `:buildcache` tag to the PUBLIC Docker Hub repo.
+          # The blobs are build layers of an already-public image built from an
+          # already-public repo, so nothing becomes visible that wasn't — but
+          # it is a new outward-facing tag, which is why it is called out here
+          # rather than buried.
+          #
+          # Both exporters keep the `prod-` trust-tier prefix in their ref, for
+          # the reason above: a lower-trust build must never write something a
+          # release build reads. `mode=max` exports the builder stage, so a
+          # poisoned hit would skip the verified downloads entirely.
+          cache-from: |
+            type=gha,scope=prod-${{ matrix.image }}
+            type=registry,ref=${{ matrix.image_repo }}:prod-buildcache
+          cache-to: |
+            type=gha,mode=max,scope=prod-${{ matrix.image }}
+            type=registry,mode=max,ref=${{ matrix.image_repo }}:prod-buildcache
           # Never cache-hit the distro-upgrade layer. `runtime` is the final
           # stage in every one of these Dockerfiles; its base is digest-pinned
           # and its `apk/dnf upgrade` RUN string never changes, so with
@@ -540,18 +914,19 @@ jobs:
       # The sub-steps stay soft so that one failure does not hide the others;
       # the trailing gate turns an incomplete chain into a failed release.
       #
-      # `github-actions-staging` is intentionally skipped from attestation here.
-      # The `:staging` tag is the canonical output of build-staging.yml under
-      # the staging trust root (build-staging.yml@refs/heads/staging) and is
-      # signed there. Signing it again from push.yaml@refs/heads/main would
-      # mint a second valid signature under the production identity, which
-      # contradicts the split identity-regex contract in SECURITY.md and
-      # would cause consumer verification to flap between identities on
-      # successive main / staging pushes.
+      # Historical note, kept because the reasoning still governs any future
+      # `:staging`-like tag: `github-actions-staging` used to be skipped here
+      # because build-staging.yml owned `:staging` under its own trust root.
+      # That workflow was removed 2026-10-20 (dead `staging` branch; preview
+      # builds supersede it), so there is nothing to skip. Signing a
+      # second-channel tag from push.yaml@refs/heads/main would mint a second
+      # valid signature under the PRODUCTION identity, contradicting the split
+      # identity-regex contract in SECURITY.md — which is why a new channel
+      # gets its own workflow and trust root, not a tag added here.
       - name: Sign + attest ${{ matrix.image }} (SBOM + cosign + SLSA)
         id: signattest
         if: steps.build_and_push.outcome == 'success'
-        uses: simple-container-com/actions/sign-and-attest@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/sign-and-attest@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           image-ref: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
           image-name: ${{ matrix.image }}
@@ -578,6 +953,7 @@ jobs:
         with:
           name: image-digest-${{ matrix.image }}
           path: digests/${{ matrix.image }}.txt
+          if-no-files-found: error
           retention-days: 1
       # Release gate for images. Same policy as the tarball gate above, and it
       # runs BEFORE the release tags exist: see `Promote release tags` below.
@@ -713,8 +1089,32 @@ jobs:
 
   docker-finalize:
     name: Docker finalize (tag-release, deploy)
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
-    needs: [prepare, build-setup, build-platforms, build-binaries, test, build-docs, docker-build]
+    # Routed to a GitHub-hosted runner whenever the fleet shape is ACTIVE —
+    # the inverse of every other job's runs-on, and deliberate.
+    #
+    # This job has no fleet requirement. It compiles no Go and needs no RAM:
+    # its work is tool installs, artifact downloads, one cosign sign-blob,
+    # `welder run tag-release`, and `welder deploy -e prod` — a Pulumi `up`
+    # plus a CDN upload. That is network/IO-bound work running on the one
+    # runner class this fleet is worst at: 6 oversubscribed vCPU with egress
+    # through the fake-IP hijack the fleet design doc documents as
+    # intermittently stalling. Measured on run 39227894781: 24.0 min — 27%
+    # of the whole release, and the single largest line item. `.github/
+    # scripts/install-pulumi.sh` (PR #460) is what made it runner-agnostic.
+    #
+    # The repo is PUBLIC, so ubuntu-latest is free. Posture: this job's
+    # SC_CONFIG + Docker Hub token already went to a THIRD party (Blacksmith)
+    # before the fleet cutover, so GitHub-hosted is not a new exposure; the
+    # cosign identity is `push.yaml@refs/heads/main` — a property of the
+    # workflow and ref, not of the runner — so the documented trust root is
+    # untouched.
+    #
+    # Tests the variable's PRESENCE, not its value (a future fleet-label
+    # change must not touch this line), and `gh variable delete
+    # FORGE_CI_RUNNER` restores Blacksmith here exactly as everywhere else.
+    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON('["ubuntu-latest"]') || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
+    needs: [prepare, build-setup, build-platforms, test, build-docs, docker-build]
     permissions:
       contents: write    # `welder run tag-release` pushes the release git tag
       id-token: write    # OIDC for keyless cosign sign-blob of sc.sh
@@ -725,9 +1125,20 @@ jobs:
           persist-credentials: false
       - uses: fregante/setup-git-user@024bc0b8e177d7e77203b48dab6fb45666854b35  # v2.0.2
       - name: install sc + welder tools
-        uses: simple-container-com/actions/setup-sc-tooling@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/setup-sc-tooling@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
+        with:
+          # Skip the download when the fleet's rootfs already carries these
+          # exact versions; unset variables = download latest, as before.
+          # Full rationale and the lockstep requirement: push.yaml.
+          sc-version: ${{ vars.FORGE_CI_SC_VERSION }}
+          accept-preinstalled-welder: ${{ vars.FORGE_CI_WELDER_VERSION }}
       - name: Install attestation tools (cosign for sc.sh sign-blob)
-        uses: simple-container-com/actions/install-attest-tools@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/install-attest-tools@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
+      # `welder deploy` below runs `sc deploy`, which shells out to the pulumi
+      # CLI. The Blacksmith/hosted image shipped one; the self-hosted fleet does
+      # not — see .github/scripts/install-pulumi.sh for the full story.
+      - name: install pulumi CLI (go.mod-pinned)
+        run: .github/scripts/install-pulumi.sh
       - name: prepare secrets for build
         run: |
           cat << EOF > ./.sc/cfg.default.yaml
@@ -781,22 +1192,49 @@ jobs:
           done
       # Second line of defence: build-platforms gates per matrix leg, this one
       # gates the bundle that actually reaches the CDN. Honours the same
-      # ATTESTATION_SOFT_FAIL break-glass variable, expiry date and all.
+      # ATTESTATION_SOFT_FAIL break-glass variable, expiry date and all —
+      # EXCEPT the expected-platform check, which hard-fails unconditionally:
+      # the break-glass exists for a Sigstore/Rekor outage, and a missing
+      # platform is never that.
       - name: Sidecar assertion
         env:
           SOFT_FAIL: ${{ vars.ATTESTATION_SOFT_FAIL }}
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
           shopt -s nullglob
           echo "ATTESTATION_SOFT_FAIL=${SOFT_FAIL:-<unset>}"
           today="$(date -u +%F)"
-          tarballs=( sc-*.tar.gz )
-          echo "tarballs=${#tarballs[@]}"
-          if [ "${#tarballs[@]}" -eq 0 ]; then
-            echo "::error title=No tarballs to publish::dist bundle has zero tarballs"
+
+          # EXPECTED SET, not count>0. This used to error only when the bundle
+          # held zero tarballs and then verify sidecars for whatever WAS
+          # present — so a build-platforms leg that silently produced nothing
+          # shrank the bundle to the surviving platforms, every remaining
+          # tarball still had complete sidecars, and the release published
+          # WITHOUT a platform while nothing red said so. (Combined with
+          # upload-artifact's old `warn` default, which uploaded an empty
+          # artifact — now `error` on every upload step.) Same silent-drop
+          # class as the sc.sh-served-stale-v2026.3.6 incident recorded on
+          # build-platforms' upload step. Each platform must appear twice:
+          # unversioned (the `latest` pointer sc.sh fetches) and versioned.
+          platforms=( linux-amd64 darwin-arm64 )
+          missing=0
+          for platform in "${platforms[@]}"; do
+            for expected in "sc-${platform}.tar.gz" "sc-${platform}-v${VERSION}.tar.gz"; do
+              if [ ! -s "${expected}" ]; then
+                echo "::error title=Platform missing::expected ${expected} in the dist bundle"
+                missing=1
+              fi
+            done
+          done
+          if [ "${missing}" -ne 0 ]; then
+            echo "::error title=Incomplete bundle::the dist bundle is missing one or more expected platform tarballs — a build-platforms leg probably produced nothing. Refusing to publish a release without a platform. This check deliberately ignores ATTESTATION_SOFT_FAIL."
             exit 1
           fi
+
+          tarballs=( sc-*.tar.gz )
+          echo "tarballs=${#tarballs[@]}"
           # Paired per tarball, not counted in aggregate. Comparing totals let a
           # bundle pass in which one tarball carried two sidecars of a kind and
           # another carried none, which is the exact shape a half-failed matrix
@@ -855,9 +1293,21 @@ jobs:
         run: |
           set -euo pipefail
           cd .sc/stacks/dist/bundle
-          cosign sign-blob --yes \
-            --bundle sc.sh.cosign-bundle \
-            sc.sh
+          # Retry — see the tarball signing step. This one is NOT
+          # continue-on-error, so a transient OIDC timeout hard-fails the release.
+          for attempt in 1 2 3; do
+            if cosign sign-blob --yes \
+                 --bundle sc.sh.cosign-bundle \
+                 sc.sh; then
+              break
+            fi
+            if [ "$attempt" = 3 ]; then
+              echo "::error::cosign sign-blob failed 3x for sc.sh"
+              exit 1
+            fi
+            echo "::warning::cosign sign-blob attempt ${attempt} failed for sc.sh; retrying"
+            sleep $((attempt * 10))
+          done
       - name: Run tag-release task after images are built
         env:
           VERSION: ${{ needs.prepare.outputs.version }}
@@ -936,9 +1386,16 @@ jobs:
           echo "url=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" >> $GITHUB_OUTPUT
 
       - name: Notify Telegram (success)
-        if: ${{ success() && !contains(needs.*.result, 'failure') }}
+        # Every need must have SUCCEEDED — checking only for 'failure' is the
+        # bug that sent "🚀 Released" for a release that published nothing
+        # twice over: a CANCELLED need (run 39253348066 — docker-finalize
+        # cancelled after its github-actions leg was cancelled) and a SKIPPED
+        # need (any docker-build failure skips docker-finalize) both pass
+        # `!contains(..., 'failure')` while this job's own success() is true.
+        # Cancelled and skipped are not releases.
+        if: ${{ success() && !contains(needs.*.result, 'failure') && !contains(needs.*.result, 'cancelled') && !contains(needs.*.result, 'skipped') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/notify-telegram@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
@@ -947,9 +1404,11 @@ jobs:
           link-text: 'v${{ needs.prepare.outputs.version }}'
           suffix:    ' by ${{ steps.extract_git_ref.outputs.author }}'
       - name: Notify Telegram (failure)
-        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        # Mirror of the success guard: a cancelled or skipped need is also a
+        # release that did not happen, so it gets the failure notice too.
+        if: ${{ failure() || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
         continue-on-error: true
-        uses: simple-container-com/actions/notify-telegram@0af5a697f24ea484991660619d0ae42d50343b9d # main
+        uses: simple-container-com/actions/notify-telegram@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           chat-id:   ${{ needs.build-setup.outputs.cicd-bot-telegram-chat-id }}
           token:     ${{ needs.build-setup.outputs.cicd-bot-telegram-token }}
@@ -960,7 +1419,11 @@ jobs:
 
       - name: Build failed due to previously failed steps
         id: fail_if_needed
-        if: ${{ failure() || contains(needs.*.result, 'failure') }}
+        # Same expanded set as the notify guards: without 'cancelled'/'skipped'
+        # here, THIS JOB goes green on a cancelled release, which is how
+        # "Finalize build and deploy" showed success on run 39253348066 while
+        # nothing was published.
+        if: ${{ failure() || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') || contains(needs.*.result, 'skipped') }}
         shell: bash
         run: |-
           exit 1

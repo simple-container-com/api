@@ -37,16 +37,27 @@ type HostFacts struct {
 	PrivateKey sdk.StringOutput
 	// PrivateKeyPassword is empty unless the key is an encrypted PEM; also secret.
 	PrivateKeyPassword sdk.StringOutput
-	// HostKey is the machine's public SSH host key as an authorized_keys line, or
-	// empty when the operator did not pin one.
+	// HostKey is the machine's public SSH host key as an authorized_keys line.
 	//
-	// A plain string, not an Output, unlike Address: a machine SC creates will not
-	// learn its host key from the cloud API either (no cloud returns it), so the
-	// future answer there is to GENERATE the host key in cloud-init and know it
-	// before the machine boots — which is also a plain string. Making it an Output
-	// would additionally make "is it set?" unknowable while the graph is being
-	// built, and that question decides whether the connection verifies anything.
-	HostKey string
+	// An Output, and the reason is worth recording because the first version of this
+	// field was a plain string on the theory that a generated host key would also be
+	// known up front. It is not: for SC to know a host key before the machine boots,
+	// SC has to GENERATE it, and key material that must survive to the next deploy is
+	// a Pulumi resource — otherwise every deploy mints a new key, user-data changes,
+	// and the machine is replaced. A resource's outputs are Outputs.
+	//
+	// Not secret: it is the machine's PUBLIC key, and keeping it readable is what lets
+	// an operator compare it against the cloud console by eye.
+	HostKey sdk.StringOutput
+	// HostKeyPinned says whether HostKey carries a key at all.
+	//
+	// Separate from HostKey, and a plain bool, because the question it answers —
+	// "will this connection verify the machine's identity?" — has to be answerable
+	// while the graph is being built: it decides whether to set
+	// remote.Connection.HostKey at all (passing an empty one fails every connection
+	// rather than falling back) and whether to warn. The driver always knows the
+	// answer, even when it does not yet know the key.
+	HostKeyPinned bool
 	// Role is what the machine is being prepared for.
 	Role vm.HostRole
 	// DependsOn are the resources that must exist before anything connects. Empty
@@ -58,12 +69,14 @@ type HostFacts struct {
 //
 // Narrower than the nine-method interface sketched in vm-matrix.md §1.1 on purpose.
 // That sketch enumerates the cloud primitives (Network/Firewall/Key/Instance/
-// PublicIP/LoadBalancer/Zones), and their input and output shapes cannot honestly be
-// designed against a single driver — the first byo driver creates none of them. They
-// arrive with `cloudru-vm`, the first driver that actually has to create a machine,
-// when the shapes can be read off two clouds instead of guessed from zero.
+// PublicIP/LoadBalancer/Zones) as separate methods. Two drivers in, the seam has
+// stayed exactly this wide and the primitives have stayed private to the driver —
+// `cloudru-vm` creates all seven of them inside its own Hosts() and the layers above
+// never named one. Splitting them out would publish an abstraction over one cloud's
+// vocabulary (Cloud.ru's EIP is not GCP's, and its "subnet" carries the gateway and
+// the DNS servers) without a second cloud to check it against. Resist until there is.
 //
-// What is stable today is the seam every consumer uses: give me reachable hosts.
+// What is stable is the seam every consumer uses: give me reachable hosts.
 type Driver interface {
 	// Name is the `provider:` value this driver answers to.
 	Name() string
@@ -84,6 +97,10 @@ func driverFor(cfg *vm.VmConfig) (Driver, error) {
 	switch cfg.Driver {
 	case vm.DriverByo:
 		return byoDriver{}, nil
+	case vm.DriverCloudru:
+		return cloudruDriver{}, nil
+	case vm.DriverCloudruEvolution:
+		return cloudruEvolutionDriver{}, nil
 	default:
 		return nil, errors.Errorf("no vm driver for provider %q", cfg.Driver)
 	}

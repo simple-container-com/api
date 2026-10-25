@@ -7,6 +7,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app]
       
       # New explicit resource configuration
@@ -29,6 +30,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app]
       
       # Staging environment with lower resource allocation
@@ -45,6 +47,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app]
       
       # Development environment with minimal resources

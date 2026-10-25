@@ -110,14 +110,6 @@ func readStateScript(stack, env string) string {
 	}, "\n") + "\n"
 }
 
-// prepareScript creates what both compose projects declare as external: the shared
-// ingress network, the stack-env's internal network, the named volumes, and the
-// directories under /etc/sc and /var/lib/sc.
-//
-// External on purpose (compose-on-vm.md §6 rules 1 and 4): a network shared by two
-// slots and a data project cannot be any one project's `default`, and a volume
-// inside a project is deleted by `docker compose down -v` of the slot that is being
-// retired.
 // composePreflightScript asserts the machine can actually run a compose deploy.
 //
 // This used to live in the vm resource's readiness gate (ready.go), where it was
@@ -130,7 +122,11 @@ func readStateScript(stack, env string) string {
 //
 // Nothing is lost by checking later: the step runs before anything touches docker,
 // and it is still the thing that turns `docker: command not found` four commands
-// deeper into a sentence naming what to install.
+// deeper into a sentence naming what to install. That last sentence is only true
+// because the step carries the per-run nonce — its script depends on nothing but the
+// ssh user, so with the package's default trigger set it would assert docker on the
+// first deploy of a stack and never again (nonce.go, and the call site in
+// VmComposeStack).
 func composePreflightScript(user string) string {
 	return strings.Join([]string{
 		`set -eu`,
@@ -146,6 +142,14 @@ func composePreflightScript(user string) string {
 	}, "\n") + "\n"
 }
 
+// prepareScript creates what both compose projects declare as external: the shared
+// ingress network, the stack-env's internal network, the named volumes, and the
+// directories under /etc/sc and /var/lib/sc.
+//
+// External on purpose (compose-on-vm.md §6 rules 1 and 4): a network shared by two
+// slots and a data project cannot be any one project's `default`, and a volume
+// inside a project is deleted by `docker compose down -v` of the slot that is being
+// retired.
 func prepareScript(stack, env string, volumes []string) string {
 	lines := []string{
 		"set -eu",
@@ -200,13 +204,22 @@ func registryLoginScript(registryURL, username string) string {
 // shipSpec is one `sc image ship` invocation. Unlike every other script here this
 // one runs on the deploy runner, not on the machine.
 type shipSpec struct {
-	ImageRef string
-	Host     string
-	User     string
-	Port     int
+	// ImageRefs are shipped in one stream, which is why they are a slice: `docker
+	// save` deduplicates the layers they share, and the third-party images of a
+	// compose project usually share a base with each other and sometimes with the
+	// stack's own image.
+	ImageRefs []string
+	Host      string
+	User      string
+	Port      int
 	// HostKey is the pinned host key, or empty — in which case the ship is told to
 	// skip the check explicitly. See shipScript for why that is not the default.
 	HostKey string
+	// Pull makes the ship fetch references the RUNNER does not have. Set for images
+	// SC does not build (a third-party compose image, the ingress Caddy); never for
+	// an image this deploy just built, where a pull could only mask a build that did
+	// not produce the tag it claimed.
+	Pull bool
 }
 
 // shipScript streams a locally-built image to the machine over SSH.
@@ -219,13 +232,19 @@ type shipSpec struct {
 // readable only by the runner user and is gone whether the ship succeeds, fails, or
 // is interrupted.
 func shipScript(s shipSpec) string {
-	args := []string{
-		"sc image ship",
-		"--image " + shellQuote(s.ImageRef),
-		"--host " + shellQuote(s.Host),
-		"--user " + shellQuote(s.User),
+	args := []string{"sc image ship"}
+	for _, ref := range s.ImageRefs {
+		args = append(args, "--image "+shellQuote(ref))
+	}
+	args = append(
+		args,
+		"--host "+shellQuote(s.Host),
+		"--user "+shellQuote(s.User),
 		fmt.Sprintf("--port %d", s.Port),
 		`--ssh-key "$d/key"`,
+	)
+	if s.Pull {
+		args = append(args, "--pull")
 	}
 	if s.HostKey != "" {
 		args = append(args, "--host-key "+shellQuote(s.HostKey))
@@ -259,11 +278,22 @@ const (
 	// a pull failure is the deploy's failure and must be reported as one (a registry
 	// credential that expired, a digest that was garbage-collected).
 	pullRequired pullMode = "required"
-	// pullBestEffort is ssh-tar delivery: the stack's own images were streamed onto
-	// the machine and exist in no registry, so pulling them fails by design. Any
-	// third-party image in the compose file (a mongo, a redis) still has to be
-	// pulled, and that is what this mode is for.
+	// pullBestEffort is ssh-tar delivery with `externalImages: pull`: the stack's own
+	// images were streamed onto the machine and exist in no registry, so pulling them
+	// fails by design, while the third-party images in the compose file (a mongo, a
+	// redis) are still the machine's to fetch.
 	pullBestEffort pullMode = "best-effort"
+	// pullNone is ssh-tar delivery with `externalImages: ship`: EVERY image in the
+	// compose file was streamed from the runner, so there is nothing left for the
+	// machine to pull and no pull line is emitted at all.
+	//
+	// Not "best-effort with nothing to find": on the machine this mode exists for a
+	// pull cannot succeed, so it costs a DNS/connect timeout per image on every
+	// deploy and prints a `failed to resolve reference` per image into the deploy log,
+	// which reads like the failure it is not. Live-caught on the 2026-10-22 smoke,
+	// where the blackholed registry answered instantly and the deploy still logged two
+	// such errors before succeeding.
+	pullNone pullMode = "none"
 )
 
 // upSpec is everything upScript needs. Assembled inside a Pulumi apply, because the
@@ -400,6 +430,8 @@ func pullLine(mode pullMode, project, file string) string {
 	case pullBestEffort:
 		return fmt.Sprintf("{ docker compose -p %s -f %s pull --ignore-pull-failures || true; } >&2 2>&1\n",
 			shellQuote(project), shellQuote(file))
+	case pullNone:
+		return ""
 	default:
 		return ""
 	}

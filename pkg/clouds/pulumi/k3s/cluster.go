@@ -108,12 +108,23 @@ func K3sCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	install, err := remote.NewCommand(ctx, input.ToResName(input.Descriptor.Name+"-install"), &remote.CommandArgs{
 		Connection: conn,
 		Create:     installScript,
+		Update:     installScript,
 		// Without Triggers the command does not re-run once it has succeeded, so a
-		// changed version or SAN list would be reported green having done nothing
-		// (pulumi-command has no Update — see pkg/clouds/pulumi/vm/ready.go). The
-		// script text covers every input that changes what gets installed, because
-		// it is rendered from all of them.
-		Triggers:               sdk.Array{installScript, host.Address},
+		// changed version or SAN list would be reported green having done nothing.
+		// The script text covers every input that changes what gets installed,
+		// because it is rendered from all of them.
+		//
+		// The per-run nonce on top of that, because InstallScript's first act is to
+		// ask the machine whether it is already running this version with these
+		// arguments and exit 0 if it is (the ArgsMarkerPath guard) — the
+		// guarded-change case in pkg/clouds/pulumi/vm/nonce.go. What it buys is the
+		// one deploy that matters: a node whose k3s died, was stopped, or was
+		// reinstalled by hand has drifted without any input here moving, so a
+		// change-only trigger set skips the install and leaves the node-ready read
+		// below to fail the provision with no way to repair it but editing the
+		// config. Live-caught 2026-10-18, against a node stopped out of band: install
+		// skipped, "no k3s node became Ready within 300s".
+		Triggers:               pulumiVm.TriggersForGuardedChange(installScript, host.Address),
 		Logging:                remote.LoggingNone.ToLoggingPtrOutput(),
 		AddPreviousOutputInEnv: sdk.Bool(false),
 	}, sdk.DependsOn([]sdk.Resource{vmOut.Ready[0]}))
@@ -123,9 +134,15 @@ func K3sCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 
 	readyScript := NodeReadyScript()
 	ready, err := remote.NewCommand(ctx, input.ToResName(input.Descriptor.Name+"-node-ready"), &remote.CommandArgs{
-		Connection:             conn,
-		Create:                 sdk.String(readyScript),
-		Triggers:               sdk.Array{installScript, sdk.String(readyScript)},
+		Connection: conn,
+		Create:     sdk.String(readyScript),
+		Update:     sdk.String(readyScript),
+		// A read, so it takes the per-run nonce: the install script and this script
+		// are both invariant between two deploys that change nothing, which made
+		// "the node is Ready" an answer out of the checkpoint from the second deploy
+		// of a cluster onwards — including for the deploys that go on to schedule
+		// workloads on it (pkg/clouds/pulumi/vm/nonce.go).
+		Triggers:               pulumiVm.TriggersForRead(installScript, sdk.String(readyScript)),
 		Logging:                remote.LoggingNone.ToLoggingPtrOutput(),
 		AddPreviousOutputInEnv: sdk.Bool(false),
 	}, sdk.DependsOn([]sdk.Resource{install}))
@@ -135,9 +152,18 @@ func K3sCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 
 	kubeconfigScript := endpoint.ApplyT(KubeconfigScript).(sdk.StringOutput)
 	kubeconfig, err := remote.NewCommand(ctx, input.ToResName(input.Descriptor.Name+"-kubeconfig"), &remote.CommandArgs{
-		Connection:             conn,
-		Create:                 kubeconfigScript,
-		Triggers:               sdk.Array{installScript, kubeconfigScript},
+		Connection: conn,
+		Create:     kubeconfigScript,
+		Update:     kubeconfigScript,
+		// A read, and the one whose staleness is worst: this command's stdout IS the
+		// exported kubeconfig. With an invariant trigger set it ran once, so every
+		// later deploy exported the credential captured at cluster creation — and a
+		// k3s whose certificates were rotated (the installer does it at expiry) or
+		// which was re-installed hands every downstream `kubernetes-*` stack a
+		// kubeconfig that no longer authenticates, from a deploy that reported
+		// success. Re-reading costs one SSH round-trip; an unchanged file yields an
+		// unchanged output, so nothing downstream churns for it.
+		Triggers:               pulumiVm.TriggersForRead(installScript, kubeconfigScript),
 		Logging:                remote.LoggingNone.ToLoggingPtrOutput(),
 		AddPreviousOutputInEnv: sdk.Bool(false),
 	},

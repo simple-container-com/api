@@ -265,6 +265,7 @@ stacks:
     type: cloud-compose
     parent: my-company/api
     config:
+      dockerComposeFile: ./docker-compose.yaml
       # Domain for the staging API
       domain: api-staging.mycompany.com
       
@@ -304,6 +305,7 @@ stacks:
     parent: my-company/api
     parentEnv: production
     config:
+      dockerComposeFile: ./docker-compose.yaml
       # Domain for the production API
       domain: api.mycompany.com
       

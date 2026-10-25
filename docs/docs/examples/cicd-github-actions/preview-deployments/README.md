@@ -186,6 +186,7 @@ stacks:
     type: cloud-compose
     parent: my-company/preview-app
     config:
+      dockerComposeFile: ./docker-compose.yaml
       # Domain for staging environment
       domain: staging.preview.myapp.com
       
@@ -221,6 +222,7 @@ stacks:
     parent: my-company/preview-app
     parentEnv: production
     config:
+      dockerComposeFile: ./docker-compose.yaml
       # Domain for production environment
       domain: preview.myapp.com
       
@@ -257,6 +259,7 @@ stacks:
     parent: my-company/preview-app
     parentEnv: preview
     config:
+      dockerComposeFile: ./docker-compose.yaml
       # Dynamic domain for PR previews
       domain: pr-${PR_NUMBER}.preview.myapp.com
       
@@ -283,16 +286,17 @@ stacks:
         API_VERSION: "v1"
         PREVIEW_MODE: "true"
         BASE_URI: https://pr-${PR_NUMBER}.preview.myapp.com
-        
+
+        # Preview-specific feature toggles. There is no `features:` section on a
+        # client stack — toggles reach the app as environment variables, which is
+        # also how they stay readable by the running container.
+        DEBUG_MODE: "true"
+        METRICS_COLLECTION: "false"
+        ERROR_REPORTING: "false"
+
       secrets:
         MONGO_URL: "${resource:database.uri}"
         JWT_SECRET: "${secret:jwt-secret-preview}"
-      
-      # Preview-specific features
-      features:
-        debug-mode: true
-        metrics-collection: false
-        error-reporting: false
 ```
 
 ## GitHub Workflows

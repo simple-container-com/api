@@ -65,7 +65,7 @@ updates:
 
   # ── Docker: VERSION only ────────────────────────────────────────────────
   # Production images built from the 5 root *.Dockerfile files (caddy,
-  # cloud-helpers.aws, github-actions, github-actions-staging, kubectl),
+  # cloud-helpers.aws, github-actions, kubectl),
   # plus the user-facing example Dockerfiles under docs/ (see below).
   - package-ecosystem: docker
     # The user-facing example Dockerfiles under docs/ are part of the tracked

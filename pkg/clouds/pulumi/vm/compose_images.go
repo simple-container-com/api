@@ -22,6 +22,7 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	pDocker "github.com/simple-container-com/api/pkg/clouds/pulumi/docker"
 	"github.com/simple-container-com/api/pkg/clouds/vm"
+	"github.com/simple-container-com/api/pkg/security"
 )
 
 // localImageRepoPrefix is the repository every ssh-tar image is tagged under.
@@ -49,10 +50,33 @@ type imagePlan struct {
 	// (sign + verify); for ssh-tar they include the ship itself, which is what makes
 	// `docker compose up` wait for the image to be on the machine.
 	Opts []sdk.ResourceOption
+	// ContentIDs identify WHAT this deploy built, as opposed to what it called it.
+	// One entry per service whose image SC builds; empty for a stack that only runs
+	// third-party images.
+	//
+	// They exist because `Refs` is not a content identity under `ssh-tar`: the
+	// reference there is the local tag (`sc-local/<stack>-<svc>:<version>`), and a
+	// tag is exactly what does NOT change when the code does. Every command
+	// downstream of the build has to be able to tell a rebuild from a no-op, so the
+	// identity is carried separately and put in those commands' Triggers. Under
+	// `registry` delivery `Refs` already IS the digest, so this adds nothing there —
+	// it is listed anyway, because a trigger set that is correct only in one delivery
+	// mode is how this class of bug comes back.
+	ContentIDs []sdk.StringOutput
 	// PruneRepos are the image repositories this stack owns, and only those. A
 	// third-party repository must never be pruned: the mongo image this stack pulled
 	// may be the one another stack on the machine is running.
 	PruneRepos []string
+	// ExternalRefs are the third-party references this deploy shipped from the runner
+	// rather than leaving to the machine's `docker compose pull`. Recorded so the
+	// deploy can say which images it put there — under `externalImages: ship` the
+	// machine never pulls them, so they appear in no pull output.
+	ExternalRefs []string
+}
+
+// triggerInputs is ContentIDs as Pulumi inputs, for appending to a Triggers array.
+func (p *imagePlan) triggerInputs() []sdk.Input {
+	return lo.Map(p.ContentIDs, func(id sdk.StringOutput, _ int) sdk.Input { return id })
 }
 
 // buildImages builds every service's image and makes it reachable from the machine.
@@ -76,7 +100,8 @@ func buildImages(
 	version := lo.If(input.StackParams.Version != "", input.StackParams.Version).Else("latest")
 	if !dockerTagRe.MatchString(version) {
 		return nil, errors.Errorf(
-			"deploy version %q cannot be used as a docker tag (must match %s)", version, dockerTagRe.String())
+			"deploy version %q cannot be used as a docker tag (must match %s)", version, dockerTagRe.String(),
+		)
 	}
 	registry := in.EffectiveImageDelivery() == vm.ImageDeliveryRegistry
 	registryURL := lo.FromPtr(in.DockerRegistryURL)
@@ -93,35 +118,46 @@ func buildImages(
 		if container.Image.Dockerfile == "" && container.Image.Context == "" {
 			ref := container.Image.Name
 			if ref == "" {
-				// Mirrors pkg/clouds/pulumi/kubernetes/images_build.go:36-43, which
-				// does the same substitution — and is wrong in the same way:
-				// k8s.ConvertComposeToContainers drops `svc.Image`, so a compose
-				// service whose image is `mongo:7` arrives here with an empty
-				// Image.Name, and the service name is only the right answer when it
-				// happens to equal the image name. Repeated rather than fixed here
-				// because fixing it means changing the conversion the Kubernetes path
-				// also uses, which is its own slice; warned about so that the
+				// The same substitution pkg/clouds/pulumi/kubernetes/images_build.go
+				// makes, and it is the fallback rather than the rule: a compose
+				// service's `image:` IS carried through the conversion
+				// (k8s.ConvertComposeToContainers), so this branch is reached only by
+				// a service that declares neither a build context nor an image. The
+				// service name is then the only candidate left, and it is right only
+				// when the two happen to coincide — hence the warning, so the
 				// substitution is visible in the deploy log rather than discovered as
 				// "why is it pulling the wrong image".
 				ref = container.Name
 				in.Warnings = append(in.Warnings, fmt.Sprintf(
 					"service %q has no build context and no resolvable `image:` — using the service name %q as the "+
 						"image reference. If that is not the image you meant, set `image:` on the service explicitly",
-					container.Name, ref))
-			}
-			params.Log.Info(ctx.Context(), "service %q of stack %q runs third-party image %q: SC does not build or ship it",
-				container.Name, stack.Name, ref)
-			if !registry {
-				// Worth saying out loud under ssh-tar, because the whole point of
-				// that mode is "the machine needs no registry" and this one service
-				// breaks that: it still has to pull. Inside Russia that is the
-				// difference between a stack that comes up and one that does not.
-				params.Log.Warn(ctx.Context(),
-					"service %q runs third-party image %q, so the machine must be able to pull it even though "+
-						"`imageDelivery: %s` ships this stack's own images over SSH",
-					container.Name, ref, vm.ImageDeliverySshTar)
+					container.Name, ref,
+				))
 			}
 			plan.Refs[container.Name] = sdk.String(ref).ToStringOutput()
+			switch {
+			case in.ShipsExternalImages():
+				params.Log.Info(ctx.Context(),
+					"service %q of stack %q runs third-party image %q: SC does not build it, but will pull it "+
+						"here and ship it to the machine (`externalImages: %s`)",
+					container.Name, stack.Name, ref, vm.ExternalImagesShip)
+				plan.ExternalRefs = append(plan.ExternalRefs, ref)
+			case !registry:
+				// Worth saying out loud, because the whole point of ssh-tar is "the
+				// machine needs no registry" and this one service breaks it: it still
+				// has to pull. Inside Russia that is the difference between a stack
+				// that comes up and one that does not — and now there is a setting
+				// that closes it, so the warning names it.
+				params.Log.Warn(ctx.Context(),
+					"service %q runs third-party image %q, so the machine must be able to pull it even though "+
+						"`imageDelivery: %s` ships this stack's own images over SSH. Set `externalImages: %s` "+
+						"to ship it from here as well",
+					container.Name, ref, vm.ImageDeliverySshTar, vm.ExternalImagesShip)
+			default:
+				params.Log.Info(ctx.Context(),
+					"service %q of stack %q runs third-party image %q: SC does not build or ship it",
+					container.Name, stack.Name, ref)
+			}
 			continue
 		}
 
@@ -155,6 +191,7 @@ func buildImages(
 			// what the machine runs is what was scanned and signed rather than
 			// whatever the tag points at by the time compose pulls.
 			plan.Refs[container.Name] = img.DeployImageRef
+			plan.ContentIDs = append(plan.ContentIDs, img.DeployImageRef)
 			plan.Opts = append(plan.Opts, img.AddOpts...)
 			repos[fmt.Sprintf("%s/%s--%s", strings.TrimRight(registryURL, "/"), stack.Name, container.Name)] = true
 			continue
@@ -197,12 +234,96 @@ func buildImages(
 		// existing on the runner tells the machine nothing.
 		plan.Opts = append(plan.Opts, sdk.DependsOn([]sdk.Resource{ship}))
 		plan.Refs[container.Name] = sdk.String(localRef).ToStringOutput()
+		// RepoDigest and not ImageName: under SkipPush there is no registry and no
+		// manifest digest, and pulumi-docker documents the field as carrying the
+		// built image's LOCAL id in that case (`sha256:…`) — which is the one value
+		// in this resource that moves when the Dockerfile's output does.
+		plan.ContentIDs = append(plan.ContentIDs, built.RepoDigest)
 		repos[repo] = true
+	}
+
+	// One ship for every third-party image rather than one per service: `docker save`
+	// deduplicates the layers they share, and a compose project's mongo/redis/nginx
+	// usually share a base with each other.
+	if len(plan.ExternalRefs) > 0 {
+		plan.ExternalRefs = lo.Uniq(plan.ExternalRefs)
+		sort.Strings(plan.ExternalRefs)
+		ship, err := shipExternalImages(ctx, input, params, stack, host, plan.ExternalRefs)
+		if err != nil {
+			return nil, err
+		}
+		plan.Opts = append(plan.Opts, sdk.DependsOn([]sdk.Resource{ship}))
 	}
 
 	plan.PruneRepos = lo.Keys(repos)
 	sort.Strings(plan.PruneRepos)
 	return plan, nil
+}
+
+// shipExternalImages streams the images SC did not build to the machine.
+//
+// Separate from shipImage because the two have different identities and therefore
+// different triggers. A built image has a content id (the local image id) that moves
+// when the Dockerfile's output does; a third-party reference is a tag somebody else
+// owns, and nothing here can know whether it moved without pulling it — which is not
+// something a `pulumi preview` may do. So the trigger set is the reference list and
+// the host, and the honest consequence is written down: an upstream tag that moves is
+// NOT re-shipped. That is the same guarantee a pinned tag gives everywhere else in SC,
+// and the reason to pin `mongo:7.0.14` rather than `mongo:7` if it matters.
+func shipExternalImages(
+	ctx *sdk.Context,
+	input api.ResourceInput,
+	params pApi.ProvisionParams,
+	stack api.Stack,
+	host HostFacts,
+	refs []string,
+) (*local.Command, error) {
+	for _, ref := range refs {
+		// The refs reach a remote shell through `sc image ship`'s argv, and unlike a
+		// built image's tag they come straight out of the customer's compose file. The
+		// same validation `sc image ship` applies, applied here too, so the refusal
+		// happens while the graph is built rather than inside a command.
+		if err := security.ValidateImageRef(ref); err != nil {
+			return nil, errors.Wrapf(err, "third-party image %q of stack %q cannot be shipped", ref, stack.Name)
+		}
+	}
+	// HostKey rides the apply rather than being read directly — it is an Output;
+	// see the note in shipImage.
+	script := sdk.All(host.Address, host.HostKey).ApplyT(func(vals []any) string {
+		addr, _ := vals[0].(string)
+		hostKey, _ := vals[1].(string)
+		return shipScript(shipSpec{
+			ImageRefs: refs,
+			Host:      addr,
+			User:      host.User,
+			Port:      host.Port,
+			HostKey:   hostKey,
+			// The runner does not have these images: nothing in this deploy built
+			// them. Pulling only what is absent is what makes a CI step that
+			// pre-pulled a private image (after its own `docker login`) work.
+			Pull: true,
+		})
+	}).(sdk.StringOutput)
+
+	cmd, err := local.NewCommand(ctx, input.ToResName(fmt.Sprintf("%s-external-ship", stack.Name)), &local.CommandArgs{
+		Create: script,
+		Update: script,
+		Triggers: sdk.Array{
+			sdk.String(strings.Join(refs, ",")),
+			host.Address,
+		},
+		Stdin:                  host.PrivateKey.ToStringPtrOutput(),
+		Environment:            sdk.StringMap{"SC_SSH_KEY_PASSWORD": host.PrivateKeyPassword},
+		Logging:                local.LoggingNone.ToLoggingPtrOutput(),
+		AddPreviousOutputInEnv: sdk.Bool(false),
+	})
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to ship third-party images of stack %q", stack.Name)
+	}
+	params.Log.Info(ctx.Context(),
+		"stack %q ships %d third-party image(s) to host %q over SSH: %s",
+		stack.Name, len(refs), host.Name, strings.Join(refs, ", "))
+	return cmd, nil
 }
 
 // shipImage streams one built image to the machine via `sc image ship`.
@@ -226,14 +347,23 @@ func shipImage(
 	// built.ImageName is threaded through the apply, not RepoDigest: with SkipPush
 	// there is no push and therefore no repo digest, so depending on one would make
 	// this command's Create unresolvable in exactly the mode that needs it.
-	script := sdk.All(host.Address, built.ImageName).ApplyT(func(vals []any) string {
+	script := sdk.All(host.Address, built.ImageName, host.HostKey).ApplyT(func(vals []any) string {
 		addr, _ := vals[0].(string)
+		hostKey, _ := vals[2].(string)
 		return shipScript(shipSpec{
-			ImageRef: localRef,
-			Host:     addr,
-			User:     host.User,
-			Port:     host.Port,
-			HostKey:  host.HostKey,
+			ImageRefs: []string{localRef},
+			Host:      addr,
+			User:      host.User,
+			Port:      host.Port,
+			// Resolved out of the apply, not host.HostKey: this driver made
+			// HostFacts.HostKey an Output (a key SC knows before boot is a key SC
+			// generated, so it has to be a Pulumi resource that survives the next
+			// deploy), and an Output here would render as a struct, not a key.
+			HostKey: hostKey,
+			// No --pull: this image was just built on this runner. A pull here could
+			// only ever mask a build that did not produce the tag it claimed, and the
+			// repository is `sc-local/...`, which exists in no registry by design.
+			Pull: false,
 		})
 	}).(sdk.StringOutput)
 
@@ -245,11 +375,24 @@ func shipImage(
 		// deploy of a new version would not re-run at all and would report green
 		// while the machine kept running the old image (compose-on-vm.md §0.7).
 		Update: script,
+		// RepoDigest is the one trigger that earns its place here, and the reason the
+		// others do not: `localRef`, `version`, `host.Address` and `ImageName` are all
+		// the same string on every deploy of a given stack at a given version — and
+		// the default version, when `sc deploy` is given no `--version`, is the
+		// constant `latest`. So on the default path this command's whole trigger set
+		// was invariant: an operator who edits their code and redeploys got a freshly
+		// built image on the RUNNER, nothing shipped, nothing restarted, and
+		// `Resources: 1 updated, 10 unchanged` with the stack reporting success while
+		// the machine served the previous build.
+		//
+		// Live-caught 2026-10-18 on the byo-host smoke, with the one symptom that
+		// makes it expensive: the deploy is green, so the next place anybody looks is
+		// their own Dockerfile.
 		Triggers: sdk.Array{
 			sdk.String(localRef),
 			sdk.String(version),
 			host.Address,
-			built.ImageName,
+			built.RepoDigest,
 		},
 		// The deploy key, never an argument and never an environment variable.
 		Stdin: host.PrivateKey.ToStringPtrOutput(),

@@ -358,6 +358,18 @@ case $(uname -m) in
     arm)    ARCH="arm64" ;;
     arm64)  ARCH="arm64" ;;
 esac
+
+# darwin/amd64 is no longer built (dropped 2026-10-20). Without this check an
+# Intel Mac would request sc-darwin-amd64.tar.gz, get the dist server's 404,
+# and surface it as an opaque extraction or curl failure. Rosetta 2 cannot
+# help: it runs amd64 on Apple Silicon, not arm64 on Intel. Fail here, with
+# the reason, instead of failing later without one.
+if [ "${PLATFORM}" = "darwin" ] && [ "${ARCH}" = "amd64" ]; then
+  echo "ERROR: Simple Container no longer ships a macOS Intel (darwin/amd64) build." >&2
+  echo "       Apple Silicon (arm64) and Linux (amd64) are supported." >&2
+  echo "       On an Intel Mac, build from source: https://github.com/simple-container-com/api" >&2
+  exit 1
+fi
 BINDIR=~/.local/bin
 
 mkdir -p $BINDIR

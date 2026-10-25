@@ -41,6 +41,28 @@ func (d *LocalDocker) ImageSave(ctx context.Context, refs []string) (io.ReadClos
 	return d.cli.ImageSave(ctx, refs)
 }
 
+// ImagePull fetches ref into the local docker and waits for it to finish.
+//
+// No RegistryAuth is passed, and that is a real limit rather than an oversight: the
+// engine API takes credentials per call and does NOT read ~/.docker/config.json (that
+// is the CLI's doing), so there is no honest way to reuse a login from here. A pull of
+// a private third-party image therefore fails with the registry's own 401. The way
+// through is to pull it with the docker CLI before `sc image ship` — Options.Pull only
+// fetches what is ABSENT, so an image the runner already holds is shipped as it stands.
+//
+// Wait, not a drained io.Reader: the engine reports a failed pull inside the JSON
+// message stream with a 200 on the HTTP response, so a pull whose stream is merely
+// discarded looks successful and the failure resurfaces as "image is still not
+// inspectable" one call later.
+func (d *LocalDocker) ImagePull(ctx context.Context, ref string) error {
+	resp, err := d.cli.ImagePull(ctx, ref, client.ImagePullOptions{})
+	if err != nil {
+		return err
+	}
+	defer func() { _ = resp.Close() }()
+	return resp.Wait(ctx)
+}
+
 func (d *LocalDocker) Close() error {
 	return d.cli.Close()
 }

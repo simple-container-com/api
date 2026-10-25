@@ -1,0 +1,83 @@
+schemaVersion: 1.0
+stacks:
+  staging:
+    # Byte-for-byte `../byo-host/client.yaml`. The client stack never learns which cloud
+    # the cluster is in, who created the machine, or that it is k3s rather than GKE — the
+    # parent stack's template decides all of that. The same file deploys to GKE
+    # Autopilot by pointing `template:` at a `gcp-gke-autopilot` template instead.
+    #
+    # `cloud-compose` is not a free choice: `k3s-cloudrun` registers a cloud-compose
+    # converter only, matching `kubernetes-cloudrun`. No Kubernetes template in SC
+    # accepts a `single-image` client stack today, so a one-service compose file is how a
+    # single-container workload reaches a cluster. (This is the one place the Cloud.ru
+    # Container App path differs in the opposite direction: there, `single-image` is what
+    # is accepted.)
+    type: cloud-compose
+    template: k3s-run
+    parent: mycompany/mycompany
+    config:
+      dockerComposeFile: ${git:root}/docker-compose.yaml
+      # Which compose services actually run in the cluster. Services left out are
+      # treated as local-development dependencies and ignored.
+      runs:
+        - api
+
+      # `maxMemory` is a `single-image` field and is NOT read here — `size:` is the
+      # equivalent, and on a Kubernetes path its `requests`/`limits` become the
+      # container's resource requirements verbatim.
+      #
+      # Keep the requests small on a 2-core node: k3s's own control plane, CoreDNS,
+      # metrics-server and local-path-provisioner are already on it, and a request the
+      # node cannot satisfy produces a Pending pod rather than an error.
+      size:
+        requests:
+          cpu: "100"
+          memory: "256"
+        limits:
+          cpu: "500"
+          memory: "512"
+
+      env:
+        ENV: staging
+      secrets:
+        MONGO_URI: ${secret:staging-portal-mongo-uri}
+
+      # Reachability.
+      #
+      # `domain:` behaves as it does on GKE: SC creates an A record pointing at the
+      # cluster's ingress address, which for a single-node k3s cluster is the node's own
+      # address. It needs a registrar in the parent stack, and a record that is NOT
+      # proxied — the node answers the ACME challenge itself and Cloudflare's orange
+      # cloud breaks it.
+      #
+      # Cloud.ru has its own Cloud DNS and SC's `cloudru-dns` registrar for it is
+      # live-verified, so the record can be SC's job rather than a console step. The
+      # service account needs the `cdns.admin` role in the project.
+      #
+      # While smoking, leave this out and reach the Service directly. There is no edge
+      # in the parent stack (see its comments), so routing by host name has nothing to
+      # route it.
+      # domain: portal.example.ru
+
+      cloudExtras:
+        # Binds the node's own 80/443 through klipper-lb. Two things have to be true,
+        # and the parent stack as written satisfies both: `servicelb` is enabled
+        # (because `ingress` is left off the vm resource), and nothing else holds those
+        # ports on the node.
+        #
+        # On Cloud.ru there is a THIRD condition that is not Kubernetes' problem and
+        # produces no Kubernetes symptom: the ports have to be open in the project's
+        # security group. The driver opens 80/443 only when `ingress.enable: true` — and
+        # this file wants them WITHOUT the compose Caddy. So with `serviceType:
+        # LoadBalancer` on this cloud, open 80/443 in the console, or leave the Service
+        # on a node port and open the NodePort range. The README spells out both.
+        #
+        # If an address never arrives, look for a Pending `svclb-<service>` pod before
+        # anything else: `kubectl get pods -A | grep svclb`.
+        serviceType: LoadBalancer
+
+      # A single node is a single failure domain, so say so. Nothing here stops you
+      # running 3 replicas on one node; it stops you believing they buy availability.
+      scale:
+        min: 1
+        max: 1

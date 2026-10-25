@@ -7,6 +7,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app]
       
       # Mixed approach: some explicit, some legacy, some defaults
@@ -31,6 +32,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app]
       
       # Another mixed example
@@ -54,6 +56,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       runs: [web-app]
       
       # Minimal explicit configuration

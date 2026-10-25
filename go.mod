@@ -1,6 +1,6 @@
 module github.com/simple-container-com/api
 
-go 1.26.9
+go 1.26.10
 
 require (
 	cloud.google.com/go/kms v1.26.0
@@ -54,9 +54,11 @@ require (
 	github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.32.0
 	github.com/pulumi/pulumi-mongodbatlas/sdk/v3 v3.38.0
 	github.com/pulumi/pulumi-random/sdk/v4 v4.21.0
+	github.com/pulumi/pulumi-tls/sdk/v5 v5.5.0
 	github.com/pulumi/pulumi/pkg/v3 v3.245.0
 	github.com/pulumi/pulumi/sdk/v3 v3.245.0
 	github.com/samber/lo v1.53.0
+	github.com/simple-container-com/pulumi-sbercloud/sdk v0.1.0
 	github.com/simple-container-com/pulumi-yandex/sdk v1.1.0
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.2

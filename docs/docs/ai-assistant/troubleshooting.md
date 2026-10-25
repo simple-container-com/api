@@ -204,12 +204,11 @@ Error: unable to configure credentials for AWS
 
 1. **Re-add credentials with correct permissions**
    ```bash
-   # Remove old credentials
-   sc secrets remove aws-access-key aws-secret-key
-   
-   # Add new credentials
-   sc secrets add aws-access-key
-   sc secrets add aws-secret-key
+   # Replace the credential values in the `values:` map by hand —
+   # `sc secrets add`/`delete` operate on FILES, not on individual values.
+   sc secrets reveal -F
+   $EDITOR .sc/stacks/infrastructure/secrets.yaml   # aws-access-key, aws-secret-key
+   sc secrets hide -F
    
    # Verify credentials work
    aws sts get-caller-identity  # Test AWS CLI

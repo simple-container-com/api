@@ -130,19 +130,23 @@ cat .sc/stacks/infrastructure/server.yaml
 ```
 
 ### Step 4: Configure Secrets
+
+`${secret:...}` values live under `values:` in the stack's `secrets.yaml` and are
+edited by hand — `sc secrets add` registers *files*, it does not set values.
+
 ```bash
-# Add cloud provider credentials
-sc secrets add aws-access-key
-# Enter value: AKIA...
+sc secrets reveal -F
+$EDITOR .sc/stacks/infrastructure/secrets.yaml
+sc secrets hide -F        # re-encrypt BEFORE committing
+```
 
-sc secrets add aws-secret-key  
-# Enter value: secret-key...
-
-sc secrets add staging-db-password
-# Enter value: secure-staging-password
-
-sc secrets add prod-db-password
-# Enter value: ultra-secure-production-password
+```yaml
+# .sc/stacks/infrastructure/secrets.yaml
+values:
+  aws-access-key: "AKIA..."
+  aws-secret-key: "secret-key..."
+  staging-db-password: "secure-staging-password"
+  prod-db-password: "ultra-secure-production-password"
 ```
 
 ### Step 5: Deploy Infrastructure
@@ -276,8 +280,8 @@ sc init
 # 2. Set up shared resources  
 sc assistant devops setup --cloud aws --interactive
 
-# 3. Configure secrets and deploy
-sc secrets add aws-access-key aws-secret-key
+# 3. Configure secrets and deploy (values are edited by hand, see Step 4 above)
+sc secrets reveal -F && $EDITOR .sc/stacks/infrastructure/secrets.yaml && sc secrets hide -F
 sc provision -s infrastructure -e staging
 sc provision -s infrastructure -e production
 
@@ -381,8 +385,9 @@ curl https://api.mycompany.com/health
 ### **DevOps Issues**
 ```bash
 # Issue: Cloud credentials not working
-# Solution: Re-add credentials with correct permissions
-sc secrets add aws-access-key --overwrite
+# Solution: replace the value in the `values:` map (there is no --overwrite flag;
+#           `sc secrets add` takes a FILE PATH, not a secret name)
+sc secrets reveal -F && $EDITOR .sc/stacks/infrastructure/secrets.yaml && sc secrets hide -F
 
 # Issue: Resource naming conflicts  
 # Solution: Use unique prefixes

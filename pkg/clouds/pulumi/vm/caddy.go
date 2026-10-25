@@ -10,13 +10,20 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/pulumi/pulumi-command/sdk/go/command/local"
 	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
+	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/vm"
+	"github.com/simple-container-com/api/pkg/security"
 )
+
+// devVersionPrefix is what welder's `rebuild` task stamps into build.Version
+// (`0.0.0-pre<timestamp>`), and also what an unset `${env:VERSION}` falls back to.
+const devVersionPrefix = "0.0.0"
 
 const (
 	// reloadWaitAttempts × reloadWaitInterval is how long `caddy reload` gets to find
@@ -42,7 +49,8 @@ const (
 // thing. Writing the config and bringing Caddy up in one script means a half-written
 // tree is what the ingress loads; and the env file holds an ACME credential, so it
 // must travel over stdin, which is a property of a whole command rather than of a line
-// in it.
+// in it. A fourth exists only to hold the teardown, and the comment on it says why
+// that cannot live on any of the other three.
 func ensureIngress(
 	ctx *sdk.Context,
 	input api.ResourceInput,
@@ -70,7 +78,13 @@ func ensureIngress(
 		Compose:     compose,
 		Assets:      assets,
 	})
-	upScript := ingressUpScript(cfg.IngressImage())
+	upScript := ingressUpScript(ingressUpSpec{
+		Image: cfg.IngressImage(),
+		// One or the other, never both: when the runner ships the image, a pull on
+		// the machine can only fail, and on the machine this mode exists for it
+		// fails by hanging until the connect times out.
+		Pull: !cfg.ShipsIngressImage(),
+	})
 	envContent := vm.RenderCaddyEnvFile(cfg)
 
 	base := func(a *remote.CommandArgs) *remote.CommandArgs {
@@ -79,10 +93,18 @@ func ensureIngress(
 		return a
 	}
 
+	// Guarded-change triggers on all three of these, and the machine state above is
+	// why: the config tree, the env file and the container are things an operator, a
+	// `docker system prune` or a previous version of SC can remove without any input
+	// here moving. Rewriting the tree is a write of identical bytes; `up -d` on an
+	// unchanged project does nothing; the reload is graceful (measured against a
+	// 20 req/s loop through Caddy: zero non-200s across eight provisions). So the
+	// nonce costs one SSH round trip each and buys a provision that repairs the
+	// machine's TLS instead of reporting green beside it.
 	config, err := remote.NewCommand(ctx, input.ToResName(h.Name+"-ingress-config"), base(&remote.CommandArgs{
 		Create:   sdk.String(configScript),
 		Update:   sdk.String(configScript),
-		Triggers: sdk.Array{h.Address, sdk.String(hashOf(configScript))},
+		Triggers: TriggersForGuardedChange(h.Address, sdk.String(hashOf(configScript))),
 	}), sdk.DependsOn([]sdk.Resource{ready}))
 	if err != nil {
 		return errors.Wrapf(err, "failed to write the ingress configuration of vm %q", input.Descriptor.Name)
@@ -94,11 +116,21 @@ func ensureIngress(
 		Create:   sdk.String(writeFileScript(vm.CaddyEnvPath(), vm.EnvFileMode)),
 		Update:   sdk.String(writeFileScript(vm.CaddyEnvPath(), vm.EnvFileMode)),
 		Stdin:    secretString(envContent).ToStringPtrOutput(),
-		Triggers: sdk.Array{h.Address, sdk.String(hashOf(envContent))},
+		Triggers: TriggersForGuardedChange(h.Address, sdk.String(hashOf(envContent))),
 		Logging:  remote.LoggingNone.ToLoggingPtrOutput(),
 	}), sdk.DependsOn([]sdk.Resource{config}))
 	if err != nil {
 		return errors.Wrapf(err, "failed to write the ingress env file of vm %q", input.Descriptor.Name)
+	}
+
+	// The up waits on the env file always, and on the ship when there is one.
+	upDeps := []sdk.Resource{env}
+	if cfg.ShipsIngressImage() {
+		ship, err := shipIngressImage(ctx, input, cfg, h, params, ready)
+		if err != nil {
+			return err
+		}
+		upDeps = append(upDeps, ship)
 	}
 
 	if _, err := remote.NewCommand(ctx, input.ToResName(h.Name+"-ingress-up"), base(&remote.CommandArgs{
@@ -109,10 +141,26 @@ func ensureIngress(
 		// bind mount, so `up -d` sees nothing to do and the running Caddy keeps the
 		// old config. The reload inside this script is what applies it, and without
 		// this trigger the script would not run to do the reload.
-		Triggers: sdk.Array{h.Address, sdk.String(hashOf(upScript, configScript))},
-		Delete:   sdk.String(ingressTeardownScript()),
-	}), sdk.DependsOn([]sdk.Resource{env})); err != nil {
+		Triggers: TriggersForGuardedChange(h.Address, sdk.String(hashOf(upScript, configScript))),
+	}), sdk.DependsOn(upDeps)); err != nil {
 		return errors.Wrapf(err, "failed to start the ingress of vm %q", input.Descriptor.Name)
+	}
+
+	// The teardown is its own resource, with no triggers, for the reason VmComposeStack
+	// gives at its own teardown command — and this path is where that reason was
+	// learned the expensive way. It used to be `Delete` on the `up` above, which has a
+	// trigger that moves with the configuration; pulumi-command performs a replacement
+	// as create-then-delete, so a provision that changed anything in the Caddyfile ran
+	// `up`, logged "ingress is up", and then two seconds later ran this script:
+	// container removed, /etc/sc/caddy removed, nothing on 443, `sc provision` exit 0
+	// (live, 2026-10-18, a one-character change to `ingress.email`). A resource with no
+	// triggers is never replaced, so its Delete runs when the vm resource is destroyed
+	// and at no other time.
+	if _, err := remote.NewCommand(ctx, input.ToResName(h.Name+"-ingress-teardown"), base(&remote.CommandArgs{
+		Create: sdk.String("true"),
+		Delete: sdk.String(ingressTeardownScript()),
+	})); err != nil {
+		return errors.Wrapf(err, "failed to register the ingress teardown of vm %q", input.Descriptor.Name)
 	}
 
 	params.Log.Info(ctx.Context(),
@@ -178,6 +226,119 @@ func ingressConfigScript(s ingressConfigSpec) string {
 	return b.String()
 }
 
+// shipIngressImage streams the Caddy image to the machine from the runner, for a
+// machine that cannot reach the registry it lives in.
+//
+// A local.Command for the same reasons shipImage is one (see its comment): an
+// in-process transfer would run during `pulumi preview` and would sit outside the
+// resource model, with nothing able to depend on it. The difference from the stack
+// path is `--pull`: nothing here builds Caddy, so the runner fetches it first and
+// ships only what it had to fetch.
+//
+// Triggers on the image reference and the address, and NOT on the image's digest —
+// which means a tag that moves upstream is not re-shipped. That is the same honest
+// limitation the third-party ship has, and it is louder here because the default tag
+// tracks `sc`'s own version: it moves with every release of SC, which does change the
+// reference, so the case that goes undetected is only an operator who pinned
+// `ingress.image` to a mutable tag of their own.
+func shipIngressImage(
+	ctx *sdk.Context,
+	input api.ResourceInput,
+	cfg *vm.VmConfig,
+	h HostFacts,
+	params pApi.ProvisionParams,
+	ready *remote.Command,
+) (*local.Command, error) {
+	image := cfg.IngressImage()
+	if err := security.ValidateImageRef(image); err != nil {
+		return nil, errors.Wrapf(err, "ingress image %q of vm %q cannot be shipped", image, input.Descriptor.Name)
+	}
+	// Said before the ship runs, because the ship's own failure is a `docker pull`
+	// error about a tag that does not exist, and the reason it does not exist is not
+	// in that error (see ingressImageMissingMessage).
+	if strings.HasPrefix(build.Version, devVersionPrefix) && strings.HasSuffix(image, ":"+build.Version) {
+		params.Log.Warn(ctx.Context(),
+			"vm %q ships the ingress image %q, whose tag is this local `sc` build's own version string. "+
+				"No such image was published, so the ship will fail at `docker pull` — pin `ingress.image` "+
+				"to a released tag of `simplecontainer/caddy`",
+			input.Descriptor.Name, image)
+	}
+
+	// HostKey rides the apply rather than being read directly: it is an Output
+	// (a key SC knows before boot is one SC generated, so it has to be a Pulumi
+	// resource that survives the next deploy), and reading it here would render
+	// the struct instead of the key.
+	script := sdk.All(h.Address, h.HostKey).ApplyT(func(vals []any) string {
+		addr, _ := vals[0].(string)
+		hostKey, _ := vals[1].(string)
+		return shipScript(shipSpec{
+			ImageRefs: []string{image},
+			Host:      addr,
+			User:      h.User,
+			Port:      h.Port,
+			HostKey:   hostKey,
+			Pull:      true,
+		})
+	}).(sdk.StringOutput)
+
+	cmd, err := local.NewCommand(ctx, input.ToResName(h.Name+"-ingress-ship"), &local.CommandArgs{
+		Create: script,
+		Update: script,
+		Triggers: sdk.Array{
+			sdk.String(image),
+			h.Address,
+		},
+		Stdin:                  h.PrivateKey.ToStringPtrOutput(),
+		Environment:            sdk.StringMap{"SC_SSH_KEY_PASSWORD": h.PrivateKeyPassword},
+		Logging:                local.LoggingNone.ToLoggingPtrOutput(),
+		AddPreviousOutputInEnv: sdk.Bool(false),
+	}, sdk.DependsOn([]sdk.Resource{ready}))
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to ship the ingress image of vm %q", input.Descriptor.Name)
+	}
+	params.Log.Info(ctx.Context(),
+		"vm %q ships the ingress image %q to host %q over SSH; the machine pulls nothing",
+		input.Descriptor.Name, image, h.Name)
+	return cmd, nil
+}
+
+// ingressImageMissingMessage explains an ingress image the machine does not have.
+//
+// The generic advice is the right advice when the tag was pinned or the machine has
+// no route to Docker Hub. It is actively misleading for the one case that produces a
+// tag which was never published and never could be: `IngressImage()` defaults to
+// `simplecontainer/caddy:<build.Version>`, and the Caddy image is tagged with
+// exactly `${project:version}` at release (welder.yaml), so the default resolves for
+// a released `sc` and for an unstamped `go build` (`build.Version` is `latest`, which
+// is published) — but welder's `rebuild` task stamps `0.0.0-pre<timestamp>`, so every
+// locally-rebuilt binary asks for an image that does not exist. The Kubernetes edge
+// defaults the same way and fails the same way; the difference is that this path is
+// the one in the byo-host example, which is run from a local build by definition.
+//
+// Live-caught 2026-10-18, after the readiness gate and the compose render had already
+// passed — i.e. at the point where the remaining explanations all sound plausible.
+func ingressImageMissingMessage(image string, pulled bool) string {
+	if !pulled {
+		// Under ssh-tar the image was streamed from the runner by a command that
+		// already succeeded, so reaching here means something removed it afterwards
+		// — a `docker system prune` between the ship and the up is the realistic
+		// one. Saying "could not be pulled" here would send the operator looking for
+		// a registry route that this mode deliberately does not use.
+		return fmt.Sprintf("the ingress image %q is not on the machine, although `ingress.imageDelivery: %s` "+
+			"shipped it from the runner in this same provision; something on the machine removed it "+
+			"(`docker system prune`?) — re-run `sc provision`", image, vm.ImageDeliverySshTar)
+	}
+	msg := fmt.Sprintf("the ingress image %q is not on the machine and could not be pulled; ", image)
+	if strings.HasPrefix(build.Version, devVersionPrefix) && strings.HasSuffix(image, ":"+build.Version) {
+		return msg + fmt.Sprintf("this `sc` is a local build, so the default tag is its own version "+
+			"string (%q) and no such image was published — pin `ingress.image` to a released tag "+
+			"(see the tags of `simplecontainer/caddy`) or load an image by hand (`docker load`)", build.Version)
+	}
+	return msg + fmt.Sprintf("set `ingress.imageDelivery: %s` to have the deploy runner pull it and stream it "+
+		"to this machine, point `ingress.image` at a registry this machine can reach, or load it by hand "+
+		"(`docker load`)", vm.ImageDeliverySshTar)
+}
+
 // ingressUpScript brings Caddy up and makes the current configuration live.
 //
 // `up -d` then `reload`, and both are needed. `up -d` creates or recreates the
@@ -185,20 +346,30 @@ func ingressConfigScript(s ingressConfigSpec) string {
 // only the Caddyfile changed, because the config tree is a bind mount — so without the
 // reload a provision that rewrote the Caddyfile would report green while the running
 // Caddy still served the previous one.
-func ingressUpScript(image string) string {
+type ingressUpSpec struct {
+	Image string
+	// Pull is whether the machine fetches the image itself. False when the provision
+	// shipped it from the runner (`ingress.imageDelivery: ssh-tar`), where a pull can
+	// only fail — and on a machine with no route to the registry it fails by hanging
+	// until the connect times out, once per provision.
+	Pull bool
+}
+
+func ingressUpScript(s ingressUpSpec) string {
 	b := &strings.Builder{}
 	b.WriteString("set -eu\n")
 	b.WriteString(shellHelpers())
-	// Pulled explicitly so that a tag that moved (`:latest` on a dev machine) is
-	// actually fetched; best-effort, because a machine in a closed network may have
-	// the image loaded by hand and no route to Docker Hub — which is precisely the RU
-	// case this delivery path exists for, and a hard pull would make the ingress
-	// unprovisionable there (compose-on-vm.md §8.3).
-	fmt.Fprintf(b, "{ docker pull %s || true; } >&2 2>&1\n", shellQuote(image))
+	if s.Pull {
+		// Pulled explicitly so that a tag that moved (`:latest` on a dev machine) is
+		// actually fetched; best-effort, because a machine in a closed network may
+		// have the image loaded by hand and no route to Docker Hub — which is
+		// precisely the RU case this delivery path exists for, and a hard pull would
+		// make the ingress unprovisionable there (compose-on-vm.md §8.3).
+		fmt.Fprintf(b, "{ docker pull %s || true; } >&2 2>&1\n", shellQuote(s.Image))
+	}
 	fmt.Fprintf(b, "docker image inspect %s >/dev/null 2>&1 || { echo %s >&2; exit 1; }\n",
-		shellQuote(image),
-		shellQuote(fmt.Sprintf("the ingress image %q is not on the machine and could not be pulled; "+
-			"load it by hand (`docker load`) or point `ingress.image` at a registry this machine can reach", image)))
+		shellQuote(s.Image),
+		shellQuote(ingressImageMissingMessage(s.Image, s.Pull)))
 	fmt.Fprintf(b, "docker compose -p %s -f %s up -d --remove-orphans\n",
 		shellQuote(vm.CaddyProject), shellQuote(vm.CaddyComposePath()))
 	// The same gate every stack service gets: running, and healthy if it declares a
@@ -232,7 +403,8 @@ func reloadLines(onFail string) string {
 	fmt.Fprintf(b, "if [ \"$i\" -ge %d ]; then\n", reloadWaitAttempts)
 	fmt.Fprintf(b, "  echo %s >&2\n", shellQuote(fmt.Sprintf(
 		"`caddy reload` did not succeed within %ds; the previous configuration is still live",
-		reloadWaitAttempts*reloadWaitInterval)))
+		reloadWaitAttempts*reloadWaitInterval,
+	)))
 	if onFail != "" {
 		b.WriteString(indentLines(onFail, "  "))
 	}
@@ -255,7 +427,8 @@ func ingressTeardownScript() string {
 	fmt.Fprintf(b, "rm -rf %s\n", shellQuote(vm.CaddyDir()))
 	fmt.Fprintf(b, "echo %s\n", shellQuote(fmt.Sprintf(
 		"removed the ingress and its configuration; the volumes %s (certificates) and %s were kept",
-		vm.CaddyDataVolume, vm.CaddyConfigVolume)))
+		vm.CaddyDataVolume, vm.CaddyConfigVolume,
+	)))
 	return b.String()
 }
 

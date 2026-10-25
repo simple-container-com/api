@@ -81,6 +81,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [mongodb-shared-us, s3-storage]  # Consume parent resources
       domain: staging.myapp.com
   
@@ -90,6 +91,7 @@ stacks:
     parent: myorg/infrastructure
     parentEnv: production  # Consumes resources.resources.production from parent
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [mongodb-shared-us, s3-storage]
       domain: customer-a.myapp.com
 ```
@@ -98,6 +100,11 @@ stacks:
 
 - **AWS** - Amazon Web Services
 - **Google Cloud Platform (GCP)** - Google Cloud
+- **Yandex Cloud** - Serverless Containers, Object Storage, Cloud DNS
+- **Cloud.ru** - Evolution Container Apps, Artifact Registry, Cloud DNS, and compute VMs
+  on both the Evolution and the Advanced (ex-SberCloud) estate
+- **VM & self-hosted Kubernetes** - a plain machine (`vm`) and a k3s cluster on it
+  (`k3s-cluster`), on any cloud or none
 - **Kubernetes** - Kubernetes-native resources
 - **MongoDB Atlas** - MongoDB Atlas database clusters
 - **Cloudflare** - Domain registration and DNS
@@ -148,6 +155,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [mongodb-shared, s3-storage]  # Consumes parent resources
       domain: customer-a.myapp.com
       runs: [web-app]
@@ -158,6 +166,7 @@ stacks:
     parent: myorg/infrastructure
     parentEnv: production  # Consumes resources.resources.production from parent
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [mongodb-shared, s3-storage]
       domain: customer-a.myapp.com
       runs: [web-app]
@@ -572,6 +581,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [shared-database]  # Consumes parent resources
       domain: myapp.example.com
       runs: [web-app]
@@ -1236,14 +1246,15 @@ and region/zone defaults.
 auth:
   yc:
     type: yc-service-account
-    cloudId: b1g...
-    folderId: b1g...
-    serviceAccountKey: |
-      { "id": "...", "service_account_id": "...", ... }
-    accessKey: "YCAJE..."
-    secretAccessKey: "..."
-    region: ru-central1
-    zone: ru-central1-a
+    config:
+      cloudId: b1g...
+      folderId: b1g...
+      serviceAccountKey: |
+        { "id": "...", "service_account_id": "...", ... }
+      accessKey: "YCAJE..."
+      secretAccessKey: "..."
+      region: ru-central1
+      zone: ru-central1-a
 ```
 
 **Important:** `${auth:yc}` resolves into the opaque `Credentials` blob and does
@@ -1314,6 +1325,713 @@ is YC platform behaviour, not an SC bug.
 
 For the full YC guide (parent + client + destroy hazards), see
 [Yandex Cloud](../guides/parent-yandex-cloud.md).
+
+---
+
+## **Cloud.ru Provider**
+
+**Cloud.ru sells two unrelated clouds under one brand, one console and one bill**,
+and a credential for one does not authenticate against the other. Which one your
+account has decides every type below, so settle this first:
+
+| | **Evolution** | **Advanced** (ex-SberCloud) |
+|---|---|---|
+| What it is | Cloud.ru's own platform | the ex-SberCloud estate, OpenStack-descended by way of Huawei Cloud |
+| Credential | service-account key id + secret → `iam.api.cloud.ru` | Keystone access/secret pair → `iam.<region>.hc.sbercloud.ru` |
+| SC auth type | `cloudru-evolution-key` | `cloudru-access-key` |
+| Regions | **none** — one global endpoint, placement is the AZ (`ru.AZ-1`…`ru.AZ-3`) | `ru-moscow-1` and friends; `region` is required |
+| Serverless | **Container Apps** (`cloudru-container-app`) | — |
+| Machines | `vm` with `provider: cloudru-evolution-vm` | `vm` with `provider: cloudru-vm` |
+| DNS | Cloud DNS (`cloudru-dns`) | ex-SberCloud DNS, not wired into SC |
+| Registry | Artifact Registry (the same key pair is the `docker login`) | SWR, not wired into SC |
+
+**Golang Struct Reference:** `pkg/clouds/cloudru/init.go` — the package doc states
+the split and why there are two auth types rather than one with optional fields.
+
+There is no `cloudru` *resource* type. A machine in either estate is a plain `vm`
+resource (see [VM & Self-Hosted Kubernetes](#vm-self-hosted-kubernetes) below)
+whose `provider:` names the Cloud.ru driver; everything above the cloud API —
+cloud-init, SSH readiness, compose, k3s — is the cloud-independent code those
+types already share.
+
+### **Templates** (`TemplateType` → `templates` section in `server.yaml`)
+
+#### **Container App** (`cloudru-container-app`)
+
+Deploys one `type: single-image` client stack as a Cloud.ru **Evolution**
+Container App: public HTTPS, scale to zero. This cloud's analogue of
+`yc-serverless-container` and of an AWS Lambda.
+
+Reached over Cloud.ru's public REST API, not through a Terraform provider —
+Container Apps appear in none of them, including the parameterized bridge of
+`cloud-ru/evo-terraform`.
+
+**Golang Struct Reference:** `pkg/clouds/cloudru/container_app.go:ContainerAppTemplateConfig`
+
+```yaml
+# server.yaml — Parent Stack (DevOps managed)
+templates:
+  cloudru-app:
+    type: cloudru-container-app
+    config:
+      credentials: "${auth:cloudru}"
+      # Optional. When empty SC creates (and reuses) one Artifact Registry named
+      # after the client stack with the environment stripped, so every env of a
+      # stack shares a registry and the repository inside it carries `--<env>`.
+      # Set this to share one registry across several stacks.
+      # registryName: myproject
+```
+
+```yaml
+# client.yaml — Client Stack
+stacks:
+  staging:
+    type: single-image
+    template: cloudru-app
+    parent: myproject/devops
+    config:
+      image: { dockerfile: ${git:root}/Dockerfile }
+      maxMemory: 256       # default 256 MB
+      timeout: 10          # default 10 s
+      env: { LOG_LEVEL: info }
+      secrets:
+        SOME_TOKEN: "${secret:MY_SERVICE_TOKEN}"
+      cloudExtras:
+        containerPort: 8080   # the one field a stack moving to this cloud must add
+```
+
+`cloudExtras` on this template (`ContainerAppExtras`):
+
+| Key | Default | Notes |
+|---|---|---|
+| `containerPort` | `8080` | the port the image listens on. Cloud.ru needs it explicitly, unlike YC (which injects `PORT`) and Lambda (which has no port) |
+| `privileged` | `false` | runs the container as root. **Create-only** — the platform's patch request has no such field, so changing it on a live app is a destroy-and-recreate, and the driver says so rather than patching around it |
+| `cpu` | `"0.1"` | CPU *request* as a core fraction |
+| `concurrency` | platform default | simultaneous requests per instance before scale-out |
+| `idleTimeout` | `60s` | how long an idle instance survives before scale-to-zero. Cold start after it is ~3.1 s against ~0.68 s warm, so anything interactive wants `scale.min: 1` rather than a longer idle window |
+| `certificateId` | — | **required to use a custom `domain` at all**: the platform wildcard covers only its own `*.containerapps.ru` zone, and there is no ACME on this path |
+| `containerName` | derived | the name of the container inside the app template; regex-checked independently of the app's own, same 5-character minimum |
+
+**`PORT` is a reserved environment-variable name** and setting it is not a
+warning or a per-variable skip — the create/update call fails and **no revision is
+published**:
+
+```
+code 3, Invalid argument; fieldViolations[0]: field "name",
+"The container env variable name 'PORT' is reserved. …; input=PORT"
+```
+
+Same reservation as YC Serverless Containers. Use `cloudExtras.containerPort`.
+
+**Names are regex-checked** against `^[a-z][a-z0-9-]{3,48}[a-z0-9]$` (5–50
+characters) and a violation comes back as a bare 400 naming no field, so SC checks
+it first. The five-character minimum catches the obvious container name `app`.
+
+**An unprivileged container cannot bind a low port or write to a root-owned path
+in its own image.** Plain `nginx` CrashLoops on
+`mkdir("/var/cache/nginx/client_temp") failed (13: Permission denied)`. The fix is
+an image that runs as a normal user, or `privileged: true` granted deliberately —
+SC will not default it on, because that would hand root to every image it ever
+deploys on this cloud.
+
+**Stack outputs**, for client stack `<stack>` and env `<env>`:
+
+| Output | Contents |
+|---|---|
+| `<stack>-<env>-container-app-url` | the public HTTPS URL |
+| `<stack>-<env>-container-app-id` | the Container App id |
+| `<stack>-<env>-container-app-revision` | the live revision |
+
+### **Authentication** (`AuthType` → `auth` section in `secrets.yaml`)
+
+#### **Evolution service-account key** (`cloudru-evolution-key`)
+
+```yaml
+# secrets.yaml
+auth:
+  cloudru:
+    type: cloudru-evolution-key
+    config:
+      keyId: 01234567-89ab-cdef-0123-456789abcdef
+      keySecret: "<the key secret, verbatim>"
+      projectId: 01234567-89ab-cdef-0123-456789abcdef
+```
+
+> **Write the values verbatim — a `${secret:…}` here is passed to the cloud
+> literally.** An `auth:` entry lives in `secrets.yaml`, which *is* the encrypted
+> store, and SC does not expand placeholders inside it. The failure is expensive
+> because it is late: Cloud.ru IAM answers `HTTP 400 … (key_id) is invalid
+> argument: key_id does not match required format`, which reads like a revoked or
+> mistyped key, **after** the stack has already created resources. SC now refuses
+> an unexpanded placeholder at validation and says this. `${secret:…}` belongs in
+> the plaintext files — `server.yaml` and `client.yaml`.
+
+`projectId` is required and is not inferable from the key: every Evolution
+endpoint is project-scoped, and a call that omits it answers **403
+`non_authorized`** — which reads exactly like a missing role and sends you off
+granting permissions that were never the problem. It is the UUID in the console
+URL as `projectId=`.
+
+The same key pair is also the `docker login` credential for the project's Artifact
+Registry, so there is deliberately no separate registry credential to configure.
+
+#### **Advanced access key** (`cloudru-access-key`)
+
+```yaml
+# secrets.yaml
+auth:
+  cloudru-advanced:
+    type: cloudru-access-key
+    config:
+      accessKey: "..."
+      secretKey: "..."
+      region: ru-moscow-1        # defaults to ru-moscow-1
+      # projectName: ru-moscow-1 # Keystone project; defaults to the region
+      # domainName / domainId    # normally derived from the key pair
+      # securityToken: "..."     # only with a TEMPORARY key pair
+      # authUrl: https://iam.ru-moscow-1.hc.sbercloud.ru/v3
+```
+
+The scoping vocabulary is Keystone's, not AWS's: a *project* is the tenancy
+resources are created in (Cloud.ru names it after the region), and a *domain* is
+the account above it. Both are normally inferable from the key pair.
+
+There is deliberately **no `projectId`** here: the upstream provider's scoping
+inputs are `project_name`, `domain_name` and `domain_id`, so a `projectId` field
+would accept an id and silently drop it.
+
+Region is not one input among many on this estate — it also picks the Keystone
+endpoint and the project resources are created in. Setting a resource's `region`
+re-derives all three together; an explicit `projectName` or `authUrl` still wins.
+
+### **Registrar** (`RegistrarType` → `registrars` section in `server.yaml`)
+
+#### **Cloud.ru Cloud DNS** (`cloudru-dns`)
+
+Writes records into an existing Cloud.ru **Evolution** Cloud DNS zone.
+
+**Golang Struct Reference:** `pkg/clouds/cloudru/registrar_dns.go:DnsRegistrarConfig`
+
+**JSON Schema:** [DnsRegistrarConfig Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/cloudru/dnsregistrarconfig.json)
+
+```yaml
+# server.yaml
+resources:
+  registrars:
+    cloudru:
+      type: cloudru-dns
+      config:
+        keyId: 01234567-89ab-cdef-0123-456789abcdef
+        keySecret: "<verbatim>"
+        projectId: 01234567-89ab-cdef-0123-456789abcdef   # also the zone-lookup scope
+        zoneName: example.ru          # as it appears in a domain
+        zoneId: 01234567-89ab-...     # optional: from .../dns/zones/public/<zoneId>/edit
+        # recordTtl: 300              # honoured; defaults to 300 when unset — see below
+        dnsRecords:
+          - name: api.example.ru      # relative on the wire; the apex is an empty name
+            type: A
+            value: 203.0.113.10
+```
+
+Set `zoneId` when a project holds several zones. Without it the zone is found by
+name inside `projectId`, and a lookup scoped to the wrong project **does not fail** —
+it finds nothing, which is indistinguishable from a project with no zones. There is no
+DNS-specific scope: an earlier version of this page described a `parentId` for a "Cloud
+DNS service instance", which the real API does not have.
+
+The zone is **looked up and never created**, for the same reason as the Yandex
+registrar: a public zone is authoritative for a real domain, so creating one from
+a deploy either collides with the delegation that already exists or produces a
+second zone nobody's nameservers point at. `zoneName` is matched against the zone's
+`domain` — **not** its `name`, which the console slugs (`example.ru.` is stored with
+`name: example-ru`).
+
+Delegate the domain to `evo-cns01.cloud.ru` and `evo-cns02.cloud.ru` before expecting a
+record to resolve. There is no verification step and nothing to check delegation with:
+an Evolution zone has no `valid`, `validationText` or `delegated` field, only a `state`
+and an always-empty `confirmState`, and it is authoritative as soon as it exists. Verify
+with `dig NS` yourself.
+
+Four measured behaviours shape how this registrar writes (details and the API-level
+reasoning in [DNS Management](../guides/dns-management.md#4-cloudru-cloud-dns-registrar-cloudru-dns)):
+
+| Behaviour | Consequence |
+|---|---|
+| A record is **not addressable**; a `PATCH` replaces the zone's whole record array | SC reads the zone, merges, writes it all back, and provisions records **serially** — parallel writes would lose one |
+| Writes are **asynchronous**, and the zone reads back `records: []` mid-flight | SC polls the operation; reading too early looks exactly like the write having wiped the zone |
+| **`done: true` is not convergence** — a write issued while the previous one settles silently discards records, up to emptying the zone, and still reports success | SC re-reads the zone after `done`, re-issues the write once, and **errors loudly** rather than reporting a green deploy over a damaged zone |
+| `ttl` is **honoured**, but an omitted one is stored as a literal `0` rather than defaulted | SC always sends a TTL — `recordTtl`, or 300 when unset |
+
+Record names are **relative to the zone** on the wire and a fully-qualified one is
+refused; SC converts, so `api.example.ru` and `api` both arrive as `api`, and the apex
+(`example.ru`, `@`, or empty) arrives as the empty string. A wildcard is a flag on the
+record, not a `*` in the name. Types are lowercase on the wire; SC lowercases them.
+
+### **Container Registry** (Artifact Registry, auto-created)
+
+Container Apps resolve images from the calling project's **own** Artifact Registry
+and from nowhere else, so there is always one — SC's or yours. A registry is
+therefore not optional on this cloud in the way it is elsewhere; see
+`registryName` on the template above. The `docker login` credential is the same
+service-account key pair, not a separate one.
+
+### **Status and what is not covered**
+
+| | State |
+|---|---|
+| Container Apps (`cloudru-container-app`) | smoke-tested live |
+| `vm` + `vm-compose`, both drivers | smoke-tested live, including a VM SC created itself |
+| `vm` + `k3s-cluster` + `k3s-cloudrun` | smoke-tested live |
+| `cloudru-dns` | smoke-tested live against a delegated apex (2026-10-24) — create, idempotent re-apply, TTL change, a second record, selective destroy, each confirmed by public resolution. The service account needs the `cdns.admin` role in the project |
+| Custom domain on a Container App | needs `cloudExtras.certificateId`; untested |
+| Advanced: SWR registry, EVS CSI for k3s | bridged in the provider, not wired into SC |
+
+---
+
+## **VM & Self-Hosted Kubernetes**
+
+These types describe a **machine**, not a managed cloud service, so they are not
+under any one provider heading. Two resources and two templates:
+
+| Type | Kind | What it is |
+|---|---|---|
+| `vm` | resource | one or more Linux machines SC can reach over SSH, plus the optional Caddy front door that terminates TLS on them |
+| `k3s-cluster` | resource | a k3s control plane installed on the hosts of a `vm` resource; exports a kubeconfig |
+| `vm-compose` | template | runs a `cloud-compose` or `single-image` client stack as a Docker Compose project on the machine |
+| `k3s-cloudrun` | template | deploys a client stack onto a `k3s-cluster` through the ordinary Kubernetes path |
+
+Which cloud creates the machine is the **resource's** `provider:` field, not a
+separate resource type per cloud. Three drivers are implemented today:
+
+| `provider:` | Status | Notes |
+|---|---|---|
+| `byo` | **implemented** | the machine already exists; you give SC its address and a deploy key. The one driver that works in every cloud on earth |
+| `cloudru-vm` | **implemented** | Cloud.ru **Advanced** (ex-SberCloud), through the bridged `terraform-provider-sbercloud`. Runs cloud-init, so SC generates and pins the machine's SSH host key itself |
+| `cloudru-evolution-vm` | **implemented** | Cloud.ru **Evolution**. Regionless (place with `zones:`, never `region:`) and **no cloud-init at all** — see the note below |
+| `yc-vm`, `openstack-vm`, `vkcs-vm`, `mws-vm`, `timeweb-vm` | not implemented | refused at validation with the roadmap item named; until one lands, create the machine in the cloud console and declare it as `byo` |
+
+The driver table — which cloud runs cloud-init, which has regions, which can
+manage its own DNS — is `pkg/clouds/vm/capabilities.go:Drivers`, and it is one
+table rather than `if provider == …` branches in shared code. A capability left at
+its zero value there means **"not measured yet"**, not "absent".
+
+**What a cloud driver requires, and what it refuses.** The mirror image of `byo`:
+
+- `publicIP: true` is **required**. Every delivery step — readiness, image ship,
+  compose up, the Caddy reload — is an outbound SSH connection from wherever
+  `sc deploy` runs, and SC has no bastion, no VPN and no in-VPC runner. Refused at
+  validation rather than discovered as a dial timeout against a machine that was
+  created and billed successfully.
+- `hosts` is rejected — SC creates the machine.
+- `region` is **required** on a region-scoped cloud and **refused** on a
+  regionless one (`cloudru-evolution-vm`): one global endpoint, and placement is
+  the availability zone. A `region:` SC silently dropped would read as placement
+  you controlled.
+- `zones` takes at most one entry, because one machine. Multi-zone pools arrive
+  with multi-host `vm` resources.
+- `network.id` and `network.subnets` must be given together. A driver that picked
+  "some subnet in the VPC" would place the machine in a zone, or behind a route
+  table, you did not choose.
+- `size` is in SC's own units (`cores`, `memory`, `disk`, `diskType`), not a
+  per-cloud flavour name; each driver maps it on. It defaults to **2 cores / 4Gi**
+  — the smallest shape that runs a compose stack plus the Caddy ingress without
+  the build cache pushing it into swap. The default has to exist, because a cloud
+  driver picks a flavour by *filtering* the cloud's flavour list: "no size given"
+  is not "the cloud's default machine", it is a filter matching hundreds of
+  flavours of which the API's first wins, and that can differ between two
+  `sc deploy` runs.
+- `image` is an SC-level alias (default `ubuntu-2404-lts`) that each driver maps to
+  its own image id.
+- `extraSshKeys` is refused on a cloud that runs no cloud-init: extra keys are
+  authorised by writing them into user-data, and a cloud that accepts none has
+  nowhere to put them — its create call takes exactly one public key, the deploy
+  key SC generates. Add such a key by hand, or keep console access for incidents.
+
+**`cloudru-evolution-vm` has no cloud-init, and three things follow from it.**
+Measured, not assumed: Cloud.ru Evolution's `POST /vms` answers `extra_forbidden`
+to `user_data` and to every spelling of it, because the image renders a fixed
+template from the slots it declares and nothing else reaches the first boot. So
+(1) docker is installed afterwards over SSH rather than on first boot, (2) the
+readiness gate is the `byo` one — preconditions, not the `cloud-init.done` marker
+— and (3) **SC cannot pre-seed the machine's SSH host key**, so the first
+connection has nothing to verify and trust-on-first-use is all that is left. That
+is a real exposure: the deploy key and every secret of every stack on the machine
+ride that connection. Read the key off the Cloud.ru console once and paste it into
+the resource's `hostKey:` (same format as `hosts[].hostKey`), and the next
+provision pins it. The field is accepted by exactly the drivers that cannot be
+given a key and refused by the ones that can, so it is never dead config.
+
+The same call also refuses `subnet_id`, `security_group_ids`, `interfaces`,
+`networks`, `nics` and `floating_ip`, so the machine lands on the availability
+zone's **default** subnet and **default** security group. Ingress rules are opened
+on whichever group it actually joined, read back off its own interface.
+
+**Which ports a cloud driver opens.** Only what SC needs and what you asked for:
+**22/tcp always**, plus **80/tcp, 443/tcp and 443/udp** when `ingress.enable` is
+set. Nothing else — not the Kubernetes NodePort range, not a compose host-port
+range, not 6443. So a stack that falls back to a deterministic high host port
+(`domain` unset, or `ingress` off) is reachable from inside the cloud but **not
+from the internet** until you open that port in the security group yourself, and
+`kubectl` against a `k3s-cluster` needs 6443 opened the same way. Both Cloud.ru
+drivers share the one port table, so they cannot drift apart.
+
+Worked end-to-end examples: [Compose on a VM](../examples/vm-compose/index.md)
+and [k3s Clusters](../examples/k3s/index.md).
+
+### **Resources** (`ResourceType` → `resources` section in `server.yaml`)
+
+#### **Virtual Machine** (`vm`)
+
+**Golang Struct Reference:** `pkg/clouds/vm/vm.go:VmConfig`
+
+**JSON Schema:** [VmConfig Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/vm/vmconfig.json)
+
+```yaml
+# server.yaml - Parent Stack
+resources:
+  resources:
+    staging:
+      resources:
+        portal-vm:
+          type: vm
+          config:
+            provider: byo              # the machine already exists
+            hosts:
+              - address: 203.0.113.10
+                user: ubuntu           # defaults to `sc`
+                port: 22               # defaults to 22
+                privateKey: "${secret:PORTAL_VM_DEPLOY_KEY}"
+                # `ssh-keyscan -t ed25519 203.0.113.10` output pastes in verbatim
+                hostKey: "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+            # Optional: the Caddy container that owns ports 80/443 on the machine.
+            ingress:
+              enable: true
+              email: ops@example.com   # required when `enable` is set
+              # image: registry.example.ru/mirror/caddy:2.11
+              # imageDelivery: ssh-tar # default `registry` (the machine pulls it)
+              # acmeCa: https://acme.example.ru/directory
+              # acmeEabKeyId: "..."
+              # acmeEabMacKey: "${secret:ACME_EAB_MAC_KEY}"
+            # For machines with no route to Docker Hub or the distro mirrors:
+            # registryMirrors: ["https://mirror.example.ru"]
+            # packageMirror: "https://mirror.example.ru/ubuntu"
+```
+
+Per-host keys (`hosts[]`): `address` (**required**), `user`, `port`,
+`privateKey` (**required** — write it as `${secret:...}`; password and
+ssh-agent authentication are not supported), `privateKeyPassword`, `hostKey`.
+
+`hostKey` is optional and is the one optional field whose absence has a real
+cost. A deploy onto a VM carries the stack's entire env file, every
+`${secret:...}` in it, and the deploy key itself; with no pinned host key the
+SSH client has nothing to check the machine against. A CI runner's
+`known_hosts` is empty, so there is no safe implicit fallback — the
+provisioning tier warns loudly when this is unset. It is the machine's
+**public** key, so it is deliberately not treated as a secret: an operator
+should be able to compare it against the cloud console by eye.
+
+**What `provider: byo` refuses.** `region`, `zones`, `image`, `size`,
+`publicIP`, `network` and `extraSshKeys` are rejected at validation rather than
+accepted and ignored — SC does not create the machine, so it cannot apply them.
+Configure those in the cloud console. `byo` also currently accepts **exactly
+one** host; multi-host pools arrive with the k3s work (`sc-k3s-cluster-resource`).
+The reverse holds for the cloud drivers — `hosts` is only valid with `byo` — and
+each cloud driver's own requirements are in the
+[driver table above](#vm-self-hosted-kubernetes).
+
+**A machine SC creates itself** looks like this instead. Same resource type, same
+everything above it; `hosts` is gone and the machine's shape takes its place:
+
+```yaml
+# server.yaml - Parent Stack
+resources:
+  resources:
+    staging:
+      resources:
+        portal-vm:
+          type: vm
+          config:
+            provider: cloudru-evolution-vm
+            credentials: "${auth:cloudru}"
+            # No `region:` — this cloud has none; placement is the zone.
+            zones: [ru.AZ-1]
+            publicIP: true             # required: SC deploys over SSH from outside
+            image: ubuntu-2404-lts     # SC alias, mapped per cloud
+            size:
+              cores: 2
+              memory: 4Gi
+              disk: 40Gi
+            sshUser: sc                # the default; not root, not the image's own
+            # Paste `ssh-keyscan -t ed25519 <address>` output after the first
+            # provision — this cloud runs no cloud-init, so SC cannot seed it.
+            # hostKey: "45.132.179.77 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+            ingress:
+              enable: true
+              email: ops@example.ru
+```
+
+With `provider: cloudru-vm` (the Advanced estate) the only differences are the
+credential type and that `region: ru-moscow-1` is required rather than refused.
+
+**Stack outputs** (read with `sc stack outputs`), for resource name `<vm>` and
+host index `<i>`:
+
+| Output | Contents |
+|---|---|
+| `<vm>-vm-host-count` | number of hosts |
+| `<vm>-vm-host-<i>-address` / `-user` / `-port` | how to reach host `<i>` |
+| `<vm>-vm-host-<i>-private-key` / `-private-key-password` | **secret-marked** |
+| `<vm>-vm-host-<i>-host-key` | the pinned public host key |
+| `<vm>-vm-ingress-enabled` | whether the Caddy front door is on |
+
+> `sc stack outputs` prints secret-marked values in the clear. Redirect it to a
+> mode-600 file (`umask 077`) rather than reading it on a shared terminal.
+
+#### **k3s Cluster** (`k3s-cluster`)
+
+A single-node (today) k3s control plane installed over SSH on the hosts of a
+`vm` resource. It exports a kubeconfig and an ingress IP **under the same output
+names GKE Autopilot uses**, which is why the whole Kubernetes layer above it —
+Deployment, Service, `cloudExtras`, probes, helm operators, the Caddy edge —
+works unchanged.
+
+**Golang Struct Reference:** `pkg/clouds/k3s/cluster.go:K3sClusterConfig`
+
+**JSON Schema:** [K3sClusterConfig Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/k3s/k3sclusterconfig.json)
+
+```yaml
+# server.yaml - Parent Stack
+resources:
+  resources:
+    staging:
+      resources:
+        cluster-vm:
+          type: vm
+          config:
+            provider: byo
+            hosts:
+              - address: 203.0.113.10
+                user: ubuntu
+                privateKey: "${secret:CLUSTER_VM_DEPLOY_KEY}"
+                hostKey: "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+            # No `ingress` here on purpose — see the ports note below.
+
+        ru-cluster:
+          type: k3s-cluster
+          config:
+            vmResource: cluster-vm     # named, not described
+            # version: v1.36.5+k3s1    # pinned by default; a CHANNEL name is refused
+            # endpoint: k8s.example.ru # what the exported kubeconfig points at
+            # tlsSans: [k8s-internal.example.ru, 10.0.0.10]
+            # disable: [traefik]       # REPLACES the default, does not add to it
+            # extraServerArgs: ["--kube-apiserver-arg=v=2"]
+            # installScriptUrl: https://mirror.example.ru/get-k3s.sh
+```
+
+| Key | Default | Notes |
+|---|---|---|
+| `vmResource` | — (**required**) | name of a `vm` resource in the same stack and env; provisioned after it and reads its host facts |
+| `version` | `v1.36.5+k3s1` | pinned deliberately: k3s's installer resolves a release *channel* at install time, so the default would make the control-plane version depend on the day the deploy ran. A channel name is refused |
+| `endpoint` | the node's address | also becomes the first `--tls-san`. The kubeconfig has to work from wherever `sc deploy` runs — for CI that is the runner, not the machine |
+| `tlsSans` | endpoint + node address | spend these freely: adding a SAN later re-issues the certificate and restarts the API server; an unused SAN costs nothing |
+| `disable` | derived from the host | valid entries: `traefik`, `servicelb`, `local-storage`, `metrics-server`. An explicit empty list means "disable nothing" (that is how you get Traefik back) |
+| `extraServerArgs` | — | passed to `k3s server` verbatim; flags SC manages itself (`--tls-san`, `--disable`, `--write-kubeconfig*`) are refused rather than silently fought |
+| `installScriptUrl` | `https://get.k3s.io` | for a network that cannot reach Rancher's |
+
+**One machine has one port 443.** The `vm` resource's `ingress` and k3s's own
+load-balancer implementation (klipper-lb, k3s's `servicelb`) both want 80/443,
+so one of them owns them:
+
+- **no `ingress` on the vm resource** → k3s owns 80/443 and `servicelb` stays enabled;
+- **`ingress.enable: true`** → the compose Caddy owns them, and SC **disables
+  `servicelb` automatically** — otherwise a `LoadBalancer` Service that can never
+  get a port sits `<pending>` forever with nothing saying why.
+
+You do not have to coordinate this by hand; the `k3s-cluster` resource reads the
+machine's ingress setting and adjusts. k3s's bundled Traefik is a third
+contender for the same ports, which is why SC disables it by default.
+
+**Stack outputs**, for cluster resource name `<cluster>` and env `<env>` — the
+names are byte-for-byte those of a GKE Autopilot cluster:
+
+| Output | Contents |
+|---|---|
+| `<cluster>--<env>-kubeconfig` | **secret-marked** kubeconfig with `server:` rewritten to the endpoint |
+| `<cluster>--<env>-ingress-ip` | the node's address |
+
+### **Templates (Compute)**
+
+#### **Compose on a VM** (`vm-compose`)
+
+Runs a client stack as a Docker Compose project on the machine, with blue/green
+slots and a health gate. Accepts **both** `type: cloud-compose` and
+`type: single-image` client stacks.
+
+**Golang Struct Reference:** `pkg/clouds/vm/compose.go:ComposeTemplateConfig`
+
+**JSON Schema:** [ComposeTemplateConfig Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/vm/composetemplateconfig.json)
+
+```yaml
+# server.yaml - Parent Stack
+templates:
+  compose-on-vm:
+    type: vm-compose
+    config:
+      vmResource: portal-vm            # name of the `vm` resource to deploy onto
+      imageDelivery: ssh-tar           # default; `registry` to have the machine pull
+      externalImages: ship             # default under `ssh-tar`; `pull` under `registry`
+      strategy: blue-green             # default; `recreate` trades 502s for RAM
+      keepImages: 3                    # previous versions kept for rollback
+      # Only needed with `imageDelivery: registry`:
+      # dockerRegistryURL: registry.example.ru/mycompany
+      # dockerRegistryUsername: "${secret:RU_REGISTRY_USERNAME}"
+      # dockerRegistryPassword: "${secret:RU_REGISTRY_PASSWORD}"
+
+resources:
+  resources:
+    staging:
+      template: compose-on-vm
+      resources:
+        portal-vm:
+          type: vm
+          config: { provider: byo, hosts: [ ... ] }
+```
+
+| Key | Default | Notes |
+|---|---|---|
+| `vmResource` | — (**required**) | name of a `vm` resource in the same parent stack |
+| `imageDelivery` | `ssh-tar` | `ssh-tar` streams the built image over the deploy's own SSH connection, so **no registry has to be reachable from the machine**. `registry` has the machine pull it |
+| `externalImages` | `ship` under `ssh-tar`, `pull` under `registry` | what happens to images SC did not build (a `mongo`, a `redis`). `ship` streams them alongside your own image in one stream; `pull` leaves them to the machine. **Pin third-party tags** when shipping — the re-ship is triggered by the reference, so a tag that moves upstream is not noticed. `ship` requires `ssh-tar` |
+| `strategy` | `blue-green` | `blue-green` brings the new slot up beside the old and gates on its health; `recreate` stops first — a few seconds of 502 in exchange for not running both slots at once, the honest choice on a 2 GB machine |
+| `keepImages` | `3` | `0` is a valid explicit choice and means "keep none" |
+
+**How Client Stacks Use This Template:**
+
+```yaml
+# client.yaml — a `cloud-compose` stack
+stacks:
+  staging:
+    type: cloud-compose
+    template: compose-on-vm
+    parent: mycompany/mycompany
+    config:
+      # REQUIRED for every `cloud-compose` stack, on every cloud — there is no
+      # default and no fallback. Omitting it fails the deploy with
+      # `failed to read docker-compose config from "<stackDir>"/""`.
+      dockerComposeFile: ./docker-compose.yaml
+      domain: portal.example.com
+      runs:
+        - portal
+      env:
+        ENV: staging
+      secrets:
+        MONGO_URI: "${secret:staging-portal-mongo-uri}"
+```
+
+```yaml
+# client.yaml — a `single-image` stack (no compose file; `image` instead)
+stacks:
+  staging:
+    type: single-image
+    template: compose-on-vm
+    parent: mycompany/mycompany
+    config:
+      image:
+        dockerfile: ${git:root}/Dockerfile
+      maxMemory: 512
+      domain: portal.example.com
+```
+
+SC passes `PORT=8080` to a `single-image` container, the same as Lambda and a YC
+Serverless Container do, so an image that runs on either needs no change.
+
+**What this template refuses, and what it only warns about.** A field SC cannot
+honour on a VM is an error, not a silent no-op:
+
+| Field | Behaviour | Why |
+|---|---|---|
+| `domainProxied` | **error** | the machine answers the ACME challenge itself; a Cloudflare proxy in front of it breaks that |
+| `clusterIPAddress` | **error** | there is no cluster |
+| `scale.max > 1` | **error** | one machine runs one replica — use `{min: 1, max: 1}`, or move to `k3s-cluster` |
+| `scale.min: 0` | warning | has no effect on a VM (nothing scales to zero) |
+| `scale.policy` | warning | ignored on a VM |
+
+**DNS and TLS.** With `ingress.enable: true` on the vm resource and a `domain`
+on the client stack, the stack publishes **no host port** — 443 is the only way
+in — and the URL output becomes `https://<domain>`. You still create the DNS
+record yourself: an A record at the machine's address, **not** proxied. Set one
+without the other and SC warns and deploys on a deterministic high host port;
+the stack answers either way, and the warning is what keeps "my certificate
+never appeared" from being silent.
+
+**Stack outputs**, for client stack `<stack>`:
+
+| Output | Contents |
+|---|---|
+| `<stack>-vm-compose-url` | `https://<domain>`, or `http://<address>:<port>` when the stack is on a host port |
+| `<stack>-vm-compose-slot` | which blue/green slot is live |
+
+#### **k3s Cloud Run** (`k3s-cloudrun`)
+
+The same deployment path as `kubernetes-cloudrun`, except that it names a
+`k3s-cluster` resource instead of carrying a kubeconfig — a cluster SC
+provisions has no kubeconfig until it has been provisioned, so the value can
+only arrive as a parent-stack output. Same shape as `gcp-gke-autopilot`'s
+`gkeClusterResource`.
+
+**Golang Struct Reference:** `pkg/clouds/k3s/cloudrun.go:K3sCloudrunTemplate`
+
+**JSON Schema:** [K3sCloudrunTemplate Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/k3s/k3scloudruntemplate.json)
+
+```yaml
+# server.yaml - Parent Stack
+templates:
+  k3s-run:
+    type: k3s-cloudrun
+    config:
+      k3sClusterResource: ru-cluster
+      # Required, and there is no alternative on this path: a kubelet can only
+      # PULL an image. Point it at a registry the MACHINE can reach.
+      dockerRegistryURL: registry.example.ru/mycompany
+      dockerRegistryUsername: "${secret:RU_REGISTRY_USERNAME}"
+      dockerRegistryPassword: "${secret:RU_REGISTRY_PASSWORD}"
+      useSSL: true                     # default; `false` while still on a host port
+      # caddyResource: my-caddy        # once an in-cluster Caddy edge exists
+```
+
+| Key | Default | Notes |
+|---|---|---|
+| `k3sClusterResource` | — (**required**) | name of the `k3s-cluster` resource to deploy through |
+| `dockerRegistryURL` + username/password | — (**required**) | unlike `vm-compose`, there is no `ssh-tar` escape: Kubernetes can only pull. A k3s stand with no reachable registry cannot deploy, which is surfaced at config time rather than at image-pull time |
+| `useSSL` | `true` | `false` is the honest setting while you are still reaching the cluster on a host port with no certificate |
+| `caddyResource` | — | name of a Caddy resource in the parent stack |
+
+Client stacks use this exactly as they use `kubernetes-cloudrun` — including
+`dockerComposeFile` for a `cloud-compose` stack:
+
+```yaml
+# client.yaml
+stacks:
+  staging:
+    type: cloud-compose
+    template: k3s-run
+    parent: mycompany/mycompany
+    config:
+      dockerComposeFile: ./docker-compose.yaml
+      domain: portal.example.ru
+      runs: [portal]
+```
+
+> **The in-cluster Caddy edge is not wireable to a `k3s-cluster` yet.** The
+> `kubernetes-caddy` resource takes its kubeconfig as a literal string in its own
+> config, and a cluster provisioned in the same stack has no kubeconfig until it
+> has been provisioned — the same limitation `k3s-cloudrun` exists to work around
+> for the deploy path, still open for the edge. Until it is wired, the front door
+> on a k3s stand is the node itself: leave `ingress` off the vm resource, let k3s
+> keep 80/443, and expose a workload with `cloudExtras.serviceType: LoadBalancer`
+> (klipper-lb binds the node's ports). A compose-side Caddy on the same machine is
+> the other option, and is what the [vm-compose example](../examples/vm-compose/byo-host/README.md)
+> does.
 
 ---
 
@@ -2239,18 +2957,22 @@ stacks:
   # Standard US customers - shared resources
   customer-standard-1:
     type: cloud-compose
+    # `template` is a stack-level field, alongside `type` and `parent` — not a
+    # member of `config`.
+    template: web-app-template
     parent: myorg/infrastructure
     config:
-      template: web-app-template
+      dockerComposeFile: ./docker-compose.yaml
       uses: [mongodb-shared-us, s3-shared-storage]  # Shared resources
       domain: customer1.myapp.com
       runs: [web-app]
       
   customer-standard-2:
     type: cloud-compose
+    template: web-app-template
     parent: myorg/infrastructure
     config:
-      template: web-app-template
+      dockerComposeFile: ./docker-compose.yaml
       uses: [mongodb-shared-us, s3-shared-storage]  # Same shared resources
       domain: customer2.myapp.com
       runs: [web-app]
@@ -2258,9 +2980,10 @@ stacks:
   # EU customer - EU resources for compliance
   customer-eu:
     type: cloud-compose
+    template: api-service-template  # Different deployment pattern
     parent: myorg/infrastructure
     config:
-      template: api-service-template  # Different deployment pattern
+      dockerComposeFile: ./docker-compose.yaml
       uses: [mongodb-shared-eu, s3-shared-storage]  # EU database
       domain: customer-eu.myapp.com
       runs: [api-service]
@@ -2268,9 +2991,10 @@ stacks:
   # Enterprise customer - dedicated resources
   enterprise-customer:
     type: cloud-compose
+    template: web-app-template
     parent: myorg/infrastructure
     config:
-      template: web-app-template
+      dockerComposeFile: ./docker-compose.yaml
       uses: [mongodb-enterprise-1, s3-enterprise-storage]  # Dedicated resources
       domain: enterprise.myapp.com
       runs: [web-app]

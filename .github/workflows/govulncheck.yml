@@ -44,12 +44,29 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+    paths-ignore:
+      - '*.md'
+      - 'LICENSE'
+      - 'CODEOWNERS'
+      - '.gitignore'
+      - '.agents/**'
+      - '.workflow/**'
+      - '.github/*.md'
+      - '.github/ISSUE_TEMPLATE/**'
   schedule:
     - cron: '37 6 * * 1'  # Monday 06:37 UTC — early week, off-peak
   workflow_dispatch:
 
+# REF-keyed, not SHA-keyed, and the difference is load-bearing on the CI fleet
+# (2 usable slots). A SHA-keyed group opens a NEW group on every force-push —
+# the old run on the abandoned commit is never cancelled and keeps holding its
+# runner until it finishes. Measured on PR #460 (2026-10-19): a superseded
+# branch.yaml run built its full 9-job matrix to green on both fleet slots for
+# 40 minutes while the live run sat queued. `github.ref` is stable across
+# force-pushes to the same PR (refs/pull/<n>/merge), so the superseded run is
+# cancelled and its slot released the moment the new push lands.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event.pull_request.head.sha || github.sha }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -127,7 +144,12 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
 
       - name: Install govulncheck
         if: steps.gate.outputs.scan == 'true'

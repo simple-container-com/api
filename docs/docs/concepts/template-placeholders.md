@@ -80,6 +80,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: docker-compose.yaml
       domain: "${env:STAGING_DOMAIN:staging.myapp.com}"
       env:
         NODE_ENV: "${env:NODE_ENV:development}"
@@ -128,15 +129,17 @@ deployment_id: "${git:branch}-${date:timestamp}"
 # Advanced git integration for dynamic deployments
 stacks:
   "${git:branch}":  # Dynamic stack name from git branch
-    type: cloud-compose
+    # `image` is a `single-image` field. On a `cloud-compose` stack the build
+    # context and Dockerfile come from the compose service's own `build:` section
+    # instead, and the image tag is always the deploy version — there is no
+    # `image.tag` to set from either shape.
+    type: single-image
     parent: myorg/infrastructure
     config:
-      dockerComposeFile: ${git:root}/docker-compose.yaml
       image:
+        name: myapp
         dockerfile: ${git:root}/src/Dockerfile
         context: ${git:root}/src
-        name: myapp
-        tag: "${git:branch}-${git:commit.short}"  # Dynamic tagging
       domain: "${git:branch}.myapp.com"  # Branch-specific domains
       env:
         GIT_COMMIT: "${git:commit.short}"
@@ -197,10 +200,11 @@ stacks:
     config:
       dockerComposeFile: docker-compose.yaml  # Resolves to ${project:root}/docker-compose.yaml
       runs: [app, worker]
-      image:
-        dockerfile: ${project:root}/Dockerfile
-        context: ${project:root}/src
 ```
+
+A `cloud-compose` stack has no `image:` section: the Dockerfile and build context of
+each service come from that service's `build:` block in the compose file, and the
+image tag is the deploy version. `image:` is a `single-image` field.
 
 **Environment Resolution:**
 
@@ -259,16 +263,19 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
-      image:
-        name: myapp
-        tag: "${git:branch}-${git:commit.short}-${date:timestamp}"
+      dockerComposeFile: docker-compose.yaml
+      # `version` forces a redeploy even when nothing else changed — a timestamp
+      # is the usual way to spell "roll this now".
+      version: "${date:timestamp}"
       env:
         DEPLOYMENT_TIME: "${date:iso8601}"
         BUILD_VERSION: "${date:dateOnly}.${git:commit.short}"
-      metadata:
-        deployed_at: "${date:rfc3339}"
-        git_info: "${git:branch}@${git:commit.short}"
+        DEPLOYED_AT: "${date:rfc3339}"
+        GIT_INFO: "${git:branch}@${git:commit.short}"
 ```
+
+Build metadata travels as environment variables, which the running container can
+read. There is no `metadata:` section on a client stack config.
 
 **In server.yaml (Parent Stack):**
 ```yaml
@@ -333,6 +340,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: docker-compose.yaml
       uses: [gke-cluster]
       env:
         GCP_PROJECT: "${auth:gcloud.projectId}"

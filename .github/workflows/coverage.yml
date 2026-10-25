@@ -9,11 +9,35 @@ name: Coverage
 #
 # Explicit branch lists (no wildcards) per the push.yaml / branch.yaml history
 # (PR #272): wildcard push/PR triggers fan out runs on every branch.
+# PR runs were REMOVED 2026-10-20. This workflow is observe-only by design (no
+# regression gate, see the note above) and is not a required check, yet it was
+# taking one of the CI fleet's five RAM-capable slots on every PR for ~36 min:
+# `go test -coverprofile -covermode=atomic ./...` compiles and runs the whole
+# suite instrumented. Measured consequence: with coverage plus the integration
+# tests resident, only 3 of 5 slots were available to the 7 jobs that actually
+# gate a merge.
+#
+# `main` pushes still run, which is where the baseline artifact other tooling
+# diffs against is produced — so the number keeps moving, just not per-PR.
+#
+# Re-enabling is this block alone: restore the `pull_request` trigger below.
+# The PR-comment step further down is intentionally LEFT IN PLACE and guarded
+# by `if: github.event_name == 'pull_request'`, so it becomes live again with
+# no other edit.
 on:
-  pull_request:
-    branches: [main]
   push:
     branches: [main]
+  workflow_dispatch:
+
+# REF-keyed so a force-push supersedes the in-flight run and releases its
+# runner (see branch.yaml for the full note and the measured 40-minute
+# incident on the 2-slot CI fleet). This workflow had NO concurrency block,
+# and it is fleet-routed — a superseded coverage run held a slot the live
+# build needed. `github.ref` is stable across force-pushes to the same PR,
+# so exactly one run per ref is live at a time.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -25,6 +49,7 @@ jobs:
     # dependency graph (Pulumi SDK is linked transitively even by pkg/api) is
     # too heavy to compile on the 2-core GitHub-hosted ubuntu-latest.
     runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    timeout-minutes: 60
     permissions:
       contents: read
       pull-requests: write   # post/update the sticky PR comment
@@ -39,7 +64,12 @@ jobs:
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
           go-version-file: go.mod
-          cache: true
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
 
       - name: Measure coverage
         id: cov

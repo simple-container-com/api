@@ -18,6 +18,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [redis-cache]
       runs: [streaming-server, n8n-workflow]
 ```
@@ -80,6 +81,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [gpu-resources, storage-volumes]
       runs: [ai-processor]
 ```

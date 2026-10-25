@@ -94,6 +94,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [redis-cache, pubsub-messaging, mongodb-atlas]
       runs: [web-app, worker-service]
 ```
@@ -183,6 +184,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure-us
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [gke-cluster-us, redis-us]
       runs: [api-service]
       
@@ -190,6 +192,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure-eu
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [gke-cluster-eu, redis-eu]
       runs: [api-service]
 ```
@@ -211,6 +214,7 @@ stacks:
     type: cloud-compose
     parent: myorg/infrastructure
     config:
+      dockerComposeFile: ./docker-compose.yaml
       uses: [gke-cluster, artifact-registry, mongodb-atlas]
       runs: [web-app, worker-service]
 ```

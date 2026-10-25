@@ -16,7 +16,17 @@ stacks:
       runs:
         - api
 
-      maxMemory: 512
+      # Container resources. `maxMemory` is a `single-image` field and is NOT read on
+      # a cloud-compose stack — `size:` is the equivalent, and on a Kubernetes path its
+      # `requests`/`limits` become the container's resource requirements verbatim.
+      size:
+        requests:
+          cpu: "100"
+          memory: "256"
+        limits:
+          cpu: "500"
+          memory: "512"
+
       env:
         ENV: staging
       secrets:

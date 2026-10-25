@@ -43,6 +43,15 @@ const (
 	DriverMws       = "mws-vm"
 	DriverCloudru   = "cloudru-vm"
 	DriverTimeweb   = "timeweb-vm"
+
+	// DriverCloudruEvolution creates machines in Cloud.ru **Evolution**, which is a
+	// different cloud from DriverCloudru's Cloud.ru **Advanced** (ex-SberCloud)
+	// despite the shared brand and console: different API, different credentials
+	// (a service-account key pair, not AK/SK), different regions, and no Terraform
+	// provider with open sources. Two drivers rather than one `cloudru` with a mode
+	// flag, because an account generally has one estate and not the other — the
+	// operator's own project has only Evolution, which is why this driver exists.
+	DriverCloudruEvolution = "cloudru-evolution-vm"
 )
 
 const (
@@ -54,6 +63,21 @@ const (
 	DefaultSshPort = 22
 	// DefaultImage is an SC-level alias; each driver maps it to its own image id.
 	DefaultImage = "ubuntu-2404-lts"
+
+	// DefaultCores and DefaultMemory size the machine when `size` is absent or
+	// half-filled.
+	//
+	// There has to be a default, and it has to live here rather than per driver: a
+	// cloud driver picks a flavour by FILTERING the cloud's flavour list on cores and
+	// memory, so "no size given" is not "the cloud's default machine" — it is a filter
+	// that matches hundreds of flavours, and the one that gets used is whichever the
+	// API happened to list first. Deploying a different machine shape on the next
+	// `sc deploy` is not a defensible default.
+	//
+	// 2 cores / 4Gi is the smallest shape that runs a compose stack plus the Caddy
+	// ingress without the docker build cache pushing it into swap.
+	DefaultCores  = 2
+	DefaultMemory = "4Gi"
 
 	// ConfigDir holds rendered configuration (compose files, env files, Caddy).
 	ConfigDir = "/etc/sc"
@@ -102,6 +126,20 @@ type VmIngress struct {
 	// storage) are in that image and not in the official one. Override to pin a tag
 	// or to run a local mirror.
 	Image string `json:"image,omitempty" yaml:"image,omitempty"`
+	// ImageDelivery is how that image reaches the machine: ImageDeliveryRegistry
+	// (default — the machine pulls it) or ImageDeliverySshTar (the runner pulls it
+	// and streams it over the provision's SSH connection).
+	//
+	// The default is "the machine pulls" because that is what every existing vm
+	// resource already does, and because shipping makes `sc provision` need a local
+	// docker daemon it has never needed before. `ssh-tar` is for the case this whole
+	// delivery path exists for: a machine with no route to Docker Hub
+	// (compose-on-vm.md §8.3). Caddy is the one image SC itself insists on, so
+	// without this the ingress is the last thing on such a machine that still needs
+	// a registry — `externalImages: ship` on the template covers a stack's own
+	// images and the third-party ones beside them, and stops at the ingress because
+	// the ingress belongs to the resource, not the stack.
+	ImageDelivery string `json:"imageDelivery,omitempty" yaml:"imageDelivery,omitempty"`
 	// AcmeCa points Caddy at a certificate authority other than Let's Encrypt.
 	//
 	// This field exists because of the Russian market specifically
@@ -199,6 +237,19 @@ type VmConfig struct {
 	// permanent access path (vm-matrix.md §3.3).
 	ExtraSshKeys []string `json:"extraSshKeys,omitempty" yaml:"extraSshKeys,omitempty"`
 
+	// HostKey pins the SSH host key of a machine SC created but could not give an
+	// identity to, as one authorized_keys line. Valid only with a driver whose cloud
+	// has no cloud-init (today: DriverCloudruEvolution) — see validateCloud.
+	//
+	// It exists because of a cloud that accepts no user-data at all: SC cannot
+	// pre-seed a host key there, so the FIRST connection has nothing to verify and
+	// trust-on-first-use is the only thing left. That is a real exposure (the deploy
+	// key and every secret of every stack on the machine ride that connection), and
+	// an operator who reads the key off the cloud's console can close it by pasting
+	// it here on the next provision. Same semantics and same format as
+	// `hosts[].hostKey` — `ssh-keyscan -t ed25519 <address>` output pastes verbatim.
+	HostKey string `json:"hostKey,omitempty" yaml:"hostKey,omitempty"`
+
 	// Hosts is valid only with DriverByo.
 	Hosts []VmHost `json:"hosts,omitempty" yaml:"hosts,omitempty"`
 
@@ -237,6 +288,26 @@ func (r *VmConfig) EffectiveImage() string {
 	return lo.If(r.Image == "", DefaultImage).Else(r.Image)
 }
 
+// EffectiveSize resolves the machine size, filling in DefaultCores/DefaultMemory for
+// whichever half was left out. Disk is left empty when unset: unlike cores and memory
+// it is not a flavour filter, and every cloud has a sane per-image root-disk default
+// that is better than one SC invents.
+func (r *VmConfig) EffectiveSize() VmSize {
+	size := VmSize{Cores: DefaultCores, Memory: DefaultMemory}
+	if r.Size == nil {
+		return size
+	}
+	if r.Size.Cores > 0 {
+		size.Cores = r.Size.Cores
+	}
+	if r.Size.Memory != "" {
+		size.Memory = r.Size.Memory
+	}
+	size.Disk = r.Size.Disk
+	size.DiskType = r.Size.DiskType
+	return size
+}
+
 // IngressEnabled reports whether Caddy should be installed in front of the stacks
 // on this machine.
 func (r *VmConfig) IngressEnabled() bool {
@@ -253,6 +324,22 @@ func (r *VmConfig) IngressImage() string {
 	return fmt.Sprintf("simplecontainer/caddy:%s", build.Version)
 }
 
+// EffectiveIngressImageDelivery resolves how the Caddy image reaches the machine.
+// Defaults to ImageDeliveryRegistry — see the field comment for why the default is
+// not the other way round.
+func (r *VmConfig) EffectiveIngressImageDelivery() string {
+	if r.Ingress != nil && r.Ingress.ImageDelivery != "" {
+		return r.Ingress.ImageDelivery
+	}
+	return ImageDeliveryRegistry
+}
+
+// ShipsIngressImage reports whether the provision streams Caddy to the machine from
+// the runner instead of letting the machine pull it.
+func (r *VmConfig) ShipsIngressImage() bool {
+	return r.IngressEnabled() && r.EffectiveIngressImageDelivery() == ImageDeliverySshTar
+}
+
 // validateIngress holds the ingress rules shared by the byo and cloud paths. One
 // function rather than the same two checks in both, because the pair of them drifted
 // once already: `acmeEabKeyId` without `acmeEabMacKey` is accepted by Caddy's parser
@@ -264,16 +351,22 @@ func (r *VmConfig) validateIngress() error {
 	if r.Ingress.Email == "" {
 		return errors.Errorf("`ingress.enable: true` requires `ingress.email` (the ACME account address)")
 	}
+	if d := r.EffectiveIngressImageDelivery(); d != ImageDeliveryRegistry && d != ImageDeliverySshTar {
+		return errors.Errorf("unknown `ingress.imageDelivery` %q; one of: %s, %s",
+			d, ImageDeliveryRegistry, ImageDeliverySshTar)
+	}
 	if (r.Ingress.AcmeEabKeyID == "") != (r.Ingress.AcmeEabMacKey == "") {
 		return errors.Errorf(
 			"`ingress.acmeEabKeyId` and `ingress.acmeEabMacKey` must be set together: External Account " +
 				"Binding needs both, and half of it is accepted by the config parser and then fails at the " +
-				"first certificate request")
+				"first certificate request",
+		)
 	}
 	if r.Ingress.AcmeEabKeyID != "" && r.Ingress.AcmeCa == "" {
 		return errors.Errorf(
 			"`ingress.acmeEabKeyId` is set without `ingress.acmeCa`: External Account Binding is for a " +
-				"private or enterprise CA, and Let's Encrypt (the default) does not accept it")
+				"private or enterprise CA, and Let's Encrypt (the default) does not accept it",
+		)
 	}
 	return nil
 }
@@ -298,7 +391,7 @@ func (r *VmConfig) Validate() error {
 	if r.Driver == DriverByo {
 		err = r.validateByo()
 	} else {
-		err = r.validateCloud()
+		err = r.validateCloud(drv)
 	}
 	if err != nil {
 		return err
@@ -310,7 +403,8 @@ func (r *VmConfig) Validate() error {
 		return errors.Errorf(
 			"vm provider %q is not implemented yet (roadmap item %s); until it lands, create the machine "+
 				"by hand and declare it with `provider: %s` and `hosts:`",
-			r.Driver, drv.RoadmapItem, DriverByo)
+			r.Driver, drv.RoadmapItem, DriverByo,
+		)
 	}
 	return nil
 }
@@ -344,7 +438,15 @@ func (r *VmConfig) validateByo() error {
 		return errors.Errorf(
 			"%s is not valid with `provider: %s`: SC does not create the machine, so it cannot apply %s; "+
 				"configure it in the cloud console instead",
-			strings.Join(quoteAll(ignored), ", "), DriverByo, lo.If(len(ignored) == 1, "it").Else("them"))
+			strings.Join(quoteAll(ignored), ", "), DriverByo, lo.If(len(ignored) == 1, "it").Else("them"),
+		)
+	}
+	// Refused rather than merged with hosts[].hostKey: with byo the host key already
+	// has a per-host spelling, and accepting a second one would make whichever lost
+	// look applied. A pool of byo hosts does not share a host key.
+	if r.HostKey != "" {
+		return errors.Errorf(
+			"`hostKey` is not valid with `provider: %s`: pin it per machine, as `hosts[].hostKey`", DriverByo)
 	}
 
 	if len(r.Hosts) == 0 {
@@ -356,7 +458,8 @@ func (r *VmConfig) validateByo() error {
 	if len(r.Hosts) > 1 {
 		return errors.Errorf(
 			"`provider: %s` currently supports exactly one host, got %d; multi-host pools arrive with the "+
-				"k3s cluster resource (roadmap item sc-k3s-cluster-resource)", DriverByo, len(r.Hosts))
+				"k3s cluster resource (roadmap item sc-k3s-cluster-resource)", DriverByo, len(r.Hosts),
+		)
 	}
 	for i, h := range r.Hosts {
 		if h.Address == "" {
@@ -365,7 +468,8 @@ func (r *VmConfig) validateByo() error {
 		if h.PrivateKey == "" {
 			return errors.Errorf(
 				"hosts[%d] (%s) requires `privateKey` — write it as `${secret:<name>}`; password and "+
-					"ssh-agent authentication are not supported", i, h.Address)
+					"ssh-agent authentication are not supported", i, h.Address,
+			)
 		}
 		if h.Port < 0 || h.Port > 65535 {
 			return errors.Errorf("hosts[%d] (%s) has an invalid `port`: %d", i, h.Address, h.Port)
@@ -374,18 +478,84 @@ func (r *VmConfig) validateByo() error {
 	return r.validateIngress()
 }
 
-// validateCloud holds the invariants of every driver that creates a machine. No such
-// driver is implemented yet — Validate refuses them after this runs — but the rules
-// are the contract the first one is written against, so they live here rather than
-// being rediscovered per cloud.
-func (r *VmConfig) validateCloud() error {
+// validateCloud holds the invariants of every driver that creates a machine. They
+// live here, once, rather than being rediscovered per cloud — the first driver
+// (`cloudru-vm`) is written against exactly these.
+func (r *VmConfig) validateCloud(drv DriverInfo) error {
+	// `hostKey` is accepted by exactly the clouds that cannot be given one, and the
+	// condition is the cloud-init capability rather than a driver name: seeding a
+	// machine's host key means writing it into user-data (see
+	// pkg/clouds/pulumi/vm/cloudru.go), so a cloud that runs cloud-init gets an
+	// SC-generated identity and a pasted key would be dead config — while a cloud
+	// that accepts no user-data at all has no other way to ever be verified.
+	if r.HostKey != "" && drv.Capabilities.CloudInit {
+		return errors.Errorf(
+			"`hostKey` is not valid with `provider: %s`: this cloud runs cloud-init, so SC generates the "+
+				"machine's host key itself and pins it — a pasted key would never be used", r.Driver)
+	}
 	if len(r.Hosts) > 0 {
 		return errors.Errorf(
 			"`hosts` is only valid with `provider: %s`; with `provider: %s` SC creates the machine itself",
-			DriverByo, r.Driver)
+			DriverByo, r.Driver,
+		)
 	}
-	if r.Region == "" {
+	// The mirror of the `hostKey` rule above, and keyed off the same capability for
+	// the same reason. Extra keys are authorised by writing them into user-data
+	// (cloudinit.go: authorized = deploy key + ExtraSshKeys), so on a cloud that
+	// accepts none there is nowhere to put them — the create call takes exactly one
+	// public key, the deploy key SC generates. Accepted and dropped, this would be
+	// the worst kind of dead config: an operator certain they can still reach the
+	// machine during an incident, finding out in the incident that they cannot.
+	if len(r.ExtraSshKeys) > 0 && !drv.Capabilities.CloudInit {
+		return errors.Errorf(
+			"`extraSshKeys` is not valid with `provider: %s`: this cloud runs no cloud-init and its VM create "+
+				"takes exactly one public key (the deploy key SC generates), so there is nowhere to authorise "+
+				"another one. Add the key to the machine yourself, or keep console access for incidents",
+			r.Driver)
+	}
+	// Required on a region-scoped cloud, and REFUSED on one that has no regions —
+	// not merely optional there. A `region:` that SC silently drops would read as
+	// placement the operator controlled, and this package treats an ignored field
+	// as a future incident. Keyed off the capability rather than the driver name so
+	// the next regionless cloud needs no change here.
+	switch {
+	case drv.Capabilities.Regionless && r.Region != "":
+		return errors.Errorf(
+			"`region` is not valid with `provider: %s`: this cloud's API has no region — one global endpoint, "+
+				"and placement is the availability zone. Remove `region`, and pin placement with `zones:` "+
+				"(at most one entry)", r.Driver)
+	case !drv.Capabilities.Regionless && r.Region == "":
 		return errors.Errorf("`provider: %s` requires `region`", r.Driver)
+	}
+	// A machine with no public address is a machine SC cannot deploy to. Every
+	// delivery step — readiness, image ship, compose up, the Caddy reload — is an
+	// outbound SSH connection from wherever `sc deploy` runs, and SC has no bastion,
+	// no VPN and no in-VPC runner. Refused here rather than discovered as a dial
+	// timeout against a machine that was created and billed successfully.
+	if !r.PublicIP {
+		return errors.Errorf(
+			"`provider: %s` requires `publicIP: true`: SC deploys over SSH from outside the cloud and has no "+
+				"bastion or VPN path to a machine without a public address", r.Driver)
+	}
+	// One zone, because one machine. Several zones only mean something once a vm
+	// resource can describe a pool, which arrives with the k3s cluster resource.
+	if len(r.Zones) > 1 {
+		return errors.Errorf(
+			"`provider: %s` currently supports at most one entry under `zones`, got %d; multi-zone pools "+
+				"arrive with the k3s cluster resource (roadmap item sc-k3s-cluster-resource)",
+			r.Driver, len(r.Zones))
+	}
+	// `network.id` without the matching subnet is the one shape of a BYO network that
+	// cannot be completed by guessing: a driver that picked "some subnet in the VPC"
+	// would place the machine in a zone, or behind a route table, the operator did not
+	// choose. Caught here because the driver only learns the zone later.
+	if r.Network != nil && r.Network.ID != "" && len(r.Network.Subnets) == 0 {
+		return errors.Errorf(
+			"`network.id` is set but `network.subnets` is empty: SC needs the subnet to place the machine in, " +
+				"as `subnets: {<zone>: <subnet-id>}`")
+	}
+	if r.Network != nil && r.Network.ID == "" && len(r.Network.Subnets) > 0 {
+		return errors.Errorf("`network.subnets` is set but `network.id` is empty: give both, or neither")
 	}
 	return r.validateIngress()
 }

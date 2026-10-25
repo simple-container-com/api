@@ -27,6 +27,9 @@
         },
         "type": "array"
       },
+      "hostKey": {
+        "type": "string"
+      },
       "hosts": {
         "items": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -79,6 +82,9 @@
             "type": "boolean"
           },
           "image": {
+            "type": "string"
+          },
+          "imageDelivery": {
             "type": "string"
           }
         },

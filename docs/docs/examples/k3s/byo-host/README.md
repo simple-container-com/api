@@ -70,12 +70,45 @@ the registry named in the template.
 
 ## Secrets
 
+Four `${secret:...}` values are referenced by `server.yaml`:
+`CLUSTER_VM_DEPLOY_KEY`, `RU_REGISTRY_USERNAME`, `RU_REGISTRY_PASSWORD` and
+`SC_STATE_PASSPHRASE`. They live under `values:` in the parent stack's
+`.sc/stacks/mycompany/secrets.yaml`, and **they are set by editing that file** —
+there is no command that sets one. (`sc secrets add` is a different thing: it
+registers a *file* in the encrypted registry. See
+[Secrets Management](../../../guides/secrets-management.md).)
+
 ```bash
-sc secrets add CLUSTER_VM_DEPLOY_KEY --file ./cluster_vm_deploy_key
-sc secrets add RU_REGISTRY_USERNAME
-sc secrets add RU_REGISTRY_PASSWORD
-sc secrets add SC_STATE_PASSPHRASE
+sc secrets reveal -F         # decrypt the registry in place
+$EDITOR .sc/stacks/mycompany/secrets.yaml
+sc secrets hide -F           # re-encrypt — do this BEFORE any commit
 ```
+
+The deploy key is a PEM, so it has to be a YAML block scalar. Mind the
+indentation: every line of the key is indented under the `|` and nothing else is.
+
+```yaml
+# .sc/stacks/mycompany/secrets.yaml
+values:
+  SC_STATE_PASSPHRASE: "a long random string"
+  RU_REGISTRY_USERNAME: "robot$mycompany"
+  RU_REGISTRY_PASSWORD: "..."
+  CLUSTER_VM_DEPLOY_KEY: |
+    -----BEGIN OPENSSH PRIVATE KEY-----
+    b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gt
+    ...
+    -----END OPENSSH PRIVATE KEY-----
+```
+
+Confirm a value landed without printing the whole file:
+
+```bash
+sc stack secret-get CLUSTER_VM_DEPLOY_KEY -s mycompany | head -1
+```
+
+`sc secrets reveal` leaves plaintext on disk until `sc secrets hide` runs.
+`secrets.yaml` is gitignored either way, but an interrupted edit leaves it
+decrypted — re-run `sc secrets hide -F` before you commit anything.
 
 ## Provision and deploy
 

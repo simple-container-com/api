@@ -210,6 +210,7 @@ stacks:
     type: cloud-compose
     parent: my-company/my-app
     config:
+      dockerComposeFile: ./docker-compose.yaml
       # Domain for the staging environment
       domain: staging.myapp.com
       
@@ -246,6 +247,7 @@ stacks:
     parent: my-company/my-app
     parentEnv: production
     config:
+      dockerComposeFile: ./docker-compose.yaml
       # Domain for the production environment
       domain: myapp.com
       

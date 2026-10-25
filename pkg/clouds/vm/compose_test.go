@@ -11,6 +11,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/docker"
 )
 
 // TestComposeTemplateRegistered pins the template type string and BOTH converters, by
@@ -93,7 +94,36 @@ func TestComposeTemplateDefaults(t *testing.T) {
 	Expect(cfg.EffectiveImageDelivery()).To(Equal(ImageDeliverySshTar))
 	Expect(cfg.EffectiveStrategy()).To(Equal(StrategyBlueGreen))
 	Expect(cfg.EffectiveKeepImages()).To(Equal(DefaultKeepImages))
+	// ship, for the same reason: under ssh-tar a mongo pulled by the machine is the one
+	// thing that still needs the registry this mode exists to avoid.
+	Expect(cfg.EffectiveExternalImages()).To(Equal(ExternalImagesShip))
+	Expect(cfg.ShipsExternalImages()).To(BeTrue())
 	Expect(cfg.Validate()).ToNot(HaveOccurred())
+}
+
+// The default follows the delivery mode rather than being a constant: under registry
+// delivery the machine can reach a registry by definition, and shipping third-party
+// images through the runner would move gigabytes to no end.
+func TestExternalImagesDefaultFollowsTheDeliveryMode(t *testing.T) {
+	RegisterTestingT(t)
+
+	registry := &ComposeTemplateConfig{
+		VmResource:    "vm-ru",
+		ImageDelivery: ImageDeliveryRegistry,
+		RegistryCredentials: docker.RegistryCredentials{
+			DockerRegistryURL: lo.ToPtr("registry.example.ru/forge"),
+		},
+	}
+	Expect(registry.EffectiveExternalImages()).To(Equal(ExternalImagesPull))
+	Expect(registry.ShipsExternalImages()).To(BeFalse())
+	Expect(registry.Validate()).ToNot(HaveOccurred())
+
+	// And an explicit `pull` under ssh-tar is allowed: the operator may have a mirror
+	// the machine can reach, and would rather not push every byte through CI.
+	optedOut := &ComposeTemplateConfig{VmResource: "vm-ru", ExternalImages: ExternalImagesPull}
+	Expect(optedOut.EffectiveExternalImages()).To(Equal(ExternalImagesPull))
+	Expect(optedOut.ShipsExternalImages()).To(BeFalse())
+	Expect(optedOut.Validate()).ToNot(HaveOccurred())
 }
 
 func TestComposeTemplateValidate(t *testing.T) {
@@ -131,6 +161,27 @@ func TestComposeTemplateValidate(t *testing.T) {
 			cfg:  ComposeTemplateConfig{VmResource: "vm-ru", ImageDelivery: ImageDeliveryRegistry},
 			msg:  "requires `dockerRegistryURL`",
 		},
+		{
+			name: "unknown externalImages",
+			cfg:  ComposeTemplateConfig{VmResource: "vm-ru", ExternalImages: "mirror"},
+			msg:  `unknown ` + "`externalImages`" + ` "mirror"`,
+		},
+		{
+			// Refused, not ignored. Silently dropping `ship` here would report green
+			// while doing the opposite of what the config says, and the symptom only
+			// appears on the day the registry is unreachable — which is the whole
+			// reason somebody wrote `ship`.
+			name: "ship under registry delivery",
+			cfg: ComposeTemplateConfig{
+				VmResource:    "vm-ru",
+				ImageDelivery: ImageDeliveryRegistry,
+				RegistryCredentials: docker.RegistryCredentials{
+					DockerRegistryURL: lo.ToPtr("registry.example.ru/forge"),
+				},
+				ExternalImages: ExternalImagesShip,
+			},
+			msg: "needs `imageDelivery: ssh-tar`",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := tt.cfg
@@ -158,4 +209,31 @@ func TestStatefulServicesAndVolumes(t *testing.T) {
 	Expect(input.MountsOfVolume("mongo-data")).To(HaveLen(2))
 	// A tmpfs is never a named volume, so it never becomes an external docker volume.
 	Expect(input.MountsOfVolume("")).To(BeEmpty())
+}
+
+// provision.go's initProvider casts every descriptor config — templates included —
+// to api.AuthConfig before it provisions anything. Nothing in this package references
+// that interface, so a compile-time assertion is the only thing that keeps the deploy
+// path from breaking again the next time these types are reshaped.
+var (
+	_ api.AuthConfig = (*ComposeTemplateConfig)(nil)
+	// Promoted through the embedded ComposeTemplateConfig. This is the type the
+	// converters actually hand to the provisioning tier, and the one the live failure
+	// named.
+	_ api.AuthConfig = (*VmComposeInput)(nil)
+)
+
+func TestComposeTemplateConfig_AuthConfig(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Must be the key pkg/clouds/pulumi/vm registers its Provider under, or the cast
+	// succeeds and the lookup fails one line later with "unsupported provider type".
+	Expect((&ComposeTemplateConfig{}).ProviderType()).To(Equal(ProviderType))
+	Expect((&ComposeTemplateConfig{}).ProjectIdValue()).To(Equal("n/a"))
+
+	// `{}` and not "", so a cloud driver's api.ConvertAuth gets valid JSON to fail its
+	// own required-field checks on. Empty is the normal case for `byo`.
+	Expect((&ComposeTemplateConfig{}).CredentialsValue()).To(Equal("{}"))
+	withAuth := &ComposeTemplateConfig{Credentials: api.Credentials{Credentials: `{"token":"x"}`}}
+	Expect(withAuth.CredentialsValue()).To(Equal(`{"token":"x"}`))
 }
