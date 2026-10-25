@@ -425,6 +425,45 @@ service SCCloudPlugin {
   rpc NewOverrideHeaderRule(NewOverrideHeaderRuleRequest) returns (NewOverrideHeaderRuleResponse);
   rpc ProvisionDomainForEndpoint(ProvisionDomainForEndpointRequest) returns (ProvisionDomainForEndpointResponse);
   rpc PreDestroy(PreDestroyRequest) returns (PreDestroyResponse);
+  // LogStream — server-streaming side channel for free-form progress /
+  // log events. SC core opens exactly one of these per plugin after
+  // Schema(), and routes events into the stack's logger with a
+  // [plugin %q] prefix. Keeps intra-RPC progress visible without
+  // bloating every unary RPC with a streaming variant. See
+  // forge/docs/design/2026-10-24/sc-plugin-architecture/ Addendum F.
+  rpc LogStream(LogStreamRequest) returns (stream PluginLogEvent);
+}
+
+message LogStreamRequest {
+  // Correlation id — echoed back in every event so a log consumer can
+  // associate events with the plugin that produced them. SC core sets
+  // this to the plugin name declared in server.yaml.
+  string plugin_name = 1;
+}
+
+// Severity mirrors the usual trio in logger.Logger. UNKNOWN is treated
+// as INFO by SC core.
+enum LogSeverity {
+  LOG_SEVERITY_UNSPECIFIED = 0;
+  LOG_SEVERITY_DEBUG       = 1;
+  LOG_SEVERITY_INFO        = 2;
+  LOG_SEVERITY_WARN        = 3;
+  LOG_SEVERITY_ERROR       = 4;
+}
+
+message PluginLogEvent {
+  LogSeverity severity   = 1;
+  // Free-form message. Pre-formatted — SC core does not re-interpret
+  // format verbs. Operator-facing text, keep terse.
+  string      message    = 2;
+  // Unix epoch milliseconds the plugin produced the event at.
+  int64       timestamp_ms = 3;
+  // Optional phase tag — a short label the plugin uses to group
+  // sibling events (e.g. "provision", "destroy"). Not required.
+  string      phase      = 4;
+  // Optional trace id — set when SC core's RequestHeader carried one
+  // so the two sides can be stitched.
+  string      trace_id   = 5;
 }
 
 // SCCore — the callback surface SC core exposes to a plugin. Lets the plugin
