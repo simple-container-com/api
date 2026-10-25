@@ -10,12 +10,15 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	pulumiVm "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
+	scVm "github.com/simple-container-com/api/pkg/clouds/vm"
 	scPlugin "github.com/simple-container-com/api/pkg/plugin"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
 )
@@ -192,6 +195,58 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 		}
 		_ = resp // v1: outputs returned here are available via the resource output; richer wiring (dependency placeholders) in Phase 1b
 		return &api.ResourceOutput{Ref: fmt.Sprintf("plugin-compute:%s:%s", pluginName, resp.GetUrn())}, nil
+	}
+}
+
+// --- vm driver sidecar: plugin creates the machines, core connects to them ---
+
+// makeVmHostsSidecar produces the callable pkg/clouds/pulumi/vm's pluginDriver
+// invokes. It adds the two header fields only this side can know — the MonitorProxy
+// address the plugin dials to register resources against core's live engine, and the
+// provider URNs core has already registered — and forwards everything else verbatim.
+//
+// Deliberately not a pApi registration: a `type: vm` resource is dispatched by SC's
+// own vm resource type and routed to a driver by its `provider:` field, so there is
+// no type token for a vm driver to claim. See RegisterSidecars' header note.
+func (b *preEnginePluginBundle) makeVmHostsSidecar(cli *scPlugin.Client, pluginName string) pulumiVm.VmHostsCall {
+	return func(ctx context.Context, req *scpluginv1.VmHostsRequest) (*scpluginv1.VmHostsResponse, error) {
+		addr, err := requireMonitorAddr("vm provider " + req.GetDriver())
+		if err != nil {
+			return nil, err
+		}
+		if req.Header == nil {
+			req.Header = &scpluginv1.RequestHeader{}
+		}
+		req.Header.MonitorAddress = addr
+		req.Header.ProviderUrns = activeProviderURNs()
+		return cli.VmHosts(ctx, req)
+	}
+}
+
+// vmDriverInfo converts a plugin's advertised driver spec into the config-tier row.
+//
+// Every field is taken verbatim, including `unverified` and `roadmap_item`: those are
+// quoted back to the operator by Validate, and a plugin that ships a driver it has
+// never run against a real project must be able to say so in its own words — the
+// same claim the in-tree `cloudru-vm` row makes.
+func vmDriverInfo(spec *scpluginv1.VmDriverSpec) scVm.DriverInfo {
+	c := spec.GetCapabilities()
+	return scVm.DriverInfo{
+		Implemented: spec.GetImplemented(),
+		Unverified:  spec.GetUnverified(),
+		RoadmapItem: spec.GetRoadmapItem(),
+		Capabilities: scVm.Capabilities{
+			CloudInit:            c.GetCloudInit(),
+			CloudInitNeedsEgress: c.GetCloudInitNeedsEgress(),
+			Regionless:           c.GetRegionless(),
+			MultiAZInRegion:      int(c.GetMultiAzInRegion()),
+			PrivateNetwork:       c.GetPrivateNetwork(),
+			FloatingIP:           c.GetFloatingIp(),
+			SecurityGroups:       c.GetSecurityGroups(),
+			BlockStorageCSI:      c.GetBlockStorageCsi(),
+			ContainerRegistry:    c.GetContainerRegistry(),
+			DNSInIaC:             c.GetDnsInIac(),
+		},
 	}
 }
 

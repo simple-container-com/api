@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
@@ -112,7 +113,10 @@ func (p *pulumi) loadPreEnginePlugins(ctx context.Context, stack api.Stack) erro
 		b.Close()
 		return err
 	}
-	b.RegisterSidecars()
+	if err := b.RegisterSidecars(); err != nil {
+		b.Close()
+		return errors.Wrap(err, "register plugin sidecars")
+	}
 	p.preEnginePlugins = b
 
 	// If the provisioner's secrets-provider type is now owned by a plugin

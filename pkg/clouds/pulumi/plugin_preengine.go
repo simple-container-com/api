@@ -14,6 +14,8 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	pulumiVm "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
+	scVm "github.com/simple-container-com/api/pkg/clouds/vm"
 	scPlugin "github.com/simple-container-com/api/pkg/plugin"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
 )
@@ -180,6 +182,11 @@ func (b *preEnginePluginBundle) loadOne(ctx context.Context, name string, spec a
 //   - registrar_types         → pApi.RegistrarFuncByType
 //   - compute_processor_types → pApi.ComputeProcessorFuncByType
 //   - any plugin              → pApi.PreDestroyHookFuncs (appended once per plugin)
+//   - vm_drivers              → scVm.RegisterPluginDriver for the config tier
+//     (capabilities, and therefore validation), plus pulumiVm.RegisterPluginClient
+//     for the Pulumi tier (the VmHosts callable). Two registrations and one
+//     driver — see RegisterPluginClient for why the second is keyed by plugin and
+//     not by driver.
 //
 // Sidecars closure over `b` so invocation reuses the already-spawned plugin
 // subprocesses — one plugin binary serves all its advertised surfaces across
@@ -188,7 +195,12 @@ func (b *preEnginePluginBundle) loadOne(ctx context.Context, name string, spec a
 // ComputeProcess) is read from the active pluginSession via
 // sessionMonitorAddr(); if the session is not up (e.g. called before the
 // inline RunFunc), the sidecar returns a clear error.
-func (b *preEnginePluginBundle) RegisterSidecars() {
+//
+// Returns an error rather than logging one, because one of the registrations it
+// performs can genuinely fail: two installed plugins claiming the same vm driver is
+// an operator-fixable configuration error that must not resolve silently — which
+// plugin won would decide which cloud a machine is created in.
+func (b *preEnginePluginBundle) RegisterSidecars() error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for name, schema := range b.schemas {
@@ -243,10 +255,25 @@ func (b *preEnginePluginBundle) RegisterSidecars() {
 			pApi.RegisterComputeProcessor(cpMap)
 		}
 
+		// VM drivers: in-engine, needs monitor address. Unlike every surface above,
+		// this one does NOT go through a pApi registration map — a `type: vm`
+		// resource is dispatched by SC's own vm resource type and then routed by its
+		// `provider:` field, so the two registrations are into the vm tiers
+		// themselves (see the header note).
+		for _, spec := range schema.GetVmDrivers() {
+			if err := scVm.RegisterPluginDriver(pluginName, spec.GetDriver(), vmDriverInfo(spec)); err != nil {
+				return err
+			}
+		}
+		if len(schema.GetVmDrivers()) > 0 {
+			pulumiVm.RegisterPluginClient(pluginName, b.makeVmHostsSidecar(cli, pluginName))
+		}
+
 		// PreDestroy hook: one per plugin, no type keying — plugin chooses
 		// internally what to clean up based on request_type at call time.
 		pApi.RegisterPreDestroyHook(b.makePreDestroySidecar(cli, pluginName))
 	}
+	return nil
 }
 
 // ClientByResourceType returns the plugin client that owns a resource type
@@ -293,6 +320,12 @@ func (b *preEnginePluginBundle) Close() {
 	for _, cli := range b.clients {
 		cli.Close()
 	}
+	// The vm registrations are package-level in the vm tiers, so they outlive the
+	// bundle unless dropped here. Dispatching to an exited subprocess is the failure
+	// this prevents: a second provision in the same process would find the driver row
+	// and the callable still present and hang on a dead gRPC connection.
+	scVm.ResetPluginDrivers()
+	pulumiVm.ResetPluginClients()
 	b.clients = map[string]*scPlugin.Client{}
 	b.schemas = map[string]*scpluginv1.SchemaResponse{}
 	b.byType = map[string]string{}

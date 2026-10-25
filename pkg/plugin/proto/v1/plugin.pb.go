@@ -2383,12 +2383,22 @@ type VmHostsRequest struct {
 	// would then need a wire change. A plugin unmarshals this into
 	// pkg/clouds/vm.VmConfig from the api module it already imports.
 	//
-	// `credentials` is NOT in here — see credential_name.
+	// `credentials` IS in here, and that is a statement of what works today rather
+	// than of what should: the SCCore.ResolveCredential callback this bus declares
+	// (Vault pattern, 03 §6.3) has no core-side implementation — nothing in
+	// pkg/clouds/pulumi serves the SCCore service, and no plugin can call it. Every
+	// other surface on this bus already ships the resource's `credentials` inline
+	// (serializeConfigToInputs JSON-marshals the whole config, credentials included),
+	// so a VM driver that did it differently would be the one surface a plugin author
+	// could not copy. See credential_name for where this goes.
 	ConfigJson []byte `protobuf:"bytes,4,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"`
-	// The name the plugin passes to the SCCore.ResolveCredential callback to get the
-	// resource's `${auth:…}` blob. The blob itself does not cross this bus: it is a
-	// cloud's root credential, and the callback keeps it out of any RPC payload that
-	// might be logged (Vault pattern, 03 §6.3).
+	// RESERVED, and empty on every call today.
+	//
+	// When SCCore.ResolveCredential is implemented core-side, this carries the
+	// `${auth:…}` name for the plugin to fetch, `credentials` comes out of
+	// config_json, and a cloud's root credential stops crossing this bus at all. It
+	// is kept declared, rather than added later, so that moving to the callback is a
+	// behaviour change on both ends and not a wire change.
 	CredentialName string `protobuf:"bytes,5,opt,name=credential_name,json=credentialName,proto3" json:"credential_name,omitempty"`
 	// Every hole to open in the machine's firewall, already resolved by core's
 	// firewall.go: the base set, the resource's `ingressPorts`, and the presets
@@ -2401,7 +2411,11 @@ type VmHostsRequest struct {
 	// Empty for a driver whose cloud SC cannot write firewall rules in (capabilities'
 	// security_groups = false); such a driver must ignore it rather than guess.
 	Ports []*VmPortRange `protobuf:"bytes,6,rep,name=ports,proto3" json:"ports,omitempty"`
-	// Parent ComponentResource URN, if core registered one.
+	// Parent ComponentResource URN, if core registered one. Empty today: core
+	// registers a vm resource's machines at the stack root, so there is no parent to
+	// name. Declared because a plugin that nests its resources under a component of
+	// its own needs somewhere to hang it, and because adding the field once a
+	// plugin's state exists would renumber nothing but still be a wire change.
 	ParentUrn     string `protobuf:"bytes,7,opt,name=parent_urn,json=parentUrn,proto3" json:"parent_urn,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

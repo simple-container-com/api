@@ -115,6 +115,14 @@ func driverFor(cfg *vm.VmConfig) (Driver, error) {
 	case vm.DriverCloudruEvolution:
 		return cloudruEvolutionDriver{}, nil
 	default:
+		// Not in-tree — it may still be a driver a loaded plugin advertised. The
+		// in-tree switch comes first for the same reason vm.LookupDriver checks the
+		// built-in table first: a plugin may not shadow a driver core ships.
+		if driver, ok, err := pluginDriverFor(cfg); err != nil {
+			return nil, err
+		} else if ok {
+			return driver, nil
+		}
 		return nil, errors.Errorf("no vm driver for provider %q", cfg.Driver)
 	}
 }
