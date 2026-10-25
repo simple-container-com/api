@@ -68,6 +68,13 @@ type DriverInfo struct {
 	// hits it can find the state of the work rather than guessing.
 	RoadmapItem  string
 	Capabilities Capabilities
+	// Plugin names the SC plugin that advertised this driver, and is empty for a
+	// driver SC core ships itself. Set by RegisterPluginDriver — a row in the
+	// `Drivers` literal below must never set it.
+	//
+	// It is what routes the resource: a non-empty Plugin means the machines are
+	// created by that plugin's VmHosts RPC rather than by an in-tree driver.
+	Plugin string
 }
 
 // Drivers is the whole driver table.
