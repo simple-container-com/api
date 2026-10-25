@@ -41,15 +41,16 @@ func logStreamConsumer(ctx context.Context, cli *scPlugin.Client, pluginName str
 			prefix += "/" + ev.GetPhase()
 		}
 		prefix += "] "
+		msg := prefix + ev.GetMessage()
 		switch ev.GetSeverity() {
 		case scpluginv1.LogSeverity_LOG_SEVERITY_DEBUG:
-			log.Debug(ctx, prefix+ev.GetMessage())
+			log.Debug(ctx, "%s", msg)
 		case scpluginv1.LogSeverity_LOG_SEVERITY_WARN:
-			log.Warn(ctx, prefix+ev.GetMessage())
+			log.Warn(ctx, "%s", msg)
 		case scpluginv1.LogSeverity_LOG_SEVERITY_ERROR:
-			log.Error(ctx, prefix+ev.GetMessage())
+			log.Error(ctx, "%s", msg)
 		default:
-			log.Info(ctx, prefix+ev.GetMessage())
+			log.Info(ctx, "%s", msg)
 		}
 	}
 }
