@@ -51,6 +51,7 @@ const (
 	SCCloudPlugin_NewOverrideHeaderRule_FullMethodName      = "/sc.plugin.v1.SCCloudPlugin/NewOverrideHeaderRule"
 	SCCloudPlugin_ProvisionDomainForEndpoint_FullMethodName = "/sc.plugin.v1.SCCloudPlugin/ProvisionDomainForEndpoint"
 	SCCloudPlugin_PreDestroy_FullMethodName                 = "/sc.plugin.v1.SCCloudPlugin/PreDestroy"
+	SCCloudPlugin_LogStream_FullMethodName                  = "/sc.plugin.v1.SCCloudPlugin/LogStream"
 )
 
 // SCCloudPluginClient is the client API for SCCloudPlugin service.
@@ -75,6 +76,13 @@ type SCCloudPluginClient interface {
 	NewOverrideHeaderRule(ctx context.Context, in *NewOverrideHeaderRuleRequest, opts ...grpc.CallOption) (*NewOverrideHeaderRuleResponse, error)
 	ProvisionDomainForEndpoint(ctx context.Context, in *ProvisionDomainForEndpointRequest, opts ...grpc.CallOption) (*ProvisionDomainForEndpointResponse, error)
 	PreDestroy(ctx context.Context, in *PreDestroyRequest, opts ...grpc.CallOption) (*PreDestroyResponse, error)
+	// LogStream — server-streaming side channel for free-form progress /
+	// log events. SC core opens exactly one of these per plugin after
+	// Schema(), and routes events into the stack's logger with a
+	// [plugin %q] prefix. Keeps intra-RPC progress visible without
+	// bloating every unary RPC with a streaming variant. See
+	// forge/docs/design/2026-10-24/sc-plugin-architecture/ Addendum F.
+	LogStream(ctx context.Context, in *LogStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PluginLogEvent], error)
 }
 
 type sCCloudPluginClient struct {
@@ -195,6 +203,25 @@ func (c *sCCloudPluginClient) PreDestroy(ctx context.Context, in *PreDestroyRequ
 	return out, nil
 }
 
+func (c *sCCloudPluginClient) LogStream(ctx context.Context, in *LogStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PluginLogEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SCCloudPlugin_ServiceDesc.Streams[0], SCCloudPlugin_LogStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[LogStreamRequest, PluginLogEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SCCloudPlugin_LogStreamClient = grpc.ServerStreamingClient[PluginLogEvent]
+
 // SCCloudPluginServer is the server API for SCCloudPlugin service.
 // All implementations must embed UnimplementedSCCloudPluginServer
 // for forward compatibility.
@@ -217,6 +244,13 @@ type SCCloudPluginServer interface {
 	NewOverrideHeaderRule(context.Context, *NewOverrideHeaderRuleRequest) (*NewOverrideHeaderRuleResponse, error)
 	ProvisionDomainForEndpoint(context.Context, *ProvisionDomainForEndpointRequest) (*ProvisionDomainForEndpointResponse, error)
 	PreDestroy(context.Context, *PreDestroyRequest) (*PreDestroyResponse, error)
+	// LogStream — server-streaming side channel for free-form progress /
+	// log events. SC core opens exactly one of these per plugin after
+	// Schema(), and routes events into the stack's logger with a
+	// [plugin %q] prefix. Keeps intra-RPC progress visible without
+	// bloating every unary RPC with a streaming variant. See
+	// forge/docs/design/2026-10-24/sc-plugin-architecture/ Addendum F.
+	LogStream(*LogStreamRequest, grpc.ServerStreamingServer[PluginLogEvent]) error
 	mustEmbedUnimplementedSCCloudPluginServer()
 }
 
@@ -259,6 +293,9 @@ func (UnimplementedSCCloudPluginServer) ProvisionDomainForEndpoint(context.Conte
 }
 func (UnimplementedSCCloudPluginServer) PreDestroy(context.Context, *PreDestroyRequest) (*PreDestroyResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method PreDestroy not implemented")
+}
+func (UnimplementedSCCloudPluginServer) LogStream(*LogStreamRequest, grpc.ServerStreamingServer[PluginLogEvent]) error {
+	return status.Error(codes.Unimplemented, "method LogStream not implemented")
 }
 func (UnimplementedSCCloudPluginServer) mustEmbedUnimplementedSCCloudPluginServer() {}
 func (UnimplementedSCCloudPluginServer) testEmbeddedByValue()                       {}
@@ -479,6 +516,17 @@ func _SCCloudPlugin_PreDestroy_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SCCloudPlugin_LogStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(LogStreamRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SCCloudPluginServer).LogStream(m, &grpc.GenericServerStream[LogStreamRequest, PluginLogEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SCCloudPlugin_LogStreamServer = grpc.ServerStreamingServer[PluginLogEvent]
+
 // SCCloudPlugin_ServiceDesc is the grpc.ServiceDesc for SCCloudPlugin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -531,7 +579,13 @@ var SCCloudPlugin_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _SCCloudPlugin_PreDestroy_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "LogStream",
+			Handler:       _SCCloudPlugin_LogStream_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "v1/plugin.proto",
 }
 

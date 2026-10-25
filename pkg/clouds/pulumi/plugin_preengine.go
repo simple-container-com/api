@@ -18,6 +18,42 @@ import (
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
 )
 
+// logStreamConsumer runs in a goroutine for each loaded plugin. Opens the
+// plugin's LogStream and routes incoming events into the bundle logger
+// with a [plugin %q] prefix. Ends when ctx is cancelled (bundle Close)
+// or the plugin exits (stream EOF).
+func logStreamConsumer(ctx context.Context, cli *scPlugin.Client, pluginName string, log logger.Logger) {
+	stream, err := cli.LogStream(ctx, &scpluginv1.LogStreamRequest{PluginName: pluginName})
+	if err != nil {
+		log.Debug(ctx, "plugin %q LogStream open: %v", pluginName, err)
+		return
+	}
+	for {
+		ev, err := stream.Recv()
+		if err != nil {
+			if ctx.Err() == nil {
+				log.Debug(ctx, "plugin %q LogStream closed: %v", pluginName, err)
+			}
+			return
+		}
+		prefix := "[plugin " + pluginName
+		if ev.GetPhase() != "" {
+			prefix += "/" + ev.GetPhase()
+		}
+		prefix += "] "
+		switch ev.GetSeverity() {
+		case scpluginv1.LogSeverity_LOG_SEVERITY_DEBUG:
+			log.Debug(ctx, prefix+ev.GetMessage())
+		case scpluginv1.LogSeverity_LOG_SEVERITY_WARN:
+			log.Warn(ctx, prefix+ev.GetMessage())
+		case scpluginv1.LogSeverity_LOG_SEVERITY_ERROR:
+			log.Error(ctx, prefix+ev.GetMessage())
+		default:
+			log.Info(ctx, prefix+ev.GetMessage())
+		}
+	}
+}
+
 // preEnginePluginBundle holds plugin subprocesses + their schemas loaded
 // BEFORE the Pulumi engine starts. Pre-engine phase of the two-phase plugin
 // lifecycle — see forge/docs/design/2026-10-24/sc-plugin-architecture/
@@ -43,14 +79,22 @@ type preEnginePluginBundle struct {
 	clients map[string]*scPlugin.Client           // name → spawned plugin
 	schemas map[string]*scpluginv1.SchemaResponse // name → schema
 	byType  map[string]string                     // state-store or secrets type → plugin name
+	// logCtx governs the LogStream consumer goroutine spawned per plugin
+	// after loadOne. Close() cancels this ctx so the consumers return and
+	// the stream RPC ends cleanly on the plugin side.
+	logCtx    context.Context
+	logCancel context.CancelFunc
 }
 
 func newPreEnginePluginBundle(log logger.Logger) *preEnginePluginBundle {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &preEnginePluginBundle{
-		log:     log,
-		clients: map[string]*scPlugin.Client{},
-		schemas: map[string]*scpluginv1.SchemaResponse{},
-		byType:  map[string]string{},
+		log:       log,
+		clients:   map[string]*scPlugin.Client{},
+		schemas:   map[string]*scpluginv1.SchemaResponse{},
+		byType:    map[string]string{},
+		logCtx:    ctx,
+		logCancel: cancel,
 	}
 }
 
@@ -98,6 +142,9 @@ func (b *preEnginePluginBundle) loadOne(ctx context.Context, name string, spec a
 		cli.Close()
 		return errors.Wrap(err, "schema")
 	}
+	// Start the LogStream consumer BEFORE acquiring the bundle lock so a
+	// slow stream open doesn't serialise plugin loads.
+	go logStreamConsumer(b.logCtx, cli, name, b.log)
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.clients[name] = cli
@@ -233,6 +280,9 @@ type preEnginePluginRef struct {
 
 // Close tears down every plugin subprocess and clears the dispatch tables.
 func (b *preEnginePluginBundle) Close() {
+	if b.logCancel != nil {
+		b.logCancel()
+	}
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for _, cli := range b.clients {

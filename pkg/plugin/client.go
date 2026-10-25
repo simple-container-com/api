@@ -147,6 +147,14 @@ func (c *Client) ProvisionDomainForEndpoint(ctx context.Context, req *scpluginv1
 	return c.stub.ProvisionDomainForEndpoint(ctx, req)
 }
 
+// LogStream opens the plugin's progress-event stream. SC core calls this
+// once per plugin after Schema() returns, then forwards each event to its
+// logger. The stream naturally ends when the plugin exits OR when the
+// caller cancels ctx. Caller is responsible for draining in a goroutine.
+func (c *Client) LogStream(ctx context.Context, req *scpluginv1.LogStreamRequest) (scpluginv1.SCCloudPlugin_LogStreamClient, error) {
+	return c.stub.LogStream(ctx, req)
+}
+
 // Close terminates the plugin subprocess. Safe to call more than once.
 func (c *Client) Close() {
 	if c.gpClient != nil {
