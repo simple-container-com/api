@@ -93,6 +93,7 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, ProviderUrns: activeProviderURNs()},
 			ResourceType: typeToken,
 			ResourceName: input.Descriptor.Name,
+			Inputs:       serializeConfigToInputs(input.Descriptor.Config.Config),
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q Provision(%q, %q)", pluginName, typeToken, input.Descriptor.Name)
@@ -114,6 +115,7 @@ func (b *preEnginePluginBundle) makeProviderSidecar(cli *scPlugin.Client, plugin
 			Header:               &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env},
 			ProviderType:         typeToken,
 			ProviderResourceName: input.Descriptor.Name,
+			Inputs:               serializeConfigToInputs(input.Descriptor.Config.Config),
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q Provider(%q)", pluginName, typeToken)
@@ -183,6 +185,7 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env},
 			ResourceType: typeToken,
 			ResourceName: input.Descriptor.Name,
+			Inputs:       serializeConfigToInputs(input.Descriptor.Config.Config),
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q ComputeProcess(%q)", pluginName, typeToken)
