@@ -70,11 +70,35 @@ func NewMonitorProxy(ctx *pulumi.Context, logger hclog.Logger) (*MonitorProxy, e
 
 // Serve binds a loopback TCP listener, starts the gRPC server, and returns
 // its address. Caller MUST call Stop() when done.
+//
+// The listener is plaintext, and has to be: it exists so a plugin subprocess
+// can reach the Pulumi resource monitor via pulumi.NewContext(RunInfo{
+// MonitorAddr: ...}), and the Pulumi Go SDK dials a monitor address with
+// insecure credentials — there is no hook to hand it a CA or a client cert.
+// That is Pulumi's own transport for this socket: the engine passes its real
+// monitor to every language host and provider plugin exactly the same way,
+// plaintext on loopback.
+//
+// So the exposure is a loopback-only, ephemeral, unauthenticated port that can
+// register resources into the running stack, for the duration of one `sc
+// deploy`. It grants a local process nothing it did not already have — during
+// that same window Pulumi's own monitor is listening on loopback under the
+// same terms, and this proxy only forwards to it. Binding 127.0.0.1 (never
+// 0.0.0.0) and tearing the server down in the caller's defer are what keep it
+// to that.
+//
+// A bearer token in the metadata would be the obvious hardening and is not
+// available: the plugin side dials through the Pulumi SDK, which sends no
+// custom metadata, so requiring one would mean every plugin hand-rolling a
+// monitor client instead of using pulumi.NewContext.
 func (p *MonitorProxy) Serve() (string, func(), error) {
 	lis, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		return "", nil, errors.Wrap(err, "listen monitor proxy")
 	}
+	// Plaintext on loopback, forced by the Pulumi SDK's monitor transport —
+	// see this function's doc comment for the threat model.
+	// nosemgrep: grpc-server-insecure-connection
 	srv := grpc.NewServer()
 	pulumirpc.RegisterResourceMonitorServer(srv, p)
 	go func() {
