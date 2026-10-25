@@ -306,11 +306,7 @@ func TestValidateCloudAcceptsHostKeyWhereCloudInitIsImpossible(t *testing.T) {
 	// this test is where that gets noticed.
 	Expect(Drivers[DriverCloudruEvolution].Capabilities.CloudInit).To(BeFalse())
 
-	cfg := cloudConfig()
-	cfg.Driver = DriverCloudruEvolution
-	// This cloud has no regions, and cloudConfig() sets one for the region-scoped
-	// majority — see TestValidateCloudRegionFollowsTheCapability.
-	cfg.Region = ""
+	cfg := evolutionConfig()
 	cfg.HostKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIexample"
 	Expect(cfg.Validate()).ToNot(HaveOccurred())
 
@@ -335,12 +331,13 @@ func TestValidateCloudRefusesExtraSshKeysWithoutCloudInit(t *testing.T) {
 	Expect(Drivers[cfg.Driver].Capabilities.CloudInit).To(BeTrue())
 	Expect(cfg.Validate()).ToNot(HaveOccurred())
 
-	cfg.Driver = DriverCloudruEvolution
-	cfg.Region = "" // regionless — see TestValidateCloudRegionFollowsTheCapability
-	Expect(cfg.Validate().Error()).To(ContainSubstring("`extraSshKeys` is not valid"))
+	// And refused on Evolution, which accepts no user-data to write them into.
+	noCloudInit := evolutionConfig()
+	noCloudInit.ExtraSshKeys = cfg.ExtraSshKeys
+	Expect(noCloudInit.Validate().Error()).To(ContainSubstring("`extraSshKeys` is not valid"))
 
-	cfg.ExtraSshKeys = nil
-	Expect(cfg.Validate()).ToNot(HaveOccurred())
+	noCloudInit.ExtraSshKeys = nil
+	Expect(noCloudInit.Validate()).ToNot(HaveOccurred())
 }
 
 // CredentialsValue must not become a dumping ground for the config: with `byo` the
@@ -445,9 +442,7 @@ func TestValidateCloudRegionFollowsTheCapability(t *testing.T) {
 	Expect(Drivers[DriverCloudru].Capabilities.Regionless).To(BeFalse(),
 		"Advanced IS region-scoped: the region selects the IAM endpoint too")
 
-	regionless := cloudConfig()
-	regionless.Driver = DriverCloudruEvolution
-	regionless.Region = ""
+	regionless := evolutionConfig()
 	Expect(regionless.Validate()).ToNot(HaveOccurred())
 
 	regionless.Region = "ru-moscow-1"
@@ -461,4 +456,50 @@ func TestValidateCloudRegionFollowsTheCapability(t *testing.T) {
 	scoped.Driver = DriverCloudru
 	scoped.Region = ""
 	Expect(scoped.Validate().Error()).To(ContainSubstring("requires `region`"))
+}
+
+// The verified/unverified gate, both halves. "Implemented" and "known to work" are
+// different claims, and before this gate `main` offered a Cloud.ru Advanced driver
+// that was indistinguishable in the DSL from the Evolution one that had actually
+// provisioned a machine end to end.
+func TestValidateRefusesUnverifiedProvider(t *testing.T) {
+	RegisterTestingT(t)
+
+	// The gate keys off the capability row, never off a driver name — so a driver
+	// that gets its first live smoke is released by clearing one field here, and
+	// one that is added tomorrow is gated without touching Validate.
+	Expect(Drivers[DriverCloudru].Unverified).ToNot(BeEmpty())
+	Expect(Drivers[DriverCloudruEvolution].Unverified).To(BeEmpty(),
+		"Evolution is the one Cloud.ru estate SC has provisioned on")
+	for name, drv := range Drivers {
+		if drv.Unverified != "" {
+			Expect(drv.RoadmapItem).ToNot(BeEmpty(),
+				"the refusal for %q points the operator at an item to follow", name)
+		}
+	}
+
+	// Refused by default: the driver compiles, and that is all anyone knows.
+	gated := cloudConfig()
+	gated.AllowUnverifiedProvider = false
+	err := gated.Validate()
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("has never provisioned a machine on the cloud it addresses"))
+	Expect(err.Error()).To(ContainSubstring("cloudru-evolution-vm"),
+		"the refusal names the driver to use instead, which is the whole reason it is worth refusing")
+	Expect(err.Error()).To(ContainSubstring(Drivers[DriverCloudru].RoadmapItem))
+
+	// And accepted with the opt-in, because this is a gate and not a removal: an
+	// operator willing to debug the driver is how it stops being unverified.
+	gated.AllowUnverifiedProvider = true
+	Expect(gated.Validate()).ToNot(HaveOccurred())
+
+	// The other half. Left unrefused, the flag would spread into every example and
+	// read as a standing exception to a gate the driver is not subject to — and the
+	// day that driver did need gating, the config would already be opted in.
+	verified := evolutionConfig()
+	verified.AllowUnverifiedProvider = true
+	err = verified.Validate()
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("`allowUnverifiedProvider` is not valid"))
+	Expect(err.Error()).To(ContainSubstring("live-verified"))
 }

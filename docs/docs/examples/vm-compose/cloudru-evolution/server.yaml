@@ -150,13 +150,34 @@ resources:
             #   - https://mirror.gcr.io
             # packageMirror: https://mirror.yandex.ru/ubuntu
 
+            # Optional. Extra holes in the security group, on top of 22, the ingress's
+            # 80/443, and the ranges SC INFERS from this machine's consumers: the
+            # `compose-on-vm` template above names this resource, so the host-port
+            # range a stack publishes into (20000-30000) is opened without being
+            # listed here. This field is for what inference cannot see — a port a
+            # process of your own binds on the machine.
+            #
+            # `preset` names a bundle instead of a number (`vm-compose`, `k3s`,
+            # `http`) and is mutually exclusive with `port`. An unknown preset or an
+            # out-of-range port is refused, not dropped.
+            #
+            # Two things specific to this cloud: a node-to-node range (the `k3s`
+            # preset's kubelet/flannel/etcd) is permitted from this machine's own
+            # subnet and never from the internet — and if that subnet cannot be
+            # resolved SC says so and leaves the port SHUT rather than widening it. A
+            # destroy closes only the rules whose description names this VM, because
+            # the group is shared with everything else in the project.
+            # ingressPorts:
+            #   - port: 9100            # node_exporter
+            #   - port: 7946
+            #     protocol: udp
+            #   - port: 32000
+            #     portEnd: 32100
+
             # The front door: a Caddy container in its own compose project, terminating
             # TLS for every stack on this machine. With this on, SC opens 80 and 443 (TCP
-            # and UDP, for HTTP/3) in the security group; with it off, only 22.
-            #
-            # NOTHING ELSE IS EVER OPENED. A stack that falls back to a host port (no
-            # `domain:`, or no ingress) is reachable from inside the cloud but not from
-            # the internet until you open that port in the security group yourself.
+            # and UDP, for HTTP/3) in the security group; with it off, they stay shut and
+            # whatever else holds the node's 80/443 can have them.
             ingress:
               enable: true
               # The ACME account address. Required — no CA issues without one.

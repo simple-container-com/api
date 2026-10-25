@@ -83,7 +83,7 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	version := lo.If(input.StackParams.Version != "", input.StackParams.Version).Else("latest")
 	stackConfig := in.Deployment.StackConfig
 
-	host, ingressEnabled, err := hostFromParent(ctx, input, params, in.VmResource)
+	host, parentVm, err := hostFromParent(ctx, input, params, in.VmResource)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	// the renderer that depends on it, because three things downstream have to agree
 	// about the answer: whether a host port is published, whether the two slots may
 	// run at once, and what the stack's URL is.
-	servesDomain := vm.ServesDomain(in, ingressEnabled)
+	servesDomain := vm.ServesDomain(in, parentVm.IngressEnabled)
 
 	// The ingress host port is published only when Caddy is NOT in front. That is not
 	// a tidiness choice: a published port is a singleton, and it is the one thing that
@@ -125,13 +125,34 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 			in.Deployment.IngressContainer.Name, stackName, hostPort)
 	}
 
+	// A host port the machine's firewall does not let through. This is the warning
+	// the whole port-resolution seam exists to make possible: before it, a stack
+	// deployed onto a shut port was a green deploy, a `curl` that answered 200 FROM
+	// the machine, and nothing anywhere saying why the service was unreachable from
+	// outside (roadmap item sc-cloudru-vm-no-ingress-ports).
+	//
+	// A warning rather than a refusal, deliberately: the parent stack and this one
+	// are provisioned separately, so the port may well be opened by a re-provision a
+	// minute from now, and failing the deploy would make the remedy harder to reach
+	// than the problem. Silent when the parent exported nothing — SC either does not
+	// manage that firewall or has not been re-provisioned since this was added, and
+	// in neither case does it know the answer.
+	if hostPort > 0 && len(parentVm.OpenPorts) > 0 && !vm.PortsReachable(parentVm.OpenPorts, hostPort, vm.ProtocolTcp) {
+		params.Log.Warn(ctx.Context(),
+			"stack %q publishes host port %d on vm %q, but the ports SC opened on that machine are %s — so the "+
+				"stack will answer on the machine and be unreachable from outside. Add `ingressPorts: [{preset: %s}]` "+
+				"to the `type: %s` resource in the parent stack and re-provision it",
+			stackName, hostPort, in.VmResource, vm.FormatPortSpec(parentVm.OpenPorts),
+			vm.IngressPresetVmCompose, vm.ResourceTypeVm)
+	}
+
 	// The two ways a stack can name a domain and not get it. Warned about rather than
 	// refused, because the stack is genuinely deployed and genuinely answers on the
 	// host port — but said out loud, because "my certificate never appeared" is
 	// otherwise a silent failure with no local evidence.
 	if stackConfig.Domain != "" && !servesDomain {
 		switch {
-		case !ingressEnabled:
+		case !parentVm.IngressEnabled:
 			params.Log.Warn(ctx.Context(),
 				"stack %q sets `domain: %s`, but vm %q does not have `ingress.enable: true`: no certificate is "+
 					"issued and nothing listens on 443. Reach the stack on http://<host>:%d, or enable the ingress "+
@@ -144,7 +165,7 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 				stackName, stackConfig.Domain)
 		}
 	}
-	if stackConfig.Domain == "" && ingressEnabled && in.Deployment.IngressContainer != nil {
+	if stackConfig.Domain == "" && parentVm.IngressEnabled && in.Deployment.IngressContainer != nil {
 		// The `prefix`-without-`domain` case, among others. On the Kubernetes path a
 		// prefix is grafted onto an aggregator site that already owns a domain; on a
 		// single VM there is no such site, so there is no host name to attach it to.
@@ -538,18 +559,37 @@ func toComposeURLExport(stackName string) string {
 	return fmt.Sprintf("%s-vm-compose-url", stackName)
 }
 
+// parentVmFacts is what a child stack learns about the MACHINE (as opposed to the
+// host it connects to) from the parent stack's outputs.
+//
+// A struct rather than two more return values because both fields answer the same
+// question — "what did the parent stack decide, that this deploy has to live with"
+// — and a third bare bool in that signature is the kind of thing that gets passed
+// in the wrong order.
+type parentVmFacts struct {
+	// IngressEnabled is whether the machine runs Caddy.
+	IngressEnabled bool
+	// OpenPorts is what SC opened in the machine's firewall, as exported by the
+	// parent. Empty when the parent does not know — a machine whose packet
+	// filtering SC does not manage, or a parent stack provisioned before the
+	// export existed.
+	OpenPorts []vm.PortRange
+}
+
 // hostFromParent reads the facts of the machine out of the parent stack's outputs.
 //
 // The machine is described in the parent stack and deployed onto from the child, so
 // this is the one seam where the two meet. It returns a HostFacts identical in shape
 // to the one the driver produced, which is what lets connectionArgs and shipScript be
-// the same code on both sides, plus whether the machine declared `ingress.enable`.
+// the same code on both sides, plus the two facts about the MACHINE that this stack's
+// deploy has to agree with: whether it declared `ingress.enable`, and which ports SC
+// opened in its firewall.
 func hostFromParent(
 	ctx *sdk.Context,
 	input api.ResourceInput,
 	params pApi.ProvisionParams,
 	vmResource string,
-) (HostFacts, bool, error) {
+) (HostFacts, parentVmFacts, error) {
 	parentRef := params.ParentStack.FullReference
 	suffix := lo.If(params.ParentStack.DependsOnResource != nil,
 		"--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
@@ -562,7 +602,7 @@ func hostFromParent(
 
 	countRaw, err := pApi.GetValueFromStack[any](ctx, refName("host-count"), parentRef, ToHostCountExport(vmResource), false)
 	if err != nil {
-		return HostFacts{}, false, errors.Wrapf(err, "failed to read host count of vm %q from parent stack %q", vmResource, parentRef)
+		return HostFacts{}, parentVmFacts{}, errors.Wrapf(err, "failed to read host count of vm %q from parent stack %q", vmResource, parentRef)
 	}
 	count, ok := toInt(countRaw)
 	if !ok || count < 1 {
@@ -570,7 +610,7 @@ func hostFromParent(
 		// errors.Wrapf(nil, ...) is nil — so a missing resource arrives here as a
 		// successful read of nothing, and this check is the only thing that turns it
 		// into a message naming what is actually wrong.
-		return HostFacts{}, false, errors.Errorf(
+		return HostFacts{}, parentVmFacts{}, errors.Errorf(
 			"parent stack %q has no `type: %s` resource named %q (its host-count output is %v). "+
 				"Check `vmResource` in the `%s` template against the resource name in the parent's server.yaml",
 			parentRef, vm.ResourceTypeVm, vmResource, countRaw, vm.TemplateTypeVmCompose,
@@ -584,42 +624,42 @@ func hostFromParent(
 
 	address, err := pApi.GetValueFromStack[string](ctx, refName("address"), parentRef, ToHostAddressExport(vmResource, 0), false)
 	if err != nil {
-		return HostFacts{}, false, errors.Wrapf(err, "failed to read the address of vm %q from parent stack %q", vmResource, parentRef)
+		return HostFacts{}, parentVmFacts{}, errors.Wrapf(err, "failed to read the address of vm %q from parent stack %q", vmResource, parentRef)
 	}
 	if address == "" {
-		return HostFacts{}, false, errors.Errorf("vm %q in parent stack %q has an empty host address", vmResource, parentRef)
+		return HostFacts{}, parentVmFacts{}, errors.Errorf("vm %q in parent stack %q has an empty host address", vmResource, parentRef)
 	}
 	privateKey, err := pApi.GetValueFromStack[string](ctx, refName("key"), parentRef, ToHostPrivateKeyExport(vmResource, 0), true)
 	if err != nil {
-		return HostFacts{}, false, errors.Wrapf(err, "failed to read the deploy key of vm %q from parent stack %q", vmResource, parentRef)
+		return HostFacts{}, parentVmFacts{}, errors.Wrapf(err, "failed to read the deploy key of vm %q from parent stack %q", vmResource, parentRef)
 	}
 	if privateKey == "" {
-		return HostFacts{}, false, errors.Errorf(
+		return HostFacts{}, parentVmFacts{}, errors.Errorf(
 			"vm %q in parent stack %q exported no deploy key; re-run `sc provision` for the parent stack", vmResource, parentRef,
 		)
 	}
 	keyPassword, err := pApi.GetValueFromStack[string](ctx, refName("key-password"), parentRef,
 		ToHostPrivateKeyPasswordExport(vmResource, 0), true)
 	if err != nil {
-		return HostFacts{}, false, errors.Wrapf(err, "failed to read the deploy key passphrase of vm %q", vmResource)
+		return HostFacts{}, parentVmFacts{}, errors.Wrapf(err, "failed to read the deploy key passphrase of vm %q", vmResource)
 	}
 	// Not an error when empty, and not read back through a check: an unencrypted key
 	// is the normal case and has no passphrase.
 	user, err := pApi.GetValueFromStack[string](ctx, refName("user"), parentRef, ToHostUserExport(vmResource, 0), false)
 	if err != nil {
-		return HostFacts{}, false, errors.Wrapf(err, "failed to read the ssh user of vm %q", vmResource)
+		return HostFacts{}, parentVmFacts{}, errors.Wrapf(err, "failed to read the ssh user of vm %q", vmResource)
 	}
 	portRaw, err := pApi.GetValueFromStack[any](ctx, refName("port"), parentRef, ToHostPortExport(vmResource, 0), false)
 	if err != nil {
-		return HostFacts{}, false, errors.Wrapf(err, "failed to read the ssh port of vm %q", vmResource)
+		return HostFacts{}, parentVmFacts{}, errors.Wrapf(err, "failed to read the ssh port of vm %q", vmResource)
 	}
 	hostKey, err := pApi.GetValueFromStack[string](ctx, refName("host-key"), parentRef, ToHostKeyExport(vmResource, 0), false)
 	if err != nil {
-		return HostFacts{}, false, errors.Wrapf(err, "failed to read the host key of vm %q", vmResource)
+		return HostFacts{}, parentVmFacts{}, errors.Wrapf(err, "failed to read the host key of vm %q", vmResource)
 	}
 	ingressRaw, err := pApi.GetValueFromStack[any](ctx, refName("ingress"), parentRef, ToIngressEnabledExport(vmResource), false)
 	if err != nil {
-		return HostFacts{}, false, errors.Wrapf(err, "failed to read the ingress setting of vm %q", vmResource)
+		return HostFacts{}, parentVmFacts{}, errors.Wrapf(err, "failed to read the ingress setting of vm %q", vmResource)
 	}
 	// Read through toBool for the same reason the ints are: an sdk.Bool export comes
 	// back off a JSON checkpoint, and GetValueFromStack[bool] would panic rather than
@@ -628,6 +668,17 @@ func hostFromParent(
 	// either way, and the only thing the flag changes here is the wording of a
 	// warning.
 	ingressEnabled, _ := toBool(ingressRaw)
+
+	// What the parent actually opened. Read as a string (see vm.FormatPortSpec for
+	// why it crosses the boundary as one) and empty on an older parent stack or on a
+	// machine whose firewall SC does not manage — in both cases the caller must stay
+	// quiet rather than guess, since "I cannot see the firewall" and "the port is
+	// shut" are different statements and only one of them is actionable.
+	openPortsSpec, err := pApi.GetValueFromStack[string](ctx, refName("open-ports"), parentRef,
+		ToOpenPortsExport(vmResource), false)
+	if err != nil {
+		return HostFacts{}, parentVmFacts{}, errors.Wrapf(err, "failed to read the open ports of vm %q", vmResource)
+	}
 
 	port, ok := toInt(portRaw)
 	if !ok || port <= 0 {
@@ -657,7 +708,7 @@ func hostFromParent(
 		HostKey:       sdk.String(hostKey).ToStringOutput(),
 		HostKeyPinned: hostKey != "",
 		Role:          vm.RoleCompose,
-	}, ingressEnabled, nil
+	}, parentVmFacts{IngressEnabled: ingressEnabled, OpenPorts: vm.ParsePortSpec(openPortsSpec)}, nil
 }
 
 // hashOf is the stand-in for content in a Trigger.

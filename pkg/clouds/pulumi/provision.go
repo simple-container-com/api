@@ -114,16 +114,14 @@ func (p *pulumi) prepareStackForOperations(ctx context.Context, ref backend.Stac
 
 func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx *sdk.Context) error {
 	program := func(ctx *sdk.Context) error {
-		// Phase 0 Step 4 — plugin dispatch bootstrap.
-		// Load declared plugins, stand up MonitorProxy, attach session to the
-		// Go context so configureResource picks it up on in-tree dispatch miss.
-		if len(stack.Server.Plugins) > 0 {
-			sess := newPluginSession(p.logger)
+		// Phase 1 complete — in-engine plugin session.
+		// Pre-engine plugin loading + sidecar registration already happened in
+		// ProvisionStack entry (loadPreEnginePlugins); here we just stand up
+		// the MonitorProxy and attach the session for the sidecars to find.
+		if p.preEnginePlugins != nil {
+			sess := newPluginSession()
 			defer sess.Close()
 			defer detachPluginSession()
-			if err := sess.LoadAll(ctx.Context(), stack.Server.Plugins); err != nil {
-				return errors.Wrap(err, "load plugins")
-			}
 			if err := sess.StartProxy(ctx); err != nil {
 				return errors.Wrap(err, "start monitor proxy")
 			}
@@ -211,15 +209,15 @@ func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string
 		res.Name = resName
 	}
 
-	// Plugin dispatch short-circuit: if the resource type is owned by a
-	// loaded plugin, SKIP initProvider — plugins own their own provider
-	// construction via the Pulumi engine's auto-default-provider (or via
-	// an explicit Provider RPC in future). An in-tree ProvisionFunc still
-	// gets normal provision params including the ProviderResource.
-	// Phase 0 Step 4 of sc-plugin-architecture.
-	if _, inTree := pApi.ProvisionFuncByType[res.Type]; !inTree {
-		if sess := sessionFromContext(ctx.Context()); sess != nil && sess.Dispatch(res.Type) != nil {
-			return pluginProvisionFunc(ctx, stack, api.ResourceInput{
+	// Plugin dispatch short-circuit: a resource type with `:` prefix came
+	// through the config-tier plugin fall-through in pkg/api/read.go, which
+	// means a plugin owns it (its sidecar is in pApi.ProvisionFuncByType).
+	// SKIP initProvider — plugin-owned resources rely on the Pulumi engine's
+	// auto-default-provider or on an explicit provider the plugin registered
+	// via its Provider RPC.
+	if strings.Count(res.Type, ":") >= 2 {
+		if fnc, ok := pApi.ProvisionFuncByType[res.Type]; ok {
+			return fnc(ctx, stack, api.ResourceInput{
 				Descriptor: &res,
 				StackParams: &api.StackParams{
 					StackName:   stack.Name,
@@ -319,9 +317,24 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 		api.ScContainerResourceTypeEnvVariable: res.Type,
 	}
 
-	providerType, provider, err := p.initProvider(ctx, stack, lo.If(suffix != "", fmt.Sprintf("%s--%s", res.Name, suffix)).Else(res.Name), res.Type, res.Config, environment)
-	if err != nil {
-		return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init main provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
+	// Plugin-dispatched resource types own their provider construction
+	// internally (in the plugin's own pctx — ProviderResource handles don't
+	// cross contexts). Skip initProvider; the plugin's Provision handler
+	// constructs the provider using SC-core's naming formula so the
+	// resulting Pulumi provider URN stays byte-identical to pre-split. See
+	// forge/docs/design/2026-10-24/sc-plugin-architecture/04 Addendum H.
+	var (
+		providerType string
+		provider     sdk.ProviderResource
+	)
+	if pApi.IsPluginType(res.Type) {
+		providerType = res.Type
+	} else {
+		var err error
+		providerType, provider, err = p.initProvider(ctx, stack, lo.If(suffix != "", fmt.Sprintf("%s--%s", res.Name, suffix)).Else(res.Name), res.Type, res.Config, environment)
+		if err != nil {
+			return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init main provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
+		}
 	}
 
 	dependencyProviders := make(map[string]pApi.DependencyProvider)

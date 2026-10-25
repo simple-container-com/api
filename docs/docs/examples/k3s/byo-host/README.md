@@ -44,7 +44,14 @@ Nothing in SC creates it. In your cloud's console:
 
 1. Create an Ubuntu 24.04 VM with a public IP. Reachable ports: **22** (deploys),
    **6443** (the Kubernetes API, from wherever `sc deploy` runs — a CI runner, not the
-   machine), and **80/443** if you intend to serve traffic from the node.
+   machine), **30000-32767** if you reach a Service by node port, and **80/443** if you
+   intend to serve traffic from the node.
+
+   On a machine SC creates, it derives and opens that list itself; on `byo` it owns no
+   firewall — there is no cloud API to call — so the `ingressPorts` field is **refused**
+   here rather than accepted and ignored. SC does print the list it would have asked
+   for, so you can diff it against your security group instead of deriving it. A shut
+   port has no symptom but a deploy that reports success and then times out.
 2. Create a login for deploys and authorise a key pair generated for this purpose only:
 
    ```bash

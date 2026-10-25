@@ -188,12 +188,44 @@ list of zones would describe a cluster. Left out, SC takes the first zone
 ## Which ports are open
 
 Only what SC needs and what you asked for: **22/tcp always**, plus **80/tcp, 443/tcp and
-443/udp** (HTTP/3) when `ingress.enable` is set. **Nothing else** — not a compose
-host-port range, not the Kubernetes NodePort range, not 6443.
+443/udp** (HTTP/3) when `ingress.enable` is set, plus the ranges SC can **infer** from
+this machine's consumers in the same parent stack. The `compose-on-vm` template names
+this `vm` resource, so the **host-port range** (20000–30000) is opened too — which is
+what makes a stack with no `domain:` reachable from the internet rather than only from
+inside the cloud.
 
-So a stack that falls back to a host port (no `domain:`, or no ingress) is reachable from
-inside the cloud but **not from the internet** until you open that port in the security
-group yourself. Both Cloud.ru drivers share one port table, so they cannot drift apart.
+Anything inference cannot see goes on the resource, and is opened verbatim:
+
+```yaml
+            ingressPorts:
+              - port: 9100            # a process you run on the machine yourself
+              - port: 7946
+                protocol: udp
+              - preset: k3s           # if a k3s-cluster lands on this machine too
+```
+
+`preset` names a bundle for the ranges nobody should have to memorise (`vm-compose`,
+`k3s`, `http`). It is mutually exclusive with `port`, and an unknown preset or an
+out-of-range port is refused at validation rather than accepted and dropped.
+
+Check rather than assume — what SC opened is a stack output, and a `vm-compose` deploy
+reads the same value to warn when the host port it publishes is not among them:
+
+```bash
+sc stack outputs -s mycompany -e staging | jq -r '."portal-vm-vm-open-ports"'
+```
+
+Both Cloud.ru drivers resolve the list with the same code, so they cannot drift apart.
+Two things specific to this cloud:
+
+- **A node-to-node range is permitted from the machine's own subnet**, never from the
+  internet (the k3s preset's kubelet, flannel and etcd ports are the ones that matter).
+  SC does not get to choose the subnet here, so it resolves the CIDR after the create —
+  and if that lookup fails it says so and leaves the port **shut** rather than widening
+  it to `0.0.0.0/0`.
+- **A destroy closes only its own rules.** The machine joins the project's *shared*
+  default security group, so SC's rules carry a description naming the VM and the sweep
+  matches on that. Rules you added in the console are left alone.
 
 ## Reachability from inside Russia
 

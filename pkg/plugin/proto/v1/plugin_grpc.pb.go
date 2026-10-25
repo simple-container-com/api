@@ -40,11 +40,19 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	SCCloudPlugin_Schema_FullMethodName              = "/sc.plugin.v1.SCCloudPlugin/Schema"
-	SCCloudPlugin_InitStateStore_FullMethodName      = "/sc.plugin.v1.SCCloudPlugin/InitStateStore"
-	SCCloudPlugin_InitSecretsProvider_FullMethodName = "/sc.plugin.v1.SCCloudPlugin/InitSecretsProvider"
-	SCCloudPlugin_Provider_FullMethodName            = "/sc.plugin.v1.SCCloudPlugin/Provider"
-	SCCloudPlugin_Provision_FullMethodName           = "/sc.plugin.v1.SCCloudPlugin/Provision"
+	SCCloudPlugin_Schema_FullMethodName                     = "/sc.plugin.v1.SCCloudPlugin/Schema"
+	SCCloudPlugin_InitStateStore_FullMethodName             = "/sc.plugin.v1.SCCloudPlugin/InitStateStore"
+	SCCloudPlugin_InitSecretsProvider_FullMethodName        = "/sc.plugin.v1.SCCloudPlugin/InitSecretsProvider"
+	SCCloudPlugin_Provider_FullMethodName                   = "/sc.plugin.v1.SCCloudPlugin/Provider"
+	SCCloudPlugin_Provision_FullMethodName                  = "/sc.plugin.v1.SCCloudPlugin/Provision"
+	SCCloudPlugin_ComputeProcess_FullMethodName             = "/sc.plugin.v1.SCCloudPlugin/ComputeProcess"
+	SCCloudPlugin_ProvisionRegistrar_FullMethodName         = "/sc.plugin.v1.SCCloudPlugin/ProvisionRegistrar"
+	SCCloudPlugin_NewDnsRecord_FullMethodName               = "/sc.plugin.v1.SCCloudPlugin/NewDnsRecord"
+	SCCloudPlugin_NewOverrideHeaderRule_FullMethodName      = "/sc.plugin.v1.SCCloudPlugin/NewOverrideHeaderRule"
+	SCCloudPlugin_ProvisionDomainForEndpoint_FullMethodName = "/sc.plugin.v1.SCCloudPlugin/ProvisionDomainForEndpoint"
+	SCCloudPlugin_PreDestroy_FullMethodName                 = "/sc.plugin.v1.SCCloudPlugin/PreDestroy"
+	SCCloudPlugin_VmHosts_FullMethodName                    = "/sc.plugin.v1.SCCloudPlugin/VmHosts"
+	SCCloudPlugin_LogStream_FullMethodName                  = "/sc.plugin.v1.SCCloudPlugin/LogStream"
 )
 
 // SCCloudPluginClient is the client API for SCCloudPlugin service.
@@ -61,6 +69,24 @@ type SCCloudPluginClient interface {
 	InitSecretsProvider(ctx context.Context, in *InitSecretsProviderRequest, opts ...grpc.CallOption) (*InitSecretsProviderResponse, error)
 	Provider(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
 	Provision(ctx context.Context, in *ProvisionRequest, opts ...grpc.CallOption) (*ProvisionResponse, error)
+	ComputeProcess(ctx context.Context, in *ComputeProcessRequest, opts ...grpc.CallOption) (*ComputeProcessResponse, error)
+	ProvisionRegistrar(ctx context.Context, in *ProvisionRegistrarRequest, opts ...grpc.CallOption) (*ProvisionRegistrarResponse, error)
+	// Phase 1b per-method registrar RPCs (the stubbed pluginRegistrar
+	// methods on SC core proxy here).
+	NewDnsRecord(ctx context.Context, in *NewDnsRecordRequest, opts ...grpc.CallOption) (*NewDnsRecordResponse, error)
+	NewOverrideHeaderRule(ctx context.Context, in *NewOverrideHeaderRuleRequest, opts ...grpc.CallOption) (*NewOverrideHeaderRuleResponse, error)
+	ProvisionDomainForEndpoint(ctx context.Context, in *ProvisionDomainForEndpointRequest, opts ...grpc.CallOption) (*ProvisionDomainForEndpointResponse, error)
+	PreDestroy(ctx context.Context, in *PreDestroyRequest, opts ...grpc.CallOption) (*PreDestroyResponse, error)
+	// Phase 1d — the VM seam. One call per `type: vm` resource whose `provider:`
+	// names one of this plugin's vm_drivers.
+	VmHosts(ctx context.Context, in *VmHostsRequest, opts ...grpc.CallOption) (*VmHostsResponse, error)
+	// LogStream — server-streaming side channel for free-form progress /
+	// log events. SC core opens exactly one of these per plugin after
+	// Schema(), and routes events into the stack's logger with a
+	// [plugin %q] prefix. Keeps intra-RPC progress visible without
+	// bloating every unary RPC with a streaming variant. See
+	// forge/docs/design/2026-10-24/sc-plugin-architecture/ Addendum F.
+	LogStream(ctx context.Context, in *LogStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PluginLogEvent], error)
 }
 
 type sCCloudPluginClient struct {
@@ -121,6 +147,95 @@ func (c *sCCloudPluginClient) Provision(ctx context.Context, in *ProvisionReques
 	return out, nil
 }
 
+func (c *sCCloudPluginClient) ComputeProcess(ctx context.Context, in *ComputeProcessRequest, opts ...grpc.CallOption) (*ComputeProcessResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ComputeProcessResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_ComputeProcess_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) ProvisionRegistrar(ctx context.Context, in *ProvisionRegistrarRequest, opts ...grpc.CallOption) (*ProvisionRegistrarResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProvisionRegistrarResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_ProvisionRegistrar_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) NewDnsRecord(ctx context.Context, in *NewDnsRecordRequest, opts ...grpc.CallOption) (*NewDnsRecordResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NewDnsRecordResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_NewDnsRecord_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) NewOverrideHeaderRule(ctx context.Context, in *NewOverrideHeaderRuleRequest, opts ...grpc.CallOption) (*NewOverrideHeaderRuleResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(NewOverrideHeaderRuleResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_NewOverrideHeaderRule_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) ProvisionDomainForEndpoint(ctx context.Context, in *ProvisionDomainForEndpointRequest, opts ...grpc.CallOption) (*ProvisionDomainForEndpointResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProvisionDomainForEndpointResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_ProvisionDomainForEndpoint_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) PreDestroy(ctx context.Context, in *PreDestroyRequest, opts ...grpc.CallOption) (*PreDestroyResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PreDestroyResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_PreDestroy_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) VmHosts(ctx context.Context, in *VmHostsRequest, opts ...grpc.CallOption) (*VmHostsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(VmHostsResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_VmHosts_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) LogStream(ctx context.Context, in *LogStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PluginLogEvent], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &SCCloudPlugin_ServiceDesc.Streams[0], SCCloudPlugin_LogStream_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[LogStreamRequest, PluginLogEvent]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SCCloudPlugin_LogStreamClient = grpc.ServerStreamingClient[PluginLogEvent]
+
 // SCCloudPluginServer is the server API for SCCloudPlugin service.
 // All implementations must embed UnimplementedSCCloudPluginServer
 // for forward compatibility.
@@ -135,6 +250,24 @@ type SCCloudPluginServer interface {
 	InitSecretsProvider(context.Context, *InitSecretsProviderRequest) (*InitSecretsProviderResponse, error)
 	Provider(context.Context, *ProviderRequest) (*ProviderResponse, error)
 	Provision(context.Context, *ProvisionRequest) (*ProvisionResponse, error)
+	ComputeProcess(context.Context, *ComputeProcessRequest) (*ComputeProcessResponse, error)
+	ProvisionRegistrar(context.Context, *ProvisionRegistrarRequest) (*ProvisionRegistrarResponse, error)
+	// Phase 1b per-method registrar RPCs (the stubbed pluginRegistrar
+	// methods on SC core proxy here).
+	NewDnsRecord(context.Context, *NewDnsRecordRequest) (*NewDnsRecordResponse, error)
+	NewOverrideHeaderRule(context.Context, *NewOverrideHeaderRuleRequest) (*NewOverrideHeaderRuleResponse, error)
+	ProvisionDomainForEndpoint(context.Context, *ProvisionDomainForEndpointRequest) (*ProvisionDomainForEndpointResponse, error)
+	PreDestroy(context.Context, *PreDestroyRequest) (*PreDestroyResponse, error)
+	// Phase 1d — the VM seam. One call per `type: vm` resource whose `provider:`
+	// names one of this plugin's vm_drivers.
+	VmHosts(context.Context, *VmHostsRequest) (*VmHostsResponse, error)
+	// LogStream — server-streaming side channel for free-form progress /
+	// log events. SC core opens exactly one of these per plugin after
+	// Schema(), and routes events into the stack's logger with a
+	// [plugin %q] prefix. Keeps intra-RPC progress visible without
+	// bloating every unary RPC with a streaming variant. See
+	// forge/docs/design/2026-10-24/sc-plugin-architecture/ Addendum F.
+	LogStream(*LogStreamRequest, grpc.ServerStreamingServer[PluginLogEvent]) error
 	mustEmbedUnimplementedSCCloudPluginServer()
 }
 
@@ -159,6 +292,30 @@ func (UnimplementedSCCloudPluginServer) Provider(context.Context, *ProviderReque
 }
 func (UnimplementedSCCloudPluginServer) Provision(context.Context, *ProvisionRequest) (*ProvisionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Provision not implemented")
+}
+func (UnimplementedSCCloudPluginServer) ComputeProcess(context.Context, *ComputeProcessRequest) (*ComputeProcessResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ComputeProcess not implemented")
+}
+func (UnimplementedSCCloudPluginServer) ProvisionRegistrar(context.Context, *ProvisionRegistrarRequest) (*ProvisionRegistrarResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProvisionRegistrar not implemented")
+}
+func (UnimplementedSCCloudPluginServer) NewDnsRecord(context.Context, *NewDnsRecordRequest) (*NewDnsRecordResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method NewDnsRecord not implemented")
+}
+func (UnimplementedSCCloudPluginServer) NewOverrideHeaderRule(context.Context, *NewOverrideHeaderRuleRequest) (*NewOverrideHeaderRuleResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method NewOverrideHeaderRule not implemented")
+}
+func (UnimplementedSCCloudPluginServer) ProvisionDomainForEndpoint(context.Context, *ProvisionDomainForEndpointRequest) (*ProvisionDomainForEndpointResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ProvisionDomainForEndpoint not implemented")
+}
+func (UnimplementedSCCloudPluginServer) PreDestroy(context.Context, *PreDestroyRequest) (*PreDestroyResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PreDestroy not implemented")
+}
+func (UnimplementedSCCloudPluginServer) VmHosts(context.Context, *VmHostsRequest) (*VmHostsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method VmHosts not implemented")
+}
+func (UnimplementedSCCloudPluginServer) LogStream(*LogStreamRequest, grpc.ServerStreamingServer[PluginLogEvent]) error {
+	return status.Error(codes.Unimplemented, "method LogStream not implemented")
 }
 func (UnimplementedSCCloudPluginServer) mustEmbedUnimplementedSCCloudPluginServer() {}
 func (UnimplementedSCCloudPluginServer) testEmbeddedByValue()                       {}
@@ -271,6 +428,143 @@ func _SCCloudPlugin_Provision_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SCCloudPlugin_ComputeProcess_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ComputeProcessRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).ComputeProcess(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_ComputeProcess_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).ComputeProcess(ctx, req.(*ComputeProcessRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_ProvisionRegistrar_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProvisionRegistrarRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).ProvisionRegistrar(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_ProvisionRegistrar_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).ProvisionRegistrar(ctx, req.(*ProvisionRegistrarRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_NewDnsRecord_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NewDnsRecordRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).NewDnsRecord(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_NewDnsRecord_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).NewDnsRecord(ctx, req.(*NewDnsRecordRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_NewOverrideHeaderRule_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(NewOverrideHeaderRuleRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).NewOverrideHeaderRule(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_NewOverrideHeaderRule_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).NewOverrideHeaderRule(ctx, req.(*NewOverrideHeaderRuleRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_ProvisionDomainForEndpoint_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ProvisionDomainForEndpointRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).ProvisionDomainForEndpoint(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_ProvisionDomainForEndpoint_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).ProvisionDomainForEndpoint(ctx, req.(*ProvisionDomainForEndpointRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_PreDestroy_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreDestroyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).PreDestroy(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_PreDestroy_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).PreDestroy(ctx, req.(*PreDestroyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_VmHosts_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VmHostsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).VmHosts(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_VmHosts_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).VmHosts(ctx, req.(*VmHostsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_LogStream_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(LogStreamRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(SCCloudPluginServer).LogStream(m, &grpc.GenericServerStream[LogStreamRequest, PluginLogEvent]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type SCCloudPlugin_LogStreamServer = grpc.ServerStreamingServer[PluginLogEvent]
+
 // SCCloudPlugin_ServiceDesc is the grpc.ServiceDesc for SCCloudPlugin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -298,8 +592,42 @@ var SCCloudPlugin_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "Provision",
 			Handler:    _SCCloudPlugin_Provision_Handler,
 		},
+		{
+			MethodName: "ComputeProcess",
+			Handler:    _SCCloudPlugin_ComputeProcess_Handler,
+		},
+		{
+			MethodName: "ProvisionRegistrar",
+			Handler:    _SCCloudPlugin_ProvisionRegistrar_Handler,
+		},
+		{
+			MethodName: "NewDnsRecord",
+			Handler:    _SCCloudPlugin_NewDnsRecord_Handler,
+		},
+		{
+			MethodName: "NewOverrideHeaderRule",
+			Handler:    _SCCloudPlugin_NewOverrideHeaderRule_Handler,
+		},
+		{
+			MethodName: "ProvisionDomainForEndpoint",
+			Handler:    _SCCloudPlugin_ProvisionDomainForEndpoint_Handler,
+		},
+		{
+			MethodName: "PreDestroy",
+			Handler:    _SCCloudPlugin_PreDestroy_Handler,
+		},
+		{
+			MethodName: "VmHosts",
+			Handler:    _SCCloudPlugin_VmHosts_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "LogStream",
+			Handler:       _SCCloudPlugin_LogStream_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "v1/plugin.proto",
 }
 

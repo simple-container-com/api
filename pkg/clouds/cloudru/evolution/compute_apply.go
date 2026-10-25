@@ -47,8 +47,39 @@ type IngressRule struct {
 	Port      int    `json:"port,omitempty"`
 	PortRange string `json:"portRange,omitempty"`
 	// CIDR defaults to 0.0.0.0/0.
-	CIDR        string `json:"cidr,omitempty"`
+	CIDR string `json:"cidr,omitempty"`
+	// Internal asks for the rule to permit the VM's own subnet instead of the
+	// internet, with the CIDR filled in by the client — which is the only layer
+	// that learns which subnet the machine landed on, since a create on this cloud
+	// does not get to choose one.
+	//
+	// It carries the node-to-node ports of a multi-node k3s cluster (the kubelet,
+	// flannel's VXLAN, embedded etcd). Those must not be public: reaching the
+	// kubelet is reaching into every pod on the node.
+	Internal    bool   `json:"internal,omitempty"`
 	Description string `json:"description,omitempty"`
+}
+
+// RuleDescriptionPrefix marks a rule as SC's own.
+//
+// It matters more here than it would on another cloud: the VM joins the project's
+// SHARED default security group (a create accepts no `security_group_ids`), so SC's
+// rules live in an object it does not own, next to the operator's and next to those
+// of every other SC machine in the project. The description is the only field a
+// destroy can discriminate on — hence RuleDescription carrying the VM name, and
+// hence the destroy sweep matching on that and not on this prefix alone.
+const RuleDescriptionPrefix = "simple-container"
+
+// RuleDescription is what SC writes into a rule it creates.
+func RuleDescription(vmName, label string) string {
+	return fmt.Sprintf("%s vm %s: %s", RuleDescriptionPrefix, vmName, label)
+}
+
+// ruleDescriptionPrefixFor is what the destroy of one VM matches its own rules by.
+// Ends in the separator so that a VM named `atrium` does not sweep the rules of
+// `atrium-2`.
+func ruleDescriptionPrefixFor(vmName string) string {
+	return fmt.Sprintf("%s vm %s: ", RuleDescriptionPrefix, vmName)
 }
 
 func (r IngressRule) portRange() string {
@@ -555,15 +586,45 @@ func (c *Client) ensureIngress(ctx context.Context, vm *Vm, zone string, rules [
 		byID[g.ID] = g
 	}
 
+	// The subnet the machine actually landed on, which is where node-to-node ports
+	// are permitted from. Resolved once, and only if something needs it.
+	nodeCIDR := ""
+	if lo.SomeBy(rules, func(r IngressRule) bool { return r.Internal }) {
+		if nodeCIDR, err = c.vmSubnetCIDR(ctx, vm); err != nil {
+			return err
+		}
+	}
+
 	for _, groupID := range groupIDs {
 		group := byID[groupID]
+		// Read the rules off the group's own sub-route: the group endpoints answer
+		// with `ingress_rules_count` and an EMPTY rules list, so trusting the
+		// inlined slice would re-create every rule on every deploy.
+		group.Rules, err = c.ListSecurityGroupRules(ctx, groupID)
+		if err != nil {
+			return err
+		}
 		for _, rule := range rules {
+			source := rule.cidr()
+			if rule.Internal {
+				if nodeCIDR == "" {
+					// Said out loud and skipped rather than opened to the world. A
+					// node-to-node port silently published to 0.0.0.0/0 would be a
+					// cluster anyone can take over.
+					progress("skipping %s %s: it is a node-to-node port and the VM's subnet CIDR could not be "+
+						"resolved, so SC will not open it to the internet instead. A multi-node cluster on this "+
+						"machine will not form until it is opened by hand",
+						rule.protocol(), rule.portRange())
+					continue
+				}
+				source = nodeCIDR
+			}
 			wanted := SecurityGroupRule{
 				Direction:      "ingress",
 				EtherType:      "IPv4",
 				IPProtocol:     rule.protocol(),
 				PortRange:      rule.portRange(),
-				RemoteIPPrefix: rule.cidr(),
+				RemoteIPPrefix: source,
 				Description:    rule.Description,
 			}
 			if hasIngressRule(group, wanted) {
@@ -573,6 +634,65 @@ func (c *Client) ensureIngress(ctx context.Context, vm *Vm, zone string, rules [
 			if err := c.CreateSecurityGroupRule(ctx, groupID, wanted); err != nil {
 				return errors.Wrapf(err, "failed to open %s %s on cloud.ru security group %q",
 					wanted.IPProtocol, wanted.PortRange, groupID)
+			}
+		}
+	}
+	return nil
+}
+
+// vmSubnetCIDR is the address range of the subnet the VM's primary interface is on.
+//
+// Empty, with no error, when it cannot be determined — the caller then declines to
+// open the port rather than widening it, and says so. An error only for a failed
+// API call, because "the subnet list did not load" and "this VM has no subnet" are
+// different problems and only the first is retryable.
+func (c *Client) vmSubnetCIDR(ctx context.Context, vm *Vm) (string, error) {
+	iface := vm.primaryInterface()
+	if iface == nil || iface.Subnet.ID == "" {
+		return "", nil
+	}
+	subnets, err := c.ListSubnets(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, s := range subnets {
+		if s.ID == iface.Subnet.ID {
+			return s.SubnetAddress, nil
+		}
+	}
+	return "", nil
+}
+
+// deleteVmIngressRules removes the rules this VM's apply created, and only those.
+//
+// Scoped by the VM name in the description rather than by the SC prefix, and that
+// is the whole care in this function: on this cloud the machine joins the project's
+// SHARED default security group, so a sweep of everything SC had written would shut
+// the ports of every other SC machine in the project — a destroy of one stack
+// taking another offline, with nothing in either stack's state to explain it.
+//
+// Best-effort by design: a failure here is reported and does not fail the destroy.
+// The alternative is a destroy that cannot finish because of a leftover rule, which
+// leaves the VM, the disk and the floating IP billing.
+func (c *Client) deleteVmIngressRules(ctx context.Context, vmName string, groupIDs []string, progress func(string, ...any)) error {
+	if len(groupIDs) == 0 {
+		return nil
+	}
+	prefix := ruleDescriptionPrefixFor(vmName)
+	for _, groupID := range groupIDs {
+		rules, err := c.ListSecurityGroupRules(ctx, groupID)
+		if err != nil {
+			progress("could not read the rules of security group %s, leaving them in place: %v", groupID, err)
+			continue
+		}
+		for _, r := range rules {
+			if r.ID == "" || !strings.HasPrefix(r.Description, prefix) {
+				continue
+			}
+			progress("closing %s %s on security group %s", r.IPProtocol, r.PortRange, groupID)
+			if err := c.DeleteSecurityGroupRule(ctx, groupID, r.ID); err != nil {
+				progress("could not close %s %s on security group %s, leaving it in place: %v",
+					r.IPProtocol, r.PortRange, groupID, err)
 			}
 		}
 	}
@@ -630,9 +750,20 @@ func (c *Client) DestroyVm(ctx context.Context, req Request, progress func(strin
 		return nil, err
 	}
 
+	// Collected BEFORE the VM goes, because the groups are only reachable through
+	// the VM's own interface — once it is deleted there is nothing left that says
+	// which group SC opened ports in, and the rules stay behind forever in a group
+	// SC does not own. Every port SC opened on this project's shared default group
+	// would accumulate across the whole life of the account.
+	var ruleGroupIDs []string
 	if vm, found, err := c.FindVm(ctx, name); err != nil {
 		return nil, err
 	} else if found {
+		if iface := vm.primaryInterface(); iface != nil {
+			for _, g := range iface.SecurityGroups {
+				ruleGroupIDs = append(ruleGroupIDs, g.ID)
+			}
+		}
 		progress("deleting vm %s (%s)", vm.Name, vm.ID)
 		if err := c.DeleteVm(ctx, vm.ID); err != nil {
 			return nil, errors.Wrapf(err, "failed to delete cloud.ru VM %q", name)
@@ -640,6 +771,9 @@ func (c *Client) DestroyVm(ctx context.Context, req Request, progress func(strin
 		if err := c.waitVmGone(ctx, vm.ID, timeout, interval, progress); err != nil {
 			return nil, err
 		}
+	}
+	if err := c.deleteVmIngressRules(ctx, name, ruleGroupIDs, progress); err != nil {
+		return nil, err
 	}
 
 	if fip, found, err := c.FindFloatingIP(ctx, derivedName(name, vmFloatingIPSuffix)); err != nil {
