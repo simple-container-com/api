@@ -317,9 +317,24 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 		api.ScContainerResourceTypeEnvVariable: res.Type,
 	}
 
-	providerType, provider, err := p.initProvider(ctx, stack, lo.If(suffix != "", fmt.Sprintf("%s--%s", res.Name, suffix)).Else(res.Name), res.Type, res.Config, environment)
-	if err != nil {
-		return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init main provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
+	// Plugin-dispatched resource types own their provider construction
+	// internally (in the plugin's own pctx — ProviderResource handles don't
+	// cross contexts). Skip initProvider; the plugin's Provision handler
+	// constructs the provider using SC-core's naming formula so the
+	// resulting Pulumi provider URN stays byte-identical to pre-split. See
+	// forge/docs/design/2026-10-24/sc-plugin-architecture/04 Addendum H.
+	var (
+		providerType string
+		provider     sdk.ProviderResource
+	)
+	if pApi.IsPluginType(res.Type) {
+		providerType = res.Type
+	} else {
+		var err error
+		providerType, provider, err = p.initProvider(ctx, stack, lo.If(suffix != "", fmt.Sprintf("%s--%s", res.Name, suffix)).Else(res.Name), res.Type, res.Config, environment)
+		if err != nil {
+			return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init main provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
+		}
 	}
 
 	dependencyProviders := make(map[string]pApi.DependencyProvider)
