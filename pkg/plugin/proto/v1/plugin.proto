@@ -138,6 +138,62 @@ message SchemaResponse {
   // forge/docs/design/2026-10-24/sc-plugin-architecture/04-no-destroy-invariant.md.
   // SC dispatches these pre-engine, same lifecycle as state_store_types.
   repeated string secrets_provider_types = 8;
+
+  // VM drivers this plugin provides — the `provider:` values a parent stack's
+  // `type: vm` resource may name (e.g. "yc-vm", "openstack-vm").
+  //
+  // This is NOT a resource type: `vm` stays a CORE resource type, and everything
+  // above the driver (the SSH connection, readiness, cloud-init, compose, Caddy
+  // ingress) stays in core. Only the per-cloud half — create the machines, return
+  // reachable hosts — moves out, behind the VmHosts RPC. Hence a dedicated field
+  // rather than another string in resource_types: a plugin that advertised `vm`
+  // would be claiming the whole path.
+  //
+  // Each spec carries what pkg/clouds/vm's in-tree driver table carries for a
+  // built-in driver, because the same consumers read both: config validation, the
+  // generated config reference, and the refusal an operator sees for a driver that
+  // does not exist yet. SC core merges these rows into that table pre-engine.
+  repeated VmDriverSpec vm_drivers = 9;
+}
+
+// VmDriverSpec is one row of the VM driver table, as advertised by a plugin.
+// Mirrors pkg/clouds/vm.DriverInfo; see its field comments for the semantics,
+// which are the contract and not restated here.
+message VmDriverSpec {
+  // The `provider:` value, e.g. "yc-vm". Frozen once published: renaming one turns
+  // an existing parent stack into "unknown vm provider".
+  string driver = 1;
+  bool implemented = 2;
+  // Non-empty means the driver's code exists but has never provisioned a machine on
+  // the cloud it addresses, and this string says why not. Quoted VERBATIM in the
+  // refusal, so write it for an operator: what estate it was written against, and
+  // what to use instead.
+  string unverified = 3;
+  // The forge roadmap item tracking this driver — also quoted verbatim in the
+  // refusal an unimplemented driver returns.
+  string roadmap_item = 4;
+  VmCapabilities capabilities = 5;
+}
+
+// VmCapabilities mirrors pkg/clouds/vm.Capabilities: what the cloud behind a driver
+// physically does, so the differences live in one table instead of becoming
+// `if provider == …` branches in shared code.
+//
+// A plugin that has not measured a field must leave it at the zero value. The
+// in-tree table deliberately ships cloud rows zeroed for exactly this reason — a
+// table of half-guesses that shared code branches on is worse than an empty one —
+// and `multi_az_in_region = 0` specifically means "not measured", not "no zones".
+message VmCapabilities {
+  bool  cloud_init = 1;
+  bool  cloud_init_needs_egress = 2;
+  bool  regionless = 3;
+  int32 multi_az_in_region = 4;
+  bool  private_network = 5;
+  bool  floating_ip = 6;
+  bool  security_groups = 7;
+  bool  block_storage_csi = 8;
+  bool  container_registry = 9;
+  bool  dns_in_iac = 10;
 }
 
 message PulumiPluginRequirement {
@@ -379,6 +435,160 @@ message ProvisionResponse {
 }
 
 // -----------------------------------------------------------------------------
+// VmHosts — the VM seam. The plugin creates the machines of ONE `type: vm`
+// resource and returns reachable hosts; everything above (SSH readiness,
+// cloud-init wait, compose, Caddy ingress, the exports) stays in SC core.
+//
+// Mirrors pkg/clouds/pulumi/vm.Driver.Hosts, which is the seam two in-tree
+// drivers have already been built against. Design:
+// forge/docs/design/2026-10-24/sc-plugin-architecture/07-plugin-first-for-new-clouds.md
+// §3.2 (the shape) and §3.5 (why the output fields are what they are).
+// -----------------------------------------------------------------------------
+
+message VmHostsRequest {
+  RequestHeader header = 1;
+  // Which of the plugin's advertised vm_drivers this call is for.
+  string driver = 2;
+  // The vm resource's SC-level name — what the machines' resource names are built
+  // from, and therefore part of the no-destroy invariant.
+  string resource_name = 3;
+
+  // The resource's config: the JSON of pkg/clouds/vm.VmConfig.
+  //
+  // Bytes rather than map<string, InputValue> because VmConfig is a deep struct
+  // (size, network, ingress with its ACME/EAB block, hosts, ingressPorts) that is
+  // already defined with json tags and already round-trips through JSON in the
+  // config reader. Flattening it onto InputValue would invent a second encoding
+  // of the same struct that both sides must agree on, and every new config field
+  // would then need a wire change. A plugin unmarshals this into
+  // pkg/clouds/vm.VmConfig from the api module it already imports.
+  //
+  // `credentials` is NOT in here — see credential_name.
+  bytes config_json = 4;
+
+  // The name the plugin passes to the SCCore.ResolveCredential callback to get the
+  // resource's `${auth:…}` blob. The blob itself does not cross this bus: it is a
+  // cloud's root credential, and the callback keeps it out of any RPC payload that
+  // might be logged (Vault pattern, 03 §6.3).
+  string credential_name = 5;
+
+  // Every hole to open in the machine's firewall, already resolved by core's
+  // firewall.go: the base set, the resource's `ingressPorts`, and the presets
+  // inferred from the consumers that name this resource in the parent stack.
+  //
+  // Resolved by core and passed in, because that inference needs the WHOLE parent
+  // stack — which a driver is deliberately not given, and a plugin could not be
+  // given without shipping it the other services' configs.
+  //
+  // Empty for a driver whose cloud SC cannot write firewall rules in (capabilities'
+  // security_groups = false); such a driver must ignore it rather than guess.
+  repeated VmPortRange ports = 6;
+
+  // Parent ComponentResource URN, if core registered one.
+  string parent_urn = 7;
+}
+
+// VmPortRange mirrors pkg/clouds/vm.PortRange.
+message VmPortRange {
+  // Label is part of the contract, not decoration: on at least one cloud it becomes
+  // the rule's Pulumi resource NAME (so renaming one replaces a rule) and on
+  // another the rule's description, which is the only way a destroy can tell SC's
+  // rules apart from the ones the project's shared default group came with.
+  string label = 1;
+  string protocol = 2;  // "tcp" / "udp", lowercase
+  int32  from = 3;
+  int32  to = 4;
+  // Internal restricts the hole to the other machines of this vm resource rather
+  // than opening it to the internet — the kubelet and etcd ports of a multi-node
+  // k3s cluster. How it is enforced is the driver's business (source security group,
+  // private subnet CIDR, …), but ignoring it is not: that is a cluster anyone can
+  // take over.
+  bool   internal = 5;
+}
+
+message VmHostsResponse {
+  repeated VmHostFacts hosts = 1;
+}
+
+// VmHostFacts is one reachable machine — pkg/clouds/pulumi/vm.HostFacts over the
+// wire. Everything the layers above the driver need, and nothing about how the
+// machine came to exist.
+message VmHostFacts {
+  // Stable, resource-name-safe identifier within the vm resource.
+  string name = 1;
+  string user = 2;
+  int32  port = 3;
+  // vm.HostRole — what the machine is being prepared for.
+  string role = 4;
+
+  // The four fields that are sdk.StringOutput in HostFacts.
+  //
+  // They are OutputValue and not plain strings because a cloud driver only learns
+  // an address once the instance (or its floating IP) exists, and only learns a
+  // generated key once the key resource exists. They are not bare "<urn>#<property>"
+  // strings either: for the `byo` driver every one of these is a config literal,
+  // and `private_key_password` is a literal "" on both Cloud.ru drivers. §3.5.
+  OutputValue address = 5;
+  // ALREADY the deploy key; core re-wraps it as a Pulumi secret unconditionally.
+  OutputValue private_key = 6;
+  // Empty unless the key is an encrypted PEM. Also re-wrapped secret.
+  OutputValue private_key_password = 7;
+  // The machine's PUBLIC host key as an authorized_keys line. Deliberately not
+  // secret: keeping it readable is what lets an operator compare it against the
+  // cloud console by eye. Core normalises surrounding whitespace on receipt.
+  OutputValue host_key = 8;
+  // Whether host_key carries a key at all.
+  //
+  // Separate from host_key, and a plain bool, because the question it answers —
+  // "will this connection verify the machine's identity?" — must be answerable
+  // while the graph is being built: it decides whether to set the connection's host
+  // key at all (an empty one fails every connection rather than falling back) and
+  // whether to warn. A driver always knows the answer, even when it does not yet
+  // know the key.
+  bool host_key_pinned = 9;
+
+  // URNs of resources that must exist before anything connects. Core rehydrates
+  // each into an sdk.Resource for DependsOn (type token and name are read out of
+  // the URN, so core never needs to know a plugin's resource types). Empty for a
+  // machine that predates the stack.
+  repeated string depends_on = 10;
+}
+
+// OutputValue is a value a plugin produces that SC core must hold as a pulumi
+// Output.
+//
+// Distinct from InputValue.output_ref, which travels the other way: that is an
+// opaque handle a plugin passes THROUGH to RegisterResource as a dependency. This
+// is a value core resolves and reads.
+message OutputValue {
+  oneof from {
+    // Known without any resource — a byo host's address, an empty key password, a
+    // pinned host key. Core wraps it with pulumi.String.
+    string literal = 1;
+    ResourcePropertyRef ref = 2;
+  }
+  // Core applies pulumi.ToSecret when set. Idempotent, and applied unconditionally
+  // to private_key / private_key_password regardless of this flag — see §3.5.
+  bool secret = 3;
+}
+
+// ResourcePropertyRef points at one property of a resource the plugin registered
+// against the shared monitor. Core resolves it with the engine's built-in
+// pulumi:pulumi:getResource invoke (pkg/plugin/outputref.go).
+message ResourcePropertyRef {
+  // A URN the plugin has ALREADY AWAITED.
+  //
+  // Not a formality: the engine can only answer for a resource whose step has
+  // completed, and awaiting the URN is exactly what waits for that. A plugin that
+  // returns a URN it never awaited has reintroduced the bug Addendum H is about,
+  // and the symptom is a deploy that hangs rather than an error.
+  string urn = 1;
+  // The PROVIDER's output property name, e.g. "privateKeyOpenssh" — not an
+  // SC-level name.
+  string property = 2;
+}
+
+// -----------------------------------------------------------------------------
 // Callback service — plugin → SC core. Lets the plugin resolve the real secret
 // behind a secret_ref it received in InputValue, or fetch a cloud credential.
 // -----------------------------------------------------------------------------
@@ -425,6 +635,9 @@ service SCCloudPlugin {
   rpc NewOverrideHeaderRule(NewOverrideHeaderRuleRequest) returns (NewOverrideHeaderRuleResponse);
   rpc ProvisionDomainForEndpoint(ProvisionDomainForEndpointRequest) returns (ProvisionDomainForEndpointResponse);
   rpc PreDestroy(PreDestroyRequest) returns (PreDestroyResponse);
+  // Phase 1d — the VM seam. One call per `type: vm` resource whose `provider:`
+  // names one of this plugin's vm_drivers.
+  rpc VmHosts(VmHostsRequest) returns (VmHostsResponse);
   // LogStream — server-streaming side channel for free-form progress /
   // log events. SC core opens exactly one of these per plugin after
   // Schema(), and routes events into the stack's logger with a

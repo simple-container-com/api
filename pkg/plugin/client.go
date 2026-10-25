@@ -147,6 +147,16 @@ func (c *Client) ProvisionDomainForEndpoint(ctx context.Context, req *scpluginv1
 	return c.stub.ProvisionDomainForEndpoint(ctx, req)
 }
 
+// VmHosts calls through to the plugin's VmHosts RPC (Phase 1d) — the plugin
+// creates the machines of one `type: vm` resource and returns reachable hosts.
+//
+// The returned facts carry URN references rather than values for anything the
+// plugin does not know yet; pkg/clouds/pulumi/vm turns them back into Outputs with
+// pkg/plugin/outputref.go.
+func (c *Client) VmHosts(ctx context.Context, req *scpluginv1.VmHostsRequest) (*scpluginv1.VmHostsResponse, error) {
+	return c.stub.VmHosts(ctx, req)
+}
+
 // LogStream opens the plugin's progress-event stream. SC core calls this
 // once per plugin after Schema() returns, then forwards each event to its
 // logger. The stream naturally ends when the plugin exits OR when the
