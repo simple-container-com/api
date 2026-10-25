@@ -10,7 +10,7 @@
       "description": "Cloudflare cloud provider resources and templates"
     },
     "cloudru": {
-      "count": 4,
+      "count": 5,
       "description": "Cloudru cloud provider resources and templates"
     },
     "core": {

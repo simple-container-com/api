@@ -1,0 +1,168 @@
+schemaVersion: 1.0
+
+# A parent stack where SC creates the machine in Cloud.ru **Evolution**, installs a
+# single-node Kubernetes cluster on it, and deploys client stacks onto that cluster.
+#
+# This is `../byo-host/server.yaml` with one substitution: the `vm` resource's provider.
+# Everything else — the `k3s-cluster` resource, the `k3s-cloudrun` template, the
+# Deployment, the Service, `cloudExtras`, the probes — is the same code, and the same
+# file would run on a machine you created by hand.
+#
+# WHICH Cloud.ru this is decides the credential and whether `region:` is legal. Cloud.ru
+# sells two unrelated estates under one brand:
+#
+#   - **Evolution** — this file (`cloudru-evolution-vm`). Cloud.ru's own platform. A
+#     service-account key id + secret against `iam.api.cloud.ru`. NO regions.
+#   - **Advanced** (ex-SberCloud) — `cloudru-vm`. OpenStack descended, a Keystone
+#     access/secret pair, `region: ru-moscow-1` required.
+#
+# See ../../vm-compose/cloudru-evolution/server.yaml for the full annotation of every
+# field on the `vm` resource; only what differs for k3s is commented here.
+#
+# `fs` + `passphrase` keep this runnable with nothing but the Cloud.ru account. Add
+# `.sc/state` to .gitignore: the checkpoint under it carries the generated deploy key
+# AND the cluster's admin kubeconfig, encrypted with the passphrase below and no
+# stronger than it.
+provisioner:
+  type: pulumi
+  config:
+    state-storage:
+      type: fs
+      config:
+        path: ${git:root}/.sc/state
+    secrets-provider:
+      type: passphrase
+      config:
+        passPhrase: ${secret:SC_STATE_PASSPHRASE}
+
+templates:
+  k3s-run:
+    type: k3s-cloudrun
+    config:
+      k3sClusterResource: ru-cluster
+
+      # Required, and this is where the k3s path differs most from vm-compose on this
+      # cloud. `imageDelivery: ssh-tar` does not exist here: a kubelet can only PULL, so
+      # the image has to come from a registry the MACHINE can reach. Inside Cloud.ru
+      # that is the project's own Artifact Registry, `<registry-name>.cr.cloud.ru`.
+      #
+      # Two things about it that are easy to get wrong:
+      #
+      #  * **SC does not create the registry on this path.** The `cloudru-container-app`
+      #    template creates one (`registryName`); `k3s-cloudrun` does not. Create it in
+      #    the console, or let a Container App stack create it first, then name it here.
+      #  * **The docker credential is the SAME IAM key** as the REST API — key id as the
+      #    username, key secret as the password. There is deliberately no separate
+      #    registry credential to configure.
+      dockerRegistryURL: sc-registry.cr.cloud.ru
+      dockerRegistryUsername: ${secret:CLOUDRU_KEY_ID}
+      dockerRegistryPassword: ${secret:CLOUDRU_KEY_SECRET}
+
+      # Optional, default true. `false` is the honest setting while you are still
+      # reaching the cluster on a node port and have no certificate.
+      useSSL: true
+
+resources:
+  resources:
+    staging:
+      template: k3s-run
+      resources:
+        # The machine — created by SC, not by you. The whole annotation lives in
+        # ../../vm-compose/cloudru-evolution/server.yaml; what matters here:
+        cluster-vm:
+          type: vm
+          config:
+            provider: cloudru-evolution-vm
+            credentials: ${auth:cloudru}
+
+            # Refused, not optional: this cloud's compute API has no region dimension.
+            # Placement is the availability zone.
+            zones: [ru.AZ-1]
+
+            # Required on every cloud driver. The kubeconfig SC exports points at this
+            # address, and `sc deploy` connects to it from wherever it runs.
+            publicIP: true
+
+            image: ubuntu-2404-lts
+
+            # k3s on one node, with a workload on it. 2/4 is the floor that worked in
+            # the live smoke; a cluster plus anything real wants more. Disk is NOT
+            # defaulted — left out, the image keeps its own root size, and containerd's
+            # image store fills it.
+            size:
+              cores: 2
+              memory: 4Gi
+              disk: 40Gi
+
+            sshUser: sc
+
+            # Pin after the first provision — this cloud's `POST /vms` refuses
+            # `user_data`, so SC cannot seed a host key and the first connection has
+            # nothing to verify. That connection carries the deploy key; the ones after
+            # it carry the cluster's admin kubeconfig back.
+            #   ssh-keyscan -t ed25519 <the floating IP>
+            # hostKey: "45.132.179.77 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+
+            # Deliberately absent: `ingress`.
+            #
+            # One machine has one port 443. With no `ingress`, k3s keeps 80/443 and its
+            # bundled LoadBalancer implementation (klipper-lb, k3s's `servicelb`) stays
+            # enabled; with `ingress.enable: true`, the compose Caddy takes them and SC
+            # disables `servicelb` automatically. The `k3s-cluster` resource reads this
+            # setting off the vm resource and adjusts — you choose the arrangement, you
+            # do not coordinate it.
+            #
+            # On THIS cloud the choice has a second consequence, because the driver's
+            # firewall follows the same setting: with `ingress` off, the security group
+            # SC touches has 22 open and nothing else. See the README's
+            # "The ports SC does not open" — the k3s path needs 6443 and the NodePort
+            # range, and today you add those two rules by hand.
+
+        ru-cluster:
+          type: k3s-cluster
+          config:
+            # Named, not described. Provisioned after the vm resource it names, reading
+            # that resource's host facts — which on this driver are the address of a
+            # machine that did not exist a minute earlier.
+            vmResource: cluster-vm
+
+            # Pinned on purpose: k3s's installer resolves a release CHANNEL at install
+            # time, so the default would make the control-plane version depend on the
+            # day the deploy ran.
+            # version: v1.36.5+k3s1
+
+            # The address the exported kubeconfig points at. Defaults to the machine's
+            # own address — here, the floating IP SC created, which is correct as long
+            # as `sc deploy` runs outside the cloud and can reach port 6443.
+            #
+            # Set it to a DNS name if you want the kubeconfig to survive the machine
+            # being replaced: a destroy/provision cycle on this driver gets a NEW
+            # floating address, and every kubeconfig anyone saved points at the old one.
+            # Whatever you put here is added to the API server's certificate SANs.
+            # endpoint: k8s.example.ru
+
+            # Extra names in the API server certificate. The endpoint and the machine's
+            # address are always included. Add a DNS name here BEFORE you need it —
+            # adding a SAN later means re-issuing the cluster's certificates.
+            # tlsSans:
+            #   - k8s-internal.example.ru
+
+            # Bundled components to leave out. SC's default is `traefik`, because the
+            # Caddy edge is the ingress on every other cloud and two ingress controllers
+            # on one node is a port fight. Setting this REPLACES the default rather than
+            # adding to it — an explicit empty list means "disable nothing", which is
+            # how you get Traefik back.
+            # disable:
+            #   - traefik
+
+            # Passed to `k3s server` verbatim. A flag SC manages itself (--tls-san,
+            # --disable, --write-kubeconfig*) is refused here rather than silently
+            # fighting.
+            # extraServerArgs:
+            #   - --kube-apiserver-arg=v=2
+
+        # No `kubernetes-caddy` resource here, and it is not an omission: that resource
+        # takes its kubeconfig as a LITERAL string, so it cannot be pointed at a cluster
+        # provisioned in the same stack. The front door on a k3s stand today is the node
+        # itself — `cloudExtras.serviceType: LoadBalancer` with klipper-lb binding the
+        # node's 80/443, or a node port while you smoke. See ../byo-host/README.md.

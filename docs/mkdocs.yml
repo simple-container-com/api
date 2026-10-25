@@ -56,6 +56,7 @@ nav:
     - GKE Autopilot: guides/parent-gcp-gke-autopilot.md
     - Pure Kubernetes: guides/parent-pure-kubernetes.md
     - Yandex Cloud: guides/parent-yandex-cloud.md
+    - Cloud.ru: guides/parent-cloudru.md
     - Service Deploy Steps: guides/service-steps-to-deploy.md
     - CI/CD with GitHub Actions: guides/cicd-github-actions.md
     - Secrets Management: guides/secrets-management.md
@@ -107,9 +108,12 @@ nav:
     - Compose on a VM:
       - Overview: examples/vm-compose/index.md
       - A Machine You Brought (byo): examples/vm-compose/byo-host/README.md
+      - Cloud.ru Advanced (cloudru-vm): examples/vm-compose/cloudru/README.md
+      - Cloud.ru Evolution (cloudru-evolution-vm): examples/vm-compose/cloudru-evolution/README.md
     - k3s Clusters:
       - Overview: examples/k3s/index.md
       - k3s on a Machine You Brought (byo): examples/k3s/byo-host/README.md
+      - k3s on Cloud.ru (cloudru-evolution-vm): examples/k3s/cloudru-evolution/README.md
     - CI/CD with GitHub Actions:
       - Overview: examples/cicd-github-actions/README.md
       - Basic Setup: examples/cicd-github-actions/basic-setup/README.md

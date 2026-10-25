@@ -99,6 +99,8 @@ func driverFor(cfg *vm.VmConfig) (Driver, error) {
 		return byoDriver{}, nil
 	case vm.DriverCloudru:
 		return cloudruDriver{}, nil
+	case vm.DriverCloudruEvolution:
+		return cloudruEvolutionDriver{}, nil
 	default:
 		return nil, errors.Errorf("no vm driver for provider %q", cfg.Driver)
 	}

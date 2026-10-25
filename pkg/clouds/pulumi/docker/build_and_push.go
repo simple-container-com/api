@@ -67,9 +67,16 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 	image.Registry = SecretRegistry(image.Registry)
 	imageFullUrl := image.RepositoryUrl.ApplyT(func(repoUri string) string {
 		if image.RepositoryUrlWithImage {
+			// The caller already put the repository path in the URL and owns its
+			// grammar (the cloudru driver runs its own ToAppName on it).
 			return fmt.Sprintf("%s:%s", repoUri, image.Version)
 		}
-		return fmt.Sprintf("%s/%s:%s", repoUri, image.Name, image.Version)
+		// image.Name is also the Pulumi resource name below, so it is NOT
+		// rewritten in place — only the repository path segment is, and only for
+		// registries that cannot accept it. SC's name is `<stack>--<env>` (plus
+		// `--<service>` on the compose paths), and the doubled separator is
+		// exactly what the legacy grammar refuses. See repository_name.go.
+		return fmt.Sprintf("%s/%s:%s", repoUri, repositoryPathFor(repoUri, image.Name), image.Version)
 	}).(sdk.StringOutput)
 	params.Log.Info(ctx.Context(), "building and pushing docker image %q (from %q) for stack %q env %q",
 		image.Name, image.Context, stack.Name, deployParams.Environment)

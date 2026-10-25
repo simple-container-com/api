@@ -452,6 +452,33 @@ type ingressPort struct {
 	protocol string
 }
 
+// ingressPorts is every hole SC opens on a machine it created, keyed by a stable
+// label (which becomes part of the firewall rule's resource name or description).
+//
+// Shared by both Cloud.ru drivers rather than written twice, because the two halves
+// of the 443/udp decision below have to agree and the firewall is the half SC owns.
+//
+// 22 always — it is the entire delivery path. 80 and 443 only when the machine runs
+// the ingress: a host serving stacks on a published port has no business answering
+// on 443, and opening it anyway is what makes a later "why is this reachable" audit
+// expensive.
+//
+// 443/udp is HTTP/3, and it is here because the Caddy compose project publishes it
+// (pkg/clouds/vm/caddy.go — `443:443/udp` alongside the TCP one). A container bound
+// to UDP 443 behind a firewall that drops it is worse than not serving h3 at all:
+// Caddy still advertises Alt-Svc, so every browser spends a connection attempt on a
+// port that black-holes before falling back to TCP, and Chrome remembers the broken
+// alt-svc.
+func ingressPorts(cfg *vm.VmConfig) map[string]ingressPort {
+	ports := map[string]ingressPort{"ssh": {port: vm.DefaultSshPort, protocol: "tcp"}}
+	if cfg.IngressEnabled() {
+		ports["http"] = ingressPort{port: 80, protocol: "tcp"}
+		ports["https"] = ingressPort{port: 443, protocol: "tcp"}
+		ports["https-h3"] = ingressPort{port: 443, protocol: "udp"}
+	}
+	return ports
+}
+
 // securityGroup opens exactly the ports SC is going to use.
 func (cloudruDriver) securityGroup(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig, region string, resOpts []sdk.ResourceOption) (sdk.StringInput, []sdk.Resource, error) {
 	name := input.Descriptor.Name
@@ -469,24 +496,7 @@ func (cloudruDriver) securityGroup(ctx *sdk.Context, input api.ResourceInput, cf
 		return nil, nil, errors.Wrapf(err, "failed to create security group for vm %q", name)
 	}
 
-	// 22 always — it is the entire delivery path. 80 and 443 only when the machine
-	// runs the ingress: a host serving stacks on a published port has no business
-	// answering on 443, and opening it anyway is what makes a later "why is this
-	// reachable" audit expensive.
-	//
-	// 443/udp is HTTP/3, and it is here because the Caddy compose project publishes
-	// it (pkg/clouds/vm/caddy.go — `443:443/udp` alongside the TCP one). A container
-	// bound to UDP 443 behind a firewall that drops it is worse than not serving h3
-	// at all: Caddy still advertises Alt-Svc, so every browser spends a connection
-	// attempt on a port that black-holes before falling back to TCP, and Chrome
-	// remembers the broken alt-svc. The two halves have to agree, and the firewall is
-	// the half SC owns on this driver.
-	ports := map[string]ingressPort{"ssh": {port: vm.DefaultSshPort, protocol: "tcp"}}
-	if cfg.IngressEnabled() {
-		ports["http"] = ingressPort{port: 80, protocol: "tcp"}
-		ports["https"] = ingressPort{port: 443, protocol: "tcp"}
-		ports["https-h3"] = ingressPort{port: 443, protocol: "udp"}
-	}
+	ports := ingressPorts(cfg)
 
 	deps := []sdk.Resource{group}
 	for _, label := range sortedKeys(ports) {

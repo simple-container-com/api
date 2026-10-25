@@ -5,6 +5,7 @@ package api
 
 import (
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -237,6 +238,17 @@ func DetectPerStackResourcesType(p *PerStackResourcesDescriptor) (*PerStackResou
 			}
 			fn, found := providerConfigMapping[resource.Type]
 			if !found {
+				// Plugin fall-through: types with a package:module:Type shape
+				// (Pulumi gRPC type-token convention) are routed to SC plugins
+				// at provision time. The config-tier skips strict validation
+				// for them — the plugin's Schema RPC authoritatively declares
+				// which types it owns. See
+				// forge/docs/design/2026-10-24/sc-plugin-architecture/.
+				if strings.Count(resource.Type, ":") >= 2 {
+					resources.Resources[resourceName] = resource
+					p.Resources[stackName] = resources
+					continue
+				}
 				return nil, errors.Errorf("unknown type %q for resource %q", resource.Type, resourceName)
 			}
 			var err error
@@ -379,8 +391,75 @@ func DetectProvisionerType(descriptor *ServerDescriptor) (*ServerDescriptor, err
 
 func ReadProvisionerFieldConfig(cType string, config *Config) (Config, error) {
 	if fn, found := provisionerFieldConfigMapping[cType]; !found {
+		// Plugin fall-through — same mechanism as DetectPerStackResourcesType
+		// uses for resource types. A provisioner field type with a `:` prefix
+		// (sc-plugin:name shape, or similar namespaced token) is routed to a
+		// pre-engine SC plugin; the plugin's InitStateStore / InitSecretsProvider
+		// RPC takes the raw config. See Addendum C in
+		// forge/docs/design/2026-10-24/sc-plugin-architecture/
+		// 04-no-destroy-invariant.md.
+		if strings.Contains(cType, ":") {
+			return pluginFieldConfig(cType, config), nil
+		}
 		return *config, errors.Errorf("unknown provisioner field config type %q", cType)
 	} else {
 		return fn(config)
 	}
+}
+
+// pluginFieldConfig wraps a plugin-provided provisioner-field config in a
+// passthrough struct that implements api.StateStorageConfig (and
+// api.SecretsProviderConfig via the same interface subset Pulumi actually
+// uses — see pkg/clouds/pulumi/login.go). The plugin's actual config lives
+// in the inner `raw` field as deserialised YAML; InitStateStoreFunc proxies
+// to the plugin which reads it. SC-core-side only needs url + credentials
+// to configure the Pulumi workspace.
+func pluginFieldConfig(cType string, config *Config) Config {
+	raw, _ := config.Config.(map[string]any)
+	return Config{Config: &PluginFieldConfig{
+		TypeName:    cType,
+		Raw:         raw,
+		URL:         stringFromMap(raw, "url"),
+		Credentials: stringFromMap(raw, "credentials"),
+		ProjectID:   stringFromMap(raw, "projectId"),
+		Provision:   boolFromMap(raw, "provision"),
+	}}
+}
+
+func stringFromMap(m map[string]any, key string) string {
+	if m == nil {
+		return ""
+	}
+	v, _ := m[key].(string)
+	return v
+}
+
+func boolFromMap(m map[string]any, key string) bool {
+	if m == nil {
+		return false
+	}
+	v, _ := m[key].(bool)
+	return v
+}
+
+// PluginFieldConfig is the SC-core-side carrier for a provisioner-field
+// config (state-storage or secrets-provider) that a plugin owns. Implements
+// api.StateStorageConfig and api.AuthConfig minimally; the plugin itself
+// has the authoritative view of its config via its own InitStateStore RPC.
+type PluginFieldConfig struct {
+	TypeName    string         `json:"type" yaml:"type"`
+	Raw         map[string]any `json:"-" yaml:"-"`
+	URL         string         `json:"url" yaml:"url"`
+	Credentials string         `json:"credentials" yaml:"credentials"`
+	ProjectID   string         `json:"projectId" yaml:"projectId"`
+	Provision   bool           `json:"provision" yaml:"provision"`
+}
+
+func (p *PluginFieldConfig) ProviderType() string     { return p.TypeName }
+func (p *PluginFieldConfig) CredentialsValue() string { return p.Credentials }
+func (p *PluginFieldConfig) ProjectIdValue() string   { return p.ProjectID }
+func (p *PluginFieldConfig) StorageUrl() string       { return p.URL }
+func (p *PluginFieldConfig) IsProvisionEnabled() bool { return p.Provision }
+func (p *PluginFieldConfig) UsesAmbientCredentials() bool {
+	return p.Credentials == "" // if no explicit creds, assume ambient (env/role)
 }

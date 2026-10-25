@@ -10,11 +10,16 @@ This section provides step-by-step guides for deploying applications using Simpl
 - **[GKE Autopilot](parent-gcp-gke-autopilot.md)** - Deploy on Google Kubernetes Engine Autopilot
 - **[Pure Kubernetes](parent-pure-kubernetes.md)** - Deploy on any Kubernetes cluster
 
+### Russian Clouds
+
+- **[Yandex Cloud](parent-yandex-cloud.md)** - Serverless Containers, Container Registry, Lockbox secrets, and an API Gateway edge for a `.ru` domain
+- **[Cloud.ru](parent-cloudru.md)** - Evolution Container Apps (serverless), machines SC creates itself, and single-node k3s on them
+
 ### Operational Guides
 
 - **[Resource Adoption](resource-adoption.md)** - Import existing cloud infrastructure without downtime or modifications
 - **[CI/CD with GitHub Actions](cicd-github-actions.md)** - Complete guide to automated deployment pipelines with GitHub Actions
-- **[DNS Management](dns-management.md)** - Complete guide to domain and DNS configuration with Cloudflare
+- **[DNS Management](dns-management.md)** - Domain and DNS configuration across the Cloudflare, Yandex Cloud DNS and Cloud.ru Cloud DNS registrars
 - **[Secrets Management](secrets-management.md)** - Comprehensive guide to handling secrets and credentials
 - **[Migration Guide](migration.md)** - Migrate existing applications to Simple Container
 - **[Service Deployment Steps](service-steps-to-deploy.md)** - General deployment workflow
@@ -41,6 +46,17 @@ This section provides step-by-step guides for deploying applications using Simpl
 - Works with any Kubernetes cluster (EKS, AKS, on-premises)
 - Full control over cluster configuration
 - Portable across cloud providers
+
+### Yandex Cloud / Cloud.ru
+**Best for:** services that have to be hosted in Russia
+
+- No managed Kubernetes is used or needed: serverless containers where they exist, a
+  single machine or single-node k3s where they do not
+- `vm` + `vm-compose` is the path for any cloud SC has no driver for — the machine can be
+  one you created by hand (`provider: byo`)
+- Read the cloud's guide before the first deploy: both have failure modes that present
+  as success (a green Yandex deploy with zero revisions; a green Cloud.ru deploy on a
+  port nothing opened)
 
 ## Common Deployment Patterns
 

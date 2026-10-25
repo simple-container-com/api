@@ -5,22 +5,23 @@ package docker
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	cerrdefs "github.com/containerd/errdefs"
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi-docker/sdk/v4/go/docker"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 
-	"encoding/base64"
-	"encoding/json"
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/security/signing"
-	"os"
-	"path/filepath"
 )
 
 func TestIsCommitPinnedVersion(t *testing.T) {

@@ -1,0 +1,19 @@
+version: v2
+modules:
+  - path: .
+lint:
+  use:
+    - STANDARD
+  except:
+    # The sc-plugin-architecture design places the proto at
+    # pkg/plugin/proto/v1/ to match the Go import path, not at
+    # pkg/plugin/proto/sc/plugin/v1/ which the buf PACKAGE_DIRECTORY_MATCH rule
+    # expects. Our layout is deliberate; disable the directory check.
+    - PACKAGE_DIRECTORY_MATCH
+    # Our services (SCCloudPlugin, SCCore) mirror the SC package naming
+    # convention (no "Service" suffix). Matches Pulumi's own ResourceProvider,
+    # Terraform's Provider, etc.
+    - SERVICE_SUFFIX
+breaking:
+  use:
+    - FILE

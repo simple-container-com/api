@@ -50,6 +50,8 @@ result to stdout.`,
 
 	cmd.AddCommand(NewRegistryCmd())
 	cmd.AddCommand(NewContainerAppCmd())
+	cmd.AddCommand(NewComputeVmCmd())
+	cmd.AddCommand(NewDnsRecordCmd())
 
 	return cmd
 }

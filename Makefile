@@ -110,3 +110,9 @@ tidy:
 
 clean:
 	rm -rf $(DIST)/sc
+
+# Regenerate the SC plugin bus Go stubs from pkg/plugin/proto/v1/plugin.proto.
+# Uses buf (bundles protoc internally); requires protoc-gen-go and
+# protoc-gen-go-grpc installed in $$HOME/go/bin — see pkg/plugin/proto/README.md.
+proto:
+	cd pkg/plugin/proto && PATH="$$HOME/go/bin:$$PATH" buf generate

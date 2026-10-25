@@ -95,9 +95,49 @@ func TestValidate(t *testing.T) {
 	noSecret := keyPair()
 	noSecret.SecretKey = ""
 	Expect(noSecret.Validate().Error()).To(ContainSubstring("`secretKey` is required"))
-	// The message has to say how, not just what: an operator who pastes the secret
-	// in plaintext has committed a credential.
-	Expect(noSecret.Validate().Error()).To(ContainSubstring("${secret:"))
+	// Deliberately NOT advising `${secret:<name>}` here, which this message used to
+	// do. `auth:` exists only in `secrets.yaml` (api.SecretsDescriptor), which IS the
+	// encrypted store — a placeholder written there is never expanded and reaches the
+	// cloud verbatim. The advice was therefore an instruction to break the config; see
+	// TestValidateRefusesAnUnexpandedPlaceholder for what that cost live.
+	Expect(noSecret.Validate().Error()).ToNot(ContainSubstring("${secret:"))
+}
+
+// A `${…}` left in an auth field must be refused HERE, where the field has a name.
+//
+// It is an easy mistake — every other SC file takes `${secret:<name>}`, and
+// `secrets.yaml` is the one that does not — and it fails spectacularly far from the
+// cause: the value travels through provisioning into the cloud, and Cloud.ru IAM
+// answers `HTTP 400 … (key_id) is invalid argument: key_id does not match required
+// format`, which reads like a revoked or mistyped key. Live-caught 2026-10-24,
+// mid-deploy, with resources already created.
+func TestValidateRefusesAnUnexpandedPlaceholder(t *testing.T) {
+	RegisterTestingT(t)
+
+	for field, cfg := range map[string]*AccountConfig{
+		"accessKey":   {AccessKey: "${secret:CLOUDRU_KEY_ID}", SecretKey: "SK"},
+		"secretKey":   {AccessKey: "AK", SecretKey: "${secret:CLOUDRU_KEY_SECRET}"},
+		"projectName": {AccessKey: "AK", SecretKey: "SK", ProjectName: "${secret:PROJECT}"},
+	} {
+		err := cfg.Validate()
+		Expect(err).ToNot(BeNil(), "`"+field+"` holding a placeholder must not validate")
+		Expect(err.Error()).To(ContainSubstring("`" + field + "`"))
+		// Says where the placeholder DOES belong, so the fix is one read away.
+		Expect(err.Error()).To(ContainSubstring("server.yaml"))
+	}
+
+	// Evolution shares the check, because the trap belongs to `secrets.yaml` rather
+	// than to either of the two clouds Cloud.ru sells under one brand.
+	evo := &EvolutionAccountConfig{
+		KeyID:     "f7b1c0a2-0000-4000-8000-000000000001",
+		KeySecret: "SK",
+		ProjectID: "${secret:CLOUDRU_PROJECT_ID}",
+	}
+	Expect(evo.Validate()).ToNot(Succeed())
+	Expect(evo.Validate().Error()).To(ContainSubstring("`projectId`"))
+
+	evo.ProjectID = "11111111-aaaa-4bbb-8ccc-222222222222"
+	Expect(evo.Validate()).To(Succeed())
 }
 
 // CredentialsValue is what `${auth:...}` resolves to, and api.ConvertAuth round-trips
