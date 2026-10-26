@@ -74,6 +74,22 @@ func Provider(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params
 		}
 		return &api.ResourceOutput{Ref: provider}, nil
 	default:
+		// A plugin-advertised driver gets pulumi-command's provider, which is the
+		// third distinct reason the same provider shows up in this switch: the cloud
+		// API is real and a Pulumi provider for it exists, but the PLUGIN builds it,
+		// inside the plugin's own pulumi.Context. An sdk.ProviderResource handle does
+		// not cross a pulumi.Context boundary (see the design doc's Addendum H/J —
+		// the symptom of getting this wrong is a silent hang, not an error), so there
+		// is nothing for core to construct here and nothing to hand over. What core
+		// still needs is a provider for the work core still does on the machine
+		// itself: the readiness gate, the docker install, compose over SSH.
+		if pluginName := vm.PluginForDriver(cfg.Driver); pluginName != "" {
+			provider, err := command.NewProvider(ctx, input.ToResName(input.Descriptor.Name), &command.ProviderArgs{})
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to init command provider for plugin vm %q", input.Descriptor.Name)
+			}
+			return &api.ResourceOutput{Ref: provider}, nil
+		}
 		// Unreachable: Validate above refuses every provider without a driver. Kept
 		// as a real error rather than a panic so that adding a driver to
 		// vm.Drivers without adding it here fails legibly.

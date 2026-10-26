@@ -68,6 +68,13 @@ func TestReadVmConfigReadsByoHost(t *testing.T) {
 // Every driver named by a const must have a Drivers row, and vice versa: the row
 // is what Validate uses to tell "unknown provider" from "not implemented yet", and
 // a const without a row produces the wrong one of those two messages.
+//
+// Scope note: this covers the drivers SC CORE ships. Plugin-advertised drivers live
+// in a second table (plugin_drivers.go) precisely so that this invariant stays
+// checkable — merged into one map it would start covering whatever plugins happened
+// to be installed on the box running the test. The KnownDrivers assertion below is
+// therefore the no-plugins-registered case, which is the state every other test in
+// this package leaves behind (they defer ResetPluginDrivers).
 func TestDriversCoverEveryNamedDriver(t *testing.T) {
 	RegisterTestingT(t)
 

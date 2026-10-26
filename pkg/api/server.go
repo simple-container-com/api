@@ -38,18 +38,45 @@ type ServerDescriptor struct {
 }
 
 // PluginSpec configures one SC plugin that will be loaded at provision time.
-// v1 is deliberately minimal: a path to a locally-available binary plus an
-// optional SHA256 to verify. Future versions will add source (github-release,
-// OCI image, local-dev symlink) and version pins per 03 §6.2.
+// Operators give either a local path (dev / air-gapped) or a source block that
+// SC resolves at load time against a GitHub Release.
 type PluginSpec struct {
-	// Path to the plugin binary on disk. Required. May be absolute or
-	// resolved relative to the SC project root.
-	Path string `json:"path" yaml:"path"`
+	// Path to the plugin binary on disk. Mutually exclusive with Source — if
+	// both are set, Path wins. For dev loops + air-gapped operators.
+	Path string `json:"path,omitempty" yaml:"path,omitempty"`
+
+	// Source resolves to a downloaded + cached binary. Set this for the
+	// standard operator flow — points at a plugin repo's release.
+	Source *PluginSource `json:"source,omitempty" yaml:"source,omitempty"`
 
 	// SHA256 hex digest of the binary. When set, SC refuses to spawn a
 	// binary whose hash does not match — the integrity guard from D10.
-	// When empty, SC logs a WARN but proceeds.
+	// For Source-based specs, SC additionally cross-checks against the
+	// release's sha256sums.txt asset if present. When empty, SC logs a
+	// WARN but proceeds.
 	SHA256 string `json:"sha256,omitempty" yaml:"sha256,omitempty"`
+}
+
+// PluginSource describes where SC should fetch a plugin binary from.
+// Only "github-release" is supported in v1; "oci" is a planned addition
+// (see 03 §6.2).
+type PluginSource struct {
+	// Type of the source. v1: "github-release".
+	Type string `json:"type" yaml:"type"`
+
+	// Repository identifier. For github-release: "owner/repo" (e.g.
+	// "simple-container-com/sc-plugin-cloudflare").
+	Repository string `json:"repository" yaml:"repository"`
+
+	// Version tag — a specific release name. "latest" is NOT supported in
+	// v1: operators pin a version explicitly so deploys are reproducible.
+	Version string `json:"version" yaml:"version"`
+
+	// BinaryName overrides the default binary filename resolution. Default
+	// derivation: "sc-plugin-<name>-<goos>-<goarch>[.exe]" where <name> is
+	// the repo name minus the "sc-plugin-" prefix (e.g.
+	// simple-container-com/sc-plugin-cloudflare → "sc-plugin-cloudflare").
+	BinaryName string `json:"binaryName,omitempty" yaml:"binaryName,omitempty"`
 }
 
 // ValuesOnly returns copy of descriptor without additional state (e.g. provisioner reference etc.)

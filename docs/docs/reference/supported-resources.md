@@ -1606,7 +1606,7 @@ separate resource type per cloud. Three drivers are implemented today:
 | `provider:` | Status | Notes |
 |---|---|---|
 | `byo` | **implemented** | the machine already exists; you give SC its address and a deploy key. The one driver that works in every cloud on earth |
-| `cloudru-vm` | **implemented** | Cloud.ru **Advanced** (ex-SberCloud), through the bridged `terraform-provider-sbercloud`. Runs cloud-init, so SC generates and pins the machine's SSH host key itself |
+| `cloudru-vm` | **implemented, never run** | Cloud.ru **Advanced** (ex-SberCloud), through the bridged `terraform-provider-sbercloud`. Runs cloud-init, so SC generates and pins the machine's SSH host key itself. SC has only ever had an **Evolution** account, so this driver is written off a provider schema and has provisioned nothing: it is **refused at validation** unless the resource also sets `allowUnverifiedProvider: true` |
 | `cloudru-evolution-vm` | **implemented** | Cloud.ru **Evolution**. Regionless (place with `zones:`, never `region:`) and **no cloud-init at all** — see the note below |
 | `yc-vm`, `openstack-vm`, `vkcs-vm`, `mws-vm`, `timeweb-vm` | not implemented | refused at validation with the roadmap item named; until one lands, create the machine in the cloud console and declare it as `byo` |
 
@@ -1646,6 +1646,15 @@ its zero value there means **"not measured yet"**, not "absent".
   authorised by writing them into user-data, and a cloud that accepts none has
   nowhere to put them — its create call takes exactly one public key, the deploy
   key SC generates. Add such a key by hand, or keep console access for incidents.
+- `ingressPorts` requires a driver that can write firewall rules. On one that
+  cannot, SC logs the list it would have opened and tells you to open it yourself,
+  because a port it cannot reach is not a port it can promise.
+- `allowUnverifiedProvider` is **required** by a driver SC has never actually
+  provisioned with, and **refused** by every other. The flag is keyed off the
+  driver's own `Unverified` note rather than its name, so it goes away on its own
+  the moment a driver is live-verified — and setting it on a verified driver is an
+  error rather than a no-op, because a stale exception reads as one that still
+  applies. Today exactly one driver needs it: `cloudru-vm`.
 
 **`cloudru-evolution-vm` has no cloud-init, and three things follow from it.**
 Measured, not assumed: Cloud.ru Evolution's `POST /vms` answers `extra_forbidden`
@@ -1666,14 +1675,36 @@ The same call also refuses `subnet_id`, `security_group_ids`, `interfaces`,
 zone's **default** subnet and **default** security group. Ingress rules are opened
 on whichever group it actually joined, read back off its own interface.
 
-**Which ports a cloud driver opens.** Only what SC needs and what you asked for:
-**22/tcp always**, plus **80/tcp, 443/tcp and 443/udp** when `ingress.enable` is
-set. Nothing else — not the Kubernetes NodePort range, not a compose host-port
-range, not 6443. So a stack that falls back to a deterministic high host port
-(`domain` unset, or `ingress` off) is reachable from inside the cloud but **not
-from the internet** until you open that port in the security group yourself, and
-`kubectl` against a `k3s-cluster` needs 6443 opened the same way. Both Cloud.ru
-drivers share the one port table, so they cannot drift apart.
+**Which ports a cloud driver opens.** Four sources, and only the last one is yours
+to write:
+
+1. **22/tcp**, always.
+2. **80/tcp, 443/tcp, 443/udp** when `ingress.enable` is set.
+3. **Whatever the machine's consumers in the same parent stack declare.** A
+   `k3s-cluster` resource, or a `vm-compose` template, that names this `vm`
+   resource *is* the declaration — so `6443/tcp` and `30000-32767/tcp` come with
+   a cluster, and the compose host-port range (`20000-30000/tcp`) comes with a
+   template, without being restated. Three of the cluster's ports are
+   **node-to-node** and are permitted from the machine's own subnet rather than
+   the internet: `8472/udp` (flannel VXLAN), `10250/tcp` (kubelet),
+   `2379-2380/tcp` (etcd client and peer).
+4. **`ingressPorts` on the resource**, for what inference cannot see — a port one
+   of your own processes binds on the machine.
+
+The resolved list is exported as `<vm>-vm-open-ports`, and a `vm-compose` deploy
+reads it back to warn when the host port it publishes is not reachable from the
+internet. The ranges are deduplicated by the hole they open rather than by their
+label, and where two sources ask for the same port at different scopes the wider
+one wins.
+
+All drivers resolve the list with the same code (`pkg/clouds/vm/ports.go`), so two
+clouds cannot drift apart; what differs is enforcement. Advanced scopes a
+node-to-node rule with `RemoteGroupId` — the machine's own security group.
+Evolution has no group of its own (see above), so SC resolves the VM's private
+subnet CIDR after the create, and when that lookup fails it **says so and leaves
+the port shut** rather than widening it to `0.0.0.0/0`. A destroy closes only the
+rules SC opened: they carry a description naming the VM, and the sweep matches on
+that prefix, so rules added by hand in a shared default group survive.
 
 Worked end-to-end examples: [Compose on a VM](../examples/vm-compose/index.md)
 and [k3s Clusters](../examples/k3s/index.md).
@@ -1731,9 +1762,13 @@ provisioning tier warns loudly when this is unset. It is the machine's
 should be able to compare it against the cloud console by eye.
 
 **What `provider: byo` refuses.** `region`, `zones`, `image`, `size`,
-`publicIP`, `network` and `extraSshKeys` are rejected at validation rather than
-accepted and ignored — SC does not create the machine, so it cannot apply them.
-Configure those in the cloud console. `byo` also currently accepts **exactly
+`publicIP`, `network`, `extraSshKeys` and `ingressPorts` are rejected at
+validation rather than accepted and ignored — SC does not create the machine, so
+it cannot apply them. Configure those in the cloud console; on a `byo` host the
+ports are yours to open, and SC prints the list it would have asked for so you
+do not have to derive it. Note that this is a refusal, not a warning: an operator
+certain the NodePort range is open is exactly the incident `ingressPorts` exists
+to prevent. `byo` also currently accepts **exactly
 one** host; multi-host pools arrive with the k3s work (`sc-k3s-cluster-resource`).
 The reverse holds for the cloud drivers — `hosts` is only valid with `byo` — and
 each cloud driver's own requirements are in the
@@ -1765,13 +1800,23 @@ resources:
             # Paste `ssh-keyscan -t ed25519 <address>` output after the first
             # provision — this cloud runs no cloud-init, so SC cannot seed it.
             # hostKey: "45.132.179.77 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+            # Optional: holes inference cannot derive. `preset` names a bundle
+            # (`vm-compose`, `k3s`, `http`) and excludes `port`.
+            ingressPorts:
+              - port: 9100             # node_exporter
+              - port: 7946
+                protocol: udp          # defaults to tcp
+              - port: 32000
+                portEnd: 32100         # a range, inclusive
             ingress:
               enable: true
               email: ops@example.ru
 ```
 
-With `provider: cloudru-vm` (the Advanced estate) the only differences are the
-credential type and that `region: ru-moscow-1` is required rather than refused.
+With `provider: cloudru-vm` (the Advanced estate) the differences are the
+credential type, that `region: ru-moscow-1` is required rather than refused, and
+that the resource must also carry `allowUnverifiedProvider: true` — that driver
+has provisioned nothing yet.
 
 **Stack outputs** (read with `sc stack outputs`), for resource name `<vm>` and
 host index `<i>`:
@@ -1783,6 +1828,7 @@ host index `<i>`:
 | `<vm>-vm-host-<i>-private-key` / `-private-key-password` | **secret-marked** |
 | `<vm>-vm-host-<i>-host-key` | the pinned public host key |
 | `<vm>-vm-ingress-enabled` | whether the Caddy front door is on |
+| `<vm>-vm-open-ports` | the resolved firewall list, e.g. `ssh=tcp/22,k3s-api=tcp/6443,k3s-nodeport=tcp/30000-32767,k3s-kubelet=tcp/10250@nodes`; `@nodes` marks a range permitted only from the machine's own subnet. Empty on a driver that manages no firewall |
 
 > `sc stack outputs` prints secret-marked values in the clear. Redirect it to a
 > mode-600 file (`umask 077`) rather than reading it on a shared terminal.

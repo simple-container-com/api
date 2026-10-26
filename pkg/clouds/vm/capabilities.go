@@ -51,11 +51,30 @@ type Capabilities struct {
 // the work to add it is tracked, and what its cloud can do.
 type DriverInfo struct {
 	Implemented bool
+	// Unverified, when non-empty, says the driver's code exists and compiles but has
+	// never provisioned a machine on the cloud it addresses — and the string says
+	// why not. Validate refuses such a driver unless the resource sets
+	// `allowUnverifiedProvider: true`, and quotes this reason verbatim.
+	//
+	// "Implemented" and "known to work" are different claims, and the DSL had no way
+	// to tell them apart: `cloudru-vm` shipped as `Implemented: true` next to
+	// `cloudru-evolution-vm`, which had been provisioned end to end — so the one
+	// thing an operator could not learn from the config reference was which of the
+	// two had ever run. Clear this field when a driver is smoked, in the same change
+	// that records the smoke.
+	Unverified string
 	// RoadmapItem is the forge roadmap item that tracks this driver. It is quoted
 	// verbatim in the refusal an unimplemented driver returns, so an operator who
 	// hits it can find the state of the work rather than guessing.
 	RoadmapItem  string
 	Capabilities Capabilities
+	// Plugin names the SC plugin that advertised this driver, and is empty for a
+	// driver SC core ships itself. Set by RegisterPluginDriver — a row in the
+	// `Drivers` literal below must never set it.
+	//
+	// It is what routes the resource: a non-empty Plugin means the machines are
+	// created by that plugin's VmHosts RPC rather than by an in-tree driver.
+	Plugin string
 }
 
 // Drivers is the whole driver table.
@@ -87,6 +106,16 @@ var Drivers = map[string]DriverInfo{
 	DriverMws:       {RoadmapItem: "sc-ru-clouds-beyond-yandex"},
 	DriverCloudru: {
 		Implemented: true,
+		// Written against `simple-container-com/pulumi-sbercloud` and the Advanced
+		// (ex-SberCloud) API, and never run: the only Cloud.ru account SC has ever
+		// had is an **Evolution** subscription, which is a different cloud with a
+		// different API behind the same brand and the same console. So every claim
+		// this driver makes — the flavour lookup, `eip_id` at create, the security
+		// group, the cloud-init that fetches docker — is read off a Terraform
+		// provider's schema and nothing more.
+		Unverified: "it addresses Cloud.ru **Advanced** (ex-SberCloud), and the only Cloud.ru estate SC has " +
+			"ever provisioned is **Evolution** — if your project is Evolution (which new accounts get by " +
+			"default), use `provider: cloudru-evolution-vm`, which is live-verified end to end",
 		RoadmapItem: "sc-ru-clouds-beyond-yandex",
 		Capabilities: Capabilities{
 			CloudInit: true,
@@ -154,11 +183,12 @@ var Drivers = map[string]DriverInfo{
 			// The project's Artifact Registry, which the Container App driver already
 			// creates and pushes to with the same key pair.
 			ContainerRegistry: true,
-			// Evolution has a public DNS service and its REST routes are mapped, but
-			// the service account lacks the role and no apex is delegated to it, so
-			// nothing has been exercised end to end. False until it is — roadmap item
-			// sc-cloudru-dns-registrar.
-			DNSInIaC: false,
+			// True since 2026-10-24: the `cloudru-dns` registrar was live-verified
+			// on a delegated apex through both tiers (CLI and Pulumi), each step
+			// cross-checked by resolving the name on the public internet. It had
+			// been false here with a comment pointing at the roadmap item that has
+			// since shipped — roadmap item sc-cloudru-dns-registrar.
+			DNSInIaC: true,
 			// MultiAZInRegion left at "not measured": the driver resolves zones from
 			// `GET /availability-zones` at deploy time and never needs a number
 			// compiled in, and a wrong one here would be branched on.

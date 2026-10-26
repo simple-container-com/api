@@ -85,7 +85,20 @@ type Driver interface {
 	// Hosts returns the machines of this resource, creating them first if the driver
 	// is a cloud driver. It must not wait for readiness — that is shared code
 	// (ready.go) and identical across clouds.
-	Hosts(ctx *sdk.Context, input api.ResourceInput, cfg *vm.VmConfig, params pApi.ProvisionParams) ([]HostFacts, error)
+	//
+	// `ports` is every hole to open in the machine's firewall, already resolved:
+	// the base set, the resource's `ingressPorts`, and the presets inferred from the
+	// consumers that name this resource in the parent stack (firewall.go). Passed in
+	// rather than derived from cfg because that inference needs the whole parent
+	// stack, which a driver is deliberately not given. It is empty — and must then
+	// be ignored — for a driver whose cloud SC cannot write firewall rules in.
+	Hosts(
+		ctx *sdk.Context,
+		input api.ResourceInput,
+		cfg *vm.VmConfig,
+		ports []vm.PortRange,
+		params pApi.ProvisionParams,
+	) ([]HostFacts, error)
 }
 
 // driverFor resolves the driver named by the resource's `provider:` field.
@@ -102,6 +115,14 @@ func driverFor(cfg *vm.VmConfig) (Driver, error) {
 	case vm.DriverCloudruEvolution:
 		return cloudruEvolutionDriver{}, nil
 	default:
+		// Not in-tree — it may still be a driver a loaded plugin advertised. The
+		// in-tree switch comes first for the same reason vm.LookupDriver checks the
+		// built-in table first: a plugin may not shadow a driver core ships.
+		if driver, ok, err := pluginDriverFor(cfg); err != nil {
+			return nil, err
+		} else if ok {
+			return driver, nil
+		}
 		return nil, errors.Errorf("no vm driver for provider %q", cfg.Driver)
 	}
 }

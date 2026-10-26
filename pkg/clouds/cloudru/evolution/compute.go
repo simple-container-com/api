@@ -987,6 +987,51 @@ func (c *Client) CreateSecurityGroupRule(ctx context.Context, groupID string, ru
 		computeAPIPath+"/security-groups/"+url.PathEscape(groupID)+"/rules", nil, rule, nil)
 }
 
+// ListSecurityGroupRules reads one group's rules.
+//
+// Needed even though SecurityGroup has a `Rules` field, because the group
+// endpoints do NOT fill it: `GET /security-groups` and `GET /security-groups/{id}`
+// both answer with `ingress_rules_count` and no rules at all (measured
+// 2026-10-24). A caller that trusted the inlined slice would see every group as
+// empty — and would therefore re-create a rule it already had on every deploy, and
+// find nothing to clean up on destroy.
+//
+// Shares CreateSecurityGroupRule's one quirk, hence the hand-rolled request rather
+// than listPaged: the `/rules` sub-route declares no `project_id` and refuses it
+// with 422 `extra_forbidden`, while listPaged always injects it. Paging is not a
+// concern here for the same reason the route has no project — it answers with the
+// group's whole rule set in one `{"items":[…]}` envelope.
+func (c *Client) ListSecurityGroupRules(ctx context.Context, groupID string) ([]SecurityGroupRule, error) {
+	var raw json.RawMessage
+	if err := c.request(ctx, http.MethodGet, c.computeURL,
+		computeAPIPath+"/security-groups/"+url.PathEscape(groupID)+"/rules", nil, nil, &raw); err != nil {
+		if NotFound(err) {
+			return nil, nil
+		}
+		return nil, errors.Wrapf(err, "failed to list rules of cloud.ru security group %q", groupID)
+	}
+	envelope, err := decodeCollection[SecurityGroupRule](raw)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to decode rules of cloud.ru security group %q", groupID)
+	}
+	return envelope.Items, nil
+}
+
+// DeleteSecurityGroupRule removes one rule. Absence is success, as everywhere else
+// on the destroy path.
+//
+// The call answers 204 and the rule survives for ~20 s afterwards (the delete is
+// async on this cloud); a repeat then answers 404. So a caller must not read the
+// group back to confirm — it will see the rule and conclude the delete failed.
+func (c *Client) DeleteSecurityGroupRule(ctx context.Context, groupID, ruleID string) error {
+	err := c.request(ctx, http.MethodDelete, c.computeURL,
+		computeAPIPath+"/security-groups/"+url.PathEscape(groupID)+"/rules/"+url.PathEscape(ruleID), nil, nil, nil)
+	if err != nil && NotFound(err) {
+		return nil
+	}
+	return err
+}
+
 // sortedMapKeys is a tiny helper so error messages list aliases deterministically.
 func sortedMapKeys(m map[string]string) []string {
 	out := make([]string, 0, len(m))

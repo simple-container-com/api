@@ -11,6 +11,28 @@ compose project, Caddy, TLS, blue-green — is the **same code** the `byo` path 
 is deliberate and is why the `byo` path came first: by the time this driver existed,
 everything above SSH had already been proven live on a machine made by hand.
 
+## This driver has never run
+
+`cloudru-vm` is written against the **Advanced** (ex-SberCloud) API, and the only
+Cloud.ru estate SC has ever had an account on is **Evolution**. So the code below SSH —
+the flavour lookup, the address bound at create, the security group, the cloud-init — is
+read off a Terraform provider's schema and has never created a machine.
+
+`sc provision` therefore refuses it unless the resource says so out loud:
+
+```yaml
+            provider: cloudru-vm
+            allowUnverifiedProvider: true
+```
+
+The flag is refused on a driver that *is* verified, so it cannot linger in a config as a
+standing exception to a gate that no longer applies. Expect to debug the driver if you
+set it — and please report what you find.
+
+**If your console says Evolution** — which new accounts get by default — use
+[the Evolution example](../cloudru-evolution/README.md) instead: that driver is verified
+end to end and takes no flag.
+
 ## Which Cloud.ru this is
 
 Cloud.ru sells two unrelated estates, with different APIs and different credentials. A
@@ -214,3 +236,36 @@ sc stack outputs -s portal -e staging | jq -r '."portal-vm-compose-url"'
 The DNS A record points at the elastic IP the driver created
 (`portal-vm-vm-host-0-address`) and must **not** be proxied — Cloudflare's orange cloud
 breaks the ACME challenge the machine answers itself.
+
+## The ports, and who opens them
+
+SC opens **22** always, **80/443/443-udp** when `ingress.enable: true`, and then the
+ranges it can infer from the machine's consumers in this same parent stack. The
+`compose-on-vm` template names this `vm` resource, so the **host-port range**
+(20000–30000) a stack publishes into is opened too — which is what makes a stack without
+a `domain:` reachable at all.
+
+Anything else goes on the resource:
+
+```yaml
+            ingressPorts:
+              - port: 9100            # node_exporter on the machine itself
+              - port: 7946
+                protocol: udp
+              - preset: k3s           # if a k3s-cluster lands here as well
+```
+
+A `preset` is a bundle (`vm-compose`, `k3s`, `http`) for the ranges nobody should have
+to memorise. `preset` and `port` are mutually exclusive, and an unknown preset or an
+out-of-range port is refused at validation — a port accepted and not opened is the
+failure this field exists to prevent, and it presents as a green deploy nothing can
+reach.
+
+What SC opened is a stack output, so you can check rather than assume:
+
+```bash
+sc stack outputs -s mycompany -e staging | jq -r '."portal-vm-vm-open-ports"'
+```
+
+A `vm-compose` deploy reads that same output and warns when the host port it is about to
+publish is not in it, instead of succeeding onto a shut port.

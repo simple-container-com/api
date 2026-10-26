@@ -404,30 +404,69 @@ There is no `--show-secrets` and no `-o`: secret-marked outputs are printed **in
 clear, always**. Hence the `umask`. Redirect to a file you control, keep it out of your
 scrollback and your shell history, and delete it when you are done.
 
-## **The ports SC does not open**
+## **The ports, and who opens them**
 
-This is the most practical thing to know before a VM or k3s smoke, and it is a known
-gap rather than a configuration mistake.
+This used to be the most practical thing to know before a VM or k3s smoke, because SC
+opened **22** plus the ingress's 80/443 and nothing else — so the k3s API port, the
+NodePort range and a `vm-compose` host port had to be added in the console by hand. The
+failure mode was the expensive kind: `sc provision` and `sc deploy` both report success,
+`curl` from the node itself answers 200, `readyReplicas: 1`, and from outside the request
+simply times out. **No log line anywhere says a port is shut.**
 
-The Cloud.ru VM driver opens **22**, plus **80/443/443-udp** when `ingress.enable:
-true`. **Nothing else** — not the Kubernetes API port, not the NodePort range, not the
-host ports a `vm-compose` stack publishes when it has no `domain:`.
+SC now derives the list instead. Three sources, in order of how little you have to say:
 
-The failure mode is the expensive kind: `sc provision` and `sc deploy` both report
-success, `curl` from the node itself answers 200, `readyReplicas: 1`, and from outside
-the request simply times out. **No log line anywhere says a port is shut.**
+1. **Always** — 22/tcp.
+2. **`ingress.enable: true`** — 80/tcp, 443/tcp, 443/udp (HTTP/3).
+3. **Inferred from this machine's consumers in the same parent stack.** A `k3s-cluster`
+   resource or a `vm-compose` template that names this `vm` resource is a declaration
+   that those ports are needed, so SC reads it rather than asking you to repeat it:
 
-Until SC opens them itself, add what your path needs to the project's security group in
-the console:
+   | port range | opened for | scope |
+   |---|---|---|
+   | `6443/tcp` | the k3s API — the exported kubeconfig points at the node, and `sc deploy` connects from wherever it runs | internet |
+   | `30000-32767/tcp` | reaching a Service by node port | internet |
+   | `20000-30000/tcp` | the host ports a `vm-compose` stack publishes without a `domain:` | internet |
+   | `8472/udp` | flannel VXLAN (multi-node k3s) | the node's own subnet |
+   | `10250/tcp` | kubelet — `kubectl logs`, `exec`, metrics | the node's own subnet |
+   | `2379-2380/tcp` | etcd client + peer (embedded, multi-server k3s) | the node's own subnet |
 
-| port range | needed for |
-|---|---|
-| `6443` | the k3s path at all — the exported kubeconfig points at the node, and `sc deploy` connects to the API server from wherever it runs |
-| `30000-32767` | reaching a Service by node port |
-| `20000-30000` | the host ports a `vm-compose` stack publishes without a `domain:` |
+4. **Anything inference cannot see** — a port a process of yours binds on the machine —
+   goes on the `vm` resource and is opened verbatim:
 
-Remove them afterwards. The project's security group is shared (Cloud.ru marks it
-`default: true`), and SC has no rule-delete yet, so anything left behind is permanent.
+   ```yaml
+   ingressPorts:
+     - port: 9100              # node_exporter
+     - port: 7946
+       protocol: udp
+     - port: 32000
+       portEnd: 32100
+     - preset: http            # 80 + 443, without SC's own Caddy in front
+   ```
+
+   `preset` names a bundle (`vm-compose`, `k3s`, `http`) and is mutually exclusive with
+   `port`. An unknown preset or an out-of-range port is **refused at validation**, not
+   accepted and dropped.
+
+Two things are specific to this cloud, and both apply to either driver — they resolve the
+list with the same code, so they cannot drift apart:
+
+- **A node-to-node range is permitted from the machine's own subnet, never from the
+  internet.** SC does not choose the subnet on Evolution, so it resolves the CIDR after
+  the create; if that lookup fails it **says so and leaves the port shut** rather than
+  widening it to `0.0.0.0/0`.
+- **A destroy closes only its own rules.** The project's security group is shared
+  (Cloud.ru marks it `default: true`), so SC's rules carry a description naming the VM and
+  the destroy sweep matches on that. Rules you added in the console are left alone — and
+  are still permanent, so remove those yourself.
+
+Check rather than assume: the resolved list is a stack output.
+
+```sh
+sc stack outputs -s devops | grep -- '-vm-open-ports'
+```
+
+A `vm-compose` deploy reads the same value and warns when the host port it publishes is
+not among them.
 
 ---
 
@@ -488,7 +527,7 @@ still identifiable and still destroyable.
 | `vm` + `vm-compose`, both drivers | live-verified, including a VM SC created itself |
 | `vm` + `k3s-cluster` + `k3s-cloudrun` | live-verified |
 | `cloudru-dns` registrar | live-verified on a delegated apex — needs the `cdns.admin` role in the project |
-| Service ports beyond 22/80/443 | **opened by hand today** — see above |
+| Service ports beyond 22/80/443 | inferred from the consumers, or listed in `ingressPorts` — see above |
 | Pulumi state in Cloud.ru | **no backend** — use `fs` or a bucket in another cloud |
 | Advanced: SWR registry, EVS CSI for k3s | bridged in the provider, not wired into SC |
 

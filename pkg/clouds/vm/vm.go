@@ -225,6 +225,18 @@ type VmConfig struct {
 	Network  *VmNetwork `json:"network,omitempty" yaml:"network,omitempty"`
 	Ingress  *VmIngress `json:"ingress,omitempty" yaml:"ingress,omitempty"`
 
+	// IngressPorts are additional ports SC opens in the machine's firewall, on top
+	// of SSH (and 80/443 when `ingress.enable` is on) and on top of what SC infers
+	// from this vm's consumers in the same parent stack. See VmIngressPort and
+	// FirewallPorts (ports.go).
+	IngressPorts []VmIngressPort `json:"ingressPorts,omitempty" yaml:"ingressPorts,omitempty"`
+
+	// AllowUnverifiedProvider opts into a driver whose code exists but has never
+	// provisioned a machine on the cloud it addresses (see DriverInfo.Unverified).
+	// Refused when the driver IS verified, so the flag cannot linger as dead config
+	// reading like a standing exception.
+	AllowUnverifiedProvider bool `json:"allowUnverifiedProvider,omitempty" yaml:"allowUnverifiedProvider,omitempty"`
+
 	// RegistryMirrors and PackageMirror exist for deployments that cannot reach
 	// Docker Hub or the distribution's package mirrors — the normal case inside
 	// Russia, and the reason reachability is being measured before anything is
@@ -382,7 +394,10 @@ func (r *VmConfig) Validate() error {
 	if r.Driver == "" {
 		return errors.Errorf("vm resource requires `provider`; one of: %s", strings.Join(KnownDrivers(), ", "))
 	}
-	drv, known := Drivers[r.Driver]
+	// Built-in table first, then the drivers the loaded plugins advertised — see
+	// plugin_drivers.go for why those live in a second map and why they are already
+	// registered by the time any Validate runs.
+	drv, known := LookupDriver(r.Driver)
 	if !known {
 		return errors.Errorf("unknown vm provider %q; one of: %s", r.Driver, strings.Join(KnownDrivers(), ", "))
 	}
@@ -404,6 +419,25 @@ func (r *VmConfig) Validate() error {
 			"vm provider %q is not implemented yet (roadmap item %s); until it lands, create the machine "+
 				"by hand and declare it with `provider: %s` and `hosts:`",
 			r.Driver, drv.RoadmapItem, DriverByo,
+		)
+	}
+	// An unverified driver is refused by default, and the opt-in is refused on a
+	// driver that does not need it. Both halves matter: "implemented" and "known to
+	// work" are different claims, and until this gate existed `main` offered a
+	// Cloud.ru Advanced driver indistinguishable in the DSL from the Evolution one
+	// that had actually been provisioned end to end.
+	switch {
+	case drv.Unverified != "" && !r.AllowUnverifiedProvider:
+		return errors.Errorf(
+			"vm provider %q has never provisioned a machine on the cloud it addresses: %s. Set "+
+				"`allowUnverifiedProvider: true` to try it anyway and expect to debug the driver; progress "+
+				"is tracked on roadmap item %s",
+			r.Driver, drv.Unverified, drv.RoadmapItem,
+		)
+	case drv.Unverified == "" && r.AllowUnverifiedProvider:
+		return errors.Errorf(
+			"`allowUnverifiedProvider` is not valid with `provider: %s`: that driver is live-verified, so the "+
+				"flag would read as a standing exception to a gate it is not subject to. Remove it", r.Driver,
 		)
 	}
 	return nil
@@ -434,6 +468,13 @@ func (r *VmConfig) validateByo() error {
 	if len(r.ExtraSshKeys) > 0 {
 		ignored = append(ignored, "extraSshKeys")
 	}
+	// SC owns no firewall on a machine it did not create: there is no cloud API to
+	// call and no security group to find. Accepting the list would be the exact
+	// failure this field was added to fix, one layer up — an operator certain the
+	// NodePort range is open, and a deploy that reports success and times out.
+	if len(r.IngressPorts) > 0 {
+		ignored = append(ignored, "ingressPorts")
+	}
 	if len(ignored) > 0 {
 		return errors.Errorf(
 			"%s is not valid with `provider: %s`: SC does not create the machine, so it cannot apply %s; "+
@@ -446,7 +487,8 @@ func (r *VmConfig) validateByo() error {
 	// look applied. A pool of byo hosts does not share a host key.
 	if r.HostKey != "" {
 		return errors.Errorf(
-			"`hostKey` is not valid with `provider: %s`: pin it per machine, as `hosts[].hostKey`", DriverByo)
+			"`hostKey` is not valid with `provider: %s`: pin it per machine, as `hosts[].hostKey`", DriverByo,
+		)
 	}
 
 	if len(r.Hosts) == 0 {
@@ -491,7 +533,8 @@ func (r *VmConfig) validateCloud(drv DriverInfo) error {
 	if r.HostKey != "" && drv.Capabilities.CloudInit {
 		return errors.Errorf(
 			"`hostKey` is not valid with `provider: %s`: this cloud runs cloud-init, so SC generates the "+
-				"machine's host key itself and pins it — a pasted key would never be used", r.Driver)
+				"machine's host key itself and pins it — a pasted key would never be used", r.Driver,
+		)
 	}
 	if len(r.Hosts) > 0 {
 		return errors.Errorf(
@@ -511,7 +554,8 @@ func (r *VmConfig) validateCloud(drv DriverInfo) error {
 			"`extraSshKeys` is not valid with `provider: %s`: this cloud runs no cloud-init and its VM create "+
 				"takes exactly one public key (the deploy key SC generates), so there is nowhere to authorise "+
 				"another one. Add the key to the machine yourself, or keep console access for incidents",
-			r.Driver)
+			r.Driver,
+		)
 	}
 	// Required on a region-scoped cloud, and REFUSED on one that has no regions —
 	// not merely optional there. A `region:` that SC silently drops would read as
@@ -523,7 +567,8 @@ func (r *VmConfig) validateCloud(drv DriverInfo) error {
 		return errors.Errorf(
 			"`region` is not valid with `provider: %s`: this cloud's API has no region — one global endpoint, "+
 				"and placement is the availability zone. Remove `region`, and pin placement with `zones:` "+
-				"(at most one entry)", r.Driver)
+				"(at most one entry)", r.Driver,
+		)
 	case !drv.Capabilities.Regionless && r.Region == "":
 		return errors.Errorf("`provider: %s` requires `region`", r.Driver)
 	}
@@ -535,7 +580,8 @@ func (r *VmConfig) validateCloud(drv DriverInfo) error {
 	if !r.PublicIP {
 		return errors.Errorf(
 			"`provider: %s` requires `publicIP: true`: SC deploys over SSH from outside the cloud and has no "+
-				"bastion or VPN path to a machine without a public address", r.Driver)
+				"bastion or VPN path to a machine without a public address", r.Driver,
+		)
 	}
 	// One zone, because one machine. Several zones only mean something once a vm
 	// resource can describe a pool, which arrives with the k3s cluster resource.
@@ -543,7 +589,8 @@ func (r *VmConfig) validateCloud(drv DriverInfo) error {
 		return errors.Errorf(
 			"`provider: %s` currently supports at most one entry under `zones`, got %d; multi-zone pools "+
 				"arrive with the k3s cluster resource (roadmap item sc-k3s-cluster-resource)",
-			r.Driver, len(r.Zones))
+			r.Driver, len(r.Zones),
+		)
 	}
 	// `network.id` without the matching subnet is the one shape of a BYO network that
 	// cannot be completed by guessing: a driver that picked "some subnet in the VPC"
@@ -552,18 +599,38 @@ func (r *VmConfig) validateCloud(drv DriverInfo) error {
 	if r.Network != nil && r.Network.ID != "" && len(r.Network.Subnets) == 0 {
 		return errors.Errorf(
 			"`network.id` is set but `network.subnets` is empty: SC needs the subnet to place the machine in, " +
-				"as `subnets: {<zone>: <subnet-id>}`")
+				"as `subnets: {<zone>: <subnet-id>}`",
+		)
 	}
 	if r.Network != nil && r.Network.ID == "" && len(r.Network.Subnets) > 0 {
 		return errors.Errorf("`network.subnets` is set but `network.id` is empty: give both, or neither")
+	}
+	// Keyed off the capability, like every other refusal here: a cloud whose
+	// filtering SC cannot write to has nowhere to put these, and a list of ports
+	// that is accepted and never opened is worse than no field at all.
+	if len(r.IngressPorts) > 0 && !drv.Capabilities.SecurityGroups {
+		return errors.Errorf(
+			"`ingressPorts` is not valid with `provider: %s`: SC does not manage this cloud's packet filtering, "+
+				"so it cannot open them. Open the ports in the cloud's console", r.Driver,
+		)
+	}
+	// Shape of each entry, checked through the same function the drivers resolve the
+	// firewall with, so a config that validates is a config that expands.
+	if _, err := r.FirewallPorts(); err != nil {
+		return err
 	}
 	return r.validateIngress()
 }
 
 // KnownDrivers lists every `provider:` value a vm resource accepts, implemented or
 // not, so an error message can name them all.
+//
+// The union of the built-in table and the drivers the loaded plugins advertised. A
+// plugin driver that is installed but whose name the operator mistyped has to
+// appear here, or the message tells them to use a list that does not contain the
+// driver they just installed.
 func KnownDrivers() []string {
-	names := lo.Keys(Drivers)
+	names := append(lo.Keys(Drivers), pluginDriverNames()...)
 	sort.Strings(names)
 	return names
 }

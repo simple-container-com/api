@@ -60,7 +60,25 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 	params.Log.Info(ctx.Context(), "configure vm %q for stack %q using driver %q",
 		input.Descriptor.Name, stack.Name, drv.Name())
 
-	hosts, err := drv.Hosts(ctx, input, cfg, params)
+	ports, err := resolveFirewallPorts(ctx, stack, input, cfg, params)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to resolve the open ports of vm %q in stack %q",
+			input.Descriptor.Name, stack.Name)
+	}
+	if !drv.Capabilities().SecurityGroups {
+		// Said out loud rather than dropped. On a machine whose packet filtering SC
+		// cannot reach — a `byo` host above all — the ports still have to be open,
+		// and the operator is the only one who can open them. The byo smoke of
+		// 2026-10-24 needed exactly this list added by hand, and found out by
+		// timing out against a deploy that reported success.
+		params.Log.Warn(ctx.Context(),
+			"vm %q: SC does not manage this machine's packet filtering, so make sure these ports are open to "+
+				"the internet yourself: %s. A port that is shut presents as a green deploy that times out",
+			input.Descriptor.Name, vm.FormatPortSpec(ports))
+		ports = nil
+	}
+
+	hosts, err := drv.Hosts(ctx, input, cfg, ports, params)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to resolve hosts of vm %q in stack %q", input.Descriptor.Name, stack.Name)
 	}
@@ -126,6 +144,11 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 	}
 	ctx.Export(ToHostCountExport(input.Descriptor.Name), sdk.Int(len(hosts)))
 	ctx.Export(ToIngressEnabledExport(input.Descriptor.Name), sdk.Bool(cfg.IngressEnabled()))
+	// What SC actually opened, so a child stack can tell its operator that the host
+	// port it is about to publish is not reachable. Empty when SC does not manage
+	// this machine's firewall — the child must then say nothing rather than guess,
+	// and the warning above has already been printed here.
+	ctx.Export(ToOpenPortsExport(input.Descriptor.Name), sdk.String(vm.FormatPortSpec(ports)))
 
 	return &api.ResourceOutput{Ref: out}, nil
 }
@@ -164,4 +187,8 @@ func ToHostKeyExport(vmName string, idx int) string {
 
 func ToIngressEnabledExport(vmName string) string {
 	return fmt.Sprintf("%s-vm-ingress-enabled", vmName)
+}
+
+func ToOpenPortsExport(vmName string) string {
+	return fmt.Sprintf("%s-vm-open-ports", vmName)
 }

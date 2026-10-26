@@ -112,6 +112,59 @@ func (c *Client) InitStateStore(ctx context.Context, req *scpluginv1.InitStateSt
 	return c.stub.InitStateStore(ctx, req)
 }
 
+// InitSecretsProvider calls through to the plugin's InitSecretsProvider RPC.
+func (c *Client) InitSecretsProvider(ctx context.Context, req *scpluginv1.InitSecretsProviderRequest) (*scpluginv1.InitSecretsProviderResponse, error) {
+	return c.stub.InitSecretsProvider(ctx, req)
+}
+
+// ComputeProcess calls through to the plugin's ComputeProcess RPC.
+func (c *Client) ComputeProcess(ctx context.Context, req *scpluginv1.ComputeProcessRequest) (*scpluginv1.ComputeProcessResponse, error) {
+	return c.stub.ComputeProcess(ctx, req)
+}
+
+// ProvisionRegistrar calls through to the plugin's ProvisionRegistrar RPC.
+func (c *Client) ProvisionRegistrar(ctx context.Context, req *scpluginv1.ProvisionRegistrarRequest) (*scpluginv1.ProvisionRegistrarResponse, error) {
+	return c.stub.ProvisionRegistrar(ctx, req)
+}
+
+// PreDestroy calls through to the plugin's PreDestroy RPC.
+func (c *Client) PreDestroy(ctx context.Context, req *scpluginv1.PreDestroyRequest) (*scpluginv1.PreDestroyResponse, error) {
+	return c.stub.PreDestroy(ctx, req)
+}
+
+// NewDnsRecord calls through to the plugin's NewDnsRecord RPC (Phase 1b).
+func (c *Client) NewDnsRecord(ctx context.Context, req *scpluginv1.NewDnsRecordRequest) (*scpluginv1.NewDnsRecordResponse, error) {
+	return c.stub.NewDnsRecord(ctx, req)
+}
+
+// NewOverrideHeaderRule calls through to the plugin's NewOverrideHeaderRule RPC (Phase 1b).
+func (c *Client) NewOverrideHeaderRule(ctx context.Context, req *scpluginv1.NewOverrideHeaderRuleRequest) (*scpluginv1.NewOverrideHeaderRuleResponse, error) {
+	return c.stub.NewOverrideHeaderRule(ctx, req)
+}
+
+// ProvisionDomainForEndpoint calls through to the plugin's ProvisionDomainForEndpoint RPC (Phase 1b).
+func (c *Client) ProvisionDomainForEndpoint(ctx context.Context, req *scpluginv1.ProvisionDomainForEndpointRequest) (*scpluginv1.ProvisionDomainForEndpointResponse, error) {
+	return c.stub.ProvisionDomainForEndpoint(ctx, req)
+}
+
+// VmHosts calls through to the plugin's VmHosts RPC (Phase 1d) — the plugin
+// creates the machines of one `type: vm` resource and returns reachable hosts.
+//
+// The returned facts carry URN references rather than values for anything the
+// plugin does not know yet; pkg/clouds/pulumi/vm turns them back into Outputs with
+// pkg/plugin/outputref.go.
+func (c *Client) VmHosts(ctx context.Context, req *scpluginv1.VmHostsRequest) (*scpluginv1.VmHostsResponse, error) {
+	return c.stub.VmHosts(ctx, req)
+}
+
+// LogStream opens the plugin's progress-event stream. SC core calls this
+// once per plugin after Schema() returns, then forwards each event to its
+// logger. The stream naturally ends when the plugin exits OR when the
+// caller cancels ctx. Caller is responsible for draining in a goroutine.
+func (c *Client) LogStream(ctx context.Context, req *scpluginv1.LogStreamRequest) (scpluginv1.SCCloudPlugin_LogStreamClient, error) {
+	return c.stub.LogStream(ctx, req)
+}
+
 // Close terminates the plugin subprocess. Safe to call more than once.
 func (c *Client) Close() {
 	if c.gpClient != nil {
