@@ -91,6 +91,10 @@ type CaddyConfig struct {
 	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty" yaml:"topologySpreadConstraints,omitempty"`
 	// NodeSelector constrains Caddy pods to matching nodes, e.g.
 	// cloud.google.com/gke-spot: "true" to run a non-production ingress on Spot.
+	// Caddy is the one ingress for every child stack, and a PDB does not stop
+	// preemption: one reclaim can take all replicas and cut the preStop drain
+	// short. GKE Autopilot adds the Spot toleration itself; there is no
+	// tolerations field, so a tainted Standard node pool will not schedule.
 	NodeSelector map[string]string `json:"nodeSelector,omitempty" yaml:"nodeSelector,omitempty"`
 }
 

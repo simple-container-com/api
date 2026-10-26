@@ -152,6 +152,9 @@ func cloudsqlProxyCommandArgs(project, region, instanceName string, privateIp bo
 	args = append(args,
 		"--credentials-file=/var/run/secrets/cloudsql/credentials.json",
 		fmt.Sprintf("%s:%s:%s", project, region, instanceName),
+		// The kubelet SIGTERMs a native sidecar once the main containers exit;
+		// exit 0 keeps a finished db-user-init Job from showing a failed container.
+		"--exit-zero-on-sigterm",
 		"--http-address=0.0.0.0",
 		fmt.Sprintf("--http-port=%d", cloudSQLProxyHealthPort),
 		"--health-check",

@@ -15,18 +15,18 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 )
 
-// The runtime (Deployment) proxy must expose its built-in health server so a startup
-// probe can gate the app containers -- otherwise the app dials localhost:5432 before the
+// The proxy must expose its built-in health server so a startup probe can gate the
+// containers that use it -- otherwise the app dials localhost:5432 before the
 // proxy is listening and logs connection-refused on every pod (re)start.
-func TestCloudsqlProxyCommandArgs_RuntimeEnablesHealthCheck(t *testing.T) {
+func TestCloudsqlProxyCommandArgs_EnablesHealthCheck(t *testing.T) {
 	cmd, args := cloudsqlProxyCommandArgs("proj", "europe-north1", "inst", false)
 
-	assert.Equal(t, "/cloud-sql-proxy", cmd, "runtime proxy runs the binary directly (no shell wrapper)")
-	assert.Contains(t, args, "--health-check", "runtime proxy must expose its health server for the startup probe")
+	assert.Equal(t, "/cloud-sql-proxy", cmd, "the proxy runs the binary directly (no shell wrapper)")
+	assert.Contains(t, args, "--health-check", "the proxy must expose its health server for the startup probe")
 	assert.Contains(t, args, "--http-address=0.0.0.0", "health server must bind 0.0.0.0 so kubelet probes can reach it")
 	assert.Contains(t, args, "--http-port=9090")
 	assert.Contains(t, args, "proj:europe-north1:inst", "instance connection name must be preserved")
-	assert.NotContains(t, args, "-c", "runtime proxy must not be wrapped in a self-killing shell")
+	assert.NotContains(t, args, "-c", "the proxy must not be wrapped in a self-killing shell")
 	// Base flags moved from the old inline builder must survive the refactor. --credentials-file
 	// is the only flag that authenticates the proxy; it must equal the VolumeMount path +
 	// /credentials.json, so a future mount-path change forces this flag to move in lockstep.
@@ -34,6 +34,8 @@ func TestCloudsqlProxyCommandArgs_RuntimeEnablesHealthCheck(t *testing.T) {
 	assert.Contains(t, args, "0.0.0.0")
 	assert.Contains(t, args, "--credentials-file=/var/run/secrets/cloudsql/credentials.json",
 		"credentials flag must match the mounted secret path")
+	assert.Contains(t, args, "--exit-zero-on-sigterm",
+		"the kubelet SIGTERMs the sidecar when a Job's main container exits; it must not report a failure")
 }
 
 // --private-ip must be emitted only when requested, so a private-IP-only instance is reachable while the default (public)

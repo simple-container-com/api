@@ -6,6 +6,7 @@ package gcp
 import (
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/samber/lo"
 
 	sdkK8s "github.com/pulumi/pulumi-kubernetes/sdk/v4/go/kubernetes"
@@ -24,6 +25,11 @@ const (
 	PostgreSQL CloudsqlInstanceType = "POSTGRES"
 	MySQL      CloudsqlInstanceType = "MYSQL"
 )
+
+// initDbUserJobDeadlineSec bounds the whole Job. A proxy that never becomes
+// ready (bad credentials, missing role, no route to the private IP) leaves the
+// pod in Init:CrashLoopBackOff, which never counts against BackoffLimit.
+const initDbUserJobDeadlineSec = 300
 
 type CloudsqlDbUser struct {
 	Database string
@@ -51,6 +57,9 @@ type InitUserJob struct {
 }
 
 func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs) (*InitUserJob, error) {
+	if args.DBInstanceType != PostgreSQL {
+		return nil, errors.Errorf("db-user-init Job supports %s only, got %q", PostgreSQL, args.DBInstanceType)
+	}
 	// Sanitize stack name to comply with Kubernetes RFC 1123 requirements (no underscores)
 	sanitizedStackName := kubernetes.SanitizeK8sName(stackName)
 	jobName := util.TrimStringMiddle(fmt.Sprintf("%s-db-user-init", sanitizedStackName), 60, "-")
@@ -78,21 +87,12 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 		database := all[0].(string)
 		username := all[1].(string)
 
-		var initScript string
-		if args.DBInstanceType == MySQL {
-			initScript = `
-                set -e;
-                apk add --no-cache mysql-client;
-                # MySQL-specific logic here
-            `
-		} else {
-			initScript = fmt.Sprintf(`
+		initScript := fmt.Sprintf(`
 set -e;
 apk add --no-cache postgresql-client;
 psql -h localhost -U postgres -d %s -c 'GRANT pg_read_all_data TO "%s";';
 psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
             `, database, username, database, username)
-		}
 
 		return corev1.ContainerArgs{
 			Command: sdk.StringArray{
@@ -131,7 +131,8 @@ psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
 				},
 			},
 			Spec: &batchv1.JobSpecArgs{
-				BackoffLimit: sdk.Int(5),
+				BackoffLimit:          sdk.Int(5),
+				ActiveDeadlineSeconds: sdk.Int(initDbUserJobDeadlineSec),
 				Template: &corev1.PodTemplateSpecArgs{
 					Spec: &corev1.PodSpecArgs{
 						InitContainers: corev1.ContainerArray{proxyContainerArgs},
