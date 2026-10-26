@@ -16,6 +16,8 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
+	"github.com/simple-container-com/sc-plugin-yandex/api"
+
 	// Core API package for registration maps and configuration structs
 	"github.com/simple-container-com/api/pkg/api"
 	// Import cloud provider packages directly to access their CloudExtras types
@@ -36,7 +38,6 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/slack"
 	_ "github.com/simple-container-com/api/pkg/clouds/telegram"
 	_ "github.com/simple-container-com/api/pkg/clouds/vm"
-	"github.com/simple-container-com/api/pkg/clouds/yandex"
 )
 
 // ResourceDefinition holds metadata about a resource struct
