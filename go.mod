@@ -61,7 +61,7 @@ require (
 	github.com/pulumi/pulumi/sdk/v3 v3.245.0
 	github.com/samber/lo v1.53.0
 	github.com/simple-container-com/pulumi-sbercloud/sdk v0.1.0
-	github.com/simple-container-com/pulumi-yandex/sdk v1.1.0
+	github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261026175213-36a86d2f6b52
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1

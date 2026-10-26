@@ -47,6 +47,18 @@ type ProvisionerConfig struct {
 	SecretsProvider SecretsProviderConfig `json:"secrets-provider" yaml:"secrets-provider"`
 }
 
+// StateStorageType implements api.ProvisionerConfigAware so
+// ValidatePluginRequirements can reach the state-storage type token
+// without importing pkg/clouds/pulumi.
+func (p *ProvisionerConfig) StateStorageType() string {
+	return p.StateStorage.Type
+}
+
+// SecretsProviderType implements api.ProvisionerConfigAware similarly.
+func (p *ProvisionerConfig) SecretsProviderType() string {
+	return p.SecretsProvider.Type
+}
+
 type StateStorageConfig struct {
 	Type       string `json:"type" yaml:"type"`
 	api.Config `json:",inline" yaml:",inline"`

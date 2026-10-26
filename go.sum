@@ -894,8 +894,8 @@ github.com/shurcooL/go v0.0.0-20180423040247-9e1955d9fb6e/go.mod h1:TDJrrUr11Vxr
 github.com/shurcooL/go-goon v0.0.0-20170922171312-37c2f522c041/go.mod h1:N5mDOmsrJOB+vfqUK+7DmDyjhSLIIBnXo9lvZJj3MWQ=
 github.com/simple-container-com/pulumi-sbercloud/sdk v0.1.0 h1:1TfPB6wQGvyunX5oddlOOiGq4SYgNDY1VCJY0cXGZgM=
 github.com/simple-container-com/pulumi-sbercloud/sdk v0.1.0/go.mod h1:kTR0kV3WVsXZYrqyNxjllNcidk31niO37hYh4LCMyDY=
-github.com/simple-container-com/pulumi-yandex/sdk v1.1.0 h1:Zlc1whXhEobn1KPNhBrm8IWNJNZB5vip8KKPaNHoQ7k=
-github.com/simple-container-com/pulumi-yandex/sdk v1.1.0/go.mod h1:DYJQe2PUXFA1bZSrnc6g3zHxMDWMGqb2rF76GAhMzMQ=
+github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261026175213-36a86d2f6b52 h1:NeqOwK/1tAlFdW/vci1k5Oj9K1Tjr+UE2DSe9vOZsz4=
+github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261026175213-36a86d2f6b52/go.mod h1:6Iaubzead98jvMg5DSTEfqDQhYYoGsSjsFBEOcs62Xo=
 github.com/sirupsen/logrus v1.7.0/go.mod h1:yWOB1SBYBC5VeMP7gHvWumXLIWorT60ONWic61uBYv0=
 github.com/sirupsen/logrus v1.9.4 h1:TsZE7l11zFCLZnZ+teH4Umoq5BhEIfIzfRDZ1Uzql2w=
 github.com/sirupsen/logrus v1.9.4/go.mod h1:ftWc9WdOfJ0a92nsE2jF5u5ZwH8Bv2zdeOC42RjbV2g=
