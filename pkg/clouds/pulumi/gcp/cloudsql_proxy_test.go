@@ -15,18 +15,18 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 )
 
-// The runtime (Deployment) proxy must expose its built-in health server so a startup
-// probe can gate the app containers -- otherwise the app dials localhost:5432 before the
+// The proxy must expose its built-in health server so a startup probe can gate the
+// containers that use it -- otherwise the app dials localhost:5432 before the
 // proxy is listening and logs connection-refused on every pod (re)start.
-func TestCloudsqlProxyCommandArgs_RuntimeEnablesHealthCheck(t *testing.T) {
-	cmd, args := cloudsqlProxyCommandArgs("proj", "europe-north1", "inst", false, 0)
+func TestCloudsqlProxyCommandArgs_EnablesHealthCheck(t *testing.T) {
+	cmd, args := cloudsqlProxyCommandArgs("proj", "europe-north1", "inst", false)
 
-	assert.Equal(t, "/cloud-sql-proxy", cmd, "runtime proxy runs the binary directly (no shell wrapper)")
-	assert.Contains(t, args, "--health-check", "runtime proxy must expose its health server for the startup probe")
+	assert.Equal(t, "/cloud-sql-proxy", cmd, "the proxy runs the binary directly (no shell wrapper)")
+	assert.Contains(t, args, "--health-check", "the proxy must expose its health server for the startup probe")
 	assert.Contains(t, args, "--http-address=0.0.0.0", "health server must bind 0.0.0.0 so kubelet probes can reach it")
 	assert.Contains(t, args, "--http-port=9090")
 	assert.Contains(t, args, "proj:europe-north1:inst", "instance connection name must be preserved")
-	assert.NotContains(t, args, "-c", "runtime proxy must not be wrapped in a self-killing shell")
+	assert.NotContains(t, args, "-c", "the proxy must not be wrapped in a self-killing shell")
 	// Base flags moved from the old inline builder must survive the refactor. --credentials-file
 	// is the only flag that authenticates the proxy; it must equal the VolumeMount path +
 	// /credentials.json, so a future mount-path change forces this flag to move in lockstep.
@@ -34,60 +34,40 @@ func TestCloudsqlProxyCommandArgs_RuntimeEnablesHealthCheck(t *testing.T) {
 	assert.Contains(t, args, "0.0.0.0")
 	assert.Contains(t, args, "--credentials-file=/var/run/secrets/cloudsql/credentials.json",
 		"credentials flag must match the mounted secret path")
+	assert.Contains(t, args, "--exit-zero-on-sigterm",
+		"the kubelet SIGTERMs the sidecar when a Job's main container exits; it must not report a failure")
 }
 
-// --private-ip must be emitted only when requested, for both the runtime sidecar and the
-// init-Job proxy, so a private-IP-only instance is reachable while the default (public)
+// --private-ip must be emitted only when requested, so a private-IP-only instance is reachable while the default (public)
 // path is unchanged.
 func TestCloudsqlProxyCommandArgs_PrivateIp(t *testing.T) {
-	_, pub := cloudsqlProxyCommandArgs("proj", "reg", "inst", false, 0)
+	_, pub := cloudsqlProxyCommandArgs("proj", "reg", "inst", false)
 	assert.NotContains(t, pub, "--private-ip", "default (public) path must not pass --private-ip")
 
-	_, priv := cloudsqlProxyCommandArgs("proj", "reg", "inst", true, 0)
+	_, priv := cloudsqlProxyCommandArgs("proj", "reg", "inst", true)
 	assert.Contains(t, priv, "--private-ip", "private path must pass --private-ip")
 	assert.Contains(t, priv, "proj:reg:inst", "instance connection name must be preserved")
-
-	// init-Job proxy (timeout>0) is shell-wrapped; the flag must land inside the script.
-	_, initArgs := cloudsqlProxyCommandArgs("proj", "reg", "inst", true, 30)
-	require.GreaterOrEqual(t, len(initArgs), 2)
-	assert.Contains(t, initArgs[1], "--private-ip", "init-Job proxy must also dial the private IP")
 }
 
 // The container-args builder must thread privateIp into the rendered Args — a bug
 // dropping it in the delegation to cloudsqlProxyCommandArgs would pass the
 // command-args test above but ship a public-dialing sidecar.
 func TestCloudsqlProxyContainerArgs_PrivateIpThreaded(t *testing.T) {
-	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", true, 0)
+	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", true)
 	args, ok := c.Args.(sdk.StringArray)
 	require.True(t, ok, "Args should be a pulumi.StringArray")
 	assert.Contains(t, args, sdk.StringInput(sdk.String("--private-ip")), "container args must carry --private-ip when privateIp=true")
 
-	cNoPriv := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false, 0)
+	cNoPriv := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false)
 	argsNoPriv := cNoPriv.Args.(sdk.StringArray)
 	assert.NotContains(t, argsNoPriv, sdk.StringInput(sdk.String("--private-ip")))
-}
-
-// The init-Job proxy runs in a RestartPolicy: Never pod; it must self-terminate or the
-// Job never completes. It must stay shell-wrapped and must NOT enable the health server.
-func TestCloudsqlProxyCommandArgs_InitJobSelfKills(t *testing.T) {
-	cmd, args := cloudsqlProxyCommandArgs("proj", "europe-north1", "inst", false, 30)
-
-	assert.Equal(t, "sh", cmd, "init-Job proxy must be shell-wrapped so it can self-terminate")
-	require.GreaterOrEqual(t, len(args), 2)
-	assert.Equal(t, "-c", args[0])
-	script := args[1]
-	assert.Contains(t, script, "kill -9", "init-Job proxy must self-kill so the Job completes")
-	assert.Contains(t, script, "proj:europe-north1:inst")
-	assert.Contains(t, script, "--credentials-file=/var/run/secrets/cloudsql/credentials.json",
-		"init-Job proxy still authenticates via the mounted secret")
-	assert.NotContains(t, script, "--health-check", "init-Job proxy must not run a health server")
 }
 
 // Runtime proxy => native sidecar: an init container with RestartPolicy: Always plus
 // startup/readiness/liveness probes. This is what eliminates the startup race and lets a
 // hung-but-alive proxy self-heal.
 func TestCloudsqlProxyContainerArgs_RuntimeIsNativeSidecar(t *testing.T) {
-	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false, 0)
+	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false)
 
 	assert.Equal(t, sdk.String("Always"), c.RestartPolicy,
 		"runtime proxy must be a native sidecar (init container, RestartPolicy: Always)")
@@ -97,25 +77,12 @@ func TestCloudsqlProxyContainerArgs_RuntimeIsNativeSidecar(t *testing.T) {
 	assert.NotNil(t, c.Ports, "health-check port must be declared for the probes to target")
 }
 
-// Init-Job proxy must NOT be a native sidecar: RestartPolicy: Always on a Job's container
-// would keep the Job from ever completing, and it serves no health endpoints.
-func TestCloudsqlProxyContainerArgs_InitJobIsNotSidecar(t *testing.T) {
-	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false, 30)
-
-	assert.Nil(t, c.RestartPolicy,
-		"init-Job proxy must not carry RestartPolicy: Always -- it would hang the Job")
-	assert.Nil(t, c.StartupProbe, "init-Job proxy has no health server, so no probe")
-	assert.Nil(t, c.ReadinessProbe)
-	assert.Nil(t, c.LivenessProbe)
-	assert.Nil(t, c.Ports)
-}
-
 // Pin the exact probe<->port wiring. A NotNil check would pass even with a port-name typo
 // or a wrong probe path -- a probe the kubelet can never satisfy, which loops the pod in
 // Init then restarts it. The agreement assertions (probe Port == declared port Name) are
 // what actually defend the named-port linkage the whole sidecar depends on.
 func TestCloudsqlProxyContainerArgs_RuntimeProbeWiring(t *testing.T) {
-	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false, 0)
+	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false)
 
 	ports := c.Ports.(v1.ContainerPortArray)
 	require.Len(t, ports, 1)
@@ -144,7 +111,7 @@ func TestCloudsqlProxyContainerArgs_RuntimeProbeWiring(t *testing.T) {
 // secret name (the credential Volume that compute_proc.go appends derives from the same
 // Metadata.Name(), so a drift breaks `--credentials-file` auth).
 func TestCloudsqlProxyContainerArgs_MountsCredentialSecret(t *testing.T) {
-	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false, 0)
+	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false)
 
 	mounts := c.VolumeMounts.(v1.VolumeMountArray)
 	require.Len(t, mounts, 1)
@@ -176,7 +143,7 @@ func TestAttachCloudsqlProxyAsNativeSidecar_LandsInInitContainers(t *testing.T) 
 // gates pod readiness, KEP-753). Generous timeout + bigger CPU request keep
 // transient starvation from dropping the whole pod out of rotation.
 func TestCloudsqlProxyContainerArgs_ProbesTolerantToStarvation(t *testing.T) {
-	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false, 0)
+	c := cloudsqlProxyContainerArgs("creds", "proj", "reg", "inst", false)
 
 	rp := c.ReadinessProbe.(*v1.ProbeArgs)
 	assert.Equal(t, sdk.IntPtr(10), rp.TimeoutSeconds)

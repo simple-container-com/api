@@ -64,6 +64,12 @@
           "namespace": {
             "type": "string"
           },
+          "nodeSelector": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
           "podAnnotations": {
             "additionalProperties": {
               "type": "string"

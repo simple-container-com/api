@@ -5,7 +5,6 @@ package gcp
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/samber/lo"
 
@@ -80,7 +79,6 @@ type CloudSQLProxyArgs struct {
 	GcpProvider  *gcp.Provider
 	KubeProvider *sdkK8s.Provider
 	Metadata     *metav1.ObjectMetaArgs
-	TimeoutSec   int
 	// PrivateIp makes the proxy dial the instance's private IP (--private-ip)
 	// instead of the public endpoint.
 	PrivateIp bool
@@ -115,7 +113,7 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 		return nil, err
 	}
 
-	proxyContainer := cloudsqlProxyContainer(sqlProxySecret, args.DBInstance, args.PrivateIp, args.TimeoutSec)
+	proxyContainer := cloudsqlProxyContainer(sqlProxySecret, args.DBInstance, args.PrivateIp)
 
 	return &CloudSQLProxy{
 		ProxyContainer: proxyContainer,
@@ -126,25 +124,23 @@ func NewCloudsqlProxy(ctx *sdk.Context, args CloudSQLProxyArgs, opts ...sdk.Reso
 }
 
 // cloudSQLProxyHealthPort is the port the proxy's built-in health-check HTTP server
-// listens on when running as a native sidecar (--health-check). Its /startup endpoint
-// backs the startup probe that gates the app containers.
+// listens on (--health-check). Its /startup endpoint backs the startup probe that
+// gates the app containers.
 const cloudSQLProxyHealthPort = 9090
 
-func cloudsqlProxyContainer(credsSecret *v1.Secret, dbInstance PostgresDBInstanceArgs, privateIp bool, timeout int) sdk.Output {
+func cloudsqlProxyContainer(credsSecret *v1.Secret, dbInstance PostgresDBInstanceArgs, privateIp bool) sdk.Output {
 	return sdk.All(credsSecret.Metadata.Name(), dbInstance.Project, dbInstance.Region, dbInstance.InstanceName).ApplyT(func(all []interface{}) v1.ContainerArgs {
 		secretName := all[0].(*string)
 		project := all[1].(string)
 		region := all[2].(string)
 		instanceName := all[3].(string)
-		return cloudsqlProxyContainerArgs(lo.FromPtr(secretName), project, region, instanceName, privateIp, timeout)
+		return cloudsqlProxyContainerArgs(lo.FromPtr(secretName), project, region, instanceName, privateIp)
 	}).(v1.ContainerOutput)
 }
 
-// cloudsqlProxyCommandArgs returns the proxy entrypoint. timeout == 0 is the long-lived
-// runtime proxy (with its health server enabled); timeout > 0 is the init-Job proxy,
-// shell-wrapped to self-kill after `timeout`s so a RestartPolicy: Never Job can complete.
-func cloudsqlProxyCommandArgs(project, region, instanceName string, privateIp bool, timeout int) (string, []string) {
-	command := "/cloud-sql-proxy"
+// cloudsqlProxyCommandArgs returns the proxy entrypoint, with its health server enabled
+// for the native-sidecar probes.
+func cloudsqlProxyCommandArgs(project, region, instanceName string, privateIp bool) (string, []string) {
 	args := []string{
 		"--address",
 		"0.0.0.0",
@@ -156,40 +152,22 @@ func cloudsqlProxyCommandArgs(project, region, instanceName string, privateIp bo
 	args = append(args,
 		"--credentials-file=/var/run/secrets/cloudsql/credentials.json",
 		fmt.Sprintf("%s:%s:%s", project, region, instanceName),
-	)
-
-	if timeout > 0 {
-		return "sh", []string{
-			"-c",
-			fmt.Sprintf(`
-                    echo "Starting proxy with timeout %ds..."
-                    %s %s &
-                    PROXY_PID=$!
-
-                    echo "Waiting %ds until killing proxy..."
-                    sleep %d;
-
-                    echo "Killing proxy after %ds"
-                    kill -9 $PROXY_PID;
-                    exit 0;
-                `, timeout, command, strings.Join(args, " "), timeout, timeout, timeout),
-		}
-	}
-
-	args = append(args,
+		// The kubelet SIGTERMs a native sidecar once the main containers exit;
+		// exit 0 keeps a finished db-user-init Job from showing a failed container.
+		"--exit-zero-on-sigterm",
 		"--http-address=0.0.0.0",
 		fmt.Sprintf("--http-port=%d", cloudSQLProxyHealthPort),
 		"--health-check",
 	)
-	return command, args
+	return "/cloud-sql-proxy", args
 }
 
-// cloudsqlProxyContainerArgs builds the proxy container from already-resolved values.
-// timeout == 0 yields a native sidecar (RestartPolicy: Always + startup probe) so the app
-// containers don't start before the proxy is listening. timeout > 0 (init-Job) stays an
-// ordinary terminating container -- it must NOT be a native sidecar or the Job would hang.
-func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string, privateIp bool, timeout int) v1.ContainerArgs {
-	command, args := cloudsqlProxyCommandArgs(project, region, instanceName, privateIp, timeout)
+// cloudsqlProxyContainerArgs builds the proxy as a native sidecar (RestartPolicy: Always
+// + startup probe), so the containers that use it don't start before it is listening. The
+// same container serves the app pods and the db-user-init Job: a native sidecar does not
+// keep a Job from completing, the kubelet stops it once the main container exits.
+func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string, privateIp bool) v1.ContainerArgs {
+	command, args := cloudsqlProxyCommandArgs(project, region, instanceName, privateIp)
 
 	container := v1.ContainerArgs{
 		Name:    sdk.String("cloudsql-proxy"),
@@ -218,10 +196,6 @@ func cloudsqlProxyContainerArgs(secretName, project, region, instanceName string
 				ReadOnly:  sdk.Bool(true),
 			},
 		},
-	}
-
-	if timeout > 0 {
-		return container
 	}
 
 	container.RestartPolicy = sdk.String("Always")

@@ -261,8 +261,8 @@ func addCloudsqlProxySidecarPreProcessor(ctx *sdk.Context, params appendParams) 
 // which the API server rejects on a regular container, and only the init-container placement
 // gives the startup-probe ordering that stops the app from dialing localhost:5432 before the
 // proxy is up. Kept as a tiny pure helper so that contract is unit-testable without the GCP
-// provisioning path. The init-Job proxy (timeout>0) is attached elsewhere as a plain
-// terminating container.
+// provisioning path. The db-user-init Job puts the same container in its pod's
+// InitContainers directly (init_pg_user_job.go).
 func attachCloudsqlProxyAsNativeSidecar(kubeArgs *kubernetes.SimpleContainerArgs, proxyContainer corev1.ContainerOutput, credsVolume corev1.VolumeOutput) {
 	kubeArgs.InitContainerOutputs = append(kubeArgs.InitContainerOutputs, proxyContainer)
 	kubeArgs.VolumeOutputs = append(kubeArgs.VolumeOutputs, credsVolume)
@@ -384,7 +384,6 @@ func createUserForDatabase(ctx *sdk.Context, userName, dbName string, params app
 			DBInstance:   dbInstanceArgs,
 			GcpProvider:  params.gcpProvider,
 			KubeProvider: params.kubeProvider,
-			TimeoutSec:   MaxInitSQLTimeSec,
 			Metadata:     cloudsqlProxyMetaFromOutput(namespaceOutput, cloudsqlProxyName, params),
 			PrivateIp:    params.config.UsesPrivateIpProxy(),
 		}, sdk.DependsOn([]sdk.Resource{sc}))
