@@ -2155,6 +2155,8 @@ resources:
               - topologyKey: kubernetes.io/hostname
                 maxSkew: 1
                 whenUnsatisfiable: ScheduleAnyway
+            nodeSelector:                           # e.g. run a non-production ingress on GKE Spot
+              cloud.google.com/gke-spot: "true"
             
             # VPA Configuration for automatic resource optimization (optional)
             vpa:

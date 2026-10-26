@@ -89,6 +89,9 @@ type CaddyConfig struct {
 	// topologyKey kubernetes.io/hostname. Without it the scheduler may put every
 	// replica on one node. labelSelector defaults to the Caddy pod labels.
 	TopologySpreadConstraints []TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty" yaml:"topologySpreadConstraints,omitempty"`
+	// NodeSelector constrains Caddy pods to matching nodes, e.g.
+	// cloud.google.com/gke-spot: "true" to run a non-production ingress on Spot.
+	NodeSelector map[string]string `json:"nodeSelector,omitempty" yaml:"nodeSelector,omitempty"`
 }
 
 type DisruptionBudget struct {
