@@ -18,8 +18,6 @@ import (
 	"github.com/simple-container-com/api/pkg/util"
 )
 
-const MaxInitSQLTimeSec = 30
-
 type CloudsqlInstanceType string
 
 const (
@@ -85,14 +83,12 @@ func NewInitDbUserJob(ctx *sdk.Context, stackName string, args InitDbUserJobArgs
 			initScript = `
                 set -e;
                 apk add --no-cache mysql-client;
-                sleep 20;
                 # MySQL-specific logic here
             `
 		} else {
 			initScript = fmt.Sprintf(`
 set -e;
 apk add --no-cache postgresql-client;
-sleep 20;
 psql -h localhost -U postgres -d %s -c 'GRANT pg_read_all_data TO "%s";';
 psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
             `, database, username, database, username)
@@ -138,8 +134,9 @@ psql -h localhost -U postgres -d %s -c 'GRANT pg_write_all_data TO "%s";';
 				BackoffLimit: sdk.Int(5),
 				Template: &corev1.PodTemplateSpecArgs{
 					Spec: &corev1.PodSpecArgs{
-						Containers:    corev1.ContainerArray{jobContainerArgs, proxyContainerArgs},
-						RestartPolicy: sdk.String("Never"),
+						InitContainers: corev1.ContainerArray{proxyContainerArgs},
+						Containers:     corev1.ContainerArray{jobContainerArgs},
+						RestartPolicy:  sdk.String("Never"),
 						Volumes: corev1.VolumeArray{
 							&corev1.VolumeArgs{
 								Name: sdk.String(lo.FromPtr(secretName)),
