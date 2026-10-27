@@ -13,14 +13,18 @@ date: '2026-10-27'
 Some cloud integrations no longer ship inside the `sc` binary. They are now
 **plugins** — separate, independently released executables that `sc` downloads
 and talks to over a local gRPC bus. Nothing about your `client.yaml` changes.
-What changes is that a `server.yaml` which uses a plugin-owned type must now
-say **which plugin release** to use.
+What changes is that a `server.yaml` using a plugin-owned type should now say
+**which plugin release** to use.
 
-!!! info "Do you need to do anything?"
-    Only if a `server.yaml` of yours uses one of the type tokens in the table
-    below. Run `sc version` first: **`2026.10.32` and older still have
-    Cloudflare and Yandex built in** and need no changes. The split takes
-    effect in the first release that links to this page.
+!!! info "Nothing is required of you — but one thing is recommended"
+    The upgrade is **not** a flag day. A `server.yaml` that predates the split
+    keeps deploying: `sc` resolves the plugin's latest release for you (§2).
+    What we recommend is pinning that release explicitly (§3), so your deploys
+    stay reproducible and make no network call. If no `server.yaml` of yours
+    uses the type tokens below, there is nothing to read here at all.
+
+    `sc version` **`2026.10.32` and older** still have Cloudflare and Yandex
+    built in and ignore all of this.
 
 ---
 
@@ -44,15 +48,37 @@ No hits? You are done; stop reading.
 
 ---
 
-## 2. What it looks like if you skip this
+## 2. If you do nothing, the upgrade still works
 
-`sc` refuses the stack at parse time, before any state is touched, and prints
-the block you need:
+**Your existing `server.yaml` keeps deploying.** When `sc` parses a stack that
+uses a plugin-owned type without a `plugins:` entry, it resolves that plugin's
+**latest release** from the GitHub Releases API and injects the pin for you,
+at parse time, before the Pulumi engine starts. No edit required.
+
+That is a deliberate backwards-compatibility guarantee, not a fallback: an
+upgrade must *work*, not merely diagnose.
+
+The cost of relying on it:
+
+- **One HTTPS call per undeclared plugin per `sc` invocation** (10 s timeout,
+  uses `GITHUB_TOKEN` for the 5000/h rate budget if one is in the environment,
+  otherwise the unauthenticated 60/h).
+- **Your deploys stop being reproducible.** Whatever is "latest" the moment you
+  run `sc` is what runs. A plugin release between two deploys changes your
+  behaviour with no change in your repo.
+- **It needs egress to `api.github.com`** from wherever `sc` runs, including CI.
+
+`sc` only errors when resolution itself fails — offline, rate-limited, repo
+gone — and then it prints the exact block to paste:
 
 ```
-server.yaml uses type tokens owned by out-of-tree SC plugins but is missing
-the corresponding `plugins:` entries. Add the block(s) below to this stack's
-`server.yaml` (or inherit from the parent stack):
+server.yaml uses type tokens owned by out-of-tree SC plugins that are not
+declared under `plugins:` and whose latest release could not be resolved
+from GitHub. Reasons:
+  - cloudflare: GET https://api.github.com/repos/.../releases/latest: 503 Service Unavailable
+
+Paste the block(s) below into this stack's `server.yaml` (or inherit from the
+parent stack):
 
 plugins:
   cloudflare:
@@ -64,11 +90,15 @@ plugins:
 ```
 
 That message is the authoritative list for *your* stack — it names the exact
-YAML paths that triggered each plugin. Copy it, fill in a version, done.
+YAML paths that triggered each plugin.
+
+!!! tip "Do §3 anyway"
+    Auto-injection exists so the upgrade cannot break you. Pinning exists so
+    your deploys stay reproducible and make no network call. Pin.
 
 ---
 
-## 3. Add the `plugins:` block
+## 3. Pin the `plugins:` block (recommended)
 
 Put it in the **parent stack's** `server.yaml`, as a top-level key (same level
 as `provisioner:`, `templates:`, `resources:`). Child stacks inherit it
@@ -115,11 +145,14 @@ or browse
 and
 [sc-plugin-yandex/releases](https://github.com/simple-container-com/sc-plugin-yandex/releases).
 
-!!! warning "`latest` is not a version"
-    `sc` deliberately does **not** resolve `latest`. A deploy must be
-    reproducible, so you pin a tag and bump it on purpose. `version: latest`
+!!! warning "Write a real tag, not the word `latest`"
+    Once you declare a plugin explicitly, `sc` uses exactly what you wrote and
+    does no resolution — so `version:` must be a real tag. An empty `version:`
     fails with
-    `plugin source.version is empty (SC does not auto-resolve "latest" — pin a specific release)`.
+    `plugin source.version is empty (SC does not auto-resolve "latest" — pin a specific release)`,
+    and the literal string `latest` becomes a 404 on the download URL. If you
+    *want* latest-tracking, omit the whole entry and let §2's auto-injection
+    do it.
 
 ### Then deploy as usual
 
@@ -217,9 +250,10 @@ plugin from source and use `path:`.
 so this is fine — but a private plugin repository will not work through
 `source:` today. Use `path:`.
 
-**CI runners need egress to `github.com`.** The first run on a fresh runner
-downloads each plugin (a few tens of MB). Cache `~/.sc/plugins` keyed on the
-pinned versions if that cost matters, or vendor via `path:`.
+**CI runners need egress to `github.com`** — and to `api.github.com` as well
+if you rely on §2's auto-resolution instead of pinning. The first run on a
+fresh runner downloads each plugin (a few tens of MB). Cache `~/.sc/plugins`
+keyed on the pinned versions if that cost matters, or vendor via `path:`.
 
 **Do not install two plugins that claim the same type token.** For state-store
 and secrets-provider types `sc` refuses to start
@@ -247,7 +281,7 @@ plugins:
 
 | What you see | What it means | Fix |
 |---|---|---|
-| `server.yaml uses type tokens owned by out-of-tree SC plugins…` | No `plugins:` block for a type you use | Add the block it printed (§3) |
+| `server.yaml uses type tokens owned by out-of-tree SC plugins… could not be resolved from GitHub` | No `plugins:` block **and** auto-resolution failed (offline, rate-limited, repo gone) | Paste the block it printed (§3) |
 | `unsupported registrar type "cloudflare" for stack "<stack>"` **and no `pre-engine loaded plugin` line** | The plugin never loaded, so nothing claimed the type | Check the block is on the **parent** stack and that `sc` is new enough (§4) |
 | `plugin source.version is empty (SC does not auto-resolve "latest"…)` | `version:` missing or set to `latest` | Pin a real tag |
 | `download "https://github.com/…": 404` | That version has no asset for your OS/arch | Check the tag exists and §7's platform list |
