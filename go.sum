@@ -249,8 +249,6 @@ github.com/clipperhouse/uax29/v2 v2.7.0 h1:+gs4oBZ2gPfVrKPthwbMzWZDaAFPGYK72F0NJ
 github.com/clipperhouse/uax29/v2 v2.7.0/go.mod h1:EFJ2TJMRUaplDxHKj1qAEhCtQPW2tJSwu5BF98AuoVM=
 github.com/cloudflare/circl v1.6.3 h1:9GPOhQGF9MCYUeXyMYlqTR6a5gTrgR/fBLXvUgtVcg8=
 github.com/cloudflare/circl v1.6.3/go.mod h1:2eXP6Qfat4O/Yhh8BznvKnJ+uzEoTQ6jVKJRn81BiS4=
-github.com/cloudflare/cloudflare-go v0.117.0 h1:y00E0XCvxuZGplL+gkoMRIhWpfNqIgyBFS6UUWC4s0c=
-github.com/cloudflare/cloudflare-go v0.117.0/go.mod h1:Ds6urDwn/TF2uIU24mu7H91xkKP8gSAHxQ44DSZgVmU=
 github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2 h1:aBangftG7EVZoUb69Os8IaYg++6uMOdKK83QtkkvJik=
 github.com/cncf/xds/go v0.0.0-20260202195803-dba9d589def2/go.mod h1:qwXFYgsP6T7XnJtbKlf1HP8AjxZZyzxMmc+Lq5GjlU4=
 github.com/compose-spec/compose-go v1.20.2 h1:u/yfZHn4EaHGdidrZycWpxXgFffjYULlTbRfJ51ykjQ=
@@ -419,8 +417,6 @@ github.com/go-xmlfmt/xmlfmt v1.1.3 h1:t8Ey3Uy7jDSEisW2K3somuMKIpzktkWptA0iFCnRUW
 github.com/go-xmlfmt/xmlfmt v1.1.3/go.mod h1:aUCEOzzezBEjDBbFBoSiya/gduyIiWYRP6CnSFIV8AM=
 github.com/gobwas/glob v0.2.3 h1:A4xDbljILXROh+kObIiy5kIaPYD8e96x1tgBhUI5J+Y=
 github.com/gobwas/glob v0.2.3/go.mod h1:d3Ez4x06l9bZtSvzIay5+Yzi0fmZzPgnTbPcKjJAkT8=
-github.com/goccy/go-json v0.10.5 h1:Fq85nIqj+gXn/S5ahsiTlK3TmC85qgirsdTP/+DeaC4=
-github.com/goccy/go-json v0.10.5/go.mod h1:oq7eo15ShAhp70Anwd5lgX2pLfOS3QCiwU/PULtXL6M=
 github.com/goccy/go-yaml v1.19.2 h1:PmFC1S6h8ljIz6gMRBopkjP1TVT7xuwrButHID66PoM=
 github.com/goccy/go-yaml v1.19.2/go.mod h1:XBurs7gK8ATbW4ZPGKgcbrY1Br56PdM69F7LkFRi1kA=
 github.com/godbus/dbus/v5 v5.0.4/go.mod h1:xhWf0FNVPg57R7Z0UbKHbJfkEywrmjJnf7w5xrFpKfA=
@@ -813,8 +809,6 @@ github.com/pulumi/pulumi-aws/sdk/v6 v6.83.4 h1:rI5FtYK0SY5VKPIRqwCqpnLJ7G7BeD4CA
 github.com/pulumi/pulumi-aws/sdk/v6 v6.83.4/go.mod h1:Ndpr97C9U/oghSpYch31qh2qxFGaODIw6FH2h8YfEVM=
 github.com/pulumi/pulumi-awsx/sdk/v2 v2.22.0 h1:ptZzrwFjDJKGbc01sKMESSHZqywXmoN8QxUrT52190s=
 github.com/pulumi/pulumi-awsx/sdk/v2 v2.22.0/go.mod h1:S8ZM/InFR8LLUh6QXOdYtm/LOCPDS7Xo9KqMRGo/amQ=
-github.com/pulumi/pulumi-cloudflare/sdk/v6 v6.17.0 h1:EAgb6T2aQ6GHMTyq2zAU1P7ysBgAS+sF3jW8TYy20QU=
-github.com/pulumi/pulumi-cloudflare/sdk/v6 v6.17.0/go.mod h1:xj1wh7fz3MnClHlaE1LZuJ70QktVCqechvH6n6WGI8Q=
 github.com/pulumi/pulumi-command/sdk v1.2.1 h1:mAziZ91a/9U+5IjZH5Skcar80OSmpBSYljeQNRblTWQ=
 github.com/pulumi/pulumi-command/sdk v1.2.1/go.mod h1:hQxv9DXg6bFjcd9BEiNdMImQ/V1rnC9D115q5VXYNps=
 github.com/pulumi/pulumi-docker-build/sdk/go/dockerbuild v0.0.3 h1:NxCXxRvzhUJP9dIvlpNlZKt/A3NHu3i9pC5XO+i8bR0=
@@ -894,8 +888,10 @@ github.com/shurcooL/go v0.0.0-20180423040247-9e1955d9fb6e/go.mod h1:TDJrrUr11Vxr
 github.com/shurcooL/go-goon v0.0.0-20170922171312-37c2f522c041/go.mod h1:N5mDOmsrJOB+vfqUK+7DmDyjhSLIIBnXo9lvZJj3MWQ=
 github.com/simple-container-com/pulumi-sbercloud/sdk v0.1.0 h1:1TfPB6wQGvyunX5oddlOOiGq4SYgNDY1VCJY0cXGZgM=
 github.com/simple-container-com/pulumi-sbercloud/sdk v0.1.0/go.mod h1:kTR0kV3WVsXZYrqyNxjllNcidk31niO37hYh4LCMyDY=
-github.com/simple-container-com/pulumi-yandex/sdk v1.1.0 h1:Zlc1whXhEobn1KPNhBrm8IWNJNZB5vip8KKPaNHoQ7k=
-github.com/simple-container-com/pulumi-yandex/sdk v1.1.0/go.mod h1:DYJQe2PUXFA1bZSrnc6g3zHxMDWMGqb2rF76GAhMzMQ=
+github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261026175043-5eddde358585 h1:PEa02LSh6lJFXPbH50kB3Hr9GDrP9ONNBxNXJUFzU14=
+github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261026175043-5eddde358585/go.mod h1:grjigb/0Y7wQ5hT9eWnsIghVoumT2YWeo8x5B2hetSo=
+github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261026175213-36a86d2f6b52 h1:NeqOwK/1tAlFdW/vci1k5Oj9K1Tjr+UE2DSe9vOZsz4=
+github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261026175213-36a86d2f6b52/go.mod h1:6Iaubzead98jvMg5DSTEfqDQhYYoGsSjsFBEOcs62Xo=
 github.com/sirupsen/logrus v1.7.0/go.mod h1:yWOB1SBYBC5VeMP7gHvWumXLIWorT60ONWic61uBYv0=
 github.com/sirupsen/logrus v1.9.4 h1:TsZE7l11zFCLZnZ+teH4Umoq5BhEIfIzfRDZ1Uzql2w=
 github.com/sirupsen/logrus v1.9.4/go.mod h1:ftWc9WdOfJ0a92nsE2jF5u5ZwH8Bv2zdeOC42RjbV2g=

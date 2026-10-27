@@ -232,6 +232,26 @@ func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string
 		}
 	}
 
+	// Belt-and-suspenders: if the type is owned by an out-of-tree plugin
+	// but the dispatch map has no entry for it, something slipped past the
+	// parse-time validator (unknown root cause — maybe a hand-crafted
+	// state replay). Fail with the same actionable YAML block the
+	// validator would have produced, rather than the opaque "unsupported
+	// resource type" below. Addendum J.
+	if _, ok := pApi.ProvisionFuncByType[res.Type]; !ok {
+		if req, isPlugin := api.LookupPluginRequirement(res.Type); isPlugin {
+			return nil, errors.Errorf(
+				"resource type %q is owned by sc-plugin %q but no `plugins.%s` block "+
+					"is configured. Add the following to server.yaml (or inherit from parent):\n\n"+
+					"plugins:\n  %s:\n    source:\n      type: %s\n      repository: %s\n      version: v<pick-a-release-tag>\n\n"+
+					"Pin a specific release from https://github.com/%s/releases",
+				res.Type, req.PluginName, req.PluginName,
+				req.PluginName, req.DefaultSource.Type, req.DefaultSource.Repository,
+				req.DefaultSource.Repository,
+			)
+		}
+	}
+
 	provisionParams, err := p.getProvisionParams(ctx, stack, res, env, "")
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to init provision params for %q", res.Type)

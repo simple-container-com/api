@@ -20,7 +20,6 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/kms v1.50.3
 	github.com/aws/aws-secretsmanager-caching-go/v2 v2.2.0
 	github.com/aws/smithy-go v1.27.1
-	github.com/cloudflare/cloudflare-go v0.117.0
 	github.com/compose-spec/compose-go v1.20.2
 	github.com/containerd/errdefs v1.0.0
 	github.com/containerd/platforms v0.2.1
@@ -49,7 +48,6 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/pulumi/pulumi-aws/sdk/v6 v6.83.4
 	github.com/pulumi/pulumi-awsx/sdk/v2 v2.22.0
-	github.com/pulumi/pulumi-cloudflare/sdk/v6 v6.17.0
 	github.com/pulumi/pulumi-command/sdk v1.2.1
 	github.com/pulumi/pulumi-docker/sdk/v4 v4.11.2
 	github.com/pulumi/pulumi-gcp/sdk/v8 v8.41.1
@@ -61,7 +59,8 @@ require (
 	github.com/pulumi/pulumi/sdk/v3 v3.245.0
 	github.com/samber/lo v1.53.0
 	github.com/simple-container-com/pulumi-sbercloud/sdk v0.1.0
-	github.com/simple-container-com/pulumi-yandex/sdk v1.1.0
+	github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261026175043-5eddde358585
+	github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261026175213-36a86d2f6b52
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
@@ -238,7 +237,6 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0 // indirect
 	github.com/go-xmlfmt/xmlfmt v1.1.3 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
-	github.com/goccy/go-json v0.10.5 // indirect
 	github.com/goccy/go-yaml v1.19.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
 	github.com/gofrs/flock v0.12.1 // indirect

@@ -90,6 +90,12 @@ templates:
     type: cloudrun
   stack-per-app-aws:
     type: fargate
+plugins:
+  cloudflare:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-cloudflare
+      version: v2026.10.26-5eddde3
 resources:
   registrar:
     type: cloudflare

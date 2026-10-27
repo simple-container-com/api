@@ -183,6 +183,15 @@ func ReadServerConfigs(descriptor *ServerDescriptor) (*ServerDescriptor, error) 
 		res = *withCicd
 	}
 
+	// Fool-protection: fail fast when a type token used in this stack
+	// is owned by an out-of-tree plugin but no `plugins:` block declares
+	// that plugin. Catches the bad upgrade path where SC core has
+	// deleted an in-tree subtree and the operator hasn't yet pinned
+	// its replacement plugin.
+	if err := ValidatePluginRequirements(&res); err != nil {
+		return nil, err
+	}
+
 	return &res, nil
 }
 

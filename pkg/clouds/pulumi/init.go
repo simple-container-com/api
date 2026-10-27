@@ -15,13 +15,17 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	// Register all the providers
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/aws"
-	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/cloudflare"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/cloudru"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/k3s"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/mongodb"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
-	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/yandex"
+
+	// External plugins' /api modules — register their config types with
+	// SC core's RegisterProviderConfig map so server.yaml parsing
+	// recognises `type: yc-bucket`, `type: yc-dns`, etc. The /plugin
+	// side (with the heavy pulumi-yandex SDK) is NOT pulled in.
+	_ "github.com/simple-container-com/sc-plugin-yandex/api"
 )
 
 func init() {
