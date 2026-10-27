@@ -212,6 +212,15 @@ func ValidatePluginRequirements(descriptor *ServerDescriptor) error {
 	for env, perEnv := range descriptor.Resources.Resources {
 		for name, res := range perEnv.Resources {
 			add(res.Type, fmt.Sprintf("resources.resources.%s.resources.%s.type", env, name))
+			// Some resources pick a cloud-specific driver via a sub-type —
+			// `type: vm` resources carry `provider: <driver>`, where the driver
+			// itself can be a plugin-owned token (e.g. `cloudru-evolution-vm`).
+			// Walking only `res.Type` would miss those, so a server.yaml whose
+			// only Cloud.ru surface is the VM would not trigger fool-protection
+			// despite the plugin being mandatory for the deploy.
+			if vc, ok := res.Config.Config.(VmConfigAware); ok {
+				add(vc.DriverType(), fmt.Sprintf("resources.resources.%s.resources.%s.provider", env, name))
+			}
 		}
 	}
 
@@ -316,4 +325,18 @@ func dedup(ss []string) []string {
 type ProvisionerConfigAware interface {
 	StateStorageType() string
 	SecretsProviderType() string
+}
+
+// VmConfigAware is implemented by `pkg/clouds/vm.VmConfig`. Used by
+// ValidatePluginRequirements to walk a `type: vm` resource's `provider:`
+// field, which selects a driver that itself can be plugin-owned
+// (`cloudru-evolution-vm`, future `mws-vm`, `selectel-vm`, …). Without this
+// hook the walker only sees `res.Type == "vm"` and misses the plugin that
+// owns the actual driver.
+//
+// Method is named `DriverType` rather than `Driver` because VmConfig already
+// has a `Driver string` field — same reason StateStorageType is not named
+// StateStorage.
+type VmConfigAware interface {
+	DriverType() string
 }

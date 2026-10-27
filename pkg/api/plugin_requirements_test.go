@@ -256,6 +256,98 @@ func TestValidatePluginRequirements_PartialResolverFailure(t *testing.T) {
 	Expect(present).To(BeFalse())
 }
 
+// A VM resource picks its driver via `provider:`, which can itself be a
+// plugin-owned token (cloudru-evolution-vm, future mws-vm, …). The walker
+// used to only see `res.Type == "vm"` and miss these; this test proves it
+// now reaches the driver through the VmConfigAware interface.
+func TestValidatePluginRequirements_VmProviderTriggersAutoInject(t *testing.T) {
+	RegisterTestingT(t)
+
+	RegisterPluginRequirement(PluginRequirement{
+		PluginName: "cloudru",
+		OwnedTypes: []string{"cloudru-evolution-vm"},
+		DefaultSource: PluginSource{
+			Type:       "github-release",
+			Repository: "simple-container-com/sc-plugin-cloudru",
+		},
+	})
+	defer resetPluginRequirementsForTest()
+
+	stubResolver(func(repo string) (string, error) {
+		Expect(repo).To(Equal("simple-container-com/sc-plugin-cloudru"))
+		return "v2026.10.27-7dc7ca9", nil
+	})
+	defer restoreResolver()
+
+	// A `type: vm` resource whose provider is a plugin-owned driver, and no
+	// plugins block declared. The walker must reach the provider through
+	// VmConfigAware; its own `type: vm` is in-tree and would not trigger
+	// fool-protection on its own.
+	desc := &ServerDescriptor{
+		Resources: PerStackResourcesDescriptor{
+			Resources: map[string]PerEnvResourcesDescriptor{
+				"staging": {
+					Resources: map[string]ResourceDescriptor{
+						"my-vm": {
+							Type:   "vm",
+							Config: Config{Config: &fakeVmConfig{driver: "cloudru-evolution-vm"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := ValidatePluginRequirements(desc)
+	Expect(err).ToNot(HaveOccurred(), "resolver succeeded — walker reached vm.provider and auto-inject fired")
+	Expect(desc.Plugins).To(HaveKey("cloudru"))
+	Expect(desc.Plugins["cloudru"].Source.Version).To(Equal("v2026.10.27-7dc7ca9"))
+}
+
+// A VM resource whose config does NOT implement VmConfigAware must not
+// panic — the walker type-asserts and silently skips the driver scan.
+// Belt-and-suspenders for the overlap window where a stub descriptor from
+// a parse variant may not carry a concrete VmConfig.
+func TestValidatePluginRequirements_VmWithoutConfigAwareSilent(t *testing.T) {
+	RegisterTestingT(t)
+
+	RegisterPluginRequirement(PluginRequirement{
+		PluginName: "cloudru",
+		OwnedTypes: []string{"cloudru-evolution-vm"},
+		DefaultSource: PluginSource{
+			Type:       "github-release",
+			Repository: "simple-container-com/sc-plugin-cloudru",
+		},
+	})
+	defer resetPluginRequirementsForTest()
+
+	desc := &ServerDescriptor{
+		Resources: PerStackResourcesDescriptor{
+			Resources: map[string]PerEnvResourcesDescriptor{
+				"staging": {
+					Resources: map[string]ResourceDescriptor{
+						"my-vm": {
+							Type:   "vm",
+							Config: Config{Config: map[string]any{"provider": "cloudru-evolution-vm"}},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := ValidatePluginRequirements(desc)
+	Expect(err).ToNot(HaveOccurred(), "non-VmConfigAware config must be skipped silently")
+}
+
+// fakeVmConfig is a VmConfigAware stub — the real *vm.VmConfig lives in
+// pkg/clouds/vm, which this package cannot import without a cycle.
+type fakeVmConfig struct {
+	driver string
+}
+
+func (f *fakeVmConfig) DriverType() string { return f.driver }
+
 // Keep alphabetical ordering of the paste-block in the error message —
 // operators get the same output on every run.
 func TestValidatePluginRequirements_AlphabeticalErrorOrder(t *testing.T) {
