@@ -18,6 +18,16 @@ const (
 	ClientDescriptorFileName  = "client.yaml"
 )
 
+// ErrServerDescriptorInvalid tags the case where a stack's server.yaml EXISTS but
+// could not be parsed or failed validation. It must never be conflated with
+// "server.yaml is absent": ReadOpts.IgnoreServerMissing legitimately tolerates a
+// client-only stack directory, but silently dropping a malformed or rejected
+// server.yaml discards the only actionable diagnosis the operator will ever get
+// and surfaces much later as a generic "provisioner is not set for stack %q".
+// Same principle as scoped.ErrScopedIntegrity on the secrets path — a config we
+// could not read is never treated as "simply absent". See ReadStacks.
+var ErrServerDescriptorInvalid = errors.New("server descriptor exists but is invalid")
+
 func ReadDescriptor[T any](filePath string, descriptor *T) (*T, error) {
 	fileBytes, err := os.ReadFile(filePath)
 	if err != nil {

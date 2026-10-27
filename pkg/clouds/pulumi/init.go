@@ -20,11 +20,21 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/k3s"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/mongodb"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
-
 	// External plugins' /api modules — register their config types with
 	// SC core's RegisterProviderConfig map so server.yaml parsing
-	// recognises `type: yc-bucket`, `type: yc-dns`, etc. The /plugin
-	// side (with the heavy pulumi-yandex SDK) is NOT pulled in.
+	// recognises `type: yc-bucket`, `type: yc-dns`, `type: cloudflare`
+	// etc., and register their RegisterPluginRequirement entries so
+	// ValidatePluginRequirements can emit the copy-paste-ready `plugins:`
+	// block. The /plugin side (with the heavy pulumi-cloudflare /
+	// pulumi-yandex SDKs) is NOT pulled in.
+	//
+	// Every /api module listed in go.mod MUST be blank-imported here.
+	// Omitting one is silent: the module stays an unused go.mod require,
+	// its type tokens never register, and a server.yaml using them fails
+	// to parse with no mention of the plugin. That is exactly how the
+	// cloudflare drop broke the release pipeline's own `publish sc tool`
+	// step — `sc-plugin-cloudflare/api` was required but never imported.
+	_ "github.com/simple-container-com/sc-plugin-cloudflare/api"
 	_ "github.com/simple-container-com/sc-plugin-yandex/api"
 )
 

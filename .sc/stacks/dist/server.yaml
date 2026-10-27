@@ -11,6 +11,17 @@ provisioner:
       type: pulumi-cloud
       config:
         credentials: "${auth:pulumi}"
+plugins:
+  # `resources.registrar.type: cloudflare` below is owned by an out-of-tree
+  # plugin since #492 dropped pkg/clouds/{cloudflare,pulumi/cloudflare}.
+  # Without this pin, ValidatePluginRequirements rejects this file and the
+  # release pipeline's own `publish sc tool` step cannot deploy `dist`.
+  # SC does not resolve "latest" — bump this tag deliberately.
+  cloudflare:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-cloudflare
+      version: v2026.10.26-5eddde3
 templates:
   static-website:
     type: gcp-static-website
