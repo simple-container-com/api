@@ -272,6 +272,14 @@ func (r *VmConfig) ProviderType() string {
 	return ProviderType
 }
 
+// DriverType implements api.VmConfigAware so that the parse-time plugin
+// requirement walker can reach a vm's `provider:` string. The driver — not
+// just the resource's `type: vm` — is what selects which plugin is needed
+// (cloudru-evolution-vm, future mws-vm, …).
+func (r *VmConfig) DriverType() string {
+	return r.Driver
+}
+
 // ProjectIdValue has no meaning for a machine: the project/folder id lives inside
 // the cloud credentials a cloud driver rehydrates, and a byo host has no cloud at
 // all. Returning the k8s-style "n/a" keeps `${resource:...projectId}` from
