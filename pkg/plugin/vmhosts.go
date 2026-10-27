@@ -7,8 +7,8 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
 )
@@ -154,6 +154,38 @@ func (b *VmHostBuilder) AddressOf(res sdk.Resource, property string) *VmHostBuil
 		return b.fail(errors.Wrap(err, "address"))
 	}
 	b.host.Address = v
+	return b
+}
+
+// AddressOutput sets the address from an sdk.StringOutput — the pattern a plugin
+// that shells out to a CLI needs, since the address is parsed out of a
+// local.Command's stdout at apply time, not a property on a provider resource.
+//
+// Awaits the value. On apply the await blocks until the upstream command has
+// run and the parsed address is known. On preview the value is unknown — the
+// in-tree drivers' sdk.StringOutput was treated as a known empty string in the
+// same case (see cloudru_evolution.go's parseEvolutionResult preview branch,
+// which returns ""), and this mirrors that: emit OutputLiteral("") so Build()
+// still has a non-nil address and core-side readers see the same shape they
+// used to. Everything that would actually dial SSH in preview has unknown
+// resource dependencies and never runs, so a known-empty address is correct.
+//
+// Prefer AddressOf when the address IS a property of a Pulumi provider
+// resource; this one is for the no-provider / CLI-driven case.
+func (b *VmHostBuilder) AddressOutput(out sdk.StringOutput) *VmHostBuilder {
+	result, err := internals.UnsafeAwaitOutput(b.ctx, out)
+	if err != nil {
+		return b.fail(errors.Wrap(err, "address"))
+	}
+	if !result.Known {
+		b.host.Address = OutputLiteral("")
+		return b
+	}
+	s, ok := result.Value.(string)
+	if !ok {
+		return b.fail(errors.Errorf("address output resolved to %T, not a string", result.Value))
+	}
+	b.host.Address = OutputLiteral(s)
 	return b
 }
 
