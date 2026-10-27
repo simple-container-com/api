@@ -13,10 +13,11 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
+
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
@@ -118,15 +119,11 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 		// Pre-engine plugin loading + sidecar registration already happened in
 		// ProvisionStack entry (loadPreEnginePlugins); here we just stand up
 		// the MonitorProxy and attach the session for the sidecars to find.
-		if p.preEnginePlugins != nil {
-			sess := newPluginSession()
-			defer sess.Close()
-			defer detachPluginSession()
-			if err := sess.StartProxy(ctx); err != nil {
-				return errors.Wrap(err, "start monitor proxy")
-			}
-			attachPluginSession(ctx, sess)
+		stopPlugins, err := p.startPluginSession(ctx)
+		if err != nil {
+			return err
 		}
+		defer stopPlugins()
 
 		if p.preProvisionProgram != nil {
 			if err := p.preProvisionProgram(ctx); err != nil {

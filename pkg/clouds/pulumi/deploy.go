@@ -68,6 +68,15 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 
 func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, parentStack string, fullStackName string) func(ctx *sdk.Context) error {
 	return func(ctx *sdk.Context) error {
+		// In-engine plugin session — the deploy twin of provisionProgram's.
+		// initRegistrar below, and every plugin-owned resource in this program,
+		// dispatches through a sidecar that needs the MonitorProxy address.
+		stopPlugins, err := p.startPluginSession(ctx)
+		if err != nil {
+			return err
+		}
+		defer stopPlugins()
+
 		stackClientDesc := stack.Client.Stacks[params.Environment]
 		parentEnv := params.Environment
 		// if parentEnv is specified, use it instead of stack's environment
