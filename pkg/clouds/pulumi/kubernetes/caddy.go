@@ -403,6 +403,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 		VPA:                           caddy.VPA,                 // Vertical Pod Autoscaler configuration for Caddy
 		TerminationGracePeriodSeconds: lo.FromPtr(caddy.CaddyConfig).TerminationGracePeriodSeconds,
 		PreStopSleepSeconds:           lo.FromPtr(caddy.CaddyConfig).PreStopSleepSeconds,
+		NodeSelector:                  lo.FromPtr(caddy.CaddyConfig).NodeSelector,
 		Images: []*ContainerImage{
 			{
 				Container: caddyContainer,

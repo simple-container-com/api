@@ -168,3 +168,16 @@ func TestDeployCaddyService_TopologySpreadReachesPodSpec(t *testing.T) {
 	Expect(c).To(HaveKeyWithValue("whenUnsatisfiable", "ScheduleAnyway"))
 	Expect(c).To(HaveKey("labelSelector"))
 }
+
+func TestDeployCaddyService_NodeSelectorReachesPodSpec(t *testing.T) {
+	RegisterTestingT(t)
+	mocks, err := deployTestCaddy(&k8s.CaddyConfig{
+		NodeSelector: map[string]string{"cloud.google.com/gke-spot": "true"},
+	})
+	Expect(err).ToNot(HaveOccurred())
+
+	deployments := mocks.InputsFor("kubernetes:apps/v1:Deployment")
+	Expect(deployments).To(HaveLen(1))
+	spec := annotationsAt(deployments[0], "spec", "template", "spec")
+	Expect(spec["nodeSelector"]).To(Equal(map[string]interface{}{"cloud.google.com/gke-spot": "true"}))
+}

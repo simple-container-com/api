@@ -985,7 +985,7 @@ When this resource is used in a client stack via the `uses` section, Simple Cont
 
 **Connectivity (Cloud SQL Auth Proxy):**
 
-Your container connects to Cloud SQL over `localhost` — the injected `*.host`/`*.port` placeholders resolve to `localhost:5432`. Simple Container runs the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy) for you as a **native sidecar** (a Kubernetes init container with `restartPolicy: Always`) alongside the app container in long-lived Deployments. Because it is a native sidecar with a startup probe on the proxy's `--health-check` endpoint, **Kubernetes does not start your app container until the proxy is accepting connections** — so the app never races ahead and logs `connection refused` to `localhost:5432` on pod startup, restart, node scale-down, or VPA eviction. Requires GKE ≥ 1.29 (the `SidecarContainers` feature, GA in 1.33). No extra configuration is needed.
+Your container connects to Cloud SQL over `localhost` — the injected `*.host`/`*.port` placeholders resolve to `localhost:5432`. Simple Container runs the [Cloud SQL Auth Proxy](https://cloud.google.com/sql/docs/postgres/sql-proxy) for you as a **native sidecar** (a Kubernetes init container with `restartPolicy: Always`) alongside the app container in long-lived Deployments, and in the db-user-init Job that grants the stack's database user its roles. Because it is a native sidecar with a startup probe on the proxy's `--health-check` endpoint, **Kubernetes does not start your app container until the proxy is accepting connections** — so the app never races ahead and logs `connection refused` to `localhost:5432` on pod startup, restart, node scale-down, or VPA eviction. Requires GKE ≥ 1.29 (the `SidecarContainers` feature, GA in 1.33). No extra configuration is needed.
 
 #### **Redis** (`gcp-redis`)
 
@@ -2155,6 +2155,8 @@ resources:
               - topologyKey: kubernetes.io/hostname
                 maxSkew: 1
                 whenUnsatisfiable: ScheduleAnyway
+            nodeSelector:                           # e.g. a non-production ingress on GKE Spot (Autopilot adds the toleration; tolerations are not configurable here)
+              cloud.google.com/gke-spot: "true"
             
             # VPA Configuration for automatic resource optimization (optional)
             vpa:
