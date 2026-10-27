@@ -102,7 +102,13 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 			Name: stackName,
 		}
 
-		if serverDesc, err := p.readServerDescriptor(stacksDir, stackName); err != nil && (!readOpts.IgnoreServerMissing || lo.Contains(readOpts.RequireServerConfigs, stackName)) {
+		if serverDesc, err := p.readServerDescriptor(stacksDir, stackName); err != nil && (errors.Is(err, api.ErrServerDescriptorInvalid) || !readOpts.IgnoreServerMissing || lo.Contains(readOpts.RequireServerConfigs, stackName)) {
+			// A server.yaml that EXISTS but is malformed or rejected is fatal even
+			// under IgnoreServerMissing. Swallowing it leaves stack.Server zero and
+			// the failure resurfaces as "provisioner is not set for stack %q" with
+			// the real cause discarded — which is exactly how the #492 plugin split
+			// broke the release pipeline's own `publish sc tool` step: the
+			// fool-protector's copy-paste-ready `plugins:` block never reached the log.
 			return err
 		} else if serverDesc != nil {
 			// SECURITY: Never log actual server descriptor content - may contain resolved secrets
@@ -189,6 +195,13 @@ func (p *provisioner) resolvePlaceholders() error {
 func (p *provisioner) readServerDescriptor(rootDir string, stackName string) (*api.ServerDescriptor, error) {
 	descFilePath := path.Join(rootDir, stackName, api.ServerDescriptorFileName)
 	if desc, err := api.ReadServerDescriptor(descFilePath); err != nil {
+		// Distinguish "no server.yaml here" (a client-only stack dir, which
+		// IgnoreServerMissing is for) from "server.yaml is present but we could
+		// not use it" (bad YAML, failed validation). Only the former is
+		// ignorable; see api.ErrServerDescriptorInvalid.
+		if _, statErr := os.Stat(descFilePath); statErr == nil {
+			return nil, errors.Wrapf(api.ErrServerDescriptorInvalid, "%q: %v", descFilePath, err)
+		}
 		return nil, errors.Wrapf(err, "failed to read server descriptor from %q", descFilePath)
 	} else {
 		return desc, nil
