@@ -300,11 +300,19 @@ func TestValidatePluginRequirements_AlphabeticalErrorOrder(t *testing.T) {
 }
 
 // stubResolver / restoreResolver swap out the package-level
-// resolveLatestVersion so unit tests never hit the network.
-var realResolver = resolveLatestVersion
+// resolveLatestVersion so unit tests never hit the network. Routed through the
+// same exported seam other packages use, so there is exactly one way to do
+// this and the mutex is always honoured.
+var restoreResolverFn = func() {}
 
-func stubResolver(fn func(repo string) (string, error)) { resolveLatestVersion = fn }
-func restoreResolver()                                  { resolveLatestVersion = realResolver }
+func stubResolver(fn func(repo string) (string, error)) {
+	restoreResolverFn = SetLatestVersionResolver(fn)
+}
+
+func restoreResolver() {
+	restoreResolverFn()
+	restoreResolverFn = func() {}
+}
 
 // resetPluginRequirementsForTest clears the package-level registry so
 // tests don't leak state into each other.

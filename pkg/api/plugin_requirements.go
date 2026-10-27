@@ -82,8 +82,38 @@ func LookupPluginRequirement(typeToken string) (PluginRequirement, bool) {
 
 // resolveLatestVersion returns the latest-release tag_name for a GitHub
 // repository. Package-level var so tests can stub without touching the
-// network.
-var resolveLatestVersion = resolveLatestVersionFromGitHub
+// network — see SetLatestVersionResolver for callers outside this package.
+var (
+	resolveLatestVersionMu sync.RWMutex
+	resolveLatestVersion   = resolveLatestVersionFromGitHub
+)
+
+// SetLatestVersionResolver replaces the plugin-release resolver and returns a
+// func that restores the previous one. Defer the result.
+//
+// This exists because auto-injection reaches api.github.com, and a unit test in
+// ANY package that parses a server.yaml using a plugin-owned type without a
+// `plugins:` pin will silently make that call. That is not hypothetical: it is
+// how pkg/provisioner's own fool-protector test started hitting the network the
+// moment auto-injection landed, passing or failing depending on whether the
+// runner had egress. Tests that exercise either path must stub the resolver.
+func SetLatestVersionResolver(fn func(repo string) (string, error)) func() {
+	resolveLatestVersionMu.Lock()
+	defer resolveLatestVersionMu.Unlock()
+	prev := resolveLatestVersion
+	resolveLatestVersion = fn
+	return func() {
+		resolveLatestVersionMu.Lock()
+		defer resolveLatestVersionMu.Unlock()
+		resolveLatestVersion = prev
+	}
+}
+
+func currentResolver() func(repo string) (string, error) {
+	resolveLatestVersionMu.RLock()
+	defer resolveLatestVersionMu.RUnlock()
+	return resolveLatestVersion
+}
 
 func resolveLatestVersionFromGitHub(repo string) (string, error) {
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
@@ -215,7 +245,7 @@ func ValidatePluginRequirements(descriptor *ServerDescriptor) error {
 	unresolved := map[string]error{}
 	for _, name := range missingNames {
 		req := needed[name]
-		tag, err := resolveLatestVersion(req.DefaultSource.Repository)
+		tag, err := currentResolver()(req.DefaultSource.Repository)
 		if err != nil {
 			unresolved[name] = err
 			continue
