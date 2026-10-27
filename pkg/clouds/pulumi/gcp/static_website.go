@@ -17,6 +17,25 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
+// exportableRef turns a registrar's ResourceOutput.Ref into something
+// ctx.Export accepts. Most registrars hand back an Output (cloudru returns
+// cmd.ID()); the plugin registrar's synchronous DNS path has a resolved URN
+// string in hand. Both are legitimate, and an unchecked
+// `ref.(sdk.Output)` turned the second one into a panic raised from inside
+// deployStackProgram's ApplyT continuation — where Pulumi reports it under an
+// opaque "waiting for RPCs", naming neither this file nor the assertion. Be
+// permissive here rather than re-learn that.
+func exportableRef(ref any) sdk.Input {
+	switch v := ref.(type) {
+	case sdk.Input:
+		return v
+	case string:
+		return sdk.String(v)
+	default:
+		return sdk.String(fmt.Sprintf("%v", v))
+	}
+}
+
 type StaticSiteOutput struct {
 	Bucket             *storage.Bucket
 	IamReadBinding     *storage.BucketIAMBinding
@@ -131,7 +150,7 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create CNAME DNS record %q -> %q for stack %q in %q", domain, bucketDomain, stack.Name, input.StackParams.Environment)
 	}
-	ctx.Export(fmt.Sprintf("%s-dns-record-id", stack.Name), dnsRecord.Ref.(sdk.Output))
+	ctx.Export(fmt.Sprintf("%s-dns-record-id", stack.Name), exportableRef(dnsRecord.Ref))
 	out.DnsRecord = dnsRecord
 
 	params.Log.Info(ctx.Context(), "configure override header rule from %q to %q for %q in %q...", domain, bucketDomain, stack.Name, input.StackParams.Environment)
@@ -146,7 +165,7 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to create override host rule from %q to %q", domain, bucketDomain)
 	}
-	ctx.Export(fmt.Sprintf("%s-override-header-rule-id", stack.Name), overrideHeaderRule.Ref.(sdk.Output))
+	ctx.Export(fmt.Sprintf("%s-override-header-rule-id", stack.Name), exportableRef(overrideHeaderRule.Ref))
 	out.OverrideHeaderRule = overrideHeaderRule
 
 	return &api.ResourceOutput{Ref: out}, nil
