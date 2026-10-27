@@ -66,6 +66,10 @@ nav:
     - Resource Adoption: guides/resource-adoption.md
     - AI Assistant: ai-assistant/index.md
     - Migration: guides/migration.md
+    # The single page release notes link to for the plugin split. Keep the slug
+    # stable — external links (GitHub release bodies, the `plugins:` validation
+    # error message) point at /guides/upgrading-to-plugins/.
+    - Upgrading to Plugins: guides/upgrading-to-plugins.md
   # Every example page is listed, not just the section index. A page absent from
   # `nav` renders with no sidebar position in this theme (navigation.sections +
   # navigation.expand), so it is reachable only by following a link from its index
