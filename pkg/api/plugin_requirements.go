@@ -4,17 +4,22 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 )
 
 // PluginRequirement names a plugin and the type tokens it owns. Each
 // out-of-tree sc-plugin's `/api` module calls RegisterPluginRequirement
 // at init() time so that SC core — which has already deleted the
 // corresponding in-tree subtree — can detect missing `plugins:` blocks
-// in server.yaml BEFORE any Pulumi state is touched.
+// in server.yaml and auto-inject the latest release BEFORE any Pulumi
+// state is touched.
 //
 // See forge/docs/design/2026-10-24/sc-plugin-architecture/
 // 04-no-destroy-invariant.md Addendum J.
@@ -29,9 +34,10 @@ type PluginRequirement struct {
 	// this plugin's /api module registers.
 	OwnedTypes []string
 
-	// DefaultSource is the `source:` block the operator-facing error
-	// message suggests. Version is deliberately left empty — operators
-	// pin a specific release.
+	// DefaultSource is the `source:` block the auto-injector uses when
+	// an operator's server.yaml references OwnedTypes without declaring
+	// `plugins.<PluginName>`. Version is left empty — resolved against
+	// the GitHub releases API at parse time.
 	DefaultSource PluginSource
 }
 
@@ -74,14 +80,93 @@ func LookupPluginRequirement(typeToken string) (PluginRequirement, bool) {
 	return req, ok
 }
 
+// resolveLatestVersion returns the latest-release tag_name for a GitHub
+// repository. Package-level var so tests can stub without touching the
+// network — see SetLatestVersionResolver for callers outside this package.
+var (
+	resolveLatestVersionMu sync.RWMutex
+	resolveLatestVersion   = resolveLatestVersionFromGitHub
+)
+
+// SetLatestVersionResolver replaces the plugin-release resolver and returns a
+// func that restores the previous one. Defer the result.
+//
+// This exists because auto-injection reaches api.github.com, and a unit test in
+// ANY package that parses a server.yaml using a plugin-owned type without a
+// `plugins:` pin will silently make that call. That is not hypothetical: it is
+// how pkg/provisioner's own fool-protector test started hitting the network the
+// moment auto-injection landed, passing or failing depending on whether the
+// runner had egress. Tests that exercise either path must stub the resolver.
+func SetLatestVersionResolver(fn func(repo string) (string, error)) func() {
+	resolveLatestVersionMu.Lock()
+	defer resolveLatestVersionMu.Unlock()
+	prev := resolveLatestVersion
+	resolveLatestVersion = fn
+	return func() {
+		resolveLatestVersionMu.Lock()
+		defer resolveLatestVersionMu.Unlock()
+		resolveLatestVersion = prev
+	}
+}
+
+func currentResolver() func(repo string) (string, error) {
+	resolveLatestVersionMu.RLock()
+	defer resolveLatestVersionMu.RUnlock()
+	return resolveLatestVersion
+}
+
+func resolveLatestVersionFromGitHub(repo string) (string, error) {
+	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	// Opportunistic auth — unauth 60/h is enough for typical operator usage,
+	// but if a token is around we may as well use its 5000/h budget.
+	if tok := os.Getenv("GITHUB_TOKEN"); tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("GET %s: %s", url, resp.Status)
+	}
+	var body struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		return "", err
+	}
+	if body.TagName == "" {
+		return "", fmt.Errorf("empty tag_name from %s", url)
+	}
+	return body.TagName, nil
+}
+
 // ValidatePluginRequirements walks every type token used in a
-// ServerDescriptor and fails fast when a token is owned by a plugin
-// that is not configured under `plugins:`. The error carries the exact
-// YAML block the operator needs to copy-paste.
+// ServerDescriptor and, for any token owned by an un-declared plugin,
+// resolves the latest release from GitHub and injects a synthetic
+// `plugins:` entry into the descriptor. Only when resolution itself
+// fails (offline, rate-limited, repo gone) does it return an error —
+// with the exact YAML block the operator needs to paste by hand.
 //
 // Call this at the END of server.yaml parsing (ReadServerConfigs), BEFORE
-// any Pulumi engine starts. The point is to catch missing plugin pins
-// before SC core mutates state.
+// any Pulumi engine starts. The point is to make an existing server.yaml
+// that predates the plugin split keep working across the upgrade: before
+// this, parsing succeeded (the plugin /api module's blank import registers
+// the type reader) and the deploy then died mid-provision with
+// `unsupported registrar type "cloudflare"`, possibly after state had
+// already been mutated.
+//
+// Auto-injection — rather than a hard error — is deliberate: backwards
+// compatibility means the upgrade must WORK, not merely diagnose. The
+// resolver is skipped entirely for any plugin the operator did declare,
+// so a pinned (reproducible) steady-state deploy makes no network call.
 func ValidatePluginRequirements(descriptor *ServerDescriptor) error {
 	if descriptor == nil {
 		return nil
@@ -144,26 +229,55 @@ func ValidatePluginRequirements(descriptor *ServerDescriptor) error {
 	}
 	pluginRequirementsMu.Unlock()
 
-	// Missing = needed - configured.
-	var missing []string
+	// Everything that needs a plugin and doesn't have one — try to resolve
+	// it against the GitHub Releases API.
+	var missingNames []string
 	for name := range needed {
 		if !configured[name] {
-			missing = append(missing, name)
+			missingNames = append(missingNames, name)
 		}
 	}
-	if len(missing) == 0 {
+	if len(missingNames) == 0 {
 		return nil
 	}
-	sort.Strings(missing)
+	sort.Strings(missingNames)
 
-	// One actionable message per missing plugin.
+	unresolved := map[string]error{}
+	for _, name := range missingNames {
+		req := needed[name]
+		tag, err := currentResolver()(req.DefaultSource.Repository)
+		if err != nil {
+			unresolved[name] = err
+			continue
+		}
+		if descriptor.Plugins == nil {
+			descriptor.Plugins = map[string]PluginSpec{}
+		}
+		src := req.DefaultSource
+		src.Version = tag
+		descriptor.Plugins[name] = PluginSpec{Source: &src}
+	}
+
+	if len(unresolved) == 0 {
+		return nil
+	}
+	var unresolvedNames []string
+	for name := range unresolved {
+		unresolvedNames = append(unresolvedNames, name)
+	}
+	sort.Strings(unresolvedNames)
+
 	var b strings.Builder
 	b.WriteString("server.yaml uses type tokens owned by out-of-tree SC plugins ")
-	b.WriteString("but is missing the corresponding `plugins:` entries. ")
-	b.WriteString("Add the block(s) below to this stack's `server.yaml` ")
+	b.WriteString("that are not declared under `plugins:` and whose latest release ")
+	b.WriteString("could not be resolved from GitHub. Reasons:\n")
+	for _, name := range unresolvedNames {
+		b.WriteString(fmt.Sprintf("  - %s: %s\n", name, unresolved[name]))
+	}
+	b.WriteString("\nPaste the block(s) below into this stack's `server.yaml` ")
 	b.WriteString("(or inherit from the parent stack):\n\n")
 	b.WriteString("plugins:\n")
-	for _, name := range missing {
+	for _, name := range unresolvedNames {
 		req := needed[name]
 		sort.Strings(locationsByPlugin[name])
 		b.WriteString(fmt.Sprintf("  %s:\n", name))
@@ -174,10 +288,8 @@ func ValidatePluginRequirements(descriptor *ServerDescriptor) error {
 		b.WriteString(fmt.Sprintf("    # Owns these types used in this stack: %s\n",
 			strings.Join(dedup(locationsByPlugin[name]), ", ")))
 	}
-	b.WriteString("\n")
-	b.WriteString("Pin a specific release tag (SC does not auto-resolve 'latest'). ")
-	b.WriteString("Browse releases at ")
-	for _, name := range missing {
+	b.WriteString("\nBrowse releases at ")
+	for _, name := range unresolvedNames {
 		req := needed[name]
 		b.WriteString(fmt.Sprintf("https://github.com/%s/releases ", req.DefaultSource.Repository))
 	}

@@ -66,6 +66,52 @@ func TestVmHostBuilder_BuildsTheWireShape(t *testing.T) {
 	Expect(err).ToNot(HaveOccurred())
 }
 
+// AddressOutput is for the plugin that drives a shelled-out CLI: the address is
+// known only at apply time, from the command's parsed stdout. Verifies the two
+// shapes an operator can observe — known value flows through as a literal; a
+// preview-time unknown lands as a known empty-string literal, mirroring the
+// in-tree driver's parseEvolutionResult preview branch.
+func TestVmHostBuilder_AddressOutput(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Known-value path: the parsed address flows through as a Literal.
+	err := sdk.RunErr(func(ctx *sdk.Context) error {
+		known := sdk.String("198.51.100.42").ToStringOutput()
+
+		h, err := NewVmHost(ctx.Context(), "web-1").
+			User("ubuntu").
+			AddressOutput(known).
+			PrivateKey("-----BEGIN OPENSSH PRIVATE KEY-----").
+			TrustOnFirstUse().
+			Build()
+		Expect(err).ToNot(HaveOccurred())
+		Expect(h.GetAddress().GetLiteral()).To(Equal("198.51.100.42"))
+		Expect(h.GetAddress().GetRef()).To(BeNil(), "AddressOutput awaits in-plugin — never emits a Ref")
+		Expect(h.GetAddress().GetSecret()).To(BeFalse())
+		return nil
+	}, sdk.WithMocks("proj", "e2e", authoringMocks{}))
+	Expect(err).ToNot(HaveOccurred())
+
+	// Preview path: an unknown output lands as a known empty-string literal, so
+	// Build() still accepts the host and core-side readers see the same shape
+	// the in-tree sdk.StringOutput took when preview returned "".
+	err = sdk.RunErr(func(ctx *sdk.Context) error {
+		unknown := sdk.UnsafeUnknownOutput(nil).ApplyT(func(any) string { return "" }).(sdk.StringOutput)
+
+		h, err := NewVmHost(ctx.Context(), "web-2").
+			User("ubuntu").
+			AddressOutput(unknown).
+			PrivateKey("-----BEGIN OPENSSH PRIVATE KEY-----").
+			TrustOnFirstUse().
+			Build()
+		Expect(err).ToNot(HaveOccurred(), "preview must not fail Build — downstream SSH deps are unknown too and never dial")
+		Expect(h.GetAddress()).ToNot(BeNil(), "address slot must be set so Build()'s nil-check passes")
+		Expect(h.GetAddress().GetLiteral()).To(Equal(""), "preview-time unknown => known empty string, same shape as the in-tree driver")
+		return nil
+	}, sdk.WithMocks("proj", "e2e", authoringMocks{}))
+	Expect(err).ToNot(HaveOccurred())
+}
+
 // The byo-shaped host: every fact is already known, so nothing is a ref — and the
 // secrecy of each field is still decided by which setter was used, not by the caller
 // remembering a flag.

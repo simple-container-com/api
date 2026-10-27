@@ -66,7 +66,33 @@ func (sd *ServerDescriptor) Copy() ServerDescriptor {
 		Variables: mapValues(sd.Variables, func(value VariableDescriptor, key string) VariableDescriptor {
 			return value.Copy()
 		}),
+		// Plugins MUST be copied. A child stack reaches the parent's `plugins:`
+		// block only through this constructor (ReconcileForDeploy does
+		// `stack.Server = parentStack.Server.Copy()`), so omitting it means every
+		// `sc deploy` sees zero plugins, loadPreEnginePlugins no-ops, and the
+		// type the plugin owns fails as if it were never installed — while
+		// `sc provision` of the same stack works, because that path never copies.
+		// Live-caught 2026-10-27, api release run 40554605682: `sc deploy -s dist
+		// -e prod` died with `unsupported registrar type "cloudflare"` and not one
+		// line of plugin logging, because this field was absent here.
+		Plugins: mapValues(sd.Plugins, func(value PluginSpec, key string) PluginSpec {
+			return value.Copy()
+		}),
 	}
+}
+
+// Copy deep-copies the spec, including the Source pointer — a shared pointer
+// would let one stack's placeholder resolution mutate another's pin.
+func (s *PluginSpec) Copy() PluginSpec {
+	out := PluginSpec{
+		Path:   s.Path,
+		SHA256: s.SHA256,
+	}
+	if s.Source != nil {
+		src := *s.Source
+		out.Source = &src
+	}
+	return out
 }
 
 func (s *VariableDescriptor) Copy() VariableDescriptor {

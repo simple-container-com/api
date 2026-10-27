@@ -14,6 +14,7 @@ import (
 
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/pkg/errors"
+
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -27,8 +28,9 @@ import (
 // in the active deploy — those get propagated to downstream RegisterResource
 // calls via RequestHeader.ProviderUrns.
 //
-// Lifetime: created by provisionProgram's inline RunFunc, torn down when the
-// RunFunc returns. The in-engine sidecars (resource / provider / registrar /
+// Lifetime: created by an inline RunFunc via startPluginSession — both
+// provisionProgram and deployStackProgram — and torn down when that RunFunc
+// returns. The in-engine sidecars (resource / provider / registrar /
 // compute-process) read `activeSession` from the package-level var at call
 // time; a nil session means the sidecar was called outside the inline RunFunc,
 // which is an error.
@@ -92,6 +94,37 @@ func detachPluginSession() {
 	activeSessionMu.Lock()
 	defer activeSessionMu.Unlock()
 	activeSession = nil
+}
+
+// startPluginSession stands up the in-engine MonitorProxy and publishes it as the
+// active session, returning a cleanup the caller MUST defer. When no plugins were
+// loaded pre-engine it is a no-op returning a no-op cleanup, so callers need no
+// conditional.
+//
+// EVERY inline RunFunc that can reach a plugin sidecar needs this, not only
+// provisionProgram. The in-engine sidecars (resource / provider / registrar /
+// compute-process) read the session from the package-level activeSession at call
+// time; a program that skips this leaves them with no monitor address, and the
+// failure reads exactly like the plugin was never installed. That is what
+// deployStackProgram did until 2026-10-27 — `sc provision` of a plugin-owned
+// registrar worked while `sc deploy` of the same stack could not, which sends
+// you looking at the plugin instead of at the program.
+func (p *pulumi) startPluginSession(ctx *sdk.Context) (func(), error) {
+	if p.preEnginePlugins == nil {
+		return func() {}, nil
+	}
+	sess := newPluginSession()
+	if err := sess.StartProxy(ctx); err != nil {
+		sess.Close()
+		return nil, errors.Wrap(err, "start monitor proxy")
+	}
+	attachPluginSession(ctx, sess)
+	// Detach before Close, matching the original defer order in provisionProgram:
+	// no sidecar should find a session whose proxy is already shut down.
+	return func() {
+		detachPluginSession()
+		sess.Close()
+	}, nil
 }
 
 // verifySHA256 validates spec.SHA256 against the binary at spec.Path when
