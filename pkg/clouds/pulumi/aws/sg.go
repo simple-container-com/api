@@ -7,13 +7,11 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/clouds/aws"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/cloudflare"
 )
 
 func toCidrBlocksArrayInput(blocks []string, subnets defaultSubnets, ipv6 bool) sdk.StringArrayOutput {
@@ -53,7 +51,7 @@ func processIngressSGArgs(args *ec2.SecurityGroupIngressArgs, group aws.Security
 			ipv6Blocks = append(ipv6Blocks, *ingress.Ipv6CidrBlocks...)
 		}
 		if ingress.AllowOnlyCloudflare != nil && lo.FromPtr(ingress.AllowOnlyCloudflare) {
-			ips, err := cloudflare.GetCloudflareIPs()
+			ips, err := getCloudflareIPs()
 			if err != nil {
 				return *args, errors.Wrapf(err, "failed to get cloudflare IPs")
 			}

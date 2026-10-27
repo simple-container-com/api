@@ -24,7 +24,6 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	// Import all cloud provider packages to trigger init() functions
 	_ "github.com/simple-container-com/api/pkg/clouds/aws"
-	_ "github.com/simple-container-com/api/pkg/clouds/cloudflare"
 	"github.com/simple-container-com/api/pkg/clouds/cloudru"
 	_ "github.com/simple-container-com/api/pkg/clouds/compose"
 	_ "github.com/simple-container-com/api/pkg/clouds/discord"

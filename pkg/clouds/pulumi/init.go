@@ -15,7 +15,6 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	// Register all the providers
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/aws"
-	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/cloudflare"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/cloudru"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/k3s"
