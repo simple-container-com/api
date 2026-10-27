@@ -31,6 +31,10 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		return err
 	}
 
+	// Plugin sessions attached by provisionProgram live until the engine is
+	// done with this stack — see startPluginSession.
+	defer closePluginSessions()
+
 	p.logger.Info(ctx, "Found stack %q", s.Ref().FullyQualifiedName())
 
 	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, p.provisionProgram(stack, cfg))
@@ -119,11 +123,12 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 		// Pre-engine plugin loading + sidecar registration already happened in
 		// ProvisionStack entry (loadPreEnginePlugins); here we just stand up
 		// the MonitorProxy and attach the session for the sidecars to find.
-		stopPlugins, err := p.startPluginSession(ctx)
-		if err != nil {
+		// Teardown is NOT deferred here — provisionStack/previewStack/
+		// destroyStack defer closePluginSessions, since sidecar dispatches can
+		// outlive this RunFunc inside output continuations.
+		if err := p.startPluginSession(ctx); err != nil {
 			return err
 		}
-		defer stopPlugins()
 
 		if p.preProvisionProgram != nil {
 			if err := p.preProvisionProgram(ctx); err != nil {

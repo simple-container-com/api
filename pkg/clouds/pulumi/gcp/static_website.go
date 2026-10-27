@@ -129,7 +129,7 @@ func StaticWebsite(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		Proxied: true,
 	})
 	if err != nil {
-		return nil, errors.Wrapf(err, "failed to create iam binding for bucket %q for stack %q in %q", bucketName, stack.Name, input.StackParams.Environment)
+		return nil, errors.Wrapf(err, "failed to create CNAME DNS record %q -> %q for stack %q in %q", domain, bucketDomain, stack.Name, input.StackParams.Environment)
 	}
 	ctx.Export(fmt.Sprintf("%s-dns-record-id", stack.Name), dnsRecord.Ref.(sdk.Output))
 	out.DnsRecord = dnsRecord

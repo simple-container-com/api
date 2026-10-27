@@ -28,12 +28,13 @@ import (
 // in the active deploy — those get propagated to downstream RegisterResource
 // calls via RequestHeader.ProviderUrns.
 //
-// Lifetime: created by an inline RunFunc via startPluginSession — both
-// provisionProgram and deployStackProgram — and torn down when that RunFunc
-// returns. The in-engine sidecars (resource / provider / registrar /
-// compute-process) read `activeSession` from the package-level var at call
-// time; a nil session means the sidecar was called outside the inline RunFunc,
-// which is an error.
+// Lifetime: attached by an inline RunFunc via startPluginSession — both
+// provisionProgram and deployStackProgram — and torn down by
+// closePluginSessions once the ENGINE OPERATION that invoked that RunFunc has
+// returned. NOT when the RunFunc returns: see startPluginSession. The
+// in-engine sidecars (resource / provider / registrar / compute-process) read
+// `activeSession` from the package-level var at call time; a nil session means
+// the sidecar was called outside a live engine operation, which is an error.
 type pluginSession struct {
 	mu           sync.Mutex
 	proxyAddr    string
@@ -82,24 +83,85 @@ func (s *pluginSession) Close() {
 var (
 	activeSessionMu sync.Mutex
 	activeSession   *pluginSession
+
+	// pendingSessionStops holds the teardown of every session attached since
+	// the last closePluginSessions. It exists because teardown happens one
+	// level further out than attach does — see startPluginSession.
+	pendingStopsMu      sync.Mutex
+	pendingSessionStops []func()
 )
 
 func attachPluginSession(_ *sdk.Context, s *pluginSession) {
 	activeSessionMu.Lock()
 	defer activeSessionMu.Unlock()
+	if activeSession != nil && activeSession != s {
+		// A session left over from the previous engine run of the same
+		// operation — typically the preview that precedes an update. That run
+		// is definitively finished (the engine does not start a second one
+		// until the first completes), so its proxy can go now rather than
+		// sitting on a loopback port until closePluginSessions.
+		activeSession.Close()
+	}
 	activeSession = s
 }
 
-func detachPluginSession() {
+// detachPluginSession clears the active session, but only if it is still the
+// one the caller attached. A stale teardown must never unpublish a newer
+// session.
+func detachPluginSession(s *pluginSession) {
 	activeSessionMu.Lock()
 	defer activeSessionMu.Unlock()
-	activeSession = nil
+	if s == nil || activeSession == s {
+		activeSession = nil
+	}
+}
+
+func registerSessionStop(stop func()) {
+	pendingStopsMu.Lock()
+	defer pendingStopsMu.Unlock()
+	pendingSessionStops = append(pendingSessionStops, stop)
+}
+
+// closePluginSessions tears down every plugin session attached since the last
+// call. EVERY function that runs a plugin-capable inline program through the
+// engine must defer it — provisionStack, deployStack, previewStack,
+// previewChildStack and destroyStack — because that is the scope a session's
+// lifetime is tied to. Safe to call when nothing was attached.
+func closePluginSessions() {
+	pendingStopsMu.Lock()
+	stops := pendingSessionStops
+	pendingSessionStops = nil
+	pendingStopsMu.Unlock()
+	// LIFO: the last one attached is the one activeSession points at.
+	for i := len(stops) - 1; i >= 0; i-- {
+		stops[i]()
+	}
 }
 
 // startPluginSession stands up the in-engine MonitorProxy and publishes it as the
-// active session, returning a cleanup the caller MUST defer. When no plugins were
-// loaded pre-engine it is a no-op returning a no-op cleanup, so callers need no
-// conditional.
+// active session. When no plugins were loaded pre-engine it is a no-op, so callers
+// need no conditional.
+//
+// It deliberately hands the caller NO cleanup func. The teardown is registered
+// internally and runs in closePluginSessions, which the OUTER operation defers
+// around the engine call. Deferring it inside the RunFunc — the obvious thing,
+// and what both programs did until 2026-10-28 — is a bug: the real work of
+// deployStackProgram and provisionProgram happens inside an output
+// continuation (`collector.Outputs().ApplyTWithContext(...)` in deploy.go),
+// which the engine invokes AFTER the RunFunc has returned, while draining
+// outstanding RPCs. A `defer stop()` therefore nils the session before the
+// dispatch that needs it, and the operator sees:
+//
+//	error: an unhandled error occurred: waiting for RPCs: ... :
+//	plugin dispatch for "cloudflare" requires an active plugin session (no inline RunFunc running)
+//
+// The `waiting for RPCs` prefix IS the tell — it means the engine had already
+// left the RunFunc. Live-caught 2026-10-27 on this repo's own release pipeline
+// (api run 40587424994, `dist--prod`), immediately after deployStackProgram was
+// given a session at all: initRegistrar, which runs synchronously inside the
+// RunFunc, succeeded one second before the ApplyT'd NewRecord on the very same
+// registrar failed. Two dispatches to one plugin, one working and one not, is
+// the signature of this defect rather than of a broken plugin.
 //
 // EVERY inline RunFunc that can reach a plugin sidecar needs this, not only
 // provisionProgram. The in-engine sidecars (resource / provider / registrar /
@@ -109,22 +171,23 @@ func detachPluginSession() {
 // deployStackProgram did until 2026-10-27 — `sc provision` of a plugin-owned
 // registrar worked while `sc deploy` of the same stack could not, which sends
 // you looking at the plugin instead of at the program.
-func (p *pulumi) startPluginSession(ctx *sdk.Context) (func(), error) {
+func (p *pulumi) startPluginSession(ctx *sdk.Context) error {
 	if p.preEnginePlugins == nil {
-		return func() {}, nil
+		return nil
 	}
 	sess := newPluginSession()
 	if err := sess.StartProxy(ctx); err != nil {
 		sess.Close()
-		return nil, errors.Wrap(err, "start monitor proxy")
+		return errors.Wrap(err, "start monitor proxy")
 	}
 	attachPluginSession(ctx, sess)
-	// Detach before Close, matching the original defer order in provisionProgram:
-	// no sidecar should find a session whose proxy is already shut down.
-	return func() {
-		detachPluginSession()
+	// Detach before Close: no sidecar should find a session whose proxy is
+	// already shut down.
+	registerSessionStop(func() {
+		detachPluginSession(sess)
 		sess.Close()
-	}, nil
+	})
+	return nil
 }
 
 // verifySHA256 validates spec.SHA256 against the binary at spec.Path when

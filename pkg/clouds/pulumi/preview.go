@@ -23,6 +23,7 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
+	defer closePluginSessions() // see startPluginSession for why not in the RunFunc
 	p.logger.Info(ctx, "%s", color.GreenFmt("Previewing parent stack %q...", s.Ref().FullyQualifiedName().String()))
 	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, p.provisionProgram(stack, cfg))
 	if err != nil {
@@ -42,6 +43,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	if err != nil {
 		return nil, err
 	}
+	defer closePluginSessions() // see startPluginSession for why not in the RunFunc
 	p.logger.Info(ctx, "%s", color.GreenFmt("Previewing child stack %q...", s.Ref().FullyQualifiedName().String()))
 
 	parentStack := stack.Client.Stacks[params.Environment].ParentStack
