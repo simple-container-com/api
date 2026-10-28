@@ -19,6 +19,11 @@ import (
 )
 
 func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backend.Stack, params api.DestroyParams, program func(ctx *sdk.Context) error, preview bool, preDestroyHooks ...func(auto.Stack)) error {
+	// The program here is provisionProgram or deployStackProgram; either may
+	// attach a plugin session, whose lifetime is this whole operation — see
+	// startPluginSession.
+	defer closePluginSessions()
+
 	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, program)
 	if err != nil {
 		return err

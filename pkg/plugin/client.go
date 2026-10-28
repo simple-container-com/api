@@ -90,6 +90,15 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 	return &Client{gpClient: gp, stub: stub}, nil
 }
 
+// NewClientWithStub wraps an already-connected (or fake) gRPC stub, without
+// spawning a plugin binary. It exists so callers outside this package can
+// exercise the SC-core-side dispatch wrappers — the pluginRegistrar sidecars in
+// particular — against a stub, which is otherwise impossible because `stub` is
+// unexported. Close() on such a Client is a no-op: there is no subprocess.
+func NewClientWithStub(stub scpluginv1.SCCloudPluginClient) *Client {
+	return &Client{stub: stub}
+}
+
 // Schema returns the plugin's advertised schema. Called once at SC core startup
 // after a plugin is spawned, before any dispatch to that plugin.
 func (c *Client) Schema(ctx context.Context, header *scpluginv1.RequestHeader) (*scpluginv1.SchemaResponse, error) {

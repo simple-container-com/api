@@ -26,6 +26,9 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	if err != nil {
 		return err
 	}
+	// Plugin sessions attached by deployStackProgram live until the engine has
+	// finished both the preview and the update below — see startPluginSession.
+	defer closePluginSessions()
 	p.logger.Info(ctx, "%s", color.GreenFmt("Deploying stack %q...", s.Ref().FullyQualifiedName()))
 	parentStack := stack.Client.Stacks[params.Environment].ParentStack
 	fullStackName := s.Ref().FullyQualifiedName().String()
@@ -71,11 +74,12 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		// In-engine plugin session — the deploy twin of provisionProgram's.
 		// initRegistrar below, and every plugin-owned resource in this program,
 		// dispatches through a sidecar that needs the MonitorProxy address.
-		stopPlugins, err := p.startPluginSession(ctx)
-		if err != nil {
+		// Teardown is NOT deferred here: deployStack defers
+		// closePluginSessions, because the ApplyTWithContext at the bottom of
+		// this func dispatches after the RunFunc has returned.
+		if err := p.startPluginSession(ctx); err != nil {
 			return err
 		}
-		defer stopPlugins()
 
 		stackClientDesc := stack.Client.Stacks[params.Environment]
 		parentEnv := params.Environment

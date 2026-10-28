@@ -386,7 +386,13 @@ func (r *pluginRegistrar) NewRecord(ctx *sdk.Context, record api.DnsRecord) (*ap
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q NewDnsRecord(%q)", r.pluginName, record.Name)
 		}
-		return &api.ResourceOutput{Ref: resp.GetUrn()}, nil
+		// Wrapped rather than returned bare: a registrar's Ref is an Output in
+		// every other implementation (cloudru hands back cmd.ID(), the in-tree
+		// cloudflare handed back the record resource's ID), and callers rely on
+		// that — gcp/static_website.go exports it straight through an
+		// sdk.Output assertion. The dispatch above already happened, so this
+		// costs nothing and keeps the two paths of this method interchangeable.
+		return &api.ResourceOutput{Ref: sdk.String(resp.GetUrn()).ToStringOutput()}, nil
 	}
 	urnOut := record.ValueOut.ApplyT(func(resolved string) (string, error) {
 		resp, err := r.cli.NewDnsRecord(ctx.Context(), &scpluginv1.NewDnsRecordRequest{
