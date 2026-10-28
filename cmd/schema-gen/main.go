@@ -24,7 +24,6 @@ import (
 	"github.com/simple-container-com/api/pkg/clouds/aws"
 	// Import all cloud provider packages to trigger init() functions
 	_ "github.com/simple-container-com/api/pkg/clouds/aws"
-	"github.com/simple-container-com/api/pkg/clouds/cloudru"
 	_ "github.com/simple-container-com/api/pkg/clouds/compose"
 	_ "github.com/simple-container-com/api/pkg/clouds/discord"
 	_ "github.com/simple-container-com/api/pkg/clouds/docker"
@@ -474,20 +473,8 @@ func (sg *SchemaGenerator) generateCloudExtrasSchemas() ([]ResourceDefinition, e
 		Schema:       reflect.TypeOf(yandex.CloudExtras{}),
 	})
 
-	// Cloud.ru CloudExtras. Named ContainerAppExtras rather than CloudExtras, unlike
-	// the three above, because the two Cloud.ru estates are unrelated clouds sharing
-	// a brand: an Advanced `vm` template's extras would have nothing in common with
-	// these, so there is no one type that is "the Cloud.ru cloudExtras".
-	cloudExtrasSchemas = append(cloudExtrasSchemas, ResourceDefinition{
-		Name:         "CloudruContainerAppExtras",
-		Type:         "cloudextras",
-		Provider:     "cloudru",
-		Description:  "Cloud.ru Evolution Container App cloudExtras configuration: container port, privileged mode, CPU request, concurrency, scale-to-zero idle timeout, custom-domain certificate and container name",
-		GoPackage:    "pkg/clouds/cloudru/",
-		GoStruct:     "ContainerAppExtras",
-		ResourceType: "cloudru-container-app-cloudextras",
-		Schema:       reflect.TypeOf(cloudru.ContainerAppExtras{}),
-	})
+	// Cloud.ru's config tier (incl. ContainerAppExtras) moved out of this repo
+	// into sc-plugin-cloudru. Its schemas are generated from that repo.
 
 	fmt.Printf("Generated %d CloudExtras schemas\n", len(cloudExtrasSchemas))
 	return cloudExtrasSchemas, nil

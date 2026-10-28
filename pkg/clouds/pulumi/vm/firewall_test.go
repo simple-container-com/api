@@ -7,9 +7,8 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/samber/lo"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
@@ -89,7 +88,7 @@ func firewallPorts(stack api.Stack, cfg *vm.VmConfig) ([]vm.PortRange, error) {
 func TestResolveFirewallPortsFromDeclaredConsumers(t *testing.T) {
 	RegisterTestingT(t)
 
-	cfg := cloudruConfig()
+	cfg := firewallTestConfig()
 	cfg.Ingress = &vm.VmIngress{Enable: true, Email: "ops@example.com"}
 
 	// Nothing declared onto this machine: the base set only. Note the k3s cluster in
@@ -141,9 +140,24 @@ func TestResolveFirewallPortsFromDeclaredConsumers(t *testing.T) {
 func TestResolveFirewallPortsEmptyParentStack(t *testing.T) {
 	RegisterTestingT(t)
 
-	ports, err := firewallPorts(api.Stack{Name: "test-stack"}, cloudruConfig())
+	ports, err := firewallPorts(api.Stack{Name: "test-stack"}, firewallTestConfig())
 	Expect(err).ToNot(HaveOccurred())
 	Expect(labels(ports)).To(Equal([]string{"ssh"}))
+}
+
+// firewallTestConfig is the minimal VmConfig the firewall tests need:
+// `byo` driver + a routable address, so Validate accepts it without needing
+// a cloud. Previously these tests used a cloudruConfig() helper from the
+// now-removed in-tree Cloud.ru driver; the shape they care about is only
+// a VmConfig that passes Validate, not anything cloudru-specific.
+func firewallTestConfig() *vm.VmConfig {
+	return &vm.VmConfig{
+		Driver:   vm.DriverByo,
+		PublicIP: true,
+		Hosts: []vm.VmHost{{
+			Address: "198.51.100.9",
+		}},
+	}
 }
 
 func labels(ports []vm.PortRange) []string {

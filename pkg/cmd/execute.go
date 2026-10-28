@@ -19,7 +19,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/simple-container-com/api/pkg/api/logger"
-	"github.com/simple-container-com/api/pkg/cmd/cmd_cloudru"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_image"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_provenance"
 	"github.com/simple-container-com/api/pkg/cmd/cmd_sbom"
@@ -38,7 +37,6 @@ func Execute() {
 
 	rootCmd.AddCommand(
 		cmd_image.NewImageCmd(),
-		cmd_cloudru.NewCloudruCmd(),
 		cmd_sbom.NewSBOMCommand(),
 		cmd_provenance.NewProvenanceCommand(),
 	)
