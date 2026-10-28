@@ -4,6 +4,8 @@
 package vm
 
 import (
+	"sort"
+
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -11,6 +13,18 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	"github.com/simple-container-com/api/pkg/clouds/vm"
 )
+
+// sortedKeys returns a map's keys in a stable order so SC's template-walking
+// code produces the same URNs on every run. Lifted into firewall.go from the
+// now-removed in-tree cloudru driver, which was the previous home.
+func sortedKeys[V any](m map[string]V) []string {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
 
 // resolveFirewallPorts is every port SC opens on the machines of one vm resource:
 // the base set (SSH, plus 80/443 when the machine runs the ingress), the presets of

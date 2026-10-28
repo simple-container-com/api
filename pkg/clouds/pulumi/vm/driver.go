@@ -11,7 +11,6 @@ package vm
 
 import (
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -110,10 +109,6 @@ func driverFor(cfg *vm.VmConfig) (Driver, error) {
 	switch cfg.Driver {
 	case vm.DriverByo:
 		return byoDriver{}, nil
-	case vm.DriverCloudru:
-		return cloudruDriver{}, nil
-	case vm.DriverCloudruEvolution:
-		return cloudruEvolutionDriver{}, nil
 	default:
 		// Not in-tree — it may still be a driver a loaded plugin advertised. The
 		// in-tree switch comes first for the same reason vm.LookupDriver checks the
