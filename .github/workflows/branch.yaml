@@ -381,6 +381,13 @@ jobs:
           # we are back on Blacksmith/hosted, where it should behave as before.
           # One variable controls both routing and caching, so a revert is complete.
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
+      # Branch coverage for scripts/create-github-release.sh (see the
+      # same step in push.yaml). This is the PR gate, so a regression in
+      # the release script's idempotency or its unsigned-release refusal
+      # is caught here, before merge — not on the production tag.
+      - name: test release scripts
+        run: |
+          ./scripts/test-create-github-release.sh
       - name: test
         run: |
           go test ./...
