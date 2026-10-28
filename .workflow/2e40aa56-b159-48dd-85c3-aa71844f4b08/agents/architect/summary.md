@@ -1,0 +1,1 @@
+[thinking] # Architect Handoff — `api-repo-branch-protection-blocks-sdlc-automerge` (6th dispatch)
