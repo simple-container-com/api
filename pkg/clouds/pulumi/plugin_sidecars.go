@@ -147,10 +147,21 @@ func (b *preEnginePluginBundle) makeRegistrarSidecar(cli *scPlugin.Client, plugi
 		// registered a provider-config reader (type sans `:`). JSON round-trip
 		// handles both uniformly.
 		configMap := serializeConfigToInputs(desc.Config.Config)
+		// Forward the deploying stack's preferred base zone. An in-tree
+		// registrar reads this straight off params.DnsPreference; a plugin one
+		// can only see it if we put it on the wire. Dropping it made the
+		// catch-all registrar's configured zone win, so a green deploy wrote
+		// the record into the wrong zone and DELETED the live one — see
+		// base_dns_zone in plugin.proto.
+		var baseDnsZone string
+		if params.DnsPreference != nil {
+			baseDnsZone = params.DnsPreference.BaseZone
+		}
 		resp, err := cli.ProvisionRegistrar(sdkCtx.Context(), &scpluginv1.ProvisionRegistrarRequest{
 			Header:        &scpluginv1.RequestHeader{MonitorAddress: addr},
 			RegistrarType: typeToken,
 			Config:        configMap,
+			BaseDnsZone:   baseDnsZone,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q ProvisionRegistrar(%q)", pluginName, typeToken)
