@@ -70,6 +70,10 @@ nav:
     # stable — external links (GitHub release bodies, the `plugins:` validation
     # error message) point at /guides/upgrading-to-plugins/.
     - Upgrading to Plugins: guides/upgrading-to-plugins.md
+    # The authoring guide — operator-facing complement to the upgrade page.
+    # Linked from sc-plugin-echo's README.md as the walkthrough for a new
+    # plugin repo, so this slug is also externally referenced.
+    - Authoring an SC Plugin: guides/plugin-authoring.md
   # Every example page is listed, not just the section index. A page absent from
   # `nav` renders with no sidebar position in this theme (navigation.sections +
   # navigation.expand), so it is reachable only by following a link from its index
