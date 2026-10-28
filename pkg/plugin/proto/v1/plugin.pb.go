@@ -1481,6 +1481,21 @@ type ProvisionRegistrarRequest struct {
 	Header        *RequestHeader         `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
 	RegistrarType string                 `protobuf:"bytes,2,opt,name=registrar_type,json=registrarType,proto3" json:"registrar_type,omitempty"`                                        // from SchemaResponse.registrar_types
 	Config        map[string]*InputValue `protobuf:"bytes,3,rep,name=config,proto3" json:"config,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // registrar config (zone name, api token, account id, …)
+	// The DEPLOYING STACK's preferred base DNS zone (client.yaml `baseDnsZone`),
+	// empty when the stack states no preference. Mirrors pulumi/api.DnsPreference,
+	// which SC core already hands to every in-tree registrar via
+	// ProvisionParams.DnsPreference (registrars.go multiRegistrar.build).
+	//
+	// This field is NOT redundant with the zone name in `config`. A registrar's
+	// configured zone is only a DEFAULT: the fleet's parent server.yaml declares
+	// one catch-all Cloudflare registrar (`default: true`) that authenticates
+	// against a whole account and is expected to look up whichever zone the
+	// deploying stack names. Without this field a plugin registrar cannot see
+	// that name, falls back to its own configured zone, and writes the record
+	// into the WRONG zone — which Pulumi sees as an input diff on zone_id,
+	// forcing a create-before-delete replace that DELETES the live record while
+	// reporting a green deploy. Stable URNs do not protect against this.
+	BaseDnsZone   string `protobuf:"bytes,4,opt,name=base_dns_zone,json=baseDnsZone,proto3" json:"base_dns_zone,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1534,6 +1549,13 @@ func (x *ProvisionRegistrarRequest) GetConfig() map[string]*InputValue {
 		return x.Config
 	}
 	return nil
+}
+
+func (x *ProvisionRegistrarRequest) GetBaseDnsZone() string {
+	if x != nil {
+		return x.BaseDnsZone
+	}
+	return ""
 }
 
 type ProvisionRegistrarResponse struct {
@@ -3411,11 +3433,12 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\x1a?\n" +
 	"\x11PlaceholdersEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x99\x02\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xbd\x02\n" +
 	"\x19ProvisionRegistrarRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12%\n" +
 	"\x0eregistrar_type\x18\x02 \x01(\tR\rregistrarType\x12K\n" +
-	"\x06config\x18\x03 \x03(\v23.sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntryR\x06config\x1aS\n" +
+	"\x06config\x18\x03 \x03(\v23.sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntryR\x06config\x12\"\n" +
+	"\rbase_dns_zone\x18\x04 \x01(\tR\vbaseDnsZone\x1aS\n" +
 	"\vConfigEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\"f\n" +
