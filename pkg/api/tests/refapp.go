@@ -6,13 +6,14 @@ package tests
 import (
 	"fmt"
 
+	"github.com/simple-container-com/sc-plugin-cloudflare/api"
+	"github.com/simple-container-com/sc-plugin-mongodb/api"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/aws"
-	"github.com/simple-container-com/sc-plugin-cloudflare/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/github"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
-	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi"
 )
 

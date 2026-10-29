@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"github.com/simple-container-com/sc-plugin-mongodb/api"
 
 	"github.com/simple-container-com/api/pkg/api"
 	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
@@ -15,7 +16,6 @@ import (
 	testutils "github.com/simple-container-com/api/pkg/api/tests/testutil"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/github"
-	"github.com/simple-container-com/api/pkg/clouds/mongodb"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
