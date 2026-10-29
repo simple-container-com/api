@@ -67,41 +67,11 @@ type scCloudPluginClient struct {
 	brokerID uint32
 }
 
-// BrokerAware is the opt-in interface a plugin's Impl can implement to
-// capture the hashicorp/go-plugin broker at startup. The broker is what
-// `plugin.NewPeerClient` dials to reach SC core's SCCore endpoint for
-// composite-plugin PeerInvoke calls (D8).
-//
-// A plugin that never needs PeerInvoke MAY leave this unimplemented;
-// non-composite plugins (cloudflare, yandex, cloudru) have no reason to.
-// A composite plugin (mongodb+PrivateLink, k8s/k3s) MUST implement it so
-// handlers can reach the broker:
-//
-//	type myPlugin struct {
-//	    scpluginv1.UnimplementedSCCloudPluginServer
-//	    broker *hplugin.GRPCBroker
-//	    // ...
-//	}
-//
-//	func (p *myPlugin) SetBroker(b *hplugin.GRPCBroker) { p.broker = b }
-//
-//	// ... in some handler:
-//	peer, err := plugin.NewPeerClient(ctx, p.broker, req.GetHeader())
-//
-// Added in Phase 1e for D8. Without it NewPeerClient on the plugin side
-// errors with "nil broker" — the broker never reached the handler.
-type BrokerAware interface {
-	SetBroker(*hplugin.GRPCBroker)
-}
-
 // GRPCServer wires the author-supplied implementation into the plugin binary's
-// gRPC server. If the Impl is BrokerAware, SC's go-plugin broker is passed
-// in via SetBroker before the gRPC server is registered — see BrokerAware
-// above for composite-plugin plumbing.
-func (p *scCloudPlugin) GRPCServer(broker *hplugin.GRPCBroker, s *grpc.Server) error {
-	if ba, ok := p.Impl.(BrokerAware); ok {
-		ba.SetBroker(broker)
-	}
+// gRPC server. The MuxBroker argument is live but unused on the plugin side:
+// the plugin dials SCCore via its own `broker.Dial(id)` from inside the
+// handler that needs it (see pkg/plugin/peer.go).
+func (p *scCloudPlugin) GRPCServer(_ *hplugin.GRPCBroker, s *grpc.Server) error {
 	scpluginv1.RegisterSCCloudPluginServer(s, p.Impl)
 	return nil
 }

@@ -2550,8 +2550,16 @@ type ProvisionRequest struct {
 	Inputs            map[string]*InputValue `protobuf:"bytes,4,rep,name=inputs,proto3" json:"inputs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`                                                // resource-specific inputs
 	DependencyOutputs map[string]string      `protobuf:"bytes,5,rep,name=dependency_outputs,json=dependencyOutputs,proto3" json:"dependency_outputs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // outputs from previously provisioned deps
 	ParentUrn         string                 `protobuf:"bytes,6,opt,name=parent_urn,json=parentUrn,proto3" json:"parent_urn,omitempty"`                                                                                                   // parent ComponentResource URN, if any
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// The consuming stack's compute context: the env vars its `uses:` resources
+	// contributed (what an in-tree template reads from
+	// pApi.ProvisionParams.ComputeContext). Set only for a compute template (a
+	// client stack's deploy, e.g. yc-serverless-container); empty for a plain
+	// resource. Same message ComputeProcessResponse.env_vars uses, so a var
+	// crosses the bus in either direction with its stack/resource metadata.
+	// Older plugins ignore the field.
+	ComputeEnvVars []*ComputeEnvVariable `protobuf:"bytes,7,rep,name=compute_env_vars,json=computeEnvVars,proto3" json:"compute_env_vars,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ProvisionRequest) Reset() {
@@ -2624,6 +2632,13 @@ func (x *ProvisionRequest) GetParentUrn() string {
 		return x.ParentUrn
 	}
 	return ""
+}
+
+func (x *ProvisionRequest) GetComputeEnvVars() []*ComputeEnvVariable {
+	if x != nil {
+		return x.ComputeEnvVars
+	}
+	return nil
 }
 
 type ProvisionResponse struct {
@@ -3973,7 +3988,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x11StackOutputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x14\n" +
-	"\x12PreDestroyResponse\"\xf5\x03\n" +
+	"\x12PreDestroyResponse\"\xc1\x04\n" +
 	"\x10ProvisionRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12#\n" +
@@ -3981,7 +3996,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x06inputs\x18\x04 \x03(\v2*.sc.plugin.v1.ProvisionRequest.InputsEntryR\x06inputs\x12d\n" +
 	"\x12dependency_outputs\x18\x05 \x03(\v25.sc.plugin.v1.ProvisionRequest.DependencyOutputsEntryR\x11dependencyOutputs\x12\x1d\n" +
 	"\n" +
-	"parent_urn\x18\x06 \x01(\tR\tparentUrn\x1aS\n" +
+	"parent_urn\x18\x06 \x01(\tR\tparentUrn\x12J\n" +
+	"\x10compute_env_vars\x18\a \x03(\v2 .sc.plugin.v1.ComputeEnvVariableR\x0ecomputeEnvVars\x1aS\n" +
 	"\vInputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\x1aD\n" +
@@ -4220,66 +4236,67 @@ var file_v1_plugin_proto_depIdxs = []int32{
 	2,  // 35: sc.plugin.v1.ProvisionRequest.header:type_name -> sc.plugin.v1.RequestHeader
 	63, // 36: sc.plugin.v1.ProvisionRequest.inputs:type_name -> sc.plugin.v1.ProvisionRequest.InputsEntry
 	64, // 37: sc.plugin.v1.ProvisionRequest.dependency_outputs:type_name -> sc.plugin.v1.ProvisionRequest.DependencyOutputsEntry
-	65, // 38: sc.plugin.v1.ProvisionResponse.outputs:type_name -> sc.plugin.v1.ProvisionResponse.OutputsEntry
-	66, // 39: sc.plugin.v1.ProvisionResponse.env:type_name -> sc.plugin.v1.ProvisionResponse.EnvEntry
-	2,  // 40: sc.plugin.v1.VmHostsRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	36, // 41: sc.plugin.v1.VmHostsRequest.ports:type_name -> sc.plugin.v1.VmPortRange
-	38, // 42: sc.plugin.v1.VmHostsResponse.hosts:type_name -> sc.plugin.v1.VmHostFacts
-	39, // 43: sc.plugin.v1.VmHostFacts.address:type_name -> sc.plugin.v1.OutputValue
-	39, // 44: sc.plugin.v1.VmHostFacts.private_key:type_name -> sc.plugin.v1.OutputValue
-	39, // 45: sc.plugin.v1.VmHostFacts.private_key_password:type_name -> sc.plugin.v1.OutputValue
-	39, // 46: sc.plugin.v1.VmHostFacts.host_key:type_name -> sc.plugin.v1.OutputValue
-	40, // 47: sc.plugin.v1.OutputValue.ref:type_name -> sc.plugin.v1.ResourcePropertyRef
-	1,  // 48: sc.plugin.v1.PluginLogEvent.severity:type_name -> sc.plugin.v1.LogSeverity
-	3,  // 49: sc.plugin.v1.InputMap.FieldsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 50: sc.plugin.v1.InitStateStoreRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 51: sc.plugin.v1.InitStateStoreResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 52: sc.plugin.v1.InitSecretsProviderRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 53: sc.plugin.v1.InitSecretsProviderResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 54: sc.plugin.v1.ProviderRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 55: sc.plugin.v1.ComputeProcessRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 56: sc.plugin.v1.ComputeProcessResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 57: sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 58: sc.plugin.v1.ProvisionRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 59: sc.plugin.v1.ProvisionResponse.OutputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 60: sc.plugin.v1.ProvisionResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	6,  // 61: sc.plugin.v1.SCCloudPlugin.Schema:input_type -> sc.plugin.v1.SchemaRequest
-	11, // 62: sc.plugin.v1.SCCloudPlugin.InitStateStore:input_type -> sc.plugin.v1.InitStateStoreRequest
-	13, // 63: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:input_type -> sc.plugin.v1.InitSecretsProviderRequest
-	15, // 64: sc.plugin.v1.SCCloudPlugin.Provider:input_type -> sc.plugin.v1.ProviderRequest
-	33, // 65: sc.plugin.v1.SCCloudPlugin.Provision:input_type -> sc.plugin.v1.ProvisionRequest
-	17, // 66: sc.plugin.v1.SCCloudPlugin.ComputeProcess:input_type -> sc.plugin.v1.ComputeProcessRequest
-	21, // 67: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:input_type -> sc.plugin.v1.ProvisionRegistrarRequest
-	23, // 68: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:input_type -> sc.plugin.v1.NewDnsRecordRequest
-	25, // 69: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:input_type -> sc.plugin.v1.NewOverrideHeaderRuleRequest
-	29, // 70: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:input_type -> sc.plugin.v1.ProvisionDomainForEndpointRequest
-	31, // 71: sc.plugin.v1.SCCloudPlugin.PreDestroy:input_type -> sc.plugin.v1.PreDestroyRequest
-	35, // 72: sc.plugin.v1.SCCloudPlugin.VmHosts:input_type -> sc.plugin.v1.VmHostsRequest
-	45, // 73: sc.plugin.v1.SCCloudPlugin.LogStream:input_type -> sc.plugin.v1.LogStreamRequest
-	41, // 74: sc.plugin.v1.SCCore.ResolveSecret:input_type -> sc.plugin.v1.ResolveSecretRequest
-	43, // 75: sc.plugin.v1.SCCore.ResolveCredential:input_type -> sc.plugin.v1.ResolveCredentialRequest
-	47, // 76: sc.plugin.v1.SCCore.PeerInvoke:input_type -> sc.plugin.v1.PeerInvokeRequest
-	7,  // 77: sc.plugin.v1.SCCloudPlugin.Schema:output_type -> sc.plugin.v1.SchemaResponse
-	12, // 78: sc.plugin.v1.SCCloudPlugin.InitStateStore:output_type -> sc.plugin.v1.InitStateStoreResponse
-	14, // 79: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:output_type -> sc.plugin.v1.InitSecretsProviderResponse
-	16, // 80: sc.plugin.v1.SCCloudPlugin.Provider:output_type -> sc.plugin.v1.ProviderResponse
-	34, // 81: sc.plugin.v1.SCCloudPlugin.Provision:output_type -> sc.plugin.v1.ProvisionResponse
-	18, // 82: sc.plugin.v1.SCCloudPlugin.ComputeProcess:output_type -> sc.plugin.v1.ComputeProcessResponse
-	22, // 83: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:output_type -> sc.plugin.v1.ProvisionRegistrarResponse
-	24, // 84: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:output_type -> sc.plugin.v1.NewDnsRecordResponse
-	28, // 85: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:output_type -> sc.plugin.v1.NewOverrideHeaderRuleResponse
-	30, // 86: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:output_type -> sc.plugin.v1.ProvisionDomainForEndpointResponse
-	32, // 87: sc.plugin.v1.SCCloudPlugin.PreDestroy:output_type -> sc.plugin.v1.PreDestroyResponse
-	37, // 88: sc.plugin.v1.SCCloudPlugin.VmHosts:output_type -> sc.plugin.v1.VmHostsResponse
-	46, // 89: sc.plugin.v1.SCCloudPlugin.LogStream:output_type -> sc.plugin.v1.PluginLogEvent
-	42, // 90: sc.plugin.v1.SCCore.ResolveSecret:output_type -> sc.plugin.v1.ResolveSecretResponse
-	44, // 91: sc.plugin.v1.SCCore.ResolveCredential:output_type -> sc.plugin.v1.ResolveCredentialResponse
-	48, // 92: sc.plugin.v1.SCCore.PeerInvoke:output_type -> sc.plugin.v1.PeerInvokeResponse
-	77, // [77:93] is the sub-list for method output_type
-	61, // [61:77] is the sub-list for method input_type
-	61, // [61:61] is the sub-list for extension type_name
-	61, // [61:61] is the sub-list for extension extendee
-	0,  // [0:61] is the sub-list for field type_name
+	19, // 38: sc.plugin.v1.ProvisionRequest.compute_env_vars:type_name -> sc.plugin.v1.ComputeEnvVariable
+	65, // 39: sc.plugin.v1.ProvisionResponse.outputs:type_name -> sc.plugin.v1.ProvisionResponse.OutputsEntry
+	66, // 40: sc.plugin.v1.ProvisionResponse.env:type_name -> sc.plugin.v1.ProvisionResponse.EnvEntry
+	2,  // 41: sc.plugin.v1.VmHostsRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	36, // 42: sc.plugin.v1.VmHostsRequest.ports:type_name -> sc.plugin.v1.VmPortRange
+	38, // 43: sc.plugin.v1.VmHostsResponse.hosts:type_name -> sc.plugin.v1.VmHostFacts
+	39, // 44: sc.plugin.v1.VmHostFacts.address:type_name -> sc.plugin.v1.OutputValue
+	39, // 45: sc.plugin.v1.VmHostFacts.private_key:type_name -> sc.plugin.v1.OutputValue
+	39, // 46: sc.plugin.v1.VmHostFacts.private_key_password:type_name -> sc.plugin.v1.OutputValue
+	39, // 47: sc.plugin.v1.VmHostFacts.host_key:type_name -> sc.plugin.v1.OutputValue
+	40, // 48: sc.plugin.v1.OutputValue.ref:type_name -> sc.plugin.v1.ResourcePropertyRef
+	1,  // 49: sc.plugin.v1.PluginLogEvent.severity:type_name -> sc.plugin.v1.LogSeverity
+	3,  // 50: sc.plugin.v1.InputMap.FieldsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 51: sc.plugin.v1.InitStateStoreRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 52: sc.plugin.v1.InitStateStoreResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 53: sc.plugin.v1.InitSecretsProviderRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 54: sc.plugin.v1.InitSecretsProviderResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 55: sc.plugin.v1.ProviderRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 56: sc.plugin.v1.ComputeProcessRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 57: sc.plugin.v1.ComputeProcessResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 58: sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 59: sc.plugin.v1.ProvisionRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 60: sc.plugin.v1.ProvisionResponse.OutputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 61: sc.plugin.v1.ProvisionResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	6,  // 62: sc.plugin.v1.SCCloudPlugin.Schema:input_type -> sc.plugin.v1.SchemaRequest
+	11, // 63: sc.plugin.v1.SCCloudPlugin.InitStateStore:input_type -> sc.plugin.v1.InitStateStoreRequest
+	13, // 64: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:input_type -> sc.plugin.v1.InitSecretsProviderRequest
+	15, // 65: sc.plugin.v1.SCCloudPlugin.Provider:input_type -> sc.plugin.v1.ProviderRequest
+	33, // 66: sc.plugin.v1.SCCloudPlugin.Provision:input_type -> sc.plugin.v1.ProvisionRequest
+	17, // 67: sc.plugin.v1.SCCloudPlugin.ComputeProcess:input_type -> sc.plugin.v1.ComputeProcessRequest
+	21, // 68: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:input_type -> sc.plugin.v1.ProvisionRegistrarRequest
+	23, // 69: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:input_type -> sc.plugin.v1.NewDnsRecordRequest
+	25, // 70: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:input_type -> sc.plugin.v1.NewOverrideHeaderRuleRequest
+	29, // 71: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:input_type -> sc.plugin.v1.ProvisionDomainForEndpointRequest
+	31, // 72: sc.plugin.v1.SCCloudPlugin.PreDestroy:input_type -> sc.plugin.v1.PreDestroyRequest
+	35, // 73: sc.plugin.v1.SCCloudPlugin.VmHosts:input_type -> sc.plugin.v1.VmHostsRequest
+	45, // 74: sc.plugin.v1.SCCloudPlugin.LogStream:input_type -> sc.plugin.v1.LogStreamRequest
+	41, // 75: sc.plugin.v1.SCCore.ResolveSecret:input_type -> sc.plugin.v1.ResolveSecretRequest
+	43, // 76: sc.plugin.v1.SCCore.ResolveCredential:input_type -> sc.plugin.v1.ResolveCredentialRequest
+	47, // 77: sc.plugin.v1.SCCore.PeerInvoke:input_type -> sc.plugin.v1.PeerInvokeRequest
+	7,  // 78: sc.plugin.v1.SCCloudPlugin.Schema:output_type -> sc.plugin.v1.SchemaResponse
+	12, // 79: sc.plugin.v1.SCCloudPlugin.InitStateStore:output_type -> sc.plugin.v1.InitStateStoreResponse
+	14, // 80: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:output_type -> sc.plugin.v1.InitSecretsProviderResponse
+	16, // 81: sc.plugin.v1.SCCloudPlugin.Provider:output_type -> sc.plugin.v1.ProviderResponse
+	34, // 82: sc.plugin.v1.SCCloudPlugin.Provision:output_type -> sc.plugin.v1.ProvisionResponse
+	18, // 83: sc.plugin.v1.SCCloudPlugin.ComputeProcess:output_type -> sc.plugin.v1.ComputeProcessResponse
+	22, // 84: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:output_type -> sc.plugin.v1.ProvisionRegistrarResponse
+	24, // 85: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:output_type -> sc.plugin.v1.NewDnsRecordResponse
+	28, // 86: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:output_type -> sc.plugin.v1.NewOverrideHeaderRuleResponse
+	30, // 87: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:output_type -> sc.plugin.v1.ProvisionDomainForEndpointResponse
+	32, // 88: sc.plugin.v1.SCCloudPlugin.PreDestroy:output_type -> sc.plugin.v1.PreDestroyResponse
+	37, // 89: sc.plugin.v1.SCCloudPlugin.VmHosts:output_type -> sc.plugin.v1.VmHostsResponse
+	46, // 90: sc.plugin.v1.SCCloudPlugin.LogStream:output_type -> sc.plugin.v1.PluginLogEvent
+	42, // 91: sc.plugin.v1.SCCore.ResolveSecret:output_type -> sc.plugin.v1.ResolveSecretResponse
+	44, // 92: sc.plugin.v1.SCCore.ResolveCredential:output_type -> sc.plugin.v1.ResolveCredentialResponse
+	48, // 93: sc.plugin.v1.SCCore.PeerInvoke:output_type -> sc.plugin.v1.PeerInvokeResponse
+	78, // [78:94] is the sub-list for method output_type
+	62, // [62:78] is the sub-list for method input_type
+	62, // [62:62] is the sub-list for extension type_name
+	62, // [62:62] is the sub-list for extension extendee
+	0,  // [0:62] is the sub-list for field type_name
 }
 
 func init() { file_v1_plugin_proto_init() }

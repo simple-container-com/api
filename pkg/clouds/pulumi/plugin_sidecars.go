@@ -10,6 +10,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -84,7 +85,7 @@ func (b *preEnginePluginBundle) makeSecretsProviderSidecar(cli *scPlugin.Client,
 // --- resource sidecar (same as existing pluginProvisionFunc) ---
 
 func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.ProvisionFunc {
-	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 		addr, err := requireMonitorAddr(input.Descriptor.Type)
 		if err != nil {
 			return nil, err
@@ -95,6 +96,10 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 			ResourceType: typeToken,
 			ResourceName: input.Descriptor.Name,
 			Inputs:       serializeConfigToInputs(input.Descriptor.Config.Config),
+			// A compute template (a client stack's deploy) reads the env its
+			// `uses:` resources contributed from params.ComputeContext. Without
+			// this a plugin template got none of it — no MONGO_*, no bucket env.
+			ComputeEnvVars: computeContextToProto(params.ComputeContext),
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q Provision(%q, %q)", pluginName, typeToken, input.Descriptor.Name)
@@ -401,8 +406,14 @@ func recordProviderURN(providerType, urn string) {
 
 // serializeConfigToInputs converts an arbitrary config value (either an
 // api.PluginFieldConfig or a plugin-typed struct the plugin's /api module
-// registered) to the plugin bus's InputValue map via JSON round-trip. Only
-// string-valued fields propagate for v1; richer types land in Phase 1c.
+// registered) to the plugin bus's InputValue map via JSON round-trip.
+//
+// Nested objects and lists travel as InputMap / InputList. Until they did, only
+// the top-level scalars reached a plugin, which silently dropped every
+// structured input — for a compute template, the client stack's whole
+// `stackConfig` (image, env, secrets, uses, domain, cloudExtras). The plugin
+// side reverses this with plugin.InputsToPlain. JSON numbers arrive as doubles;
+// a plugin decoding into an int field gets the integral value back.
 func serializeConfigToInputs(cfg any) map[string]*scpluginv1.InputValue {
 	out := map[string]*scpluginv1.InputValue{}
 	if cfg == nil {
@@ -418,15 +429,78 @@ func serializeConfigToInputs(cfg any) map[string]*scpluginv1.InputValue {
 		return out
 	}
 	for k, v := range raw {
-		switch sv := v.(type) {
-		case string:
-			out[k] = &scpluginv1.InputValue{Value: &scpluginv1.InputValue_StringValue{StringValue: sv}}
-		case bool:
-			out[k] = &scpluginv1.InputValue{Value: &scpluginv1.InputValue_BoolValue{BoolValue: sv}}
-		case float64:
-			out[k] = &scpluginv1.InputValue{Value: &scpluginv1.InputValue_DoubleValue{DoubleValue: sv}}
+		if iv := toInputValue(v); iv != nil {
+			out[k] = iv
 		}
 	}
+	return out
+}
+
+// toInputValue maps one decoded-JSON value onto the bus's InputValue. A JSON
+// null returns nil and the key is omitted, which a plugin decoding into a struct
+// reads as the zero value — the same thing the null meant.
+func toInputValue(v any) *scpluginv1.InputValue {
+	switch sv := v.(type) {
+	case string:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_StringValue{StringValue: sv}}
+	case bool:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_BoolValue{BoolValue: sv}}
+	case float64:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_DoubleValue{DoubleValue: sv}}
+	case map[string]any:
+		fields := make(map[string]*scpluginv1.InputValue, len(sv))
+		for k, item := range sv {
+			if iv := toInputValue(item); iv != nil {
+				fields[k] = iv
+			}
+		}
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_MapValue{MapValue: &scpluginv1.InputMap{Fields: fields}}}
+	case []any:
+		items := make([]*scpluginv1.InputValue, 0, len(sv))
+		for _, item := range sv {
+			// A list keeps its positions: a null element becomes an empty
+			// InputValue (decoded back as nil) rather than vanishing and
+			// shifting every later element.
+			iv := toInputValue(item)
+			if iv == nil {
+				iv = &scpluginv1.InputValue{}
+			}
+			items = append(items, iv)
+		}
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_ListValue{ListValue: &scpluginv1.InputList{Items: items}}}
+	default:
+		return nil
+	}
+}
+
+// computeContextToProto serialises a compute context's env (plain and secret)
+// for ProvisionRequest.compute_env_vars. Only the env crosses: Dependencies()
+// are live sdk.Resource handles of core's own context and cannot be sent.
+func computeContextToProto(cc pApi.ComputeContext) []*scpluginv1.ComputeEnvVariable {
+	if cc == nil {
+		return nil
+	}
+	plain, secret := cc.EnvVariables(), cc.SecretEnvVariables()
+	if len(plain)+len(secret) == 0 {
+		return nil
+	}
+	out := make([]*scpluginv1.ComputeEnvVariable, 0, len(plain)+len(secret))
+	add := func(vars []pApi.ComputeEnvVariable, isSecret bool) {
+		for _, v := range vars {
+			out = append(out, &scpluginv1.ComputeEnvVariable{
+				Name:  v.Name,
+				Value: v.Value,
+				// The collector keeps secrets in their own list and does not
+				// always set the flag on the entry; the list is authoritative.
+				Secret:       isSecret || v.Secret,
+				ResourceName: v.ResourceName,
+				ResourceType: v.ResourceType,
+				StackName:    v.StackName,
+			})
+		}
+	}
+	add(plain, false)
+	add(secret, true)
 	return out
 }
 
