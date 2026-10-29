@@ -100,7 +100,7 @@ stacks:
 
 - **AWS** - Amazon Web Services
 - **Google Cloud Platform (GCP)** - Google Cloud
-- **Yandex Cloud** - Serverless Containers, Object Storage (incl. static websites), Cloud DNS
+- **Yandex Cloud** - Serverless Containers, Object Storage (incl. static websites), Managed PostgreSQL, Cloud DNS
 - **Cloud.ru** - Evolution Container Apps, Artifact Registry, Cloud DNS, and compute VMs
   on both the Evolution and the Advanced (ex-SberCloud) estate
 - **VM & self-hosted Kubernetes** - a plain machine (`vm`) and a k3s cluster on it
@@ -1253,6 +1253,77 @@ resources:
             credentials: "${auth:yc}"
             name: myproject-blobs
             forceDestroy: true       # allow `sc destroy` to empty the bucket
+```
+
+#### **Managed PostgreSQL** (`yc-postgres`)
+
+A Yandex Managed Service for PostgreSQL cluster with one database and one user,
+consumed with `uses:` like `aws-rds-postgres`. The parent stack creates (unless
+`networkId` is given) a dedicated VPC network + one subnet per zone, a security
+group opening **only port 6432** (the connection pooler) to `allowedCidrs`, the
+cluster, the user and the database. A consumer gets:
+
+| env var (also `<NAME>_<RESOURCE>`) | value |
+|---|---|
+| `PGHOST` | `c-<cluster-id>.rw.mdb.yandexcloud.net` — always the current master |
+| `PGPORT` | `6432` |
+| `PGDATABASE`, `PGUSER` | from the config |
+| `PGPASSWORD` (secret) | from the config |
+| `PGSSLMODE` | `require` |
+| `DATABASE_URL` (secret) | `postgresql://user:pass@host:6432/db?sslmode=require` |
+
+and `${resource:<name>.host|port|database|user|password|url}`.
+
+**How a container reaches it, and the trade-off.** SC has no YC VPC model and a
+Serverless Container is not attached to any VPC, so by default every host gets a
+**public IP** and the security group allows **`0.0.0.0/0`** on 6432 — Serverless
+Containers egress from shared YC addresses with no stable range, so a narrower
+allowlist would lock them out. What protects the database is TLS (YC refuses
+non-TLS connections to a public host) and the password. Narrow `allowedCidrs` when
+every consumer has a known egress IP, or set `publicAccess: false` with your own
+`networkId`/`subnetIds` when consumers run inside that VPC. `sslmode=verify-full`
+needs YC's CA (`https://storage.yandexcloud.net/cloud-certs/CA.pem`) on the client.
+
+**Not supported in this first version:** managed HA beyond listing extra `zones`
+(each adds a replica; there is no priority/replication-source control), backup
+window and retention (YC defaults: daily, 7 days), maintenance window, PostgreSQL
+settings and extensions, per-consumer users (every consumer shares the one user —
+unlike `aws-rds-postgres`, which creates a user per stack), reading the password
+from Lockbox (use `${secret:...}`), and private networking for Serverless
+Containers.
+
+**Golang Struct Reference:** `sc-plugin-yandex/api/postgres.go:PostgresConfig`
+
+```yaml
+# server.yaml — Parent Stack
+resources:
+  resources:
+    prod:
+      resources:
+        main-db:
+          type: yc-postgres
+          config:
+            credentials: "${auth:yc}"
+            version: "16"
+            resourcePreset: s2.micro     # or b2.medium (burstable)
+            diskSize: 10                 # GB
+            zones: [ru-central1-a]       # one host; add zones for replicas
+            database: app
+            username: app
+            password: "${secret:MAIN_DB_PASSWORD}"
+            # allowedCidrs: [203.0.113.0/24]  # default 0.0.0.0/0, see above
+            # deletionProtection: true
+```
+
+```yaml
+# client.yaml — Client Stack
+stacks:
+  prod:
+    type: single-image
+    template: yc-container
+    parent: myproject/devops
+    config:
+      uses: [main-db]          # PGHOST, PGPASSWORD, DATABASE_URL, ...
 ```
 
 #### **Object Storage (state backend)** (`yc-object-storage`)

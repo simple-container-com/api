@@ -85,17 +85,21 @@ func (b *preEnginePluginBundle) makeSecretsProviderSidecar(cli *scPlugin.Client,
 // --- resource sidecar (same as existing pluginProvisionFunc) ---
 
 func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.ProvisionFunc {
-	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 		addr, err := requireMonitorAddr(input.Descriptor.Type)
 		if err != nil {
 			return nil, err
 		}
 		stackName, env := stackAndEnv(input)
+		inputs := serializeConfigToInputs(input.Descriptor.Config.Config)
+		if ce := computeEnvToInput(params.ComputeContext); ce != nil {
+			inputs[ComputeEnvInputKey] = ce
+		}
 		resp, err := cli.Provision(ctx.Context(), &scpluginv1.ProvisionRequest{
 			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, ProviderUrns: activeProviderURNs(), DryRun: ctx.DryRun()},
 			ResourceType: typeToken,
 			ResourceName: input.Descriptor.Name,
-			Inputs:       serializeConfigToInputs(input.Descriptor.Config.Config),
+			Inputs:       inputs,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q Provision(%q, %q)", pluginName, typeToken, input.Descriptor.Name)
@@ -188,24 +192,118 @@ func (b *preEnginePluginBundle) makeRegistrarSidecar(cli *scPlugin.Client, plugi
 // --- compute processor sidecar ---
 
 func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.ComputeProcessorFunc {
-	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, _ pApi.ComputeContextCollector, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	return func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 		addr, err := requireMonitorAddr(typeToken)
 		if err != nil {
 			return nil, err
 		}
-		stackName, env := stackAndEnv(input)
+		_, env := stackAndEnv(input)
 		resp, err := cli.ComputeProcess(ctx.Context(), &scpluginv1.ComputeProcessRequest{
-			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
-			ResourceType: typeToken,
-			ResourceName: input.Descriptor.Name,
-			Inputs:       serializeConfigToInputs(input.Descriptor.Config.Config),
+			// The CONSUMING stack's name: a compute processor names its stack
+			// reference and per-consumer resources after it, as the in-tree ones
+			// do with stack.Name. StackParams here are the parent's.
+			Header:            &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stack.Name, Environment: env, DryRun: ctx.DryRun()},
+			ResourceType:      typeToken,
+			ResourceName:      input.Descriptor.Name,
+			Inputs:            serializeConfigToInputs(input.Descriptor.Config.Config),
+			DependencyOutputs: parentInfoToDependencyOutputs(params.ParentStack),
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q ComputeProcess(%q)", pluginName, typeToken)
 		}
-		_ = resp // v1: outputs returned here are available via the resource output; richer wiring (dependency placeholders) in Phase 1b
+		applyComputeProcessResponse(resp, collector, input.Descriptor, params.ParentStack)
 		return &api.ResourceOutput{Ref: fmt.Sprintf("plugin-compute:%s:%s", pluginName, resp.GetUrn())}, nil
 	}
+}
+
+// Keys of ComputeProcessRequest.dependency_outputs carrying the ParentInfo a compute
+// processor needs to read its resource's exports out of the parent stack — the
+// same fields an in-tree compute processor gets as params.ParentStack.
+const (
+	DepOutParentStackName     = "sc.parentStack.stackName"
+	DepOutParentEnv           = "sc.parentStack.parentEnv"
+	DepOutParentResourceEnv   = "sc.parentStack.resourceEnv"
+	DepOutParentFullReference = "sc.parentStack.fullReference"
+	DepOutParentStackEnv      = "sc.parentStack.stackEnv"
+	DepOutDependsOnResource   = "sc.parentStack.dependsOnResource"
+	DepOutUsesResource        = "sc.parentStack.usesResource"
+)
+
+// ComputeEnvInputKey is the ProvisionRequest input carrying the consuming stack's
+// compute-context env (what its `uses:` resources contributed): a list of
+// {name, value, secret}. A plugin compute template (yc-serverless-container) reads
+// it to build the environment an in-tree template reads from
+// params.ComputeContext. The leading `__` keeps it out of any config struct.
+const ComputeEnvInputKey = "__scComputeEnv"
+
+func parentInfoToDependencyOutputs(p *pApi.ParentInfo) map[string]string {
+	if p == nil {
+		return nil
+	}
+	out := map[string]string{
+		DepOutParentStackName:     p.StackName,
+		DepOutParentEnv:           p.ParentEnv,
+		DepOutParentResourceEnv:   p.ResourceEnv,
+		DepOutParentFullReference: p.FullReference,
+		DepOutParentStackEnv:      p.StackEnv,
+		DepOutUsesResource:        fmt.Sprintf("%t", p.UsesResource),
+	}
+	if p.DependsOnResource != nil {
+		out[DepOutDependsOnResource] = p.DependsOnResource.Name
+	}
+	return out
+}
+
+// applyComputeProcessResponse puts what a plugin compute processor returned into
+// the consuming stack's collector: env vars (secret-flagged ones as secrets) and
+// placeholders as `${resource:<name>.<key>}` values. Until this existed a plugin
+// resource could not give a consumer anything — the response was discarded.
+func applyComputeProcessResponse(resp *scpluginv1.ComputeProcessResponse, collector pApi.ComputeContextCollector, desc *api.ResourceDescriptor, parent *pApi.ParentInfo) {
+	if collector == nil || resp == nil {
+		return
+	}
+	parentName := ""
+	if parent != nil {
+		parentName = parent.StackName
+	}
+	for name, v := range resp.GetEnv() {
+		value, ok := scPlugin.InputValueToPlain(v)
+		if !ok {
+			continue
+		}
+		str := fmt.Sprintf("%v", value)
+		if v.GetSecret() {
+			collector.AddSecretEnvVariableIfNotExist(name, str, desc.Type, desc.Name, parentName)
+		} else {
+			collector.AddEnvVariableIfNotExist(name, str, desc.Type, desc.Name, parentName)
+		}
+	}
+	if len(resp.GetPlaceholders()) > 0 {
+		collector.AddResourceTplExtension(desc.Name, resp.GetPlaceholders())
+	}
+}
+
+// computeEnvToInput serialises a compute context's env for ComputeEnvInputKey.
+func computeEnvToInput(cc pApi.ComputeContext) *scpluginv1.InputValue {
+	if cc == nil {
+		return nil
+	}
+	vars := append(append([]pApi.ComputeEnvVariable{}, cc.EnvVariables()...), cc.SecretEnvVariables()...)
+	if len(vars) == 0 {
+		return nil
+	}
+	items := make([]*scpluginv1.InputValue, 0, len(vars))
+	for _, v := range vars {
+		items = append(items, &scpluginv1.InputValue{Value: &scpluginv1.InputValue_MapValue{MapValue: &scpluginv1.InputMap{Fields: map[string]*scpluginv1.InputValue{
+			"name":         {Value: &scpluginv1.InputValue_StringValue{StringValue: v.Name}},
+			"value":        {Value: &scpluginv1.InputValue_StringValue{StringValue: v.Value}, Secret: v.Secret},
+			"secret":       {Value: &scpluginv1.InputValue_BoolValue{BoolValue: v.Secret}},
+			"resourceName": {Value: &scpluginv1.InputValue_StringValue{StringValue: v.ResourceName}},
+			"resourceType": {Value: &scpluginv1.InputValue_StringValue{StringValue: v.ResourceType}},
+			"stackName":    {Value: &scpluginv1.InputValue_StringValue{StringValue: v.StackName}},
+		}}}})
+	}
+	return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_ListValue{ListValue: &scpluginv1.InputList{Items: items}}}
 }
 
 // --- vm driver sidecar: plugin creates the machines, core connects to them ---
