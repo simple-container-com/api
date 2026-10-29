@@ -16,15 +16,9 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
-	_ "github.com/simple-container-com/sc-plugin-mongodb/api"
-	"github.com/simple-container-com/sc-plugin-yandex/api"
-
 	// Core API package for registration maps and configuration structs
 	"github.com/simple-container-com/api/pkg/api"
-	// Import cloud provider packages directly to access their CloudExtras types
-	"github.com/simple-container-com/api/pkg/clouds/aws"
 	// Import all cloud provider packages to trigger init() functions
-	_ "github.com/simple-container-com/api/pkg/clouds/aws"
 	_ "github.com/simple-container-com/api/pkg/clouds/compose"
 	_ "github.com/simple-container-com/api/pkg/clouds/discord"
 	_ "github.com/simple-container-com/api/pkg/clouds/docker"
@@ -36,6 +30,10 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/slack"
 	_ "github.com/simple-container-com/api/pkg/clouds/telegram"
 	_ "github.com/simple-container-com/api/pkg/clouds/vm"
+	// Import cloud provider packages directly to access their CloudExtras types
+	"github.com/simple-container-com/sc-plugin-aws/api"
+	_ "github.com/simple-container-com/sc-plugin-mongodb/api"
+	"github.com/simple-container-com/sc-plugin-yandex/api"
 )
 
 // ResourceDefinition holds metadata about a resource struct
@@ -443,7 +441,7 @@ func (sg *SchemaGenerator) generateCloudExtrasSchemas() ([]ResourceDefinition, e
 		Type:         "cloudextras",
 		Provider:     "aws",
 		Description:  "AWS-specific cloudExtras configuration for Simple Container deployments including Lambda scheduling, security groups, and load balancer settings",
-		GoPackage:    "pkg/clouds/aws/",
+		GoPackage:    "github.com/simple-container-com/sc-plugin-aws/api",
 		GoStruct:     "CloudExtras",
 		ResourceType: "aws-cloudextras",
 		Schema:       reflect.TypeOf(aws.CloudExtras{}),
