@@ -510,6 +510,14 @@ message ProvisionRequest {
   map<string, InputValue> inputs = 4;    // resource-specific inputs
   map<string, string> dependency_outputs = 5;  // outputs from previously provisioned deps
   string parent_urn = 6;                 // parent ComponentResource URN, if any
+  // The consuming stack's compute context: the env vars its `uses:` resources
+  // contributed (what an in-tree template reads from
+  // pApi.ProvisionParams.ComputeContext). Set only for a compute template (a
+  // client stack's deploy, e.g. yc-serverless-container); empty for a plain
+  // resource. Same message ComputeProcessResponse.env_vars uses, so a var
+  // crosses the bus in either direction with its stack/resource metadata.
+  // Older plugins ignore the field.
+  repeated ComputeEnvVariable compute_env_vars = 7;
 }
 
 message ProvisionResponse {
