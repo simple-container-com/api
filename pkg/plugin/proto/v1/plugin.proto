@@ -284,18 +284,66 @@ message ComputeProcessRequest {
   // Previously-registered dependency outputs this resource may need.
   map<string, string> dependency_outputs = 5;
   string parent_urn = 6;
+  // Parent-stack facts the handler needs to open a sdk.NewStackReference
+  // and to resolve env vars against the deploying stack. Carried as JSON
+  // of pkg/clouds/pulumi/api.ParentInfo rather than individual proto
+  // fields: ParentInfo evolves alongside the Go struct (StackConfigDependencyResource
+  // nested within), and a JSON blob keeps the proto stable through those
+  // changes. Empty when the resource has no parent stack. Added in Phase
+  // 1e (ComputeProcess v2) for mongodb and the remaining extractions —
+  // older plugins ignore the field and get the same v1 behaviour.
+  bytes parent_info_json = 7;
 }
 
 message ComputeProcessResponse {
-  // Env variables to inject into downstream compute. Secret-flagged are
-  // propagated as Pulumi secrets.
-  map<string, InputValue> env = 1;
+  // Env variables to inject into downstream compute (map form). Secret-flagged
+  // are propagated as Pulumi secrets. DEPRECATED in favour of env_vars below:
+  // this map form cannot carry the ResourceName / ResourceType / StackName
+  // metadata that pApi.ComputeEnvVariable records, which the sidecar needs
+  // to key the env var against the right stack. Older plugins still populate
+  // this; the sidecar merges both. New plugins SHOULD populate env_vars.
+  map<string, InputValue> env = 1 [deprecated = true];
   // Output placeholders — references by the dependency resource's URN that
   // downstream compute can resolve at deploy time (SC's compute processor
   // vocabulary; see pkg/clouds/pulumi/api/compute_context.go).
   map<string, string> placeholders = 2;
   // The URN the compute processor registered (if any). Optional.
   string urn = 3;
+  // Env variables the plugin wants injected. Added in Phase 1e. Mirrors
+  // pApi.ComputeEnvVariable exactly so the sidecar can call
+  // collector.AddEnvVariableIfNotExist / AddSecretEnvVariableIfNotExist
+  // round-trip, with the per-env metadata (resource_name/type/stack_name)
+  // preserved so downstream config interpolation picks the right scope.
+  repeated ComputeEnvVariable env_vars = 4;
+  // Template extensions — the pApi.ComputeContextCollector surface for
+  // AddResourceTplExtension / AddDependencyTplExtension. kind selects
+  // which, and dep_name is only populated for the dependency variant.
+  repeated TemplateExtension tpl_extensions = 5;
+}
+
+// ComputeEnvVariable mirrors pApi.ComputeEnvVariable
+// (pkg/clouds/pulumi/api/cloud_provider.go). secret=true selects
+// collector.AddSecretEnvVariableIfNotExist; false selects the plain one.
+message ComputeEnvVariable {
+  string name = 1;
+  string value = 2;
+  bool secret = 3;
+  string resource_name = 4;
+  string resource_type = 5;
+  string stack_name = 6;
+}
+
+enum TemplateExtensionKind {
+  TEMPLATE_EXTENSION_KIND_UNSPECIFIED = 0;
+  TEMPLATE_EXTENSION_KIND_RESOURCE = 1;    // AddResourceTplExtension(res_name, values)
+  TEMPLATE_EXTENSION_KIND_DEPENDENCY = 2;  // AddDependencyTplExtension(dep_name, res_name, values)
+}
+
+message TemplateExtension {
+  TemplateExtensionKind kind = 1;
+  string res_name = 2;
+  string dep_name = 3;                     // only for KIND_DEPENDENCY
+  map<string, string> values = 4;
 }
 
 // -----------------------------------------------------------------------------
