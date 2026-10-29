@@ -10,7 +10,6 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -188,22 +187,62 @@ func (b *preEnginePluginBundle) makeRegistrarSidecar(cli *scPlugin.Client, plugi
 // --- compute processor sidecar ---
 
 func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.ComputeProcessorFunc {
-	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, _ pApi.ComputeContextCollector, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 		addr, err := requireMonitorAddr(typeToken)
 		if err != nil {
 			return nil, err
 		}
 		stackName, env := stackAndEnv(input)
+
+		// ParentInfo crosses as JSON — the Go struct carries a nested
+		// *api.StackConfigDependencyResource whose shape evolves faster than
+		// a hand-written proto message, and the plugin unmarshals back into
+		// the same type via api.ParentInfo. Absent / zero ParentStack means
+		// no parent (byo context), which is fine on the wire as an empty
+		// field.
+		var parentInfoJSON []byte
+		if params.ParentStack != nil {
+			parentInfoJSON, err = json.Marshal(params.ParentStack)
+			if err != nil {
+				return nil, errors.Wrapf(err, "plugin %q ComputeProcess(%q): marshal ParentStack", pluginName, typeToken)
+			}
+		}
+
 		resp, err := cli.ComputeProcess(ctx.Context(), &scpluginv1.ComputeProcessRequest{
-			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env},
-			ResourceType: typeToken,
-			ResourceName: input.Descriptor.Name,
-			Inputs:       serializeConfigToInputs(input.Descriptor.Config.Config),
+			Header:         &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env},
+			ResourceType:   typeToken,
+			ResourceName:   input.Descriptor.Name,
+			Inputs:         serializeConfigToInputs(input.Descriptor.Config.Config),
+			ParentInfoJson: parentInfoJSON,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q ComputeProcess(%q)", pluginName, typeToken)
 		}
-		_ = resp // v1: outputs returned here are available via the resource output; richer wiring (dependency placeholders) in Phase 1b
+
+		// Apply the ComputeContextCollector mutations the plugin asked for.
+		// AddEnvVariableIfNotExist / AddSecretEnvVariableIfNotExist and the
+		// two tpl-extension methods are the only `pApi.ComputeContextCollector`
+		// mutators that are serialisable — the rest (sdk.Resource handles,
+		// Go closures) stay in-plugin and are applied against the plugin's
+		// own sdk.Context before Build returns. See pkg/plugin/compute.go.
+		if collector != nil {
+			for _, v := range resp.GetEnvVars() {
+				if v.GetSecret() {
+					collector.AddSecretEnvVariableIfNotExist(v.GetName(), v.GetValue(), v.GetResourceType(), v.GetResourceName(), v.GetStackName())
+				} else {
+					collector.AddEnvVariableIfNotExist(v.GetName(), v.GetValue(), v.GetResourceType(), v.GetResourceName(), v.GetStackName())
+				}
+			}
+			for _, t := range resp.GetTplExtensions() {
+				switch t.GetKind() {
+				case scpluginv1.TemplateExtensionKind_TEMPLATE_EXTENSION_KIND_RESOURCE:
+					collector.AddResourceTplExtension(t.GetResName(), t.GetValues())
+				case scpluginv1.TemplateExtensionKind_TEMPLATE_EXTENSION_KIND_DEPENDENCY:
+					collector.AddDependencyTplExtension(t.GetDepName(), t.GetResName(), t.GetValues())
+				}
+			}
+		}
+
 		return &api.ResourceOutput{Ref: fmt.Sprintf("plugin-compute:%s:%s", pluginName, resp.GetUrn())}, nil
 	}
 }
