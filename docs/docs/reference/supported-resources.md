@@ -1191,7 +1191,7 @@ Cloudflare-fronted). One deploy:
 - writes `CNAME <domain>. → <domain>.website.yandexcloud.net.` in the yc-dns zone;
 - uploads `bundleDir` with `Cache-Control` rules and deletes objects no longer in
   the build (`aws s3 sync --delete` semantics). Defaults: the index document
-  `no-cache`, `assets/**` `public, max-age=31536000, immutable`, everything else
+  `no-cache` (as is every `*.html`), `assets/**` `public, max-age=31536000, immutable`, everything else
   `public, max-age=3600`. The upload is skipped during a preview.
 
 Uploads use a dedicated service account with `storage.editor` on that bucket only.

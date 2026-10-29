@@ -63,6 +63,16 @@
       "schema": {}
     },
     {
+      "name": "StaticWebsiteTemplateConfig",
+      "type": "template",
+      "provider": "yandex",
+      "description": "YANDEX deployment template configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "StaticWebsiteTemplateConfig",
+      "resourceType": "yc-static-website",
+      "schema": {}
+    },
+    {
       "name": "TemplateConfig",
       "type": "template",
       "provider": "yandex",

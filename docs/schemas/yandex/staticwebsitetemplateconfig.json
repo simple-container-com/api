@@ -1,0 +1,108 @@
+{
+  "name": "StaticWebsiteTemplateConfig",
+  "type": "template",
+  "provider": "yandex",
+  "description": "YANDEX deployment template configuration",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "StaticWebsiteTemplateConfig",
+  "resourceType": "yc-static-website",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "credentials": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "credentials"
+            ],
+            "type": "object"
+          },
+          "accessKey": {
+            "type": "string"
+          },
+          "cloudId": {
+            "type": "string"
+          },
+          "folderId": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "secretAccessKey": {
+            "type": "string"
+          },
+          "serviceAccountKey": {
+            "type": "string"
+          },
+          "zone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "",
+          "cloudId",
+          "folderId"
+        ],
+        "type": "object"
+      },
+      "cacheControl": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "pattern": {
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern",
+            "value"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "certificateId": {
+        "type": "string"
+      },
+      "certificateName": {
+        "type": "string"
+      },
+      "keepOnDestroy": {
+        "type": "boolean"
+      },
+      "maxSize": {
+        "type": "integer"
+      },
+      "recordTtl": {
+        "type": "integer"
+      },
+      "spaFallback": {
+        "type": "boolean"
+      },
+      "zoneId": {
+        "type": "string"
+      },
+      "zoneName": {
+        "type": "string"
+      },
+      "zoneResourceName": {
+        "type": "string"
+      }
+    },
+    "required": [
+      ""
+    ],
+    "type": "object"
+  }
+}

@@ -890,6 +890,8 @@ github.com/simple-container-com/sc-plugin-cloudru/api v0.0.0-20261027184304-7dc7
 github.com/simple-container-com/sc-plugin-cloudru/api v0.0.0-20261027184304-7dc7ca92c47c/go.mod h1:0Wr/ZOhcM7mB7GANwZSUvamEhpGpRI7LO3roTG8vGO8=
 github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261026175213-36a86d2f6b52 h1:NeqOwK/1tAlFdW/vci1k5Oj9K1Tjr+UE2DSe9vOZsz4=
 github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261026175213-36a86d2f6b52/go.mod h1:6Iaubzead98jvMg5DSTEfqDQhYYoGsSjsFBEOcs62Xo=
+github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261029101716-08064740daca h1:xhKQ/1IFbD482JRsLYrX9gjBjwQlCUTgjrM+3rAe90E=
+github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261029101716-08064740daca/go.mod h1:oQvNw562Ws4kmzuwqw9cpbq9LWJzpdT1GttH9Uyo2Sc=
 github.com/sirupsen/logrus v1.7.0/go.mod h1:yWOB1SBYBC5VeMP7gHvWumXLIWorT60ONWic61uBYv0=
 github.com/sirupsen/logrus v1.9.4 h1:TsZE7l11zFCLZnZ+teH4Umoq5BhEIfIzfRDZ1Uzql2w=
 github.com/sirupsen/logrus v1.9.4/go.mod h1:ftWc9WdOfJ0a92nsE2jF5u5ZwH8Bv2zdeOC42RjbV2g=
