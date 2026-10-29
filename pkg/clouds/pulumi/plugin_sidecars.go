@@ -10,7 +10,6 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -236,9 +235,65 @@ func (b *preEnginePluginBundle) makeVmHostsSidecar(cli *scPlugin.Client, pluginN
 // --- pre-destroy hook sidecar ---
 
 func (b *preEnginePluginBundle) makePreDestroySidecar(cli *scPlugin.Client, pluginName string) pApi.PreDestroyHookFunc {
-	return func(ctx context.Context, _ api.Stack, _ api.DestroyParams, _ auto.Stack, log logger.Logger) {
+	return func(ctx context.Context, stack api.Stack, params api.DestroyParams, stackSource auto.Stack, log logger.Logger) {
+		// Pack stack outputs as a map<string, bytes>. mongodb's
+		// DropDatabaseHook (and its successors) reads these filtered by
+		// key suffix. auto.OutputValue is JSON-friendly (`{"value": ...,
+		// "secret": bool}`); encode each one individually so a plugin can
+		// unmarshal only the keys it cares about rather than paying the
+		// cost of decoding every output.
+		outputs := map[string][]byte{}
+		// Guard the stackSource.Outputs call: a zero-value auto.Stack (seen
+		// in unit tests, and theoretically possible when the pre-destroy
+		// hook runs against a stack that was never provisioned) panics
+		// rather than returning an error. defer-recover keeps the hook
+		// running on whatever we DO have — client descriptor + destroy
+		// params — rather than taking the whole deploy down.
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Warn(ctx, "plugin %q PreDestroy: read stack outputs panicked: %v", pluginName, r)
+				}
+			}()
+			raw, err := stackSource.Outputs(ctx)
+			if err != nil {
+				log.Warn(ctx, "plugin %q PreDestroy: read stack outputs: %v", pluginName, err)
+				return
+			}
+			for key, v := range raw {
+				b, err := json.Marshal(v)
+				if err != nil {
+					log.Warn(ctx, "plugin %q PreDestroy: marshal output %q: %v", pluginName, key, err)
+					continue
+				}
+				outputs[key] = b
+			}
+		}()
+
+		// The per-env client descriptor. Smaller than packing the whole
+		// api.Stack (which carries every env), targeted enough to extend.
+		var clientDescriptorJSON []byte
+		if stack.Client.Stacks != nil {
+			if desc, ok := stack.Client.Stacks[params.Environment]; ok {
+				if b, err := json.Marshal(desc); err == nil {
+					clientDescriptorJSON = b
+				} else {
+					log.Warn(ctx, "plugin %q PreDestroy: marshal client descriptor: %v", pluginName, err)
+				}
+			}
+		}
+
+		// DestroyParams. StackParams is embedded; both are plain JSON.
+		destroyParamsJSON, err := json.Marshal(params)
+		if err != nil {
+			log.Warn(ctx, "plugin %q PreDestroy: marshal destroy params: %v", pluginName, err)
+		}
+
 		if _, err := cli.PreDestroy(ctx, &scpluginv1.PreDestroyRequest{
-			Header: &scpluginv1.RequestHeader{},
+			Header:               &scpluginv1.RequestHeader{StackName: stack.Name, Environment: params.Environment},
+			StackOutputs:         outputs,
+			ClientDescriptorJson: clientDescriptorJSON,
+			DestroyParamsJson:    destroyParamsJSON,
 		}); err != nil {
 			log.Warn(ctx, "plugin %q PreDestroy: %v", pluginName, err)
 		}

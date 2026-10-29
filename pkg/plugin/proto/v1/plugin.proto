@@ -417,6 +417,24 @@ message PreDestroyRequest {
   // The resource type the hook is advertised against (optional — a plugin
   // may install a generic hook across its surface).
   string resource_type = 2;
+  // The deploying stack's live outputs — map keyed by export name, value
+  // is the JSON of auto.OutputValue (`{"value": …, "secret": bool}`).
+  // mongodb's DropDatabaseHook consumes these to find per-service DB users
+  // ("<service>-service-user" output keys) before destroying the cluster.
+  // Added in Phase 1e; absent on older cores (older plugins see an empty
+  // map and skip, same as today's fire-and-forget).
+  map<string, bytes> stack_outputs = 3;
+  // The deploying stack's per-env client descriptor — JSON of
+  // api.StackClientDescriptor for `stack.Client.Stacks[params.Environment]`.
+  // Carries the resource's config, cloudExtras, and anything else the hook
+  // might want to switch on. Smaller than packing the whole api.Stack
+  // (which carries every environment's config), targeted enough to extend
+  // without breaking the wire. Added in Phase 1e.
+  bytes client_descriptor_json = 4;
+  // The destroy call's parameters as JSON of api.DestroyParams. The hook
+  // reads env name + dry-run flags off this. JSON because DestroyParams
+  // embeds StackParams which carries map fields that evolve.
+  bytes destroy_params_json = 5;
 }
 
 message PreDestroyResponse {
