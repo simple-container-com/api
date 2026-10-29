@@ -22,11 +22,10 @@ func TestComputeResultBuilder_BuildsTheWireShape(t *testing.T) {
 
 	resp, err := NewComputeResult().
 		Urn("urn:pulumi:test::proj::mongodbatlas:index/cluster:Cluster::primary").
-		// Deliberately NOT a mongodb+srv://user:pass@host/db shape: TruffleHog
-		// pattern-matches that even on test fixtures, and failing CI on a fake
-		// unit-test URI wastes a round trip. The real value is a secret-flag
-		// shape test; the opaque placeholder below satisfies that without
-		// looking like a URI.
+		// An opaque placeholder, not a real connection URI shape: the
+		// secret-flag plumbing is what this test asserts, and TruffleHog
+		// pattern-matches live-looking URI samples even inside test
+		// fixtures (verified unverifiable finding on PR #511, 2026-10-29).
 		SecretEnvVar("MONGO_URI", "placeholder-secret-value", "mongodb-atlas", "primary", "test-stack").
 		EnvVar("MONGO_DB", "mydb", "mongodb-atlas", "primary", "test-stack").
 		ResourceTplExtension("primary", map[string]string{
