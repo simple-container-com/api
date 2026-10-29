@@ -2404,9 +2404,27 @@ type PreDestroyRequest struct {
 	Header *RequestHeader         `protobuf:"bytes,1,opt,name=header,proto3" json:"header,omitempty"`
 	// The resource type the hook is advertised against (optional — a plugin
 	// may install a generic hook across its surface).
-	ResourceType  string `protobuf:"bytes,2,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ResourceType string `protobuf:"bytes,2,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
+	// The deploying stack's live outputs — map keyed by export name, value
+	// is the JSON of auto.OutputValue (`{"value": …, "secret": bool}`).
+	// mongodb's DropDatabaseHook consumes these to find per-service DB users
+	// ("<service>-service-user" output keys) before destroying the cluster.
+	// Added in Phase 1e; absent on older cores (older plugins see an empty
+	// map and skip, same as today's fire-and-forget).
+	StackOutputs map[string][]byte `protobuf:"bytes,3,rep,name=stack_outputs,json=stackOutputs,proto3" json:"stack_outputs,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// The deploying stack's per-env client descriptor — JSON of
+	// api.StackClientDescriptor for `stack.Client.Stacks[params.Environment]`.
+	// Carries the resource's config, cloudExtras, and anything else the hook
+	// might want to switch on. Smaller than packing the whole api.Stack
+	// (which carries every environment's config), targeted enough to extend
+	// without breaking the wire. Added in Phase 1e.
+	ClientDescriptorJson []byte `protobuf:"bytes,4,opt,name=client_descriptor_json,json=clientDescriptorJson,proto3" json:"client_descriptor_json,omitempty"`
+	// The destroy call's parameters as JSON of api.DestroyParams. The hook
+	// reads env name + dry-run flags off this. JSON because DestroyParams
+	// embeds StackParams which carries map fields that evolve.
+	DestroyParamsJson []byte `protobuf:"bytes,5,opt,name=destroy_params_json,json=destroyParamsJson,proto3" json:"destroy_params_json,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *PreDestroyRequest) Reset() {
@@ -2451,6 +2469,27 @@ func (x *PreDestroyRequest) GetResourceType() string {
 		return x.ResourceType
 	}
 	return ""
+}
+
+func (x *PreDestroyRequest) GetStackOutputs() map[string][]byte {
+	if x != nil {
+		return x.StackOutputs
+	}
+	return nil
+}
+
+func (x *PreDestroyRequest) GetClientDescriptorJson() []byte {
+	if x != nil {
+		return x.ClientDescriptorJson
+	}
+	return nil
+}
+
+func (x *PreDestroyRequest) GetDestroyParamsJson() []byte {
+	if x != nil {
+		return x.DestroyParamsJson
+	}
+	return nil
 }
 
 type PreDestroyResponse struct {
@@ -3760,10 +3799,16 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x14target_host_resolved\x18\x06 \x01(\tR\x12targetHostResolved\x12\x1c\n" +
 	"\twebsocket\x18\a \x01(\bR\twebsocket\"6\n" +
 	"\"ProvisionDomainForEndpointResponse\x12\x10\n" +
-	"\x03urn\x18\x01 \x01(\tR\x03urn\"m\n" +
+	"\x03urn\x18\x01 \x01(\tR\x03urn\"\xec\x02\n" +
 	"\x11PreDestroyRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
-	"\rresource_type\x18\x02 \x01(\tR\fresourceType\"\x14\n" +
+	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12V\n" +
+	"\rstack_outputs\x18\x03 \x03(\v21.sc.plugin.v1.PreDestroyRequest.StackOutputsEntryR\fstackOutputs\x124\n" +
+	"\x16client_descriptor_json\x18\x04 \x01(\fR\x14clientDescriptorJson\x12.\n" +
+	"\x13destroy_params_json\x18\x05 \x01(\fR\x11destroyParamsJson\x1a?\n" +
+	"\x11StackOutputsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x14\n" +
 	"\x12PreDestroyResponse\"\xf5\x03\n" +
 	"\x10ProvisionRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
@@ -3891,7 +3936,7 @@ func file_v1_plugin_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_v1_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 62)
+var file_v1_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 63)
 var file_v1_plugin_proto_goTypes = []any{
 	(TemplateExtensionKind)(0),                 // 0: sc.plugin.v1.TemplateExtensionKind
 	(LogSeverity)(0),                           // 1: sc.plugin.v1.LogSeverity
@@ -3953,10 +3998,11 @@ var file_v1_plugin_proto_goTypes = []any{
 	nil,                                        // 57: sc.plugin.v1.ComputeProcessResponse.PlaceholdersEntry
 	nil,                                        // 58: sc.plugin.v1.TemplateExtension.ValuesEntry
 	nil,                                        // 59: sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry
-	nil,                                        // 60: sc.plugin.v1.ProvisionRequest.InputsEntry
-	nil,                                        // 61: sc.plugin.v1.ProvisionRequest.DependencyOutputsEntry
-	nil,                                        // 62: sc.plugin.v1.ProvisionResponse.OutputsEntry
-	nil,                                        // 63: sc.plugin.v1.ProvisionResponse.EnvEntry
+	nil,                                        // 60: sc.plugin.v1.PreDestroyRequest.StackOutputsEntry
+	nil,                                        // 61: sc.plugin.v1.ProvisionRequest.InputsEntry
+	nil,                                        // 62: sc.plugin.v1.ProvisionRequest.DependencyOutputsEntry
+	nil,                                        // 63: sc.plugin.v1.ProvisionResponse.OutputsEntry
+	nil,                                        // 64: sc.plugin.v1.ProvisionResponse.EnvEntry
 }
 var file_v1_plugin_proto_depIdxs = []int32{
 	47, // 0: sc.plugin.v1.RequestHeader.provider_urns:type_name -> sc.plugin.v1.RequestHeader.ProviderUrnsEntry
@@ -3993,67 +4039,68 @@ var file_v1_plugin_proto_depIdxs = []int32{
 	27, // 31: sc.plugin.v1.NewOverrideHeaderRuleRequest.override_pages:type_name -> sc.plugin.v1.OverridePagesMsg
 	2,  // 32: sc.plugin.v1.ProvisionDomainForEndpointRequest.header:type_name -> sc.plugin.v1.RequestHeader
 	2,  // 33: sc.plugin.v1.PreDestroyRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	2,  // 34: sc.plugin.v1.ProvisionRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	60, // 35: sc.plugin.v1.ProvisionRequest.inputs:type_name -> sc.plugin.v1.ProvisionRequest.InputsEntry
-	61, // 36: sc.plugin.v1.ProvisionRequest.dependency_outputs:type_name -> sc.plugin.v1.ProvisionRequest.DependencyOutputsEntry
-	62, // 37: sc.plugin.v1.ProvisionResponse.outputs:type_name -> sc.plugin.v1.ProvisionResponse.OutputsEntry
-	63, // 38: sc.plugin.v1.ProvisionResponse.env:type_name -> sc.plugin.v1.ProvisionResponse.EnvEntry
-	2,  // 39: sc.plugin.v1.VmHostsRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	36, // 40: sc.plugin.v1.VmHostsRequest.ports:type_name -> sc.plugin.v1.VmPortRange
-	38, // 41: sc.plugin.v1.VmHostsResponse.hosts:type_name -> sc.plugin.v1.VmHostFacts
-	39, // 42: sc.plugin.v1.VmHostFacts.address:type_name -> sc.plugin.v1.OutputValue
-	39, // 43: sc.plugin.v1.VmHostFacts.private_key:type_name -> sc.plugin.v1.OutputValue
-	39, // 44: sc.plugin.v1.VmHostFacts.private_key_password:type_name -> sc.plugin.v1.OutputValue
-	39, // 45: sc.plugin.v1.VmHostFacts.host_key:type_name -> sc.plugin.v1.OutputValue
-	40, // 46: sc.plugin.v1.OutputValue.ref:type_name -> sc.plugin.v1.ResourcePropertyRef
-	1,  // 47: sc.plugin.v1.PluginLogEvent.severity:type_name -> sc.plugin.v1.LogSeverity
-	3,  // 48: sc.plugin.v1.InputMap.FieldsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 49: sc.plugin.v1.InitStateStoreRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 50: sc.plugin.v1.InitStateStoreResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 51: sc.plugin.v1.InitSecretsProviderRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 52: sc.plugin.v1.InitSecretsProviderResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 53: sc.plugin.v1.ProviderRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 54: sc.plugin.v1.ComputeProcessRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 55: sc.plugin.v1.ComputeProcessResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 56: sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 57: sc.plugin.v1.ProvisionRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 58: sc.plugin.v1.ProvisionResponse.OutputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 59: sc.plugin.v1.ProvisionResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	6,  // 60: sc.plugin.v1.SCCloudPlugin.Schema:input_type -> sc.plugin.v1.SchemaRequest
-	11, // 61: sc.plugin.v1.SCCloudPlugin.InitStateStore:input_type -> sc.plugin.v1.InitStateStoreRequest
-	13, // 62: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:input_type -> sc.plugin.v1.InitSecretsProviderRequest
-	15, // 63: sc.plugin.v1.SCCloudPlugin.Provider:input_type -> sc.plugin.v1.ProviderRequest
-	33, // 64: sc.plugin.v1.SCCloudPlugin.Provision:input_type -> sc.plugin.v1.ProvisionRequest
-	17, // 65: sc.plugin.v1.SCCloudPlugin.ComputeProcess:input_type -> sc.plugin.v1.ComputeProcessRequest
-	21, // 66: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:input_type -> sc.plugin.v1.ProvisionRegistrarRequest
-	23, // 67: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:input_type -> sc.plugin.v1.NewDnsRecordRequest
-	25, // 68: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:input_type -> sc.plugin.v1.NewOverrideHeaderRuleRequest
-	29, // 69: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:input_type -> sc.plugin.v1.ProvisionDomainForEndpointRequest
-	31, // 70: sc.plugin.v1.SCCloudPlugin.PreDestroy:input_type -> sc.plugin.v1.PreDestroyRequest
-	35, // 71: sc.plugin.v1.SCCloudPlugin.VmHosts:input_type -> sc.plugin.v1.VmHostsRequest
-	45, // 72: sc.plugin.v1.SCCloudPlugin.LogStream:input_type -> sc.plugin.v1.LogStreamRequest
-	41, // 73: sc.plugin.v1.SCCore.ResolveSecret:input_type -> sc.plugin.v1.ResolveSecretRequest
-	43, // 74: sc.plugin.v1.SCCore.ResolveCredential:input_type -> sc.plugin.v1.ResolveCredentialRequest
-	7,  // 75: sc.plugin.v1.SCCloudPlugin.Schema:output_type -> sc.plugin.v1.SchemaResponse
-	12, // 76: sc.plugin.v1.SCCloudPlugin.InitStateStore:output_type -> sc.plugin.v1.InitStateStoreResponse
-	14, // 77: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:output_type -> sc.plugin.v1.InitSecretsProviderResponse
-	16, // 78: sc.plugin.v1.SCCloudPlugin.Provider:output_type -> sc.plugin.v1.ProviderResponse
-	34, // 79: sc.plugin.v1.SCCloudPlugin.Provision:output_type -> sc.plugin.v1.ProvisionResponse
-	18, // 80: sc.plugin.v1.SCCloudPlugin.ComputeProcess:output_type -> sc.plugin.v1.ComputeProcessResponse
-	22, // 81: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:output_type -> sc.plugin.v1.ProvisionRegistrarResponse
-	24, // 82: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:output_type -> sc.plugin.v1.NewDnsRecordResponse
-	28, // 83: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:output_type -> sc.plugin.v1.NewOverrideHeaderRuleResponse
-	30, // 84: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:output_type -> sc.plugin.v1.ProvisionDomainForEndpointResponse
-	32, // 85: sc.plugin.v1.SCCloudPlugin.PreDestroy:output_type -> sc.plugin.v1.PreDestroyResponse
-	37, // 86: sc.plugin.v1.SCCloudPlugin.VmHosts:output_type -> sc.plugin.v1.VmHostsResponse
-	46, // 87: sc.plugin.v1.SCCloudPlugin.LogStream:output_type -> sc.plugin.v1.PluginLogEvent
-	42, // 88: sc.plugin.v1.SCCore.ResolveSecret:output_type -> sc.plugin.v1.ResolveSecretResponse
-	44, // 89: sc.plugin.v1.SCCore.ResolveCredential:output_type -> sc.plugin.v1.ResolveCredentialResponse
-	75, // [75:90] is the sub-list for method output_type
-	60, // [60:75] is the sub-list for method input_type
-	60, // [60:60] is the sub-list for extension type_name
-	60, // [60:60] is the sub-list for extension extendee
-	0,  // [0:60] is the sub-list for field type_name
+	60, // 34: sc.plugin.v1.PreDestroyRequest.stack_outputs:type_name -> sc.plugin.v1.PreDestroyRequest.StackOutputsEntry
+	2,  // 35: sc.plugin.v1.ProvisionRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	61, // 36: sc.plugin.v1.ProvisionRequest.inputs:type_name -> sc.plugin.v1.ProvisionRequest.InputsEntry
+	62, // 37: sc.plugin.v1.ProvisionRequest.dependency_outputs:type_name -> sc.plugin.v1.ProvisionRequest.DependencyOutputsEntry
+	63, // 38: sc.plugin.v1.ProvisionResponse.outputs:type_name -> sc.plugin.v1.ProvisionResponse.OutputsEntry
+	64, // 39: sc.plugin.v1.ProvisionResponse.env:type_name -> sc.plugin.v1.ProvisionResponse.EnvEntry
+	2,  // 40: sc.plugin.v1.VmHostsRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	36, // 41: sc.plugin.v1.VmHostsRequest.ports:type_name -> sc.plugin.v1.VmPortRange
+	38, // 42: sc.plugin.v1.VmHostsResponse.hosts:type_name -> sc.plugin.v1.VmHostFacts
+	39, // 43: sc.plugin.v1.VmHostFacts.address:type_name -> sc.plugin.v1.OutputValue
+	39, // 44: sc.plugin.v1.VmHostFacts.private_key:type_name -> sc.plugin.v1.OutputValue
+	39, // 45: sc.plugin.v1.VmHostFacts.private_key_password:type_name -> sc.plugin.v1.OutputValue
+	39, // 46: sc.plugin.v1.VmHostFacts.host_key:type_name -> sc.plugin.v1.OutputValue
+	40, // 47: sc.plugin.v1.OutputValue.ref:type_name -> sc.plugin.v1.ResourcePropertyRef
+	1,  // 48: sc.plugin.v1.PluginLogEvent.severity:type_name -> sc.plugin.v1.LogSeverity
+	3,  // 49: sc.plugin.v1.InputMap.FieldsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 50: sc.plugin.v1.InitStateStoreRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 51: sc.plugin.v1.InitStateStoreResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 52: sc.plugin.v1.InitSecretsProviderRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 53: sc.plugin.v1.InitSecretsProviderResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 54: sc.plugin.v1.ProviderRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 55: sc.plugin.v1.ComputeProcessRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 56: sc.plugin.v1.ComputeProcessResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 57: sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 58: sc.plugin.v1.ProvisionRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 59: sc.plugin.v1.ProvisionResponse.OutputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 60: sc.plugin.v1.ProvisionResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	6,  // 61: sc.plugin.v1.SCCloudPlugin.Schema:input_type -> sc.plugin.v1.SchemaRequest
+	11, // 62: sc.plugin.v1.SCCloudPlugin.InitStateStore:input_type -> sc.plugin.v1.InitStateStoreRequest
+	13, // 63: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:input_type -> sc.plugin.v1.InitSecretsProviderRequest
+	15, // 64: sc.plugin.v1.SCCloudPlugin.Provider:input_type -> sc.plugin.v1.ProviderRequest
+	33, // 65: sc.plugin.v1.SCCloudPlugin.Provision:input_type -> sc.plugin.v1.ProvisionRequest
+	17, // 66: sc.plugin.v1.SCCloudPlugin.ComputeProcess:input_type -> sc.plugin.v1.ComputeProcessRequest
+	21, // 67: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:input_type -> sc.plugin.v1.ProvisionRegistrarRequest
+	23, // 68: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:input_type -> sc.plugin.v1.NewDnsRecordRequest
+	25, // 69: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:input_type -> sc.plugin.v1.NewOverrideHeaderRuleRequest
+	29, // 70: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:input_type -> sc.plugin.v1.ProvisionDomainForEndpointRequest
+	31, // 71: sc.plugin.v1.SCCloudPlugin.PreDestroy:input_type -> sc.plugin.v1.PreDestroyRequest
+	35, // 72: sc.plugin.v1.SCCloudPlugin.VmHosts:input_type -> sc.plugin.v1.VmHostsRequest
+	45, // 73: sc.plugin.v1.SCCloudPlugin.LogStream:input_type -> sc.plugin.v1.LogStreamRequest
+	41, // 74: sc.plugin.v1.SCCore.ResolveSecret:input_type -> sc.plugin.v1.ResolveSecretRequest
+	43, // 75: sc.plugin.v1.SCCore.ResolveCredential:input_type -> sc.plugin.v1.ResolveCredentialRequest
+	7,  // 76: sc.plugin.v1.SCCloudPlugin.Schema:output_type -> sc.plugin.v1.SchemaResponse
+	12, // 77: sc.plugin.v1.SCCloudPlugin.InitStateStore:output_type -> sc.plugin.v1.InitStateStoreResponse
+	14, // 78: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:output_type -> sc.plugin.v1.InitSecretsProviderResponse
+	16, // 79: sc.plugin.v1.SCCloudPlugin.Provider:output_type -> sc.plugin.v1.ProviderResponse
+	34, // 80: sc.plugin.v1.SCCloudPlugin.Provision:output_type -> sc.plugin.v1.ProvisionResponse
+	18, // 81: sc.plugin.v1.SCCloudPlugin.ComputeProcess:output_type -> sc.plugin.v1.ComputeProcessResponse
+	22, // 82: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:output_type -> sc.plugin.v1.ProvisionRegistrarResponse
+	24, // 83: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:output_type -> sc.plugin.v1.NewDnsRecordResponse
+	28, // 84: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:output_type -> sc.plugin.v1.NewOverrideHeaderRuleResponse
+	30, // 85: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:output_type -> sc.plugin.v1.ProvisionDomainForEndpointResponse
+	32, // 86: sc.plugin.v1.SCCloudPlugin.PreDestroy:output_type -> sc.plugin.v1.PreDestroyResponse
+	37, // 87: sc.plugin.v1.SCCloudPlugin.VmHosts:output_type -> sc.plugin.v1.VmHostsResponse
+	46, // 88: sc.plugin.v1.SCCloudPlugin.LogStream:output_type -> sc.plugin.v1.PluginLogEvent
+	42, // 89: sc.plugin.v1.SCCore.ResolveSecret:output_type -> sc.plugin.v1.ResolveSecretResponse
+	44, // 90: sc.plugin.v1.SCCore.ResolveCredential:output_type -> sc.plugin.v1.ResolveCredentialResponse
+	76, // [76:91] is the sub-list for method output_type
+	61, // [61:76] is the sub-list for method input_type
+	61, // [61:61] is the sub-list for extension type_name
+	61, // [61:61] is the sub-list for extension extendee
+	0,  // [0:61] is the sub-list for field type_name
 }
 
 func init() { file_v1_plugin_proto_init() }
@@ -4082,7 +4129,7 @@ func file_v1_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_plugin_proto_rawDesc), len(file_v1_plugin_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   62,
+			NumMessages:   63,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
