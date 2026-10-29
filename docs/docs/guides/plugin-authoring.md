@@ -211,6 +211,170 @@ real cloud-driven work:
   [`api/pkg/plugin/vmhosts.go`](https://github.com/simple-container-com/api/blob/main/pkg/plugin/vmhosts.go)
   for the full builder surface.
 
+### 3.1 ComputeProcessor — env vars and template extensions for consumers
+
+A `ComputeProcessor` runs for every dependency resource a consuming stack
+declares (a compose service pointing at a MongoDB cluster, a Lambda
+pointing at an S3 bucket). The plugin translates the resource's
+provisioning outputs into:
+
+- **env vars** the consumer runs with (`MONGO_URI`, `DATABASE_URL`),
+  optionally secret-flagged;
+- **template extensions** — maps the consumer's config reads to resolve
+  `${resource:<name>.<key>}` and `${dependency:<name>.<resName>.<key>}`.
+
+Use `plugin.NewComputeResult()` from
+[`api/pkg/plugin/compute.go`](https://github.com/simple-container-com/api/blob/main/pkg/plugin/compute.go):
+
+```go
+import scPlugin "github.com/simple-container-com/api/pkg/plugin"
+
+func (p *myPlugin) ComputeProcess(ctx context.Context, req *scpluginv1.ComputeProcessRequest) (*scpluginv1.ComputeProcessResponse, error) {
+    return scPlugin.NewComputeResult().
+        Urn(fmt.Sprintf("<cloud>-compute:%s:%s", req.GetResourceType(), req.GetResourceName())).
+        SecretEnvVar("MONGO_URI", mongoUri, req.GetResourceType(), req.GetResourceName(), req.GetHeader().GetStackName()).
+        EnvVar("MONGO_DB", dbName, req.GetResourceType(), req.GetResourceName(), req.GetHeader().GetStackName()).
+        ResourceTplExtension(req.GetResourceName(), map[string]string{
+            "connectionString": connStr,
+            "database":         dbName,
+        }).
+        Build()
+}
+```
+
+**Open a StackReference against the parent** to pull previously-exported
+outputs. The parent-stack reference string rides in
+`req.ParentInfoJson` — JSON of
+[`pApi.ParentInfo`](https://github.com/simple-container-com/api/blob/main/pkg/clouds/pulumi/api/cloud_provider.go)
+with `FullReference`, `UsesResource`, `DependsOnResource`,
+`ResourceEnv`, `StackName`:
+
+```go
+var parent pApi.ParentInfo
+if raw := req.GetParentInfoJson(); len(raw) > 0 {
+    if err := json.Unmarshal(raw, &parent); err != nil { return nil, err }
+}
+ref, _ := sdk.NewStackReference(pctx, parent.FullReference, nil)
+projectId := ref.GetOutput(sdk.String(parent.StackName + "-project-id"))
+```
+
+!!! warning "What does NOT cross the bus"
+    `pApi.ComputeContextCollector` has methods for `AddDependency(sdk.Resource)`,
+    `AddOutput(sdk.Output)`, `AddPreProcessor`, `AddPostProcessor`. **None of
+    these are serialisable** — Pulumi resource handles and Go closures stay
+    in the plugin's own process. Apply them against the plugin's own
+    `sdk.Context` BEFORE returning from Build; the sidecar's response-
+    handling only reaches the env vars + tpl extensions. Document the
+    semantic for any helper you build on top.
+
+**Reference**: [`sc-plugin-echo/plugin/internal/compute.go`](https://github.com/simple-container-com/sc-plugin-echo/blob/main/plugin/internal/compute.go)
+— minimal stub exercising every builder method.
+
+### 3.2 PreDestroy — cleanup before Pulumi destroys
+
+A `PreDestroy` hook runs cloud-specific cleanup before Pulumi's destroy
+phase: mongodb drops databases named in service-user outputs, aws might
+drain an SQS queue. Three fields SC core packs on the request (Phase 1e):
+
+- `req.StackOutputs` — `map<string, bytes>`, each value is JSON of
+  `auto.OutputValue` (`{"value": …, "secret": bool}`). Enumerate without
+  decoding each one; filter by key suffix (mongodb matches `-service-user`)
+  before unmarshalling.
+- `req.ClientDescriptorJson` — JSON of `api.StackClientDescriptor` for
+  `stack.Client.Stacks[env]`. Hooks read `cloudExtras` off this.
+- `req.DestroyParamsJson` — JSON of `api.DestroyParams`. Carries env name
+  + dry-run flags.
+
+```go
+func (p *myPlugin) PreDestroy(ctx context.Context, req *scpluginv1.PreDestroyRequest) (*scpluginv1.PreDestroyResponse, error) {
+    // Decide whether to run from cloudExtras.
+    var desc api.StackClientDescriptor
+    if raw := req.GetClientDescriptorJson(); len(raw) > 0 {
+        _ = json.Unmarshal(raw, &desc)
+    }
+    // Enumerate stack outputs by suffix.
+    for key, raw := range req.GetStackOutputs() {
+        if !strings.HasSuffix(key, "-service-user") { continue }
+        var ov auto.OutputValue
+        if err := json.Unmarshal(raw, &ov); err == nil {
+            dropDatabase(ov.Value)
+        }
+    }
+    return &scpluginv1.PreDestroyResponse{}, nil
+}
+```
+
+!!! info "SC core is fire-and-forget on PreDestroy"
+    The sidecar does not block the destroy on your response. Return
+    `{}` even on partial-failure paths; log the failure through your
+    progress Publisher so the operator sees it, but let the destroy
+    proceed. If your cleanup is critical to data integrity, it belongs
+    in the resource's own destroy script (pulumi-command `Delete`), not
+    in PreDestroy.
+
+**Reference**: [`sc-plugin-echo/plugin/internal/pre_destroy.go`](https://github.com/simple-container-com/sc-plugin-echo/blob/main/plugin/internal/pre_destroy.go).
+
+### 3.3 Composite plugins — PeerInvoke (D8)
+
+A composite plugin needs cloud resources another plugin owns —
+`sc-plugin-mongodb`'s PrivateLink needs an AWS SecurityGroup + VpcEndpoint;
+`sc-plugin-k3s` wants both AWS and GCP. Decision D8 of
+[`06-decisions.md`](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-10-24/sc-plugin-architecture/06-decisions.md)
+rejects a direct plugin-to-plugin connection and the Go-module-import
+alternative: **SC core brokers**, exposed via the SCCore callback RPC
+`PeerInvoke`.
+
+The plugin side dials via a go-plugin broker stream SC core served
+specifically for this plugin:
+
+```go
+import scPlugin "github.com/simple-container-com/api/pkg/plugin"
+
+peer, err := scPlugin.NewPeerClient(ctx, broker, req.GetHeader())
+if err != nil { return nil, err }
+defer peer.Close()
+
+awsResp, err := peer.Provision(ctx, "sc-plugin-aws", &scpluginv1.ProvisionRequest{
+    Header:       req.GetHeader(),
+    ResourceType: "aws-security-group",
+    ResourceName: "mongodb-privatelink-sg",
+    // ... inputs ...
+})
+```
+
+The broker arrives at your plugin's `GRPCServer` method (hashicorp/go-plugin
+hands it there). Your `Impl` struct must capture it so handlers can dial
+back later:
+
+```go
+type myPlugin struct {
+    scpluginv1.UnimplementedSCCloudPluginServer
+    broker *hplugin.GRPCBroker  // captured; nil until GRPCServer runs
+    // ...
+}
+```
+
+!!! warning "Broker-capture plumbing is still open"
+    `pkg/plugin/goplugin.go`'s `scCloudPlugin.GRPCServer` currently ignores
+    the broker argument (`_`). Capturing it on the Impl requires an
+    additional one-line api change (a `BrokerAware` interface). Until that
+    lands, `NewPeerClient` on the plugin side errors with "nil broker"
+    because the plugin never gets one. This is tracked as a Phase 1e
+    follow-up; **composite plugins pattern is designed and the server
+    endpoint is live, but the plugin-side capture is not yet wired.**
+
+**Rules of the road** (D8):
+- A composite plugin NEVER imports a peer plugin's SDK as a Go module.
+  The plugin bus is the only cross-plugin contract.
+- A composite plugin NEVER maintains its own list of "which peer owns
+  which type". Call `PeerInvoke` with the operator-configured peer name
+  (from the plugin's own config), and let SC core refuse unknown peers.
+
+**References**:
+- [`api/pkg/plugin/peer.go`](https://github.com/simple-container-com/api/blob/main/pkg/plugin/peer.go) — plugin-side helper.
+- [`api/pkg/plugin/callback_server.go`](https://github.com/simple-container-com/api/blob/main/pkg/plugin/callback_server.go) — core-side server (also carries the ResolveSecret/ResolveCredential stubs — Vault pattern, Addendum R work).
+- Design: [`03-architecture.md`](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-10-24/sc-plugin-architecture/03-architecture.md) §9.
+
 ---
 
 ## 4. Test — the trap-free pattern
