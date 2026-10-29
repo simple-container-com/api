@@ -90,6 +90,9 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 		if err != nil {
 			return nil, err
 		}
+		if err := b.provisionDomainRegistrar(ctx, pluginName, input, params); err != nil {
+			return nil, err
+		}
 		stackName, env := stackAndEnv(input)
 		resp, err := cli.Provision(ctx.Context(), &scpluginv1.ProvisionRequest{
 			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, ProviderUrns: activeProviderURNs()},
@@ -106,6 +109,78 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 		}
 		return &api.ResourceOutput{Ref: fmt.Sprintf("plugin:%s:%s", pluginName, resp.GetUrn())}, nil
 	}
+}
+
+// provisionDomainRegistrar makes sure the plugin holds the registrar for the client
+// stack's `domain:` before its Provision runs.
+//
+// With several registrars core builds each one lazily, the first time it writes a
+// record in that zone itself. A plugin compute template publishes the stack's domain
+// on its own side, with a registrar it received over ProvisionRegistrar — and since
+// core never touched that zone, it never sent one: the yandex plugin answered a
+// yc-serverless-container with `domain: x.simple-forge.ru` with "no registrar for
+// domain" (and before sc-plugin-yandex#6, a nil-pointer panic).
+//
+// Only a registrar of a type THIS plugin serves is resolved. A domain whose zone
+// belongs to another registrar (e.g. Cloudflare in front of a YC container) is left
+// for the plugin to refuse with its own error, and core does not construct a
+// registrar the deploy would otherwise never have touched.
+func (b *preEnginePluginBundle) provisionDomainRegistrar(ctx *sdk.Context, pluginName string, input api.ResourceInput, params pApi.ProvisionParams) error {
+	multi, ok := params.Registrar.(*multiRegistrar)
+	if !ok {
+		// A single registrar is built eagerly by initRegistrar, so the plugin already has it.
+		return nil
+	}
+	domain := stackConfigDomain(input.Descriptor.Config.Config)
+	if domain == "" {
+		return nil
+	}
+	regType, err := multi.RegistrarTypeFor(domain)
+	if err != nil || !b.pluginServesRegistrarType(pluginName, regType) {
+		return nil
+	}
+	if _, err := multi.RegistrarFor(ctx, domain); err != nil {
+		return errors.Wrapf(err, "failed to provision registrar %q for domain %q to plugin %q", regType, domain, pluginName)
+	}
+	return nil
+}
+
+func (b *preEnginePluginBundle) pluginServesRegistrarType(pluginName, regType string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	schema, ok := b.schemas[pluginName]
+	if !ok {
+		return false
+	}
+	for _, t := range schema.GetRegistrarTypes() {
+		if t == regType {
+			return true
+		}
+	}
+	return false
+}
+
+// stackConfigDomain reads `stackConfig.domain` off a compute template's input — the
+// shape SC core converts a client stack into (the template's config plus the client's
+// whole stackConfig). It goes through JSON, as the bus does, since the input is a
+// plugin-typed struct core has no static type for.
+func stackConfigDomain(cfg any) string {
+	if cfg == nil {
+		return ""
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return ""
+	}
+	var probe struct {
+		StackConfig struct {
+			Domain string `json:"domain"`
+		} `json:"stackConfig"`
+	}
+	if err := json.Unmarshal(b, &probe); err != nil {
+		return ""
+	}
+	return probe.StackConfig.Domain
 }
 
 // --- provider sidecar: plugin creates pulumi:providers:<pkg> via monitor ---
