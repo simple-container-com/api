@@ -1,0 +1,122 @@
+{
+  "name": "PostgresConfig",
+  "type": "resource",
+  "provider": "yandex",
+  "description": "YANDEX postgres configuration",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "PostgresConfig",
+  "resourceType": "yc-postgres",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "credentials": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "credentials"
+            ],
+            "type": "object"
+          },
+          "accessKey": {
+            "type": "string"
+          },
+          "cloudId": {
+            "type": "string"
+          },
+          "folderId": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "secretAccessKey": {
+            "type": "string"
+          },
+          "serviceAccountKey": {
+            "type": "string"
+          },
+          "zone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "",
+          "cloudId",
+          "folderId"
+        ],
+        "type": "object"
+      },
+      "allowedCidrs": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "database": {
+        "type": "string"
+      },
+      "deletionProtection": {
+        "type": "boolean"
+      },
+      "diskSize": {
+        "type": "integer"
+      },
+      "diskType": {
+        "type": "string"
+      },
+      "environment": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "networkId": {
+        "type": "string"
+      },
+      "password": {
+        "type": "string"
+      },
+      "publicAccess": {
+        "type": "boolean"
+      },
+      "resourcePreset": {
+        "type": "string"
+      },
+      "serverlessAccess": {
+        "type": "boolean"
+      },
+      "subnetIds": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "username": {
+        "type": "string"
+      },
+      "version": {
+        "type": "string"
+      },
+      "zones": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "",
+      "database",
+      "password",
+      "username"
+    ],
+    "type": "object"
+  }
+}

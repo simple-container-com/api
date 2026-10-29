@@ -23,6 +23,16 @@
       "schema": {}
     },
     {
+      "name": "PostgresConfig",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX postgres configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "PostgresConfig",
+      "resourceType": "yc-postgres",
+      "schema": {}
+    },
+    {
       "name": "RegistrarConfig",
       "type": "resource",
       "provider": "yandex",

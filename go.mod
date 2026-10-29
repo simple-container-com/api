@@ -59,7 +59,7 @@ require (
 	github.com/samber/lo v1.53.0
 	github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261026175043-5eddde358585
 	github.com/simple-container-com/sc-plugin-cloudru/api v0.0.0-20261027184304-7dc7ca92c47c
-	github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261029101716-08064740daca
+	github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261029101947-9462d78c20a1
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
