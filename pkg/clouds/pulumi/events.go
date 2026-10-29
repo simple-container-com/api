@@ -71,8 +71,23 @@ func (p *pulumi) contextActionName(ctx context.Context) string {
 	return lo.If(action == nil, "unknown").Else(fmt.Sprintf("%s", action))
 }
 
+// diagSeverityWarning is the engine's severity for a warning diagnostic
+// (diag.Warning in the pulumi SDK).
+const diagSeverityWarning = "warning"
+
+// procDiagnosticEvent prints engine diagnostics. Warnings go out at WARN with
+// the resource URN and the whole message: a provider may report a failed
+// operation only as a warning (terraform-provider-yandex does so for a failed
+// serverless container revision deploy), and the update still succeeds, so
+// the warning is the only trace of the failure. Every other severity keeps
+// the INFO line, which also carries docker build/push progress.
 func (p *pulumi) procDiagnosticEvent(ctx context.Context, evt events.EngineEvent) {
-	p.logger.Info(ctx, "[%s][pulumi/diagnostic] %s: %s", p.contextActionName(ctx), evt.DiagnosticEvent.URN, evt.DiagnosticEvent.Message)
+	d := evt.DiagnosticEvent
+	if d.Severity == diagSeverityWarning {
+		p.logger.Warn(ctx, "[%s][pulumi/warning] %s: %s", p.contextActionName(ctx), d.URN, strings.TrimRight(d.Message, "\n"))
+		return
+	}
+	p.logger.Info(ctx, "[%s][pulumi/diagnostic] %s: %s", p.contextActionName(ctx), d.URN, d.Message)
 }
 
 func (p *pulumi) procPolicyEvent(ctx context.Context, evt events.EngineEvent) {
