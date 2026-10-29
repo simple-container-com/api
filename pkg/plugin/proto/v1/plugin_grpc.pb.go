@@ -634,6 +634,7 @@ var SCCloudPlugin_ServiceDesc = grpc.ServiceDesc{
 const (
 	SCCore_ResolveSecret_FullMethodName     = "/sc.plugin.v1.SCCore/ResolveSecret"
 	SCCore_ResolveCredential_FullMethodName = "/sc.plugin.v1.SCCore/ResolveCredential"
+	SCCore_PeerInvoke_FullMethodName        = "/sc.plugin.v1.SCCore/PeerInvoke"
 )
 
 // SCCoreClient is the client API for SCCore service.
@@ -642,10 +643,17 @@ const (
 //
 // SCCore — the callback surface SC core exposes to a plugin. Lets the plugin
 // resolve secrets and credentials without SC core sending them in cleartext
-// over the plugin bus up front (Vault pattern — see 03 §6.3).
+// over the plugin bus up front (Vault pattern — see 03 §6.3), and lets a
+// composite plugin invoke a peer plugin's RPCs without taking a Go module
+// dependency on it (D8 PeerInvoke — see 03 §9).
+//
+// Reached by dialling RequestHeader.sccore_broker_stream over the plugin's
+// hashicorp/go-plugin GRPCBroker. On the host side, SC core serves this
+// service on that stream for every spawned plugin; see pkg/plugin/callback_server.go.
 type SCCoreClient interface {
 	ResolveSecret(ctx context.Context, in *ResolveSecretRequest, opts ...grpc.CallOption) (*ResolveSecretResponse, error)
 	ResolveCredential(ctx context.Context, in *ResolveCredentialRequest, opts ...grpc.CallOption) (*ResolveCredentialResponse, error)
+	PeerInvoke(ctx context.Context, in *PeerInvokeRequest, opts ...grpc.CallOption) (*PeerInvokeResponse, error)
 }
 
 type sCCoreClient struct {
@@ -676,16 +684,33 @@ func (c *sCCoreClient) ResolveCredential(ctx context.Context, in *ResolveCredent
 	return out, nil
 }
 
+func (c *sCCoreClient) PeerInvoke(ctx context.Context, in *PeerInvokeRequest, opts ...grpc.CallOption) (*PeerInvokeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PeerInvokeResponse)
+	err := c.cc.Invoke(ctx, SCCore_PeerInvoke_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SCCoreServer is the server API for SCCore service.
 // All implementations must embed UnimplementedSCCoreServer
 // for forward compatibility.
 //
 // SCCore — the callback surface SC core exposes to a plugin. Lets the plugin
 // resolve secrets and credentials without SC core sending them in cleartext
-// over the plugin bus up front (Vault pattern — see 03 §6.3).
+// over the plugin bus up front (Vault pattern — see 03 §6.3), and lets a
+// composite plugin invoke a peer plugin's RPCs without taking a Go module
+// dependency on it (D8 PeerInvoke — see 03 §9).
+//
+// Reached by dialling RequestHeader.sccore_broker_stream over the plugin's
+// hashicorp/go-plugin GRPCBroker. On the host side, SC core serves this
+// service on that stream for every spawned plugin; see pkg/plugin/callback_server.go.
 type SCCoreServer interface {
 	ResolveSecret(context.Context, *ResolveSecretRequest) (*ResolveSecretResponse, error)
 	ResolveCredential(context.Context, *ResolveCredentialRequest) (*ResolveCredentialResponse, error)
+	PeerInvoke(context.Context, *PeerInvokeRequest) (*PeerInvokeResponse, error)
 	mustEmbedUnimplementedSCCoreServer()
 }
 
@@ -701,6 +726,9 @@ func (UnimplementedSCCoreServer) ResolveSecret(context.Context, *ResolveSecretRe
 }
 func (UnimplementedSCCoreServer) ResolveCredential(context.Context, *ResolveCredentialRequest) (*ResolveCredentialResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ResolveCredential not implemented")
+}
+func (UnimplementedSCCoreServer) PeerInvoke(context.Context, *PeerInvokeRequest) (*PeerInvokeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PeerInvoke not implemented")
 }
 func (UnimplementedSCCoreServer) mustEmbedUnimplementedSCCoreServer() {}
 func (UnimplementedSCCoreServer) testEmbeddedByValue()                {}
@@ -759,6 +787,24 @@ func _SCCore_ResolveCredential_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
+func _SCCore_PeerInvoke_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PeerInvokeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCoreServer).PeerInvoke(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCore_PeerInvoke_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCoreServer).PeerInvoke(ctx, req.(*PeerInvokeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SCCore_ServiceDesc is the grpc.ServiceDesc for SCCore service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -773,6 +819,10 @@ var SCCore_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ResolveCredential",
 			Handler:    _SCCore_ResolveCredential_Handler,
+		},
+		{
+			MethodName: "PeerInvoke",
+			Handler:    _SCCore_PeerInvoke_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
