@@ -33,6 +33,12 @@ type ClientConfig struct {
 	// Logger passed to the plugin via stdout/stderr capture (hashicorp/go-plugin
 	// prefixes every captured line with the plugin's binary path). Required.
 	Logger hclog.Logger
+
+	// Peer, if set, is the dispatcher SC core's SCCore endpoint uses to
+	// route this plugin's PeerInvoke calls to another loaded plugin's
+	// SCCloudPlugin RPC. Nil means PeerInvoke answers Unimplemented —
+	// safe for every non-composite plugin and for test harnesses.
+	Peer PeerDispatcher
 }
 
 // Client is a connected handle to a running cloud plugin. The caller SHOULD
@@ -40,6 +46,11 @@ type ClientConfig struct {
 type Client struct {
 	gpClient *hplugin.Client
 	stub     scpluginv1.SCCloudPluginClient
+	// sccoreBrokerStream is the go-plugin broker stream id SC core
+	// serves its SCCore endpoint on for THIS plugin. The sidecar passes
+	// it in RequestHeader.sccore_broker_stream so the plugin knows what
+	// to dial for PeerInvoke / ResolveSecret / ResolveCredential.
+	sccoreBrokerStream uint32
 }
 
 // NewClient spawns a plugin binary and dials its gRPC server. It validates
@@ -61,7 +72,7 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 
 	gp := hplugin.NewClient(&hplugin.ClientConfig{
 		HandshakeConfig:  Handshake,
-		Plugins:          PluginSet(nil), // host side: Impl is nil
+		Plugins:          pluginSet(nil, cfg.Peer), // host side: Impl is nil, Peer is the composite-plugin dispatcher
 		Cmd:              exec.Command(cfg.Path),
 		AllowedProtocols: []hplugin.Protocol{hplugin.ProtocolGRPC},
 		Managed:          managed,
@@ -81,13 +92,19 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		return nil, errors.Wrapf(err, "failed to dispense plugin %q", PluginName)
 	}
 
-	stub, ok := raw.(scpluginv1.SCCloudPluginClient)
+	// The host-side GRPCClient wraps the stub in scCloudPluginClient so
+	// we can carry the SCCore broker stream id out to the Client.
+	wrapper, ok := raw.(*scCloudPluginClient)
 	if !ok {
 		gp.Kill()
-		return nil, errors.Errorf("dispensed plugin is of type %T, not SCCloudPluginClient", raw)
+		return nil, errors.Errorf("dispensed plugin is of type %T, not *scCloudPluginClient", raw)
 	}
 
-	return &Client{gpClient: gp, stub: stub}, nil
+	return &Client{
+		gpClient:           gp,
+		stub:               wrapper.stub,
+		sccoreBrokerStream: wrapper.brokerID,
+	}, nil
 }
 
 // NewClientWithStub wraps an already-connected (or fake) gRPC stub, without
@@ -99,60 +116,95 @@ func NewClientWithStub(stub scpluginv1.SCCloudPluginClient) *Client {
 	return &Client{stub: stub}
 }
 
+// SccoreBrokerStream is the go-plugin broker stream id SC core serves
+// its SCCore endpoint on for this plugin. Zero if the Client was built
+// from a stub (test harnesses) rather than from a real plugin spawn.
+// Sidecars include this in RequestHeader.sccore_broker_stream so the
+// plugin knows what to dial for PeerInvoke / ResolveSecret /
+// ResolveCredential.
+func (c *Client) SccoreBrokerStream() uint32 {
+	return c.sccoreBrokerStream
+}
+
+// stampHeader fills in fields SC core always knows but each sidecar
+// otherwise has to remember to populate — specifically SccoreBrokerStream,
+// so a plugin can dial back for PeerInvoke / ResolveSecret /
+// ResolveCredential. Called at the top of every RPC wrapper below.
+// No-op when h is nil (defensive — every real caller passes a header).
+func (c *Client) stampHeader(h *scpluginv1.RequestHeader) {
+	if h == nil {
+		return
+	}
+	if h.SccoreBrokerStream == 0 {
+		h.SccoreBrokerStream = c.sccoreBrokerStream
+	}
+}
+
 // Schema returns the plugin's advertised schema. Called once at SC core startup
 // after a plugin is spawned, before any dispatch to that plugin.
 func (c *Client) Schema(ctx context.Context, header *scpluginv1.RequestHeader) (*scpluginv1.SchemaResponse, error) {
+	c.stampHeader(header)
 	return c.stub.Schema(ctx, &scpluginv1.SchemaRequest{Header: header})
 }
 
 // Provider calls through to the plugin's Provider RPC — registers the explicit
 // pulumi:providers:<pkg> resource against the shared Pulumi monitor.
 func (c *Client) Provider(ctx context.Context, req *scpluginv1.ProviderRequest) (*scpluginv1.ProviderResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.Provider(ctx, req)
 }
 
 // Provision calls through to the plugin's Provision RPC — the main workhorse.
 func (c *Client) Provision(ctx context.Context, req *scpluginv1.ProvisionRequest) (*scpluginv1.ProvisionResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.Provision(ctx, req)
 }
 
 // InitStateStore calls through to the plugin's InitStateStore RPC.
 func (c *Client) InitStateStore(ctx context.Context, req *scpluginv1.InitStateStoreRequest) (*scpluginv1.InitStateStoreResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.InitStateStore(ctx, req)
 }
 
 // InitSecretsProvider calls through to the plugin's InitSecretsProvider RPC.
 func (c *Client) InitSecretsProvider(ctx context.Context, req *scpluginv1.InitSecretsProviderRequest) (*scpluginv1.InitSecretsProviderResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.InitSecretsProvider(ctx, req)
 }
 
 // ComputeProcess calls through to the plugin's ComputeProcess RPC.
 func (c *Client) ComputeProcess(ctx context.Context, req *scpluginv1.ComputeProcessRequest) (*scpluginv1.ComputeProcessResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.ComputeProcess(ctx, req)
 }
 
 // ProvisionRegistrar calls through to the plugin's ProvisionRegistrar RPC.
 func (c *Client) ProvisionRegistrar(ctx context.Context, req *scpluginv1.ProvisionRegistrarRequest) (*scpluginv1.ProvisionRegistrarResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.ProvisionRegistrar(ctx, req)
 }
 
 // PreDestroy calls through to the plugin's PreDestroy RPC.
 func (c *Client) PreDestroy(ctx context.Context, req *scpluginv1.PreDestroyRequest) (*scpluginv1.PreDestroyResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.PreDestroy(ctx, req)
 }
 
 // NewDnsRecord calls through to the plugin's NewDnsRecord RPC (Phase 1b).
 func (c *Client) NewDnsRecord(ctx context.Context, req *scpluginv1.NewDnsRecordRequest) (*scpluginv1.NewDnsRecordResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.NewDnsRecord(ctx, req)
 }
 
 // NewOverrideHeaderRule calls through to the plugin's NewOverrideHeaderRule RPC (Phase 1b).
 func (c *Client) NewOverrideHeaderRule(ctx context.Context, req *scpluginv1.NewOverrideHeaderRuleRequest) (*scpluginv1.NewOverrideHeaderRuleResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.NewOverrideHeaderRule(ctx, req)
 }
 
 // ProvisionDomainForEndpoint calls through to the plugin's ProvisionDomainForEndpoint RPC (Phase 1b).
 func (c *Client) ProvisionDomainForEndpoint(ctx context.Context, req *scpluginv1.ProvisionDomainForEndpointRequest) (*scpluginv1.ProvisionDomainForEndpointResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.ProvisionDomainForEndpoint(ctx, req)
 }
 
@@ -163,6 +215,7 @@ func (c *Client) ProvisionDomainForEndpoint(ctx context.Context, req *scpluginv1
 // plugin does not know yet; pkg/clouds/pulumi/vm turns them back into Outputs with
 // pkg/plugin/outputref.go.
 func (c *Client) VmHosts(ctx context.Context, req *scpluginv1.VmHostsRequest) (*scpluginv1.VmHostsResponse, error) {
+	c.stampHeader(req.GetHeader())
 	return c.stub.VmHosts(ctx, req)
 }
 

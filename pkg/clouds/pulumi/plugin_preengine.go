@@ -136,6 +136,13 @@ func (b *preEnginePluginBundle) loadOne(ctx context.Context, name string, spec a
 		Path:    resolvedPath,
 		Managed: true,
 		Logger:  hcLog,
+		// Wire the composite-plugin broker. Each spawned plugin gets its
+		// own SCCore endpoint; a PeerInvoke call on it dispatches by
+		// plugin name back into THIS bundle's registry. The dispatcher
+		// captures the bundle so lookups route to all plugins loaded in
+		// this process, including those that spawn after this one — the
+		// lookup is lazy, done at call time.
+		Peer: &bundlePeerDispatcher{bundle: b},
 	})
 	if err != nil {
 		return err
