@@ -1,0 +1,202 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) Simple Container
+
+package helpers
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/pkg/errors"
+	"github.com/samber/lo"
+
+	"github.com/aws/aws-lambda-go/lambda"
+	"github.com/aws/aws-secretsmanager-caching-go/v2/secretcache"
+
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/clouds/discord"
+	"github.com/simple-container-com/api/pkg/clouds/slack"
+	"github.com/simple-container-com/api/pkg/clouds/telegram"
+	"github.com/simple-container-com/api/pkg/util"
+)
+
+const CHCloudwatchAlertLambda api.CloudHelperType = "sc-helper-aws-cloudwatch-alert-lambda"
+
+type AlarmState struct {
+	Reason    string          `json:"reason"`    // Threshold Crossed: 1 datapoint [6.638074000676473 (14/05/24 09:53:00)] was not greater than the threshold (10.0).
+	Value     AlarmStateValue `json:"value"`     // OK
+	Timestamp string          `json:"timestamp"` // 2026-04-22T14:32:30.123+0000 — when the alarm transitioned into this state
+}
+
+type AlarmEvent struct {
+	AccountId string    `json:"accountId"` // 471112843480
+	AlarmArn  string    `json:"alarmArn"`  // arn:aws:cloudwatch:eu-central-1:471112843480:alarm:seeact-max-cpu-metric-alarm-a275ddf
+	AlarmData AlarmData `json:"alarmData"`
+	Region    string    `json:"region"` // eu-central-1
+}
+
+type AlarmData struct {
+	AlarmName     string      `json:"alarmName"` // seeact-max-cpu-metric-alarm-a275ddf
+	State         AlarmState  `json:"state"`
+	PreviousState AlarmState  `json:"previousState"`
+	Configuration AlarmConfig `json:"configuration"`
+}
+
+type AlarmConfig struct {
+	Description string `json:"description"` // SeeAct CPU usage exceeds 10%
+}
+
+type AlarmStateValue string
+
+const (
+	ALARM AlarmStateValue = "ALARM"
+	OK    AlarmStateValue = "OK"
+)
+
+var secretCache, _ = secretcache.New()
+
+func (l *cloudwatchEventsLambda) handler(ctx context.Context, event any) error {
+	l.log.Info(ctx, "lambda executing handler with event... %s", sanitizeForLog(event))
+
+	var alarmEvent *AlarmEvent
+	if d, ok := event.(map[string]any); !ok {
+		return errors.Errorf("event is not of type map[string]any")
+	} else if e, err := util.ToObjectViaJson(d, alarmEvent); err != nil {
+		return errors.Wrapf(err, "failed to convert incoming event to *AlarmEvent")
+	} else {
+		alarmEvent = e
+	}
+
+	l.log.Info(ctx, "unmarshalled cloudwatch event: %v", alarmEvent)
+
+	stackName := os.Getenv(api.ComputeEnv.StackName)
+	stackEnv := os.Getenv(api.ComputeEnv.StackEnv)
+	alertName := os.Getenv(api.ComputeEnv.AlertName)
+	alertDescription := os.Getenv(api.ComputeEnv.AlertDescription)
+
+	l.log.Info(ctx, "sending event for stack %q in %q", stackName, stackEnv)
+
+	nfAlert := api.Alert{
+		Name:        alertName,
+		Title:       alertName,
+		Description: alertDescription,
+		Reason:      alarmEvent.AlarmData.State.Reason,
+		StackName:   stackName,
+		StackEnv:    stackEnv,
+		AlertType:   lo.If(alarmEvent.AlarmData.State.Value == ALARM, api.AlertTriggered).Else(api.AlertResolved),
+		DetailsUrl: fmt.Sprintf("https://%s.console.aws.amazon.com/cloudwatch/home?region=%s#alarmsV2:alarm/%s",
+			alarmEvent.Region, alarmEvent.Region, alarmEvent.AlarmData.AlarmName),
+	}
+
+	// Enrich the notification with the CloudTrail events that actually fed this
+	// alarm, when the CloudTrailSecurityAlerts provisioner has configured the
+	// Lambda with log-group + filter-pattern env vars. For generic ALB/CPU/memory
+	// alerts those vars are unset and this is a no-op.
+	if nfAlert.AlertType == api.AlertTriggered {
+		enrichCfg := enrichmentConfig{
+			LogGroupName:   os.Getenv(api.ComputeEnv.CtLogGroupName),
+			LogGroupRegion: os.Getenv(api.ComputeEnv.CtLogGroupRegion),
+			FilterPattern:  os.Getenv(api.ComputeEnv.CtFilterPattern),
+		}
+		if enrichCfg.LogGroupName != "" && enrichCfg.FilterPattern != "" {
+			firedAt := parseAlarmStateTimestamp(alarmEvent.AlarmData.State.Timestamp)
+			events, total, err := lookupTriggeringEvents(ctx, l.log, enrichCfg, firedAt, 5)
+			if err != nil {
+				// Never fail the alert over an enrichment error — notification
+				// with less info is still vastly better than no notification.
+				l.log.Warn(ctx, "cloudtrail enrichment failed: %v", err)
+			} else if len(events) > 0 {
+				nfAlert.Description += formatEventsForNotification(events, total)
+			}
+		}
+	}
+
+	// send discord notifications if configured
+	if discordWebhookSecret := os.Getenv(api.ComputeEnv.DiscordWebhookUrl); discordWebhookSecret == "" {
+		l.log.Info(ctx, "discord notification isn't configured")
+	} else if discordWebhook, err := secretCache.GetSecretString(discordWebhookSecret); err != nil {
+		l.log.Error(ctx, "failed to get discord webhook secret value: %v", err)
+	} else if d, err := discord.New(discordWebhook); err != nil {
+		l.log.Error(ctx, "failed to create discord webhook client: %v", err)
+	} else if err := d.Send(nfAlert); err != nil {
+		l.log.Error(ctx, "failed to send alert to discord: %v", err)
+	}
+
+	// send slack notifications is configured
+	if slackWebhookSecret := os.Getenv(api.ComputeEnv.SlackWebhookUrl); slackWebhookSecret == "" {
+		l.log.Info(ctx, "slack notification isn't configured")
+	} else if slackWebhook, err := secretCache.GetSecretString(slackWebhookSecret); err != nil {
+		l.log.Error(ctx, "failed to get slack webhook secret value: %v", err)
+	} else if d, err := slack.New(slackWebhook); err != nil {
+		l.log.Error(ctx, "failed to create slack webhook client: %v", err)
+	} else if err := d.Send(nfAlert); err != nil {
+		l.log.Error(ctx, "failed to send alert to slack: %v", err)
+	}
+
+	// send telegram notification if configured
+	telegramChatId := os.Getenv(api.ComputeEnv.TelegramChatID)
+	if telegramTokenSecret := os.Getenv(api.ComputeEnv.TelegramToken); telegramTokenSecret == "" {
+		l.log.Info(ctx, "telegram notification isn't configured")
+	} else if telegramToken, err := secretCache.GetSecretString(telegramTokenSecret); err != nil {
+		l.log.Error(ctx, "failed to get telegram webhook secret value: %v", err)
+	} else {
+		if err := telegram.New(telegramChatId, telegramToken).Send(nfAlert); err != nil {
+			l.log.Error(ctx, "failed to send alert to telegram: %v", err)
+		}
+	}
+
+	return nil
+}
+
+type cloudwatchEventsLambda struct {
+	log logger.Logger
+}
+
+func (l *cloudwatchEventsLambda) Run() error {
+	l.log.Info(context.Background(), "starting cloudwatch alerts...")
+	lambda.Start(l.handler)
+	l.log.Info(context.Background(), "lambda helper exited")
+	return nil
+}
+
+func (l *cloudwatchEventsLambda) SetLogger(log logger.Logger) {
+	l.log = log
+}
+
+// parseAlarmStateTimestamp parses a CloudWatch AlarmData.State.Timestamp string.
+// CloudWatch emits the timestamp in RFC3339 with milliseconds and a zone offset
+// without a colon, e.g. "2026-04-22T14:32:30.123+0000". time.RFC3339 accepts
+// "+00:00" only, so we also try a relaxed layout before giving up. On parse
+// failure we fall back to time.Now() so the lookup window still covers the
+// near past — the underlying data is still in CloudTrail, we just use a looser
+// anchor.
+func parseAlarmStateTimestamp(raw string) time.Time {
+	if raw == "" {
+		return time.Now().UTC()
+	}
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.000-0700",
+		"2006-01-02T15:04:05-0700",
+	} {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t.UTC()
+		}
+	}
+	return time.Now().UTC()
+}
+
+func NewCloudwatchLambdaHelper(opts ...api.CloudHelperOption) (api.CloudHelper, error) {
+	res := &cloudwatchEventsLambda{}
+
+	for _, opt := range opts {
+		if err := opt(res); err != nil {
+			return nil, errors.Wrapf(err, "failed to apply option on lambda helper")
+		}
+	}
+	return res, nil
+}
