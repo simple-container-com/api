@@ -24,6 +24,7 @@ import (
 	// step — `sc-plugin-cloudflare/api` was required but never imported.
 	_ "github.com/simple-container-com/sc-plugin-cloudflare/api"
 	_ "github.com/simple-container-com/sc-plugin-cloudru/api"
+	_ "github.com/simple-container-com/sc-plugin-mongodb/api"
 	_ "github.com/simple-container-com/sc-plugin-yandex/api"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -34,7 +35,6 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/aws"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/k3s"
-	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/mongodb"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
 )
 

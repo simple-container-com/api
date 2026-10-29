@@ -5,18 +5,49 @@ package kubernetes
 
 import (
 	"fmt"
+	"net/url"
+	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
 	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/mongodb"
 	"github.com/simple-container-com/api/pkg/util"
 )
+
+// appendUserPasswordAndDBToMongoUri injects user+password credentials and a
+// database path into a MongoDB connection URI. Inlined from the now-deleted
+// pkg/clouds/pulumi/mongodb/util.go — the one caller is below (oplog URI
+// for the Helm MongoDB operator), and sc-plugin-mongodb's own copy stays
+// internal to that plugin.
+func appendUserPasswordAndDBToMongoUri(mongoUri, user, password, dbName string) string {
+	schemeEnd := strings.Index(mongoUri, "://")
+	if schemeEnd == -1 {
+		return mongoUri
+	}
+	scheme := mongoUri[:schemeEnd]
+	rest := mongoUri[schemeEnd+3:]
+
+	if at := strings.LastIndex(rest, "@"); at != -1 {
+		rest = rest[at+1:]
+	}
+
+	hosts := rest
+	query := ""
+	if q := strings.IndexByte(rest, '?'); q != -1 {
+		hosts = rest[:q]
+		query = rest[q:]
+	}
+	if p := strings.IndexByte(hosts, '/'); p != -1 {
+		hosts = hosts[:p]
+	}
+
+	creds := url.UserPassword(user, password).String()
+	return scheme + "://" + creds + "@" + hosts + "/" + dbName + query
+}
 
 func HelmMongodbOperatorComputeProcessor(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if params.ParentStack == nil {
@@ -102,7 +133,7 @@ func appendUsesMongodbResourceContext(ctx *sdk.Context, params mongodbAppendPara
 			params.input.Descriptor.Type, params.input.Descriptor.Name, params.provisionParams.ParentStack.StackName)
 
 		// oplog uri is necessary for apps that would like to read mongo's oplog
-		oplogMongoUri := mongodb.AppendUserPasswordAndDBToMongoUri(connection.ConnectionString(), connection.Username, connection.Password, "local")
+		oplogMongoUri := appendUserPasswordAndDBToMongoUri(connection.ConnectionString(), connection.Username, connection.Password, "local")
 
 		params.collector.AddResourceTplExtension(params.input.Descriptor.Name, map[string]string{
 			"password": connection.Password,

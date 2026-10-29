@@ -16,6 +16,7 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
+	_ "github.com/simple-container-com/sc-plugin-mongodb/api"
 	"github.com/simple-container-com/sc-plugin-yandex/api"
 
 	// Core API package for registration maps and configuration structs
@@ -32,7 +33,6 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/github"
 	_ "github.com/simple-container-com/api/pkg/clouds/k3s"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
-	_ "github.com/simple-container-com/api/pkg/clouds/mongodb"
 	_ "github.com/simple-container-com/api/pkg/clouds/slack"
 	_ "github.com/simple-container-com/api/pkg/clouds/telegram"
 	_ "github.com/simple-container-com/api/pkg/clouds/vm"
