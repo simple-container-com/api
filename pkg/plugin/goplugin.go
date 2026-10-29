@@ -37,33 +37,79 @@ var Handshake = hplugin.HandshakeConfig{
 const PluginName = "sc_cloud_plugin"
 
 // scCloudPlugin satisfies hashicorp/go-plugin's Plugin interface for the
-// SCCloudPlugin gRPC service. The host-side GRPCClient returns a gRPC stub the
-// SC-core code can call; the plugin-side GRPCServer attaches the author's
-// implementation to the plugin's gRPC server.
+// SCCloudPlugin gRPC service. The host-side GRPCClient returns a wrapper
+// that carries both the plugin stub and the broker stream id SC core
+// serves its SCCore callback on; the plugin-side GRPCServer attaches
+// the author's implementation to the plugin's gRPC server.
 type scCloudPlugin struct {
 	hplugin.Plugin
-	Impl scpluginv1.SCCloudPluginServer // set by plugin authors; nil on the host side
+
+	// Impl is set by plugin authors; nil on the host side.
+	Impl scpluginv1.SCCloudPluginServer
+
+	// Peer dispatches a PeerInvoke callback across to another loaded
+	// plugin. Non-nil on the host side when SC core wants to expose the
+	// SCCore endpoint over the plugin's go-plugin broker (D8 PeerInvoke
+	// — see 03 §9). Nil on the plugin side; nil on the host side when
+	// composite plugins aren't needed. When nil, GRPCClient still picks
+	// a broker stream id and serves an SCCore endpoint that answers
+	// Unimplemented, so a plugin that calls PeerInvoke anyway gets a
+	// clear error rather than a hang.
+	Peer PeerDispatcher
+}
+
+// scCloudPluginClient wraps the SCCloudPlugin stub with the broker
+// stream id SC core picked for this plugin's SCCore callback endpoint.
+// Returned from GRPCClient on the host side so NewClient can carry both
+// through to the Client struct's SccoreBrokerStream().
+type scCloudPluginClient struct {
+	stub     scpluginv1.SCCloudPluginClient
+	brokerID uint32
 }
 
 // GRPCServer wires the author-supplied implementation into the plugin binary's
-// gRPC server. The MuxBroker argument is unused in v1 — bidirectional sub-channels
-// are reserved for later (Fingerprint stream, callback multiplexing).
+// gRPC server. The MuxBroker argument is live but unused on the plugin side:
+// the plugin dials SCCore via its own `broker.Dial(id)` from inside the
+// handler that needs it (see pkg/plugin/peer.go).
 func (p *scCloudPlugin) GRPCServer(_ *hplugin.GRPCBroker, s *grpc.Server) error {
 	scpluginv1.RegisterSCCloudPluginServer(s, p.Impl)
 	return nil
 }
 
-// GRPCClient returns a client stub the SC-core-side code uses to call Schema,
-// Provision, Provider, InitStateStore. The context, broker, and conn arguments
-// are the hashicorp/go-plugin standard — v1 only uses conn.
-func (p *scCloudPlugin) GRPCClient(_ context.Context, _ *hplugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
-	return scpluginv1.NewSCCloudPluginClient(c), nil
+// GRPCClient returns a client wrapper the SC-core-side code uses to call
+// Schema, Provision, Provider, InitStateStore. Also picks a go-plugin broker
+// stream id and starts serving the SCCore callback service on it so a
+// composite plugin can dial back for PeerInvoke (D8).
+//
+// AcceptAndServe runs in a goroutine; it ends when the broker stream
+// closes, which happens when the plugin exits.
+func (p *scCloudPlugin) GRPCClient(_ context.Context, broker *hplugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
+	brokerID := broker.NextId()
+	// Register the SCCore server for THIS plugin. Peer may be nil — the
+	// callback server answers Unimplemented in that case.
+	cb := NewCallbackServer(p.Peer)
+	go broker.AcceptAndServe(brokerID, func(opts []grpc.ServerOption) *grpc.Server {
+		s := grpc.NewServer(opts...)
+		scpluginv1.RegisterSCCoreServer(s, cb)
+		return s
+	})
+	return &scCloudPluginClient{
+		stub:     scpluginv1.NewSCCloudPluginClient(c),
+		brokerID: brokerID,
+	}, nil
 }
 
-// PluginSet is the map hashicorp/go-plugin uses to resolve the Plugin by name.
-// Pass a non-nil Impl on the plugin side; leave it nil on the host side.
-func PluginSet(impl scpluginv1.SCCloudPluginServer) hplugin.PluginSet {
+// pluginSet is the map hashicorp/go-plugin uses to resolve the Plugin by name.
+// Pass a non-nil Impl on the plugin side; pass a non-nil Peer on the host
+// side when composite plugins are needed.
+func pluginSet(impl scpluginv1.SCCloudPluginServer, peer PeerDispatcher) hplugin.PluginSet {
 	return hplugin.PluginSet{
-		PluginName: &scCloudPlugin{Impl: impl},
+		PluginName: &scCloudPlugin{Impl: impl, Peer: peer},
 	}
+}
+
+// PluginSet is the plugin-side PluginSet (Impl set, no Peer).
+// Kept for Serve() callers in plugin binaries.
+func PluginSet(impl scpluginv1.SCCloudPluginServer) hplugin.PluginSet {
+	return pluginSet(impl, nil)
 }

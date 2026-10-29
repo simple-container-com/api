@@ -61,8 +61,16 @@ message RequestHeader {
   // see 04-no-destroy-invariant.md §3.
   map<string, string> provider_urns = 8;
 
+  // SCCore callback broker stream id — the hashicorp/go-plugin
+  // GRPCBroker ID the plugin dials to reach SC core's SCCore service
+  // (ResolveSecret, ResolveCredential, PeerInvoke). Zero means SC core
+  // does not expose a callback endpoint (older cores, or test harnesses
+  // that spawn plugins without a broker); the plugin must then skip any
+  // SCCore RPC. Added in Phase 1e for D8 (PeerInvoke).
+  uint32 sccore_broker_stream = 9;
+
   // Reserved for future use. Not v1.
-  reserved 9 to 15;
+  reserved 10 to 15;
 }
 
 // InputValue is the typed carrier for a resource input or a config field on the
@@ -776,8 +784,55 @@ message PluginLogEvent {
 
 // SCCore — the callback surface SC core exposes to a plugin. Lets the plugin
 // resolve secrets and credentials without SC core sending them in cleartext
-// over the plugin bus up front (Vault pattern — see 03 §6.3).
+// over the plugin bus up front (Vault pattern — see 03 §6.3), and lets a
+// composite plugin invoke a peer plugin's RPCs without taking a Go module
+// dependency on it (D8 PeerInvoke — see 03 §9).
+//
+// Reached by dialling RequestHeader.sccore_broker_stream over the plugin's
+// hashicorp/go-plugin GRPCBroker. On the host side, SC core serves this
+// service on that stream for every spawned plugin; see pkg/plugin/callback_server.go.
 service SCCore {
   rpc ResolveSecret(ResolveSecretRequest) returns (ResolveSecretResponse);
   rpc ResolveCredential(ResolveCredentialRequest) returns (ResolveCredentialResponse);
+  rpc PeerInvoke(PeerInvokeRequest) returns (PeerInvokeResponse);
+}
+
+// PeerInvoke lets a composite plugin ask SC core to run one RPC on
+// another plugin. The target is named by its SC plugin name
+// (`sc-plugin-aws` etc.) and the RPC by the SCCloudPlugin method name
+// (`Provision`, `Provider`, `NewDnsRecord`, ...); SC core looks the
+// plugin up in its loaded registry and dispatches.
+//
+// Why plugin → core → plugin and not plugin → plugin: a direct
+// plugin-to-plugin connection would reintroduce the M×N discovery /
+// security / version matrix D8 explicitly rejects. SC core as broker
+// means every plugin only knows one callback endpoint.
+//
+// Payloads are proto bytes. The plugin-side helper (pkg/plugin/peer.go)
+// marshals/unmarshals typed requests and responses; the server side
+// does the same against the target plugin's client stub.
+message PeerInvokeRequest {
+  // The short-lived scoped token from the plugin's own RequestHeader.
+  // SC core validates this before accepting the invocation to prevent
+  // a plugin spoofing another plugin's identity.
+  string run_token = 1;
+  // The target plugin's advertised name — the one SC core assigned on
+  // load (`sc-plugin-aws`, `sc-plugin-cloudflare`, ...).
+  string plugin_name = 2;
+  // The SCCloudPlugin service method to invoke. Case-sensitive, matches
+  // the proto method name exactly.
+  string rpc_name = 3;
+  // Serialised SCCloudPlugin sub-request (proto wire format). The server
+  // routes based on rpc_name and unmarshals into the matching request
+  // message type.
+  bytes payload = 4;
+}
+
+message PeerInvokeResponse {
+  // Serialised SCCloudPlugin sub-response (proto wire format), when the
+  // target plugin's RPC succeeded.
+  bytes payload = 1;
+  // Non-empty on target-plugin error. Carries the Go error text; the
+  // caller wraps it as a Go error.
+  string error = 2;
 }
