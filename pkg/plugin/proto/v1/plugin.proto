@@ -61,8 +61,15 @@ message RequestHeader {
   // see 04-no-destroy-invariant.md §3.
   map<string, string> provider_urns = 8;
 
+  // True when the engine is running a preview (`sc deploy -P`, the preview pass of
+  // `sc deploy`). A plugin opens its pulumi.Context with RunInfo.DryRun set from
+  // this, and must not perform side effects outside the engine (object uploads,
+  // API calls that mutate the cloud) while it is true — the engine itself never
+  // creates anything during a preview, but code a plugin runs in an Apply does.
+  bool dry_run = 9;
+
   // Reserved for future use. Not v1.
-  reserved 9 to 15;
+  reserved 10 to 15;
 }
 
 // InputValue is the typed carrier for a resource input or a config field on the

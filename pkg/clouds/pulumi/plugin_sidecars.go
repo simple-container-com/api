@@ -92,7 +92,7 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 		}
 		stackName, env := stackAndEnv(input)
 		resp, err := cli.Provision(ctx.Context(), &scpluginv1.ProvisionRequest{
-			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, ProviderUrns: activeProviderURNs()},
+			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, ProviderUrns: activeProviderURNs(), DryRun: ctx.DryRun()},
 			ResourceType: typeToken,
 			ResourceName: input.Descriptor.Name,
 			Inputs:       serializeConfigToInputs(input.Descriptor.Config.Config),
@@ -195,7 +195,7 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 		}
 		stackName, env := stackAndEnv(input)
 		resp, err := cli.ComputeProcess(ctx.Context(), &scpluginv1.ComputeProcessRequest{
-			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env},
+			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
 			ResourceType: typeToken,
 			ResourceName: input.Descriptor.Name,
 			Inputs:       serializeConfigToInputs(input.Descriptor.Config.Config),
@@ -306,8 +306,14 @@ func recordProviderURN(providerType, urn string) {
 
 // serializeConfigToInputs converts an arbitrary config value (either an
 // api.PluginFieldConfig or a plugin-typed struct the plugin's /api module
-// registered) to the plugin bus's InputValue map via JSON round-trip. Only
-// string-valued fields propagate for v1; richer types land in Phase 1c.
+// registered) to the plugin bus's InputValue map via JSON round-trip.
+//
+// Nested objects and lists travel as InputMap / InputList. Until they did, only the
+// top-level scalars reached a plugin, which silently dropped every structured
+// input: a client stack's whole `stackConfig` for a template deploy, a static
+// site's `site` block, a list of hosts. The plugin side reverses this with
+// plugin.InputsToPlain. JSON numbers arrive as doubles; a plugin decoding into
+// an int field gets the integral value back.
 func serializeConfigToInputs(cfg any) map[string]*scpluginv1.InputValue {
 	out := map[string]*scpluginv1.InputValue{}
 	if cfg == nil {
@@ -323,16 +329,47 @@ func serializeConfigToInputs(cfg any) map[string]*scpluginv1.InputValue {
 		return out
 	}
 	for k, v := range raw {
-		switch sv := v.(type) {
-		case string:
-			out[k] = &scpluginv1.InputValue{Value: &scpluginv1.InputValue_StringValue{StringValue: sv}}
-		case bool:
-			out[k] = &scpluginv1.InputValue{Value: &scpluginv1.InputValue_BoolValue{BoolValue: sv}}
-		case float64:
-			out[k] = &scpluginv1.InputValue{Value: &scpluginv1.InputValue_DoubleValue{DoubleValue: sv}}
+		if iv := toInputValue(v); iv != nil {
+			out[k] = iv
 		}
 	}
 	return out
+}
+
+// toInputValue maps one decoded-JSON value onto the bus's InputValue. A JSON null
+// returns nil and the key is omitted, which a plugin decoding into a struct reads
+// as the zero value — the same thing the null meant.
+func toInputValue(v any) *scpluginv1.InputValue {
+	switch sv := v.(type) {
+	case string:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_StringValue{StringValue: sv}}
+	case bool:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_BoolValue{BoolValue: sv}}
+	case float64:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_DoubleValue{DoubleValue: sv}}
+	case map[string]any:
+		fields := make(map[string]*scpluginv1.InputValue, len(sv))
+		for k, item := range sv {
+			if iv := toInputValue(item); iv != nil {
+				fields[k] = iv
+			}
+		}
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_MapValue{MapValue: &scpluginv1.InputMap{Fields: fields}}}
+	case []any:
+		items := make([]*scpluginv1.InputValue, 0, len(sv))
+		for _, item := range sv {
+			// A list keeps its positions: a null element becomes an empty map
+			// rather than vanishing and shifting every later element.
+			iv := toInputValue(item)
+			if iv == nil {
+				iv = &scpluginv1.InputValue{Value: &scpluginv1.InputValue_MapValue{MapValue: &scpluginv1.InputMap{}}}
+			}
+			items = append(items, iv)
+		}
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_ListValue{ListValue: &scpluginv1.InputList{Items: items}}}
+	default:
+		return nil
+	}
 }
 
 // pluginRegistrar is the SC-core-side wrapper around a plugin's Registrar

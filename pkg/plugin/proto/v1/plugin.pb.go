@@ -125,7 +125,13 @@ type RequestHeader struct {
 	// ResourceOptions.Provider. These names are byte-identical to the pre-split
 	// state's provider URNs, which is how the no-destroy invariant holds —
 	// see 04-no-destroy-invariant.md §3.
-	ProviderUrns  map[string]string `protobuf:"bytes,8,rep,name=provider_urns,json=providerUrns,proto3" json:"provider_urns,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	ProviderUrns map[string]string `protobuf:"bytes,8,rep,name=provider_urns,json=providerUrns,proto3" json:"provider_urns,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// True when the engine is running a preview (`sc deploy -P`, the preview pass of
+	// `sc deploy`). A plugin opens its pulumi.Context with RunInfo.DryRun set from
+	// this, and must not perform side effects outside the engine (object uploads,
+	// API calls that mutate the cloud) while it is true — the engine itself never
+	// creates anything during a preview, but code a plugin runs in an Apply does.
+	DryRun        bool `protobuf:"varint,9,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -214,6 +220,13 @@ func (x *RequestHeader) GetProviderUrns() map[string]string {
 		return x.ProviderUrns
 	}
 	return nil
+}
+
+func (x *RequestHeader) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
 }
 
 // InputValue is the typed carrier for a resource input or a config field on the
@@ -3288,7 +3301,7 @@ var File_v1_plugin_proto protoreflect.FileDescriptor
 
 const file_v1_plugin_proto_rawDesc = "" +
 	"\n" +
-	"\x0fv1/plugin.proto\x12\fsc.plugin.v1\"\x96\x03\n" +
+	"\x0fv1/plugin.proto\x12\fsc.plugin.v1\"\xaf\x03\n" +
 	"\rRequestHeader\x12'\n" +
 	"\x0fmonitor_address\x18\x01 \x01(\tR\x0emonitorAddress\x12%\n" +
 	"\x0eengine_address\x18\x02 \x01(\tR\rengineAddress\x12\x1d\n" +
@@ -3298,10 +3311,12 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\venvironment\x18\x05 \x01(\tR\venvironment\x12\x1b\n" +
 	"\trun_token\x18\x06 \x01(\tR\brunToken\x12\x19\n" +
 	"\btrace_id\x18\a \x01(\tR\atraceId\x12R\n" +
-	"\rprovider_urns\x18\b \x03(\v2-.sc.plugin.v1.RequestHeader.ProviderUrnsEntryR\fproviderUrns\x1a?\n" +
+	"\rprovider_urns\x18\b \x03(\v2-.sc.plugin.v1.RequestHeader.ProviderUrnsEntryR\fproviderUrns\x12\x17\n" +
+	"\adry_run\x18\t \x01(\bR\x06dryRun\x1a?\n" +
 	"\x11ProviderUrnsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\t\x10\x10\"\x8d\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\n" +
+	"\x10\x10\"\x8d\x03\n" +
 	"\n" +
 	"InputValue\x12#\n" +
 	"\fstring_value\x18\x01 \x01(\tH\x00R\vstringValue\x12\x1d\n" +

@@ -51,6 +51,11 @@ func PulumiContext(ctx context.Context, h *scpluginv1.RequestHeader) (*sdk.Conte
 		MonitorAddr: h.GetMonitorAddress(),
 		Project:     h.GetProjectName(),
 		Stack:       h.GetStackName(),
+		// Without this every plugin context believed it was an `up`, so ctx.DryRun()
+		// was false during a preview and a plugin had no way to keep side effects
+		// it runs inside an Apply (object uploads, imperative API calls) out of
+		// `sc deploy -P`.
+		DryRun: h.GetDryRun(),
 	})
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "open pulumi context from monitor address")
@@ -120,4 +125,55 @@ func AwaitAll(ctx context.Context, outputs ...sdk.Output) error {
 		}
 	}
 	return nil
+}
+
+// InputsToPlain turns a request's InputValue map back into plain Go values —
+// strings, bools, float64, int64, []byte, map[string]any and []any — ready for a
+// YAML or JSON round-trip into the plugin's own config struct. It is the inverse of
+// what core does when it serialises a resource's config onto the bus, nested
+// objects and lists included.
+//
+// Output and secret references are passed through as their reference strings; a
+// plugin that accepts them resolves them itself (ResolveStringOutput /
+// ResolveSecret).
+func InputsToPlain(inputs map[string]*scpluginv1.InputValue) map[string]any {
+	out := make(map[string]any, len(inputs))
+	for k, v := range inputs {
+		if pv, ok := InputValueToPlain(v); ok {
+			out[k] = pv
+		}
+	}
+	return out
+}
+
+// InputValueToPlain is InputsToPlain for one value. The bool is false for an
+// InputValue with no value set, which the caller should treat as absent.
+func InputValueToPlain(v *scpluginv1.InputValue) (any, bool) {
+	switch x := v.GetValue().(type) {
+	case *scpluginv1.InputValue_StringValue:
+		return x.StringValue, true
+	case *scpluginv1.InputValue_BoolValue:
+		return x.BoolValue, true
+	case *scpluginv1.InputValue_DoubleValue:
+		return x.DoubleValue, true
+	case *scpluginv1.InputValue_IntValue:
+		return x.IntValue, true
+	case *scpluginv1.InputValue_BytesValue:
+		return x.BytesValue, true
+	case *scpluginv1.InputValue_OutputRef:
+		return x.OutputRef, true
+	case *scpluginv1.InputValue_SecretRef:
+		return x.SecretRef, true
+	case *scpluginv1.InputValue_MapValue:
+		return InputsToPlain(x.MapValue.GetFields()), true
+	case *scpluginv1.InputValue_ListValue:
+		items := make([]any, 0, len(x.ListValue.GetItems()))
+		for _, item := range x.ListValue.GetItems() {
+			pv, _ := InputValueToPlain(item)
+			items = append(items, pv)
+		}
+		return items, true
+	default:
+		return nil, false
+	}
 }

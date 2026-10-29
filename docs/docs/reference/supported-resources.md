@@ -100,7 +100,7 @@ stacks:
 
 - **AWS** - Amazon Web Services
 - **Google Cloud Platform (GCP)** - Google Cloud
-- **Yandex Cloud** - Serverless Containers, Object Storage, Cloud DNS
+- **Yandex Cloud** - Serverless Containers, Object Storage (incl. static websites), Cloud DNS
 - **Cloud.ru** - Evolution Container Apps, Artifact Registry, Cloud DNS, and compute VMs
   on both the Evolution and the Advanced (ex-SberCloud) estate
 - **VM & self-hosted Kubernetes** - a plain machine (`vm`) and a k3s cluster on it
@@ -1172,6 +1172,63 @@ stacks:
       env: { LOG_LEVEL: info }
       secrets:
         SOME_TOKEN: "${secret:MY_SERVICE_TOKEN}"
+```
+
+#### **Static Website** (`yc-static-website`)
+
+Serves a `type: static` client stack from an Object Storage bucket with website
+hosting — the YC analogue of `aws-static-website`, without a CDN in front (Russian
+ISPs cut Cloudflare responses after 16 KB, which is why the `.ru` sites are not
+Cloudflare-fronted). One deploy:
+
+- creates the bucket **named after the domain** (YC serves bucket-hosted HTTPS only
+  when bucket name == host), website hosting on (index + error document), public
+  read of objects only (listing stays private);
+- attaches a Certificate Manager certificate — an existing one by `certificateId` /
+  `certificateName` (e.g. a zone wildcard), or, with neither set, a new Let's
+  Encrypt certificate validated by a DNS-CNAME challenge written into the same zone
+  (the deploy waits for validation, typically a few minutes on first deploy);
+- writes `CNAME <domain>. → <domain>.website.yandexcloud.net.` in the yc-dns zone;
+- uploads `bundleDir` with `Cache-Control` rules and deletes objects no longer in
+  the build (`aws s3 sync --delete` semantics). Defaults: the index document
+  `no-cache`, `assets/**` `public, max-age=31536000, immutable`, everything else
+  `public, max-age=3600`. The upload is skipped during a preview.
+
+Uploads use a dedicated service account with `storage.editor` on that bucket only.
+The deploying service account needs `storage.admin` (create the bucket, set its
+access flags and IAM), `dns.editor`, `iam.serviceAccounts.admin`,
+`certificate-manager.editor` (managed cert) or `certificate-manager.certificates.downloader`
+(adopted cert).
+
+**Golang Struct Reference:** `sc-plugin-yandex/api/static_website.go:StaticWebsiteInput`
+
+```yaml
+# server.yaml — Parent Stack
+templates:
+  yc-site:
+    type: yc-static-website
+    config:
+      credentials: "${auth:yc}"
+      zoneName: simple-forge.ru                # yc-dns zone the CNAME goes into
+      certificateName: simple-forge-ru-cert    # or certificateId; omit both for a managed LE cert
+      spaFallback: true                        # unknown paths → index document
+      # cacheControl:                          # optional; first match wins
+      #   - { pattern: "assets/**", value: "public, max-age=31536000, immutable" }
+      #   - { pattern: "*.html",    value: "no-cache" }
+```
+
+```yaml
+# client.yaml — Client Stack
+stacks:
+  prod:
+    type: static
+    template: yc-site
+    parent: myproject/devops
+    config:
+      bundleDir: ${git:root}/dist
+      domain: twopeaks.simple-forge.ru         # must be a subdomain inside zoneName
+      indexDocument: index.html
+      # errorDocument: 404.html                # overrides spaFallback
 ```
 
 ### **Resources** (`ResourceType` → `resources` section in `server.yaml`)
