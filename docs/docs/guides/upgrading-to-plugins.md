@@ -212,17 +212,24 @@ which build it is.
 To learn which CLI actually ran, grep the job log for
 `Simple Container CLI version:` — never infer it from the workflow input.
 It prints twice: the requested tag, then the resolved number. forge-baas
-2026-10-29 vs 2026-10-30, under identical workflow inputs:
+across 2026-10-29 and 10-30, under an identical workflow input:
 
-| run | logged | result |
+| run | CLI logged | result |
 |---|---|---|
-| 40953533956 (10-29) | `latest` → 2026.10.45 | green |
-| 41113107084 (10-30) | `latest` → 2026.10.52 | green |
+| 40953533956 (10-29 20:57) | `latest` → 2026.10.45 | red (nil-pointer panic) |
+| 41101319935 (10-30 17:45) | `latest` → 2026.10.50 | red (both stacks) |
+| 41113107084 (10-30 19:10) | `latest` → 2026.10.52 | green |
 
-The CLI image tag moved from `.45` to `.52` under the same `latest`
-reference — the regression that took forge-baas red earlier on 10-30
-(run 41101319935, CLI `.50`) rode exactly this float. Pin the image
-tag if you want a different outcome than yesterday from the same input.
+**That sequence shows the CLI float, but it does NOT isolate the CLI as
+the cause of the outcome change** — until the plugins block in the parent
+`server.yaml` grew an explicit `aws:` entry (which happened at the end of
+10-30), `sc` auto-latest-resolved the aws plugin as well, and the plugin
+cut three releases inside this very window. Two moving halves. The lesson
+is the unpinnedness itself: three outcomes across three CLI versions and
+an unknown number of plugin versions in two days, under one unchanged
+workflow input. If you want a different outcome than yesterday from the
+same input, pin **both** halves — this section covers the CLI; §3's
+`plugins:` block covers the plugins.
 
 !!! warning "Don't confuse `Simple Container CLI version:` with `Deploy version:`"
     The same log also prints `Deploy version:` (e.g. `2026.10.7` on
