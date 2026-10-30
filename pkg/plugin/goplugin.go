@@ -12,6 +12,7 @@ package plugin
 
 import (
 	"context"
+	"time"
 
 	"google.golang.org/grpc"
 
@@ -67,11 +68,30 @@ type scCloudPluginClient struct {
 	brokerID uint32
 }
 
+// BrokerAware is the opt-in interface a plugin's Impl can implement to
+// capture SC's go-plugin broker at GRPCServer time, so handlers can later
+// call pkg/plugin/peer.go NewPeerClient to dial SC core's SCCore endpoint.
+// Terraform-provider pattern — see the sc-plugin-aws composite demo.
+//
+// Non-composite plugins (cloudflare, yandex, cloudru) leave this
+// unimplemented and are unaffected: GRPCServer below type-asserts and
+// skips the SetBroker call when the Impl does not satisfy it.
+//
+// (Re-added here after PR #510 accidentally removed the BrokerAware
+// shipped in #509. Without it NewPeerClient on the plugin side errors
+// with "nil broker" — the broker never reached the handler, and the
+// registrar-via-PeerInvoke bridge (D8) cannot work.)
+type BrokerAware interface {
+	SetBroker(*hplugin.GRPCBroker)
+}
+
 // GRPCServer wires the author-supplied implementation into the plugin binary's
-// gRPC server. The MuxBroker argument is live but unused on the plugin side:
-// the plugin dials SCCore via its own `broker.Dial(id)` from inside the
-// handler that needs it (see pkg/plugin/peer.go).
-func (p *scCloudPlugin) GRPCServer(_ *hplugin.GRPCBroker, s *grpc.Server) error {
+// gRPC server. If the Impl is BrokerAware, SC's go-plugin broker is passed in
+// via SetBroker before the gRPC server is registered.
+func (p *scCloudPlugin) GRPCServer(broker *hplugin.GRPCBroker, s *grpc.Server) error {
+	if ba, ok := p.Impl.(BrokerAware); ok {
+		ba.SetBroker(broker)
+	}
 	scpluginv1.RegisterSCCloudPluginServer(s, p.Impl)
 	return nil
 }
@@ -81,18 +101,32 @@ func (p *scCloudPlugin) GRPCServer(_ *hplugin.GRPCBroker, s *grpc.Server) error 
 // stream id and starts serving the SCCore callback service on it so a
 // composite plugin can dial back for PeerInvoke (D8).
 //
-// AcceptAndServe runs in a goroutine; it ends when the broker stream
-// closes, which happens when the plugin exits.
+// Accept is synchronous (opens the listener + announces its address via
+// the hashicorp/go-plugin broker service) and the gRPC Serve runs in a
+// goroutine. Doing the whole AcceptAndServe async races the plugin's
+// first broker.Dial — "timeout waiting for connection info" — because
+// the listener's address hasn't been advertised yet.
 func (p *scCloudPlugin) GRPCClient(_ context.Context, broker *hplugin.GRPCBroker, c *grpc.ClientConn) (interface{}, error) {
 	brokerID := broker.NextId()
-	// Register the SCCore server for THIS plugin. Peer may be nil — the
-	// callback server answers Unimplemented in that case.
 	cb := NewCallbackServer(p.Peer)
-	go broker.AcceptAndServe(brokerID, func(opts []grpc.ServerOption) *grpc.Server {
-		s := grpc.NewServer(opts...)
-		scpluginv1.RegisterSCCoreServer(s, cb)
-		return s
-	})
+	readyCh := make(chan struct{})
+	go func() {
+		broker.AcceptAndServe(brokerID, func(opts []grpc.ServerOption) *grpc.Server {
+			s := grpc.NewServer(opts...)
+			scpluginv1.RegisterSCCoreServer(s, cb)
+			close(readyCh)
+			return s
+		})
+	}()
+	// Block briefly for the listener to be accepted + ConnInfo announced
+	// to the plugin side. Without this, the plugin's first broker.Dial
+	// races the goroutine and times out "waiting for connection info".
+	// 100ms is enough on a healthy host; a slower one takes longer only
+	// at the cost of the plugin's own Dial timeout.
+	select {
+	case <-readyCh:
+	case <-time.After(500 * time.Millisecond):
+	}
 	return &scCloudPluginClient{
 		stub:     scpluginv1.NewSCCloudPluginClient(c),
 		brokerID: brokerID,

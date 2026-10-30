@@ -85,13 +85,25 @@ func (b *preEnginePluginBundle) makeSecretsProviderSidecar(cli *scPlugin.Client,
 // --- resource sidecar (same as existing pluginProvisionFunc) ---
 
 func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.ProvisionFunc {
-	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	return func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 		addr, err := requireMonitorAddr(input.Descriptor.Type)
 		if err != nil {
 			return nil, err
 		}
-		stackName, env := stackAndEnv(input)
-		resp, err := cli.Provision(ctx.Context(), &scpluginv1.ProvisionRequest{
+		// Use the api.Stack argument's Name (the childStack name — e.g.
+		// "forge-notifier--staging") rather than input.StackParams.StackName
+		// (the CLI --stack value — e.g. "forge-notifier"). In-tree drivers
+		// receive stack.Name = "<project>--<env>" (via toChildStack +
+		// StackNameInEnv in pkg/clouds/pulumi/provisioner.go). An in-plugin
+		// resource that names itself off stack.Name — ECR repo, Lambda
+		// function, IAM role, API Gateway — would otherwise produce a
+		// URN missing the env suffix, breaking the no-destroy invariant.
+		stackName := stack.Name
+		if stackName == "" {
+			stackName, _ = stackAndEnv(input)
+		}
+		_, env := stackAndEnv(input)
+		req := &scpluginv1.ProvisionRequest{
 			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, ProviderUrns: activeProviderURNs()},
 			ResourceType: typeToken,
 			ResourceName: input.Descriptor.Name,
@@ -100,7 +112,18 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 			// `uses:` resources contributed from params.ComputeContext. Without
 			// this a plugin template got none of it — no MONGO_*, no bucket env.
 			ComputeEnvVars: computeContextToProto(params.ComputeContext),
-		})
+		}
+		// If the deploying stack has an active registrar backed by a plugin,
+		// pack its coordinates so the receiving plugin can proxy DNS back via
+		// SCCore.PeerInvoke (D8). pApi.Registrar is a cross-plugin service;
+		// without this a plugin's Provision that calls params.Registrar.*
+		// nil-dereferences.
+		if pr := resolvePluginRegistrar(ctx, params); pr != nil {
+			req.RegistrarPluginName = pr.pluginName
+			req.RegistrarType = pr.typeToken
+			req.RegistrarMainDomain = pr.mainDomain
+		}
+		resp, err := cli.Provision(ctx.Context(), req)
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q Provision(%q, %q)", pluginName, typeToken, input.Descriptor.Name)
 		}
@@ -502,6 +525,49 @@ func computeContextToProto(cc pApi.ComputeContext) []*scpluginv1.ComputeEnvVaria
 	add(plain, false)
 	add(secret, true)
 	return out
+}
+
+// resolvePluginRegistrar peeks at ProvisionParams.Registrar and returns
+// the active *pluginRegistrar authoritative for the deploying stack's
+// base DNS zone, so the sidecar can pack its coordinates into
+// ProvisionRequest for the receiving plugin to proxy DNS calls back
+// via PeerInvoke (D8).
+//
+//   - For a plain *pluginRegistrar: return it directly.
+//   - For a *multiRegistrar: resolve via its forDomain against the
+//     stack's preferred base zone (DnsPreference), then type-assert.
+//   - For an in-tree registrar: return nil — in-tree registrars have no
+//     plugin bus endpoint and callers that need one must declare one.
+func resolvePluginRegistrar(ctx *sdk.Context, params pApi.ProvisionParams) *pluginRegistrar {
+	switch r := params.Registrar.(type) {
+	case *pluginRegistrar:
+		return r
+	case *multiRegistrar:
+		if r == nil {
+			return nil
+		}
+		baseZone := ""
+		if params.DnsPreference != nil {
+			baseZone = params.DnsPreference.BaseZone
+		}
+		if baseZone == "" {
+			return nil
+		}
+		delegate, err := r.forDomain(baseZone)
+		if err != nil {
+			return nil
+		}
+		built, err := r.build(ctx, delegate)
+		if err != nil {
+			return nil
+		}
+		if pr, ok := built.(*pluginRegistrar); ok {
+			return pr
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 // pluginRegistrar is the SC-core-side wrapper around a plugin's Registrar

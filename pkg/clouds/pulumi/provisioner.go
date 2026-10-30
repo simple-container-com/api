@@ -35,6 +35,7 @@ type pulumi struct {
 	secretsProviderUrl        string
 	secretsProviderPassphrase string
 	registrar                 pApi.Registrar
+	dnsPreference             *pApi.DnsPreference
 	wsOpts                    []auto.LocalWorkspaceOption
 
 	fieldConfigReader api.ProvisionerFieldConfigReaderFunc

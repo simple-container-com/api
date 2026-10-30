@@ -228,6 +228,7 @@ func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string
 			}, pApi.ProvisionParams{
 				Log:             p.logger,
 				Registrar:       p.registrar,
+				DnsPreference:   p.dnsPreference,
 				ComputeContext:  collector,
 				ResourceOutputs: outs,
 			})
@@ -377,6 +378,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 	return pApi.ProvisionParams{
 		Provider:            provider,
 		Registrar:           p.registrar,
+		DnsPreference:       p.dnsPreference,
 		Log:                 p.logger,
 		BaseEnvVariables:    envVariables,
 		HelpersImage:        p.cloudHelpersImage(providerType),

@@ -5,7 +5,10 @@ package plugin
 
 import (
 	"context"
+	"net"
 	"os/exec"
+
+	"google.golang.org/grpc"
 
 	hclog "github.com/hashicorp/go-hclog"
 	hplugin "github.com/hashicorp/go-plugin"
@@ -51,6 +54,12 @@ type Client struct {
 	// it in RequestHeader.sccore_broker_stream so the plugin knows what
 	// to dial for PeerInvoke / ResolveSecret / ResolveCredential.
 	sccoreBrokerStream uint32
+	// sccoreAddress is the TCP endpoint (host:port, loopback) SC core
+	// serves this plugin's SCCore RPCs on. Preferred over the broker
+	// stream because the broker's ConnInfo delivery races the plugin's
+	// first Dial.
+	sccoreAddress string
+	sccoreStop    func()
 }
 
 // NewClient spawns a plugin binary and dials its gRPC server. It validates
@@ -100,10 +109,38 @@ func NewClient(cfg ClientConfig) (*Client, error) {
 		return nil, errors.Errorf("dispensed plugin is of type %T, not *scCloudPluginClient", raw)
 	}
 
+	// Start a loopback TCP listener for SCCore (PeerInvoke / ResolveSecret /
+	// ResolveCredential). The broker-stream path (sccore_broker_stream)
+	// races the plugin's first Dial even with a sync Accept — this TCP
+	// endpoint is deterministic. One listener per plugin.
+	sccoreAddr, sccoreStop, err := startSCCoreListener(cfg.Peer)
+	if err != nil {
+		gp.Kill()
+		return nil, errors.Wrap(err, "start SCCore TCP endpoint for plugin")
+	}
+
 	return &Client{
 		gpClient:           gp,
 		stub:               wrapper.stub,
 		sccoreBrokerStream: wrapper.brokerID,
+		sccoreAddress:      sccoreAddr,
+		sccoreStop:         sccoreStop,
+	}, nil
+}
+
+// startSCCoreListener binds a loopback TCP port and serves the SCCore
+// gRPC service on it. The returned address is passed to the plugin
+// via RequestHeader.sccore_address.
+func startSCCoreListener(peer PeerDispatcher) (string, func(), error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", nil, err
+	}
+	s := grpc.NewServer()
+	scpluginv1.RegisterSCCoreServer(s, NewCallbackServer(peer))
+	go func() { _ = s.Serve(ln) }()
+	return ln.Addr().String(), func() {
+		s.GracefulStop()
 	}, nil
 }
 
@@ -134,6 +171,9 @@ func (c *Client) SccoreBrokerStream() uint32 {
 func (c *Client) stampHeader(h *scpluginv1.RequestHeader) {
 	if h == nil {
 		return
+	}
+	if h.SccoreAddress == "" {
+		h.SccoreAddress = c.sccoreAddress
 	}
 	if h.SccoreBrokerStream == 0 {
 		h.SccoreBrokerStream = c.sccoreBrokerStream
@@ -229,6 +269,9 @@ func (c *Client) LogStream(ctx context.Context, req *scpluginv1.LogStreamRequest
 
 // Close terminates the plugin subprocess. Safe to call more than once.
 func (c *Client) Close() {
+	if c.sccoreStop != nil {
+		c.sccoreStop()
+	}
 	if c.gpClient != nil {
 		c.gpClient.Kill()
 	}
