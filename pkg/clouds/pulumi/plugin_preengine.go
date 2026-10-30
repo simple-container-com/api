@@ -215,15 +215,38 @@ func (b *preEnginePluginBundle) RegisterSidecars() error {
 		pluginName := name
 
 		// State-storage: pre-engine, no monitor needed.
+		//
+		// Register the sidecar under BOTH keys: the state_store_type the
+		// schema advertises ("s3-bucket", "yc-object-storage"), AND every
+		// provider_type the plugin owns ("aws", "yandex"). SC core's
+		// login.go looks up the init function by `authCfg.ProviderType()`,
+		// which for an embedded StateStorageConfig returns the cloud
+		// provider type ("aws") rather than the state_store_type
+		// ("s3-bucket"). Without the dual registration, every plugin-era
+		// deploy using a plugin-owned state backend warns "could not find
+		// init state storage function for provider %q, skipping init"
+		// and loses the AWS_* env the sidecar would have exported — the
+		// Pulumi backend open then fails with "Invalid region: region
+		// was not a valid DNS name" (live-caught on forge-notifier
+		// staging redeploy, 2026-10-30, after sc-plugin-aws v1).
 		for _, t := range schema.GetStateStoreTypes() {
 			typeToken := t
-			pApi.RegisterInitStateStore(typeToken, b.makeStateStoreSidecar(cli, pluginName, typeToken))
+			sidecar := b.makeStateStoreSidecar(cli, pluginName, typeToken)
+			pApi.RegisterInitStateStore(typeToken, sidecar)
+			for _, pt := range schema.GetProviderTypes() {
+				pApi.RegisterInitStateStore(pt, sidecar)
+			}
 		}
 
 		// Secrets-provider: pre-engine, no monitor needed.
+		// Same dual-key registration rationale as state-storage above.
 		for _, t := range schema.GetSecretsProviderTypes() {
 			typeToken := t
-			pApi.RegisterInitSecretsProvider(typeToken, b.makeSecretsProviderSidecar(cli, pluginName, typeToken))
+			sidecar := b.makeSecretsProviderSidecar(cli, pluginName, typeToken)
+			pApi.RegisterInitSecretsProvider(typeToken, sidecar)
+			for _, pt := range schema.GetProviderTypes() {
+				pApi.RegisterInitSecretsProvider(pt, sidecar)
+			}
 		}
 
 		// Resource types: in-engine, needs monitor address. Also tagged in
