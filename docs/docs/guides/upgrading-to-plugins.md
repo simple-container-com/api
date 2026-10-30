@@ -185,7 +185,9 @@ re-provision is required** just to adopt it — the block is read from
 `server.yaml` on every command. Run `sc preview` first if you want to see
 that for yourself.
 
-### Pinning the plugins is only half of it — the CLI floats too
+---
+
+## 3b. Pinning the plugins is only half of it — the CLI floats too
 
 The `plugins:` pins above fix which plugin *binaries* run. They say nothing
 about which `sc` runs, and by default that is whatever is newest.
