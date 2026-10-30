@@ -5,7 +5,7 @@ package tests
 
 import (
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/aws"
+	"github.com/simple-container-com/sc-plugin-aws/api"
 )
 
 var RefappAwsServerDescriptor = &api.ServerDescriptor{

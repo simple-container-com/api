@@ -57,6 +57,11 @@ cicd:
   config:
     auth-token: "${secret:GITHUB_TOKEN}"
 plugins:
+  aws:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-aws
+      version: v2026.10.29-4f8f024
   cloudflare:
     source:
       type: github-release

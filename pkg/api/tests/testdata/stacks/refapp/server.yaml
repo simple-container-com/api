@@ -22,6 +22,11 @@ variables:
     type: string
     value: M10
 plugins:
+  aws:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-aws
+      version: v2026.10.29-4f8f024
   mongodb:
     source:
       type: github-release

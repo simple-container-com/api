@@ -11,13 +11,13 @@ import (
 	"os/user"
 	"path/filepath"
 
-	"github.com/simple-container-com/api/pkg/clouds/fs"
-
 	. "github.com/onsi/gomega"
+
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/aws"
+	"github.com/simple-container-com/api/pkg/clouds/fs"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
+	"github.com/simple-container-com/sc-plugin-aws/api"
 )
 
 const (

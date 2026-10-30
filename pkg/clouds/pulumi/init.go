@@ -8,6 +8,15 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
+	"github.com/simple-container-com/api/pkg/clouds/fs"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
+	// Register all the providers
+	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
+	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/k3s"
+	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
 	// External plugins' /api modules — register their config types with
 	// SC core's RegisterProviderConfig map so server.yaml parsing
 	// recognises `type: yc-bucket`, `type: yc-dns`, `type: cloudflare`
@@ -22,20 +31,11 @@ import (
 	// to parse with no mention of the plugin. That is exactly how the
 	// cloudflare drop broke the release pipeline's own `publish sc tool`
 	// step — `sc-plugin-cloudflare/api` was required but never imported.
+	_ "github.com/simple-container-com/sc-plugin-aws/api"
 	_ "github.com/simple-container-com/sc-plugin-cloudflare/api"
 	_ "github.com/simple-container-com/sc-plugin-cloudru/api"
 	_ "github.com/simple-container-com/sc-plugin-mongodb/api"
 	_ "github.com/simple-container-com/sc-plugin-yandex/api"
-
-	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/api/logger"
-	"github.com/simple-container-com/api/pkg/clouds/fs"
-	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-	// Register all the providers
-	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/aws"
-	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
-	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/k3s"
-	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
 )
 
 func init() {

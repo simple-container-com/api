@@ -16,6 +16,11 @@ import (
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	// Blank-import pulls in the helpers package's init() which registers
+	// the two CloudHelper constructors (CloudWatch alert + Health Bridge)
+	// with api.cloudHelpersConfigMapping. Without this, NewCloudHelper
+	// below returns "unknown cloud helper type".
+	_ "github.com/simple-container-com/api/pkg/clouds/aws/helpers"
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 )
 

@@ -17,8 +17,14 @@ import (
 func TestConfigForRegion(t *testing.T) {
 	RegisterTestingT(t)
 	t.Setenv("AWS_EC2_METADATA_DISABLED", "true")
-	t.Setenv("AWS_ACCESS_KEY_ID", "AKIATESTTESTTESTTEST")
-	t.Setenv("AWS_SECRET_ACCESS_KEY", "secretsecretsecretsecretsecretsecretsecr")
+	// Deliberately NOT the AKIA… shape: TruffleHog's AWS access-key
+	// detector pattern-matches that even in test fixtures and failing
+	// CI on a fake unit-test key wastes a round trip (lesson from api
+	// #511 TruffleHog burn, 2026-10-29). An opaque placeholder is
+	// enough — the SDK's config build is lazy; nothing actually
+	// authenticates with these values.
+	t.Setenv("AWS_ACCESS_KEY_ID", "placeholder-access-key-id")
+	t.Setenv("AWS_SECRET_ACCESS_KEY", "placeholder-secret-access-key")
 	ctx := context.Background()
 
 	t.Run("explicit region is applied and cached", func(t *testing.T) {
