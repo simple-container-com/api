@@ -75,6 +75,28 @@ type DriverInfo struct {
 	// It is what routes the resource: a non-empty Plugin means the machines are
 	// created by that plugin's VmHosts RPC rather than by an in-tree driver.
 	Plugin string
+	// MigratedToPlugin, when true, marks a `Drivers` row that is RETAINED only
+	// for its metadata (Capabilities, Unverified, RoadmapItem) because an SC
+	// plugin now owns the actual provisioning. The plugin reads this row via
+	// `Drivers[name].ToProto(name)` to populate its SchemaResponse.VmDrivers —
+	// so removing the entry would silently zero the plugin's advertised
+	// capabilities. Instead, we keep the row AND:
+	//
+	//   - RegisterPluginDriver allows a plugin to register the same driver
+	//     name without "cannot replace a built-in" errors (plugin_drivers.go)
+	//   - LookupDriver treats this row as absent and falls through to the
+	//     plugin table — plugin registration becomes the source of truth
+	//   - PluginForDriver returns the registering plugin's name, so dispatch
+	//     routes to its VmHosts RPC instead of an in-tree driver (there is no
+	//     in-tree driver — the extraction is already done; the row is pure
+	//     capability metadata)
+	//
+	// Live-caught 2026-10-30 on a two-peaks deploy: sc-plugin-cloudru advertises
+	// `cloudru-evolution-vm`, api v2026.10.54 refused the registration against
+	// the then-collision-strict check, every cloudru deploy went red with
+	// "plugin %q advertises vm provider %q, which SC core provides itself".
+	// The data was always the plugin's; this flag just stops api claiming it.
+	MigratedToPlugin bool
 }
 
 // Drivers is the whole driver table.
@@ -105,7 +127,8 @@ var Drivers = map[string]DriverInfo{
 	DriverVkcs:      {RoadmapItem: "sc-ru-clouds-beyond-yandex"},
 	DriverMws:       {RoadmapItem: "sc-ru-clouds-beyond-yandex"},
 	DriverCloudru: {
-		Implemented: true,
+		Implemented:      true,
+		MigratedToPlugin: true, // owned by sc-plugin-cloudru; see DriverInfo.MigratedToPlugin
 		// Written against `simple-container-com/pulumi-sbercloud` and the Advanced
 		// (ex-SberCloud) API, and never run: the only Cloud.ru account SC has ever
 		// had is an **Evolution** subscription, which is a different cloud with a
@@ -149,8 +172,9 @@ var Drivers = map[string]DriverInfo{
 		},
 	},
 	DriverCloudruEvolution: {
-		Implemented: true,
-		RoadmapItem: "sc-cloudru-evolution-vm-driver",
+		Implemented:      true,
+		MigratedToPlugin: true, // owned by sc-plugin-cloudru; see DriverInfo.MigratedToPlugin
+		RoadmapItem:      "sc-cloudru-evolution-vm-driver",
 		Capabilities: Capabilities{
 			// No region anywhere in this cloud's compute API — see Regionless. The
 			// AZ names (`ru.AZ-1`…`ru.AZ-3`) are the whole placement vocabulary.
