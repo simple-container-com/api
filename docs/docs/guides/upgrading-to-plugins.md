@@ -211,16 +211,26 @@ which build it is.
 
 To learn which CLI actually ran, grep the job log for
 `Simple Container CLI version:` — never infer it from the workflow input.
-It prints twice: the requested tag, then the resolved number. forge-baas,
-2026-10-30:
+It prints twice: the requested tag, then the resolved number. forge-baas
+2026-10-29 vs 2026-10-30, under identical workflow inputs:
 
 | run | logged | result |
 |---|---|---|
 | 40953533956 (10-29) | `latest` → 2026.10.45 | green |
-| 41101319935 (10-30) | 2026.10.50 | both stacks red |
+| 41113107084 (10-30) | `latest` → 2026.10.52 | green |
 
-Nothing in the repo changed between them but three Go files in
-`internal/meeting`.
+The CLI image tag moved from `.45` to `.52` under the same `latest`
+reference — the regression that took forge-baas red earlier on 10-30
+(run 41101319935, CLI `.50`) rode exactly this float. Pin the image
+tag if you want a different outcome than yesterday from the same input.
+
+!!! warning "Don't confuse `Simple Container CLI version:` with `Deploy version:`"
+    The same log also prints `Deploy version:` (e.g. `2026.10.7` on
+    10-30). That is the **artifact CalVer** from `$VERSION`, which SC
+    stamps onto the deployed image as a Docker build arg — a third,
+    unrelated version from the CLI and the plugins. If you grep for
+    the wrong one, you'll pin something that doesn't move the CLI at
+    all.
 
 **Pin it at the image tag if you want reproducible deploys.** The pin is
 in the workflow, not in `server.yaml`:
