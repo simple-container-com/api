@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/proto"
 
 	hplugin "github.com/hashicorp/go-plugin"
@@ -50,21 +51,32 @@ type PeerClient struct {
 	runToken string
 }
 
-// NewPeerClient dials SC core's SCCore endpoint via the broker stream
-// SC core served for this plugin. The stream id and run_token come
-// from the SCCloudPlugin RPC's RequestHeader.
+// NewPeerClient dials SC core's SCCore endpoint. Preferred path is
+// RequestHeader.sccore_address (loopback TCP) — deterministic, no
+// race with the broker's ConnInfo delivery. Legacy path is
+// RequestHeader.sccore_broker_stream over the hashicorp/go-plugin
+// broker; kept so an older plugin stays wire-compatible.
 //
-// The broker is the one hashicorp/go-plugin handed the plugin at
-// GRPCServer time; a plugin that wants PeerInvoke MUST store it off
-// its Impl so NewPeerClient can dial. See the sc-plugin-echo
-// composite demo for the wiring (follow-up).
+// The broker argument is only consulted on the legacy path. A plugin
+// can pass nil when it is OK to require the TCP endpoint.
 func NewPeerClient(ctx context.Context, broker *hplugin.GRPCBroker, header *scpluginv1.RequestHeader) (*PeerClient, error) {
+	if addr := header.GetSccoreAddress(); addr != "" {
+		conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
+		if err != nil {
+			return nil, errors.Wrapf(err, "peer client: dial SCCore at %q", addr)
+		}
+		return &PeerClient{
+			conn:     conn,
+			stub:     scpluginv1.NewSCCoreClient(conn),
+			runToken: header.GetRunToken(),
+		}, nil
+	}
 	if broker == nil {
-		return nil, errors.New("peer client: nil broker — the plugin's GRPCServer must store the broker argument before any handler calls NewPeerClient")
+		return nil, errors.New("peer client: nil broker and empty sccore_address — the plugin's GRPCServer must store the broker argument before any handler calls NewPeerClient, or SC core must advertise sccore_address")
 	}
 	streamID := header.GetSccoreBrokerStream()
 	if streamID == 0 {
-		return nil, errors.New("peer client: sccore_broker_stream is zero — SC core did not expose a callback endpoint (older core, test harness, or non-composite plugin spawn)")
+		return nil, errors.New("peer client: both sccore_address and sccore_broker_stream are empty — SC core did not expose a callback endpoint (older core, test harness, or non-composite plugin spawn)")
 	}
 	conn, err := broker.Dial(streamID)
 	if err != nil {
@@ -157,6 +169,24 @@ func (c *PeerClient) ProvisionRegistrar(ctx context.Context, pluginName string, 
 func (c *PeerClient) VmHosts(ctx context.Context, pluginName string, req *scpluginv1.VmHostsRequest) (*scpluginv1.VmHostsResponse, error) {
 	resp := &scpluginv1.VmHostsResponse{}
 	if err := c.invoke(ctx, pluginName, "VmHosts", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// NewOverrideHeaderRule calls the NewOverrideHeaderRule RPC on another plugin.
+func (c *PeerClient) NewOverrideHeaderRule(ctx context.Context, pluginName string, req *scpluginv1.NewOverrideHeaderRuleRequest) (*scpluginv1.NewOverrideHeaderRuleResponse, error) {
+	resp := &scpluginv1.NewOverrideHeaderRuleResponse{}
+	if err := c.invoke(ctx, pluginName, "NewOverrideHeaderRule", req, resp); err != nil {
+		return nil, err
+	}
+	return resp, nil
+}
+
+// ProvisionDomainForEndpoint calls the ProvisionDomainForEndpoint RPC on another plugin.
+func (c *PeerClient) ProvisionDomainForEndpoint(ctx context.Context, pluginName string, req *scpluginv1.ProvisionDomainForEndpointRequest) (*scpluginv1.ProvisionDomainForEndpointResponse, error) {
+	resp := &scpluginv1.ProvisionDomainForEndpointResponse{}
+	if err := c.invoke(ctx, pluginName, "ProvisionDomainForEndpoint", req, resp); err != nil {
 		return nil, err
 	}
 	return resp, nil
