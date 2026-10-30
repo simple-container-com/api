@@ -85,12 +85,24 @@ func (b *preEnginePluginBundle) makeSecretsProviderSidecar(cli *scPlugin.Client,
 // --- resource sidecar (same as existing pluginProvisionFunc) ---
 
 func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.ProvisionFunc {
-	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	return func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 		addr, err := requireMonitorAddr(input.Descriptor.Type)
 		if err != nil {
 			return nil, err
 		}
-		stackName, env := stackAndEnv(input)
+		// Use the api.Stack argument's Name (the childStack name — e.g.
+		// "forge-notifier--staging") rather than input.StackParams.StackName
+		// (the CLI --stack value — e.g. "forge-notifier"). In-tree drivers
+		// receive stack.Name = "<project>--<env>" (via toChildStack +
+		// StackNameInEnv in pkg/clouds/pulumi/provisioner.go). An in-plugin
+		// resource that names itself off stack.Name — ECR repo, Lambda
+		// function, IAM role, API Gateway — would otherwise produce a
+		// URN missing the env suffix, breaking the no-destroy invariant.
+		stackName := stack.Name
+		if stackName == "" {
+			stackName, _ = stackAndEnv(input)
+		}
+		_, env := stackAndEnv(input)
 		req := &scpluginv1.ProvisionRequest{
 			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, ProviderUrns: activeProviderURNs()},
 			ResourceType: typeToken,
