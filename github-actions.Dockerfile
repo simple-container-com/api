@@ -97,73 +97,6 @@ RUN rm -rf \
 # shipped python3 3.14.5-r0 (12 HIGH) for exactly this reason while Alpine
 # already served 3.14.7-r1. Note `--no-cache` on the apk line is unrelated — it
 # governs apk's own index cache, not Docker layers.
-# BLACKSMITH TRADEOFF (read before re-enabling Blacksmith).
-# This stage replaced an artifact handoff: build-binaries compiled the binary
-# in a parallel job and docker-build downloaded it. That download measured
-# 866 s on the self-hosted fleet (run 39253348066) because the fleet's egress
-# is the bottleneck — which is what justified moving the compile in here.
-# On BLACKSMITH the arithmetic may invert: slots are plentiful, the artifact
-# store is fast, and setup-go's cache made that parallel compile ~4.6 min,
-# whereas this in-container compile cannot reuse setup-go's GOCACHE and its
-# buildkit cache mounts do not survive an ephemeral runner. So if Blacksmith
-# comes back, MEASURE this job before keeping it.
-# Revert recipe (all of it, or the image loses its binary):
-#   1. this stage out; `COPY --from=gobuild /out/<bin>` -> `COPY dist/<bin>`
-#   2. re-add `!dist` to .dockerignore (the allowlist excludes it today)
-#   3. push.yaml: restore the two `download-artifact` steps in docker-build
-#      and the `upload-artifact` steps in build-binaries
-# The conditional-stage pattern (ARG BIN_SOURCE + `FROM bin-${BIN_SOURCE}`)
-# can serve both shapes from one Dockerfile if it is ever worth the
-# complexity; it was judged not to be while only the fleet is in use.
-# Go builder stage. The binary used to arrive as a `dist/` ARTIFACT from
-# build-binaries — measured 448 s in the artifact store per ~70 MB
-# incompressible binary (run 39253348066), twice per release, re-fetching
-# bytes the pipeline had compiled minutes earlier. Building it here removes
-# the round-trip entirely, with the exact workflow flags so the binary is the
-# same build: -trimpath -buildvcs=false, CGO_ENABLED=0, same -X version stamp
-# (VERSION arrives as a build-arg from push.yaml; the 0.0.0 fallback matches
-# local builds). go.mod/go.sum key their own `go mod download` layer, cached
-# through the gha buildx cache. The .dockerignore allowlist keeps this stage
-# to cmd/pkg/internal — .sc/ (decrypted secrets post `sc secrets reveal`) and
-# everything else cannot enter the context at all.
-#
-# THIS DIGEST MOVES IN LOCKSTEP WITH go.mod's `go` DIRECTIVE — see the long
-# comment on the identical pin in cloud-helpers.aws.Dockerfile for why
-# (GOTOOLCHAIN=local in the official image means a stale digest fails every
-# `go` invocation outright) and for the re-resolve recipe. Bump both together.
-FROM golang:1.26-alpine@sha256:27f2d3b83cfc5803c8078f8e730af0f7c431bf067afaec8f60a36fb763187cba AS gobuild
-ARG VERSION=0.0.0
-WORKDIR /src
-COPY go.mod go.sum ./
-# Same cache mount as the build below, deliberately: GOMODCACHE lives at
-# /go/pkg/mod, so without the mount here this layer would populate the image
-# filesystem while the build step reads the (empty) cache mount instead —
-# downloading every module twice. With it, both steps share one store.
-RUN --mount=type=cache,target=/go/pkg/mod go mod download
-COPY . .
-# Cache mounts, not a bare RUN: without them ANY source change invalidates
-# `COPY . .` and recompiles the whole ~2095-package closure inside the
-# container on every build.
-#
-# Whether they actually help depends ENTIRELY on the builder surviving, which
-# is a push.yaml property, not a Dockerfile one: buildkit does NOT export
-# `type=cache` mount contents through any cache exporter — not `type=gha`, not
-# `type=registry`. Mount contents are builder-local state. So these mounts pay
-# off only where the buildkit instance persists, which on the fleet is what
-# `setup-buildx-action`'s `name` + `cleanup: false` + `keep-state: true` buy
-# (added 2026-10-20 — before that the builder was torn down after every job
-# and this stage compiled from cold every release, despite an earlier version
-# of this comment asserting otherwise).
-#
-# On an EPHEMERAL runner (Blacksmith / ubuntu-latest) the VM is discarded, so
-# these mounts start empty every run regardless — see the BLACKSMITH TRADEOFF
-# note above the gobuild stage.
-RUN --mount=type=cache,target=/root/.cache/go-build \
-    --mount=type=cache,target=/go/pkg/mod \
-    CGO_ENABLED=0 go build -trimpath -buildvcs=false \
-      -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" \
-      -o /out/github-actions ./cmd/github-actions
-
 FROM alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
 
 # python3 stays — gcloud invokes it. py3-pip / binutils / upx confined to builder.
@@ -199,9 +132,45 @@ ENV PATH="/opt/pulumi/bin:/opt/google-cloud-sdk/bin:${PATH}"
 
 WORKDIR /root/
 
-COPY --from=gobuild /out/github-actions ./github-actions
+# The binary is compiled by the CALLER, natively, and arrives in the build
+# context at dist/github-actions. Every caller already did this except
+# push.yaml: welder's `build-github-actions` task writes exactly this path
+# (welder.yaml:124-131) and runs before `dockerImages`, and
+# branch-preview.yaml downloads the build-binaries artifact into `dist/`.
+# Both of them were having that binary thrown away by an in-image `gobuild`
+# stage that recompiled the same ~2095-package closure.
+#
+# Why not compile in-image (the shape here until 2026-10-30): buildkit does
+# not export `--mount=type=cache` contents through ANY cache exporter, so an
+# in-image compile can only be warm if the buildkit INSTANCE survives. On the
+# fleet it often does not — `/cache/docker` is wiped wholesale by
+# guest-cache-gc at >=88% and nothing reseeds it — and on an ephemeral runner
+# it never does. Measured across six releases, the same closure under the same
+# flags: 760-1812 s in-image on 10 of 12 legs, against 141-310 s natively on
+# EVERY run, because the guest's GOCACHE (/cache/go-build) is seeded by
+# reflink from a golden drive whose bake explicitly covers this namespace
+# (forgeci-cache-bake, "[B] linux/amd64 -trimpath CGO=0 (binaries + docker
+# gobuild)"). The in-image compile was the one consumer in the fleet that
+# structurally could not read that warmth.
+#
+# This is NOT the artifact round-trip that the gobuild stage replaced. That
+# shape uploaded the binary from a separate job and downloaded it here —
+# measured 448 s in the artifact store per ~70 MB incompressible binary, and
+# 866 s on the fleet (run 39253348066), because fleet egress is the
+# bottleneck. The compile now happens in THIS job, so there is no artifact
+# store and no egress.
+#
+# The flags must stay identical in all three callers, or the shipped binary
+# stops being the build the release attests: -trimpath -buildvcs=false,
+# CGO_ENABLED=0, -ldflags "-s -w -X=.../internal/build.Version=<version>".
+#
+# chmod is belt-and-braces: `go build` sets the bit and the context preserves
+# it, but branch-preview's path goes through actions/upload-artifact, which
+# does not.
+COPY dist/github-actions ./github-actions
 # `sc` symlink so Pulumi local.Command subprocesses can invoke sc image sign/scan/sbom etc.
 RUN chmod +x ./github-actions \
+    && test -x ./github-actions \
     && ln -s /root/github-actions /usr/local/bin/sc
 
 # Build-time smoke test — fails the build if tool wiring breaks.
