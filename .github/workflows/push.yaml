@@ -530,7 +530,7 @@ jobs:
     # No leg of this matrix has a fleet requirement. The longest leg
     # (github-actions, 13.2 min on run 39227894781) is dominated by
     # downloading pulumi + the ~500 MB gcloud SDK (github-actions.Dockerfile)
-    # and `type=gha` cache traffic — all GitHub/internet egress, i.e. the
+    # and buildx cache traffic — all GitHub/internet egress, i.e. the
     # work is worst exactly where the fleet is worst (fake-IP hijack egress).
     # kubectl.Dockerfile and caddy.Dockerfile consume no Go artifact at all,
     # yet all four legs waited on the 2 fleet slots behind the Go phase.
@@ -865,37 +865,60 @@ jobs:
           # passes, which is the order the tarball path has always used.
           tags: ${{ matrix.image_repo }}:ci-${{ github.run_id }}-${{ github.run_attempt }}
           push: true
-          # Cache scopes are prefixed by TRUST TIER, not just by image.
-          # A lower-trust build must never write a scope a release build
-          # reads: `mode=max` exports the builder stage, so a poisoned hit
-          # would skip the SHA-256-verified gcloud/Pulumi downloads entirely.
-          # Release builds read and write `prod-*` only.
+          # Cache refs are prefixed by TRUST TIER, not just by image.
           #
-          # TWO exporters, and the registry one is not redundant. The repo's
-          # Actions cache sits at 8 GB of its 10 GB budget across 119 entries
-          # (measured 2026-10-20), so buildx scopes are exposed to LRU
-          # eviction — and what gets evicted is the expensive builder stage
-          # (SHA-256-verified Pulumi + the ~500 MB gcloud SDK). The registry
-          # exporter has no such budget and is not evicted, so the layer cache
-          # stops depending on how much OTHER cache the repo happened to write
-          # this week. gha stays first because it is the faster read when it
-          # is warm; buildkit takes the first hit.
+          # ONE exporter, the registry one, on purpose. There used to be a
+          # second `type=gha,mode=max,scope=prod-*` pair here; it was removed
+          # 2026-10-30 after measuring what it cost and what it bought.
+          #
+          # What it cost, per leg, from buildkit's own step timings:
+          #
+          #   run 41061777656  cloud-helpers  exporting to GHA cache  166.8 s
+          #                                   exporting cache to registry 14.7 s
+          #   run 41061777656  github-actions exporting to GHA cache  434.4 s
+          #                                   exporting cache to registry 14.5 s
+          #   run 41040005030  github-actions exporting to GHA cache  288.2 s
+          #
+          # That last one is the whole argument: it was a WARM leg whose
+          # `[gobuild 6/6]` compile took 9.3 s, and the GHA export was 288 s of
+          # its 337 s total — 97% of the build spent exporting. Four legs a
+          # release, 167–434 s each.
+          #
+          # What it bought: nothing the registry exporter doesn't. Both
+          # imports are free — `#9 importing cache manifest from
+          # …:prod-buildcache` and `#11 importing cache manifest from gha:…`
+          # each completed in under 5 s in the run above — so the old comment's
+          # "gha stays first because it is the faster read" was not measurable.
+          #
+          # And it was actively harmful. The reason the registry exporter was
+          # added in the first place is that the repo's Actions cache sits at
+          # 8 GB of its 10 GB budget (119 entries, measured 2026-10-20) and
+          # LRU-evicts the expensive builder stage (SHA-256-verified Pulumi +
+          # the ~500 MB gcloud SDK). Four `mode=max` buildx scopes are among
+          # the largest writers into that budget — so the gha exporter was a
+          # principal cause of the eviction the registry exporter exists to
+          # work around.
+          #
+          # What it CANNOT buy, and never could: the `RUN --mount=type=cache`
+          # Go caches in the `gobuild` stage. buildkit does not export cache
+          # mount contents through ANY exporter — see the `setup-buildx-action`
+          # comment above; builder survival is the only mechanism for those.
+          #
+          # The registry exporter has no budget and is not evicted, so the
+          # layer cache stops depending on how much OTHER cache the repo
+          # happened to write this week. It keeps the `prod-` trust-tier
+          # prefix: `mode=max` exports the builder stage, so a poisoned hit
+          # from a lower-trust build would skip the verified downloads
+          # entirely. Release builds read and write `prod-*` only.
           #
           # This publishes a `:buildcache` tag to the PUBLIC Docker Hub repo.
           # The blobs are build layers of an already-public image built from an
           # already-public repo, so nothing becomes visible that wasn't — but
-          # it is a new outward-facing tag, which is why it is called out here
+          # it is an outward-facing tag, which is why it is called out here
           # rather than buried.
-          #
-          # Both exporters keep the `prod-` trust-tier prefix in their ref, for
-          # the reason above: a lower-trust build must never write something a
-          # release build reads. `mode=max` exports the builder stage, so a
-          # poisoned hit would skip the verified downloads entirely.
           cache-from: |
-            type=gha,scope=prod-${{ matrix.image }}
             type=registry,ref=${{ matrix.image_repo }}:prod-buildcache
           cache-to: |
-            type=gha,mode=max,scope=prod-${{ matrix.image }}
             type=registry,mode=max,ref=${{ matrix.image_repo }}:prod-buildcache
           # Never cache-hit the distro-upgrade layer. `runtime` is the final
           # stage in every one of these Dockerfiles; its base is digest-pinned
