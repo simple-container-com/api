@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -104,8 +103,30 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 			stackName, _ = stackAndEnv(input)
 		}
 		_, env := stackAndEnv(input)
+		cliStack, _ := stackAndEnv(input)
 		req := &scpluginv1.ProvisionRequest{
-			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, ProviderUrns: activeProviderURNs()},
+			Header: &scpluginv1.RequestHeader{
+				MonitorAddress: addr,
+				// The Pulumi engine's log endpoint. Without it ctx.Log on
+				// the plugin's own pctx nil-derefs — pulumi-aws calls
+				// ctx.Log.Warn in resolveDeployImageRef's ApplyT when a
+				// deploy would ship by tag, and the panic in that
+				// background goroutine exits status 2 with no visible
+				// trace. The Pulumi engine exports this env var on every
+				// RunFunc, so SC core can read it directly.
+				EngineAddress: engineAddr(),
+				StackName:     stackName,
+				// Parent-stack name — see RequestHeader.cli_stack_name in
+				// plugin.proto. The plugin uses this to shape
+				// `input.StackParams.StackName` for drivers whose state
+				// URN carries PARENT prefix (aws secrets, env-var fan-out)
+				// while `stack_name` keeps CHILD for the ECR/Lambda URN
+				// family #516 fixed.
+				CliStackName: cliStack,
+				Environment:  env,
+				ProjectName:  ctx.Project(),
+				ProviderUrns: activeProviderURNs(),
+			},
 			ResourceType: typeToken,
 			ResourceName: input.Descriptor.Name,
 			Inputs:       serializeConfigToInputs(input.Descriptor.Config.Config),
@@ -244,12 +265,25 @@ func (b *preEnginePluginBundle) makeRegistrarSidecar(cli *scPlugin.Client, plugi
 // --- compute processor sidecar ---
 
 func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.ComputeProcessorFunc {
-	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	return func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 		addr, err := requireMonitorAddr(typeToken)
 		if err != nil {
 			return nil, err
 		}
-		stackName, env := stackAndEnv(input)
+		// Pass the child stack name (`forge-notifier--staging`), not
+		// `input.StackParams.StackName` (the CLI --stack value — e.g.
+		// `forge-notifier`). The in-tree ComputeProcessor + its initProvider
+		// baked `stack.Name` into every resource and the provider URN; a plugin
+		// that reads the parent name instead produces a byte-different URN and
+		// Pulumi plans a destroy of the live mongodb provider +
+		// DatabaseUser + random password on first deploy that moves the type
+		// to the plugin bus. Mirrors the same guard the resource sidecar got
+		// in #516.
+		stackName := stack.Name
+		if stackName == "" {
+			stackName, _ = stackAndEnv(input)
+		}
+		_, env := stackAndEnv(input)
 
 		// ParentInfo crosses as JSON — the Go struct carries a nested
 		// *api.StackConfigDependencyResource whose shape evolves faster than
@@ -419,6 +453,21 @@ func requireMonitorAddr(typeToken string) (string, error) {
 		return "", errors.Errorf("plugin monitor proxy not started yet (StartProxy skipped) — dispatch for %q cannot proceed", typeToken)
 	}
 	return addr, nil
+}
+
+// engineAddr returns the active session's EngineProxy address, or an empty
+// string when no session is attached. Unlike requireMonitorAddr this is
+// best-effort — a plugin that doesn't need ctx.Log (no-op driver) runs
+// fine without an engine conn, so an empty return is not an error.
+func engineAddr() string {
+	activeSessionMu.Lock()
+	defer activeSessionMu.Unlock()
+	if activeSession == nil {
+		return ""
+	}
+	activeSession.mu.Lock()
+	defer activeSession.mu.Unlock()
+	return activeSession.engineProxyAddr
 }
 
 // activeProviderURNs returns a snapshot of provider URNs the active session
