@@ -81,8 +81,22 @@ message RequestHeader {
   // (older core, test harnesses). Prefer this over sccore_broker_stream.
   string sccore_address = 11;
 
+  // The CLI `--stack` value (parent-stack name — e.g. "forge-notifier"), as
+  // distinct from `stack_name` which carries the childStack name
+  // ("forge-notifier--staging"). In-tree drivers received stack.Name = CHILD
+  // (via `stack` arg) AND deployParams.StackName = PARENT (via
+  // `input.StackParams.StackName`). Both are used, and they shape different
+  // URNs: a Lambda function/ECR repo named off `stack.Name` CHILD prefix; a
+  // secrets-manager Secret named via `toSecretName(deployParams, …)` PARENT
+  // prefix. #516 flipped `stack_name` from PARENT to CHILD to fix ECR/Lambda
+  // URNs; the plugin needs this PARENT value to keep `toSecretName` matching
+  // state and not plan a destroy of every per-env secret.
+  //
+  // When empty (older SC core), plugins should fall back to `stack_name`.
+  string cli_stack_name = 12;
+
   // Reserved for future use. Not v1.
-  reserved 10, 12 to 15;
+  reserved 10, 13 to 15;
 }
 
 // InputValue is the typed carrier for a resource input or a config field on the

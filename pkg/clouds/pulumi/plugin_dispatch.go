@@ -14,7 +14,6 @@ import (
 
 	hclog "github.com/hashicorp/go-hclog"
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -36,18 +35,28 @@ import (
 // `activeSession` from the package-level var at call time; a nil session means
 // the sidecar was called outside a live engine operation, which is an error.
 type pluginSession struct {
-	mu           sync.Mutex
-	proxyAddr    string
-	proxyStopper func()
-	providerURNs map[string]string
+	mu                 sync.Mutex
+	proxyAddr          string
+	proxyStopper       func()
+	engineProxyAddr    string
+	engineProxyStopper func()
+	providerURNs       map[string]string
 }
 
 func newPluginSession() *pluginSession {
 	return &pluginSession{providerURNs: map[string]string{}}
 }
 
-// StartProxy stands up a MonitorProxy inside the given pulumi.Context.
-// Returns a shutdown func the caller is expected to defer.
+// StartProxy stands up a MonitorProxy + EngineProxy inside the given
+// pulumi.Context. Returns a shutdown func the caller is expected to defer.
+//
+// The engine proxy is needed because an inline-RunFunc program (SC core's
+// mode) does not export PULUMI_ENGINE to os.Environ — the engine conn is
+// handed to pctx internally, not via env. A plugin dialed with only
+// MonitorAddr has `logState.engine == nil`, so any pulumi-aws driver that
+// hits ctx.Log in a background goroutine (resolveDeployImageRef,
+// resource-option conflict paths) panics and exits status 2, which SC
+// core's gRPC client reads as `error reading from server: EOF`.
 func (s *pluginSession) StartProxy(pulumiCtx *sdk.Context) error {
 	hcLog := hclog.New(&hclog.LoggerOptions{Name: "sc-monitor-proxy", Level: hclog.Error})
 	proxy, err := scPlugin.NewMonitorProxy(pulumiCtx, hcLog)
@@ -58,9 +67,21 @@ func (s *pluginSession) StartProxy(pulumiCtx *sdk.Context) error {
 	if err != nil {
 		return err
 	}
+	engineProxy, err := scPlugin.NewEngineProxy(pulumiCtx, hcLog)
+	if err != nil {
+		stop()
+		return err
+	}
+	engAddr, engStop, err := engineProxy.Serve()
+	if err != nil {
+		stop()
+		return err
+	}
 	s.mu.Lock()
 	s.proxyAddr = addr
 	s.proxyStopper = stop
+	s.engineProxyAddr = engAddr
+	s.engineProxyStopper = engStop
 	s.mu.Unlock()
 	return nil
 }
@@ -69,6 +90,10 @@ func (s *pluginSession) StartProxy(pulumiCtx *sdk.Context) error {
 func (s *pluginSession) Close() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.engineProxyStopper != nil {
+		s.engineProxyStopper()
+		s.engineProxyStopper = nil
+	}
 	if s.proxyStopper != nil {
 		s.proxyStopper()
 		s.proxyStopper = nil
