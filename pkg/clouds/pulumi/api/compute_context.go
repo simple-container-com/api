@@ -137,7 +137,18 @@ func (c *Collector) AddSecretEnvVariableIfNotExist(name, value, resType, resName
 	c.addEnvVarIfNotExist(name, value, resType, resName, stackName, true)
 }
 
+// AddDependency collects a resource every compute consumer must wait on.
+//
+// A nil resource is dropped rather than collected: `Dependencies()` feeds
+// `sdk.DependsOn(...)`, and Pulumi's addDependency dereferences each entry to
+// read its URN, so one nil in the slice panics the whole deploy. Plugin-
+// dispatched resource types legitimately have no core-side provider to depend
+// on — see getProvisionParams in provision.go — and that is the caller that
+// found this the hard way.
 func (c *Collector) AddDependency(res sdk.Resource) {
+	if res == nil {
+		return
+	}
 	c.dependencies = append(c.dependencies, res)
 }
 
