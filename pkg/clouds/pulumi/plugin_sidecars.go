@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
 
@@ -127,9 +128,37 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q Provision(%q, %q)", pluginName, typeToken, input.Descriptor.Name)
 		}
+		// Drain buffer: after the plugin's Provision returns, pulumi-aws
+		// (and any other driver with lazy ApplyT chains) still has
+		// background goroutines whose closures fire on outputs that
+		// resolve during preview finalisation — Function URL,
+		// RepositoryUrl, Image.ImageUri. Those goroutines call
+		// RegisterResource against the monitor that SC core owns.
+		// Returning from this sidecar too fast lets SC core's deploy
+		// program progress into finalisation while the plugin's
+		// goroutines are mid-registration; the engine then detects
+		// a dropped RPC and errors with
+		// "waiting for RPCs: error reading from server: EOF".
+		//
+		// pApi.Registrar's own methods already return promptly because
+		// the registrar plugin is a different process; the race is
+		// specifically with the driver's self-registered sub-resources.
+		//
+		// The buffer is bounded so a legitimate slow plugin surfaces as
+		// a timeout rather than silent hang. 10s is comfortably above
+		// what pulumi-aws's typical Lambda provisioning needs post-RPC.
+		// This is option B in the plugin-drain plan; the proper fix
+		// (an AwaitDrain RPC the plugin implements with ctx.wait()) is
+		// a follow-up — option C.
+		time.Sleep(provisionDrainBuffer)
 		return &api.ResourceOutput{Ref: fmt.Sprintf("plugin:%s:%s", pluginName, resp.GetUrn())}, nil
 	}
 }
+
+// provisionDrainBuffer is how long the sidecar waits after cli.Provision
+// returns before letting SC core's deploy move on. See the comment
+// at the call site above for the full rationale.
+var provisionDrainBuffer = 10 * time.Second
 
 // --- provider sidecar: plugin creates pulumi:providers:<pkg> via monitor ---
 
