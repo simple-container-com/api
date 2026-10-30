@@ -449,12 +449,17 @@ jobs:
   # github-actions" and "Build cloud-helpers" are two of the seven
   # ruleset-required checks and are the only compile of those packages).
   #
-  # On THIS workflow it had become pure duplicate work: the in-image `gobuild`
-  # stages earlier in this PR made docker-build compile ./cmd/github-actions
-  # and ./cmd/cloud-helpers itself, and that same change removed this job's
-  # upload steps — so it compiled both binaries and threw them away. It was not
-  # even a useful compile gate, because the image build compiles the same
-  # packages and fails on the same error.
+  # On THIS workflow it had become pure duplicate work: docker-build compiles
+  # ./cmd/github-actions and ./cmd/cloud-helpers itself, and the same change
+  # removed this job's upload steps — so it compiled both binaries and threw
+  # them away. It was not even a useful compile gate, because docker-build
+  # compiles the same packages and fails on the same error.
+  #
+  # Still true after 2026-10-30, which moved that compile from an in-image
+  # `gobuild` stage to a native step in docker-build: the compile is in the job
+  # that consumes it either way, and resurrecting a separate job to feed it
+  # would reintroduce the artifact round-trip (448 s store / 866 s fleet,
+  # run 39253348066) that both shapes exist to avoid.
   #
   # The binaries ship nowhere else: their only distribution is the
   # simplecontainer/github-actions and simplecontainer/cloud-helpers images
@@ -530,7 +535,7 @@ jobs:
     # No leg of this matrix has a fleet requirement. The longest leg
     # (github-actions, 13.2 min on run 39227894781) is dominated by
     # downloading pulumi + the ~500 MB gcloud SDK (github-actions.Dockerfile)
-    # and `type=gha` cache traffic — all GitHub/internet egress, i.e. the
+    # and buildx cache traffic — all GitHub/internet egress, i.e. the
     # work is worst exactly where the fleet is worst (fake-IP hijack egress).
     # kubectl.Dockerfile and caddy.Dockerfile consume no Go artifact at all,
     # yet all four legs waited on the 2 fleet slots behind the Go phase.
@@ -548,20 +553,26 @@ jobs:
     # FORGE_CI_RUNNER` restores Blacksmith here exactly as everywhere else.
     # PER-LEG routing, because two of these legs compile Go and two do not.
     #
-    # The `github-actions` and `cloud-helpers-aws` Dockerfiles each build their
-    # binary in a `gobuild` stage, and that link is the 12.9 GB-class peak. A
-    # GitHub-hosted runner has 16 GB and CANNOT take it: this exact build died
-    # with `compile: signal: killed` / `cannot allocate memory` on
-    # pulumi-yandex while linking ./cmd/cloud-helpers (run 39402578614,
-    # 2026-10-20) — the same OOM that already killed `build-binaries` when it
-    # was routed hosted, which is why that re-route was reverted. Moving the
-    # compile into the image moved the OOM, it did not remove it.
+    # The `github-actions` and `cloud-helpers-aws` legs compile a Go binary
+    # for their image (the `compile … for the image` step below), and that
+    # link is the 12.9 GB-class peak. A GitHub-hosted runner has 16 GB and
+    # CANNOT take it: this exact build died with `compile: signal: killed` /
+    # `cannot allocate memory` on pulumi-yandex while linking
+    # ./cmd/cloud-helpers (run 39402578614, 2026-10-20) — the same OOM that
+    # already killed `build-binaries` when it was routed hosted, which is why
+    # that re-route was reverted.
     #
-    # So: legs that compile Go run on the FLEET (20 GiB guests, and their
-    # per-guest dockerd keeps the gobuild cache mounts warm across builds);
-    # `kubectl` and `caddy` compile nothing and are dominated by registry and
-    # apk/dnf egress, so they stay hosted where that egress is fast and the
-    # two run in parallel for free.
+    # The peak is a property of the LINK, not of where it runs. It survived
+    # being moved into the image (2026-10-23) and it survived being moved back
+    # out again (2026-10-30), so this routing is unchanged by both and should
+    # be expected to outlive the next such move too.
+    #
+    # So: legs that compile Go run on the FLEET (20 GiB guests, whose
+    # persistent GOCACHE is reflink-seeded from the golden cache drive — which
+    # is the whole reason the compile is native again); `kubectl` and `caddy`
+    # compile nothing and are dominated by registry and apk/dnf egress, so
+    # they stay hosted where that egress is fast and the two run in parallel
+    # for free.
     #
     # `matrix.heavy_go` absent is falsy, so a new leg defaults to hosted and
     # must opt in — the safe direction, since the failure mode of guessing
@@ -600,7 +611,14 @@ jobs:
               simplecontainer/caddy:latest
               simplecontainer/caddy:${{ needs.prepare.outputs.version }}
           - image: github-actions
-            heavy_go: true   # gobuild stage: needs fleet RAM, see runs-on
+            # heavy_go: this leg compiles Go, so it needs fleet RAM (see
+            # runs-on) and gets the native-compile step below. go_bin /
+            # go_cmd are read by that step and by nothing else; go_bin must
+            # match the `COPY dist/<bin>` in the Dockerfile and the
+            # `!dist/<bin>` line in .dockerignore.
+            heavy_go: true
+            go_bin: github-actions
+            go_cmd: ./cmd/github-actions
             dockerfile: github-actions.Dockerfile
             image_repo: simplecontainer/github-actions
             tags: |
@@ -619,7 +637,12 @@ jobs:
           # The pre-existing `:staging` tag is left on Docker Hub, frozen at
           # its 2026-04-19 build.
           - image: cloud-helpers-aws
-            heavy_go: true   # gobuild stage: needs fleet RAM, see runs-on
+            # The binary is `cloud-helpers`, not `cloud-helpers-aws` — the
+            # matrix entry carries the `-aws` variant suffix, the Go command
+            # and the Docker Hub repo do not.
+            heavy_go: true
+            go_bin: cloud-helpers
+            go_cmd: ./cmd/cloud-helpers
             dockerfile: cloud-helpers.aws.Dockerfile
             image_repo: simplecontainer/cloud-helpers
             tags: |
@@ -629,12 +652,85 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      # The github-actions / cloud-helpers-aws images no longer download a
-      # `dist/` binary artifact: their Dockerfiles build the binary in a
-      # `gobuild` stage (same flags, same -X stamp via the VERSION build-arg
-      # below). That artifact round-trip measured 448 s per ~70 MB binary
-      # (run 39253348066) and happened twice per release for bytes the
-      # pipeline had compiled minutes earlier.
+      # ── the Go binary for the two image legs that ship one ────────────────
+      #
+      # Compiled HERE, natively, in this same job — not in the image, and not
+      # downloaded as an artifact. Both of those shapes were tried and
+      # measured; this is the third and it is strictly cheaper than either.
+      #
+      # vs. the in-image `gobuild` stage (the shape until 2026-10-30): the same
+      # ~2095-package closure, the same flags, six consecutive releases —
+      #
+      #   native `build sc for linux/amd64`   141, 194, 224, 271, 288, 310 s
+      #   in-image github-actions             298, 337, 821, 1310, 1556, 1812 s
+      #   in-image cloud-helpers-aws          688, 715, 976, 1003, 1163, 1179 s
+      #
+      # Native is reliable for a LARGER closure (./cmd/sc is 2143 packages);
+      # in-image is a lottery. The reason is asymmetric cache warmth, not CPU:
+      # the guest's GOCACHE (/cache/go-build) is seeded by reflink from a
+      # golden drive, and that bake explicitly covers this namespace
+      # (forgeci-cache-bake: `[B] linux/amd64 -trimpath CGO=0 (binaries +
+      # docker gobuild)`), with an --if-stale reseed timer behind it. buildkit's
+      # `--mount=type=cache` lives in /cache/docker instead, which
+      # guest-cache-gc wipes wholesale at >=88% and which nothing ever
+      # reseeds — and no cache EXPORTER can carry mount contents, so the only
+      # mechanism available to it is the builder instance surviving. The
+      # in-image compile was the one consumer on this fleet that structurally
+      # could not read the warmth the fleet goes to such trouble to maintain.
+      #
+      # vs. the `download-artifact` handoff (the shape until #461): that paid
+      # 448 s in the artifact store per ~70 MB incompressible binary, and
+      # 866 s on the fleet (run 39253348066), because fleet egress is the
+      # bottleneck. This step has no artifact store and no egress — the
+      # compile is in the job that consumes it, and the binary reaches the
+      # image through the build context.
+      #
+      # RAM is why this stays on the fleet and why the `heavy_go` routing
+      # above is unchanged: the link peak is the 12.9 GB class that OOMed a
+      # 16 GB hosted runner on run 39402578614. Moving the compile out of the
+      # container does not shrink it. It does mean this job's long pole is now
+      # a native compile that `build-platforms` has already proven at 141-310 s
+      # on these guests.
+      #
+      # The flags are byte-identical to build-platforms (line ~266) and to
+      # welder's build-github-actions / build-cloud-helpers tasks
+      # (welder.yaml:118-131). They must stay that way: a flag difference
+      # forks the Go build cache into a second namespace (so this goes cold
+      # for no reason) AND changes the binary the release attests.
+      - name: Set up Go
+        if: matrix.heavy_go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
+        with:
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          # One variable controls both routing and caching, so a revert is complete.
+          # On the fleet shape this is the SAME expression as every other build
+          # job and resolves the same way — the persistent GOCACHE is exactly
+          # what this step exists to use.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
+      - name: compile ${{ matrix.go_bin }} for the image
+        if: matrix.heavy_go
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ needs.prepare.outputs.version }}
+          GO_BIN: ${{ matrix.go_bin }}
+          GO_CMD: ${{ matrix.go_cmd }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" \
+            -o "dist/${GO_BIN}" "${GO_CMD}"
+          # The Dockerfile `COPY dist/<bin>` fails loudly on a missing file, but
+          # it would not catch a zero-byte one, and `.dockerignore` names these
+          # two paths explicitly — so assert both the file and the version stamp
+          # here, where the error names the cause instead of surfacing as a
+          # broken image.
+          test -s "dist/${GO_BIN}" && test -x "dist/${GO_BIN}"
+          ls -l "dist/${GO_BIN}"
       - name: install sc tool
         uses: simple-container-com/actions/install-sc@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       - name: prepare secrets for build
@@ -649,22 +745,39 @@ jobs:
       - name: Setup Docker Buildx with advanced caching
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
         with:
-          # A STABLE builder name + no teardown, which is what actually makes
-          # the gobuild stage's `RUN --mount=type=cache` Go caches survive
-          # between jobs. Without these three inputs the action generates a
-          # random builder name and REMOVES the builder in its post step, so
-          # every release recompiled the full ~2095-package closure from cold
-          # inside buildkit — the Dockerfile comment claiming an incremental
-          # compile "on a persistent builder" was simply not true.
+          # A STABLE builder name + no teardown, so `RUN --mount=type=cache`
+          # mounts survive between jobs. Without these three inputs the action
+          # generates a random builder name and REMOVES the builder in its post
+          # step, so every mount started empty on every release.
           #
           # This cannot be achieved with `cache-to` instead: buildkit does NOT
           # export `type=cache` mount contents through ANY cache exporter
           # (gha or registry). Mount contents are builder-local state, so
           # keeping the builder IS the only mechanism.
           #
-          # Shared across all four matrix legs on purpose: `cmd/github-actions`
-          # and `cmd/cloud-helpers` share 2092 of ~2095 packages, so whichever
-          # runs second on a given guest gets a near-warm cache.
+          # WHAT THIS IS WORTH CHANGED ON 2026-10-30, and the change is why the
+          # inputs are still here rather than being reverted with the rest.
+          # These inputs were added (2026-10-20) for the in-image `gobuild`
+          # stages' Go caches, which dominated everything else. Those stages
+          # are gone — the binary is compiled natively in this job, against the
+          # guest's golden-seeded GOCACHE, precisely BECAUSE this mechanism
+          # could not be made reliable: `/cache/docker` is wiped wholesale by
+          # guest-cache-gc at >=88% and nothing reseeds it, so the compile was
+          # warm on only ~2 of 12 observed legs.
+          #
+          # What is left to keep warm is smaller but still real, and all of it
+          # is in github-actions.Dockerfile's builder stage:
+          # `--mount=type=cache,target=/tmp/pulumi-dl` and `/tmp/gcloud-dl` —
+          # the SHA-256-verified Pulumi tarball and the ~500 MB gcloud SDK.
+          # Those are pure download caches over the fleet's slow egress, which
+          # is the one thing the fleet is worst at, so they are worth more per
+          # byte than the Go cache ever was here. Do not remove these inputs
+          # on the grounds that "the gobuild stage is gone".
+          #
+          # Shared across all four matrix legs on purpose: the two Go legs no
+          # longer share a buildkit cache (they no longer compile in buildkit
+          # at all), but the layer cache and the download mounts above are
+          # still shared, and so is the builder's own startup cost.
           #
           # On an EPHEMERAL runner (ubuntu-latest / Blacksmith) there is
           # nothing to reuse and nothing to leak — the VM is discarded. So
@@ -716,16 +829,29 @@ jobs:
       # 0B builder reclaims nothing, and the 10 GB trigger sat below the 13 GB
       # at which the build already dies.
       #
+      # THE CONSUMER OF THAT HEADROOM MOVED ON 2026-10-30, and the history
+      # above is why this step is kept anyway rather than resized here. The Go
+      # compile is no longer inside buildkit (see the `compile … for the image`
+      # step), so buildkit's own cold-build appetite is now a fraction of what
+      # sized this floor. But the compile did not leave the GUEST — it writes
+      # $WORK and grows GOCACHE on the very same cache drive — so free space is
+      # still the binding resource, just for a different consumer. 25 GB is now
+      # conservative rather than measured; re-measuring it is a separate change
+      # with its own evidence, not a drive-by edit here.
+      #
       # So: escalate, cheapest-to-re-earn first, and only as far as needed.
-      # `/cache/go-build` and `/cache/go-mod` are the GUEST's Go caches — this
-      # job does not read them at all (buildkit's cache mounts live inside
-      # /cache/docker), so reclaiming them costs the NEXT Go job on this
-      # guest, never this build. Ordered by what that next job pays:
+      # `/cache/go-build` and `/cache/go-mod` are the GUEST's Go caches. This
+      # step runs AFTER the native compile above, so reclaiming them still
+      # cannot break the build in flight — it costs the next Go job on this
+      # guest. Ordered by what that next job pays:
       #   go-mod    — refetches from the host-side Athens mirror on the
       #               bridge gateway: local, fast, cheap.
       #   images    — refetch from the host-side registry mirror: also local.
-      #   go-build  — LAST RESORT. A cold guest-level `go build ./...` was
-      #               measured at 76 min, so this is the expensive one.
+      #   go-build  — LAST RESORT, and MORE expensive than when this was
+      #               written: /cache/go-build is golden-seeded and is now what
+      #               makes THIS job's compile 141-310 s instead of 760-1812 s,
+      #               every release, not just "the next Go job". A cold
+      #               guest-level `go build ./...` was measured at 76 min.
       # Each tier re-measures and stops as soon as the floor is met, and every
       # tier logs the free-space delta — nobody has ever measured what the
       # ~48 GB resident set is actually made of, and these deltas say.
@@ -733,10 +859,11 @@ jobs:
         if: vars.FORGE_CI_RUNNER != ''
         continue-on-error: true
         env:
-          # A cold gobuild of the ~2095-package closure. 13 GB is proven to
-          # fail and 31 GB proven to pass (run 39804179733); 25 GB sits above
-          # the failure with headroom and below what an 80 GB guest already
-          # has, so a healthy guest never triggers any reclaim below.
+          # Sized from the ENOSPC above: 13 GB proven to fail and 31 GB proven
+          # to pass (run 39804179733). 25 GB sits above the failure with
+          # headroom and below what an 80 GB guest already has, so a healthy
+          # guest never triggers any reclaim below. See the note above on why
+          # this is now conservative rather than tight.
           FLOOR_GB: "25"
         run: |
           set -uo pipefail
@@ -850,10 +977,17 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           platforms: linux/amd64
-          # Consumed by the gobuild stages (github-actions.Dockerfile,
-          # cloud-helpers.aws.Dockerfile); an unused ARG in kubectl/caddy.
-          build-args: |
-            VERSION=${{ needs.prepare.outputs.version }}
+          # REMOVED 2026-10-30 with the in-image gobuild stages: no Dockerfile
+          # declares `ARG VERSION` any more, so passing it only earns a buildx
+          # UnusedBuildArgs warning on all four legs. The version stamp still
+          # reaches the binary — it is now applied by the native `go build`
+          # above, via the same -X ldflag.
+          #
+          # If a future Dockerfile needs the version at build time, re-add it
+          # here AND declare the ARG; do not assume it arrives. (`sc deploy`
+          # injects VERSION automatically on ITS builds — that mechanism is
+          # unrelated to this workflow, which drives docker/build-push-action
+          # directly.)
           # Build to a throwaway CI tag, never straight to the release tags.
           # cosign signs by digest, so the image has to exist in the registry
           # before `Sign + attest` can run; but pushing `:latest` and
@@ -865,37 +999,60 @@ jobs:
           # passes, which is the order the tarball path has always used.
           tags: ${{ matrix.image_repo }}:ci-${{ github.run_id }}-${{ github.run_attempt }}
           push: true
-          # Cache scopes are prefixed by TRUST TIER, not just by image.
-          # A lower-trust build must never write a scope a release build
-          # reads: `mode=max` exports the builder stage, so a poisoned hit
-          # would skip the SHA-256-verified gcloud/Pulumi downloads entirely.
-          # Release builds read and write `prod-*` only.
+          # Cache refs are prefixed by TRUST TIER, not just by image.
           #
-          # TWO exporters, and the registry one is not redundant. The repo's
-          # Actions cache sits at 8 GB of its 10 GB budget across 119 entries
-          # (measured 2026-10-20), so buildx scopes are exposed to LRU
-          # eviction — and what gets evicted is the expensive builder stage
-          # (SHA-256-verified Pulumi + the ~500 MB gcloud SDK). The registry
-          # exporter has no such budget and is not evicted, so the layer cache
-          # stops depending on how much OTHER cache the repo happened to write
-          # this week. gha stays first because it is the faster read when it
-          # is warm; buildkit takes the first hit.
+          # ONE exporter, the registry one, on purpose. There used to be a
+          # second `type=gha,mode=max,scope=prod-*` pair here; it was removed
+          # 2026-10-30 after measuring what it cost and what it bought.
+          #
+          # What it cost, per leg, from buildkit's own step timings:
+          #
+          #   run 41061777656  cloud-helpers  exporting to GHA cache  166.8 s
+          #                                   exporting cache to registry 14.7 s
+          #   run 41061777656  github-actions exporting to GHA cache  434.4 s
+          #                                   exporting cache to registry 14.5 s
+          #   run 41040005030  github-actions exporting to GHA cache  288.2 s
+          #
+          # That last one is the whole argument: it was a WARM leg whose
+          # `[gobuild 6/6]` compile took 9.3 s, and the GHA export was 288 s of
+          # its 337 s total — 97% of the build spent exporting. Four legs a
+          # release, 167–434 s each.
+          #
+          # What it bought: nothing the registry exporter doesn't. Both
+          # imports are free — `#9 importing cache manifest from
+          # …:prod-buildcache` and `#11 importing cache manifest from gha:…`
+          # each completed in under 5 s in the run above — so the old comment's
+          # "gha stays first because it is the faster read" was not measurable.
+          #
+          # And it was actively harmful. The reason the registry exporter was
+          # added in the first place is that the repo's Actions cache sits at
+          # 8 GB of its 10 GB budget (119 entries, measured 2026-10-20) and
+          # LRU-evicts the expensive builder stage (SHA-256-verified Pulumi +
+          # the ~500 MB gcloud SDK). Four `mode=max` buildx scopes are among
+          # the largest writers into that budget — so the gha exporter was a
+          # principal cause of the eviction the registry exporter exists to
+          # work around.
+          #
+          # What it CANNOT buy, and never could: the `RUN --mount=type=cache`
+          # Go caches in the `gobuild` stage. buildkit does not export cache
+          # mount contents through ANY exporter — see the `setup-buildx-action`
+          # comment above; builder survival is the only mechanism for those.
+          #
+          # The registry exporter has no budget and is not evicted, so the
+          # layer cache stops depending on how much OTHER cache the repo
+          # happened to write this week. It keeps the `prod-` trust-tier
+          # prefix: `mode=max` exports the builder stage, so a poisoned hit
+          # from a lower-trust build would skip the verified downloads
+          # entirely. Release builds read and write `prod-*` only.
           #
           # This publishes a `:buildcache` tag to the PUBLIC Docker Hub repo.
           # The blobs are build layers of an already-public image built from an
           # already-public repo, so nothing becomes visible that wasn't — but
-          # it is a new outward-facing tag, which is why it is called out here
+          # it is an outward-facing tag, which is why it is called out here
           # rather than buried.
-          #
-          # Both exporters keep the `prod-` trust-tier prefix in their ref, for
-          # the reason above: a lower-trust build must never write something a
-          # release build reads. `mode=max` exports the builder stage, so a
-          # poisoned hit would skip the verified downloads entirely.
           cache-from: |
-            type=gha,scope=prod-${{ matrix.image }}
             type=registry,ref=${{ matrix.image_repo }}:prod-buildcache
           cache-to: |
-            type=gha,mode=max,scope=prod-${{ matrix.image }}
             type=registry,mode=max,ref=${{ matrix.image_repo }}:prod-buildcache
           # Never cache-hit the distro-upgrade layer. `runtime` is the final
           # stage in every one of these Dockerfiles; its base is digest-pinned
