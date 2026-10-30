@@ -4,9 +4,9 @@
 package pulumi
 
 import (
-	"github.com/simple-container-com/api/pkg/clouds/aws"
 	"github.com/simple-container-com/api/pkg/clouds/fs"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
+	"github.com/simple-container-com/sc-plugin-aws/api"
 )
 
 const (
