@@ -872,8 +872,8 @@ github.com/shurcooL/go v0.0.0-20180423040247-9e1955d9fb6e/go.mod h1:TDJrrUr11Vxr
 github.com/shurcooL/go-goon v0.0.0-20170922171312-37c2f522c041/go.mod h1:N5mDOmsrJOB+vfqUK+7DmDyjhSLIIBnXo9lvZJj3MWQ=
 github.com/simple-container-com/sc-plugin-aws/api v0.0.0-20261029194547-4f8f024bc425 h1:Zd1sn9M1sjp7d7wDrxxhptWHMR8DPgftBDpOJ0ln+X8=
 github.com/simple-container-com/sc-plugin-aws/api v0.0.0-20261029194547-4f8f024bc425/go.mod h1:xrWxpDoBjIeQhguBwoIsVj/JxTLpZHxyxqaGtbjUCJs=
-github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261026175043-5eddde358585 h1:PEa02LSh6lJFXPbH50kB3Hr9GDrP9ONNBxNXJUFzU14=
-github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261026175043-5eddde358585/go.mod h1:grjigb/0Y7wQ5hT9eWnsIghVoumT2YWeo8x5B2hetSo=
+github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261031083455-cdbcf98c7bfb h1:whdI/2NLI+LOis05ojruccP+v1UqydKFMJVH6WdDlz8=
+github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261031083455-cdbcf98c7bfb/go.mod h1:grjigb/0Y7wQ5hT9eWnsIghVoumT2YWeo8x5B2hetSo=
 github.com/simple-container-com/sc-plugin-cloudru/api v0.0.0-20261027184304-7dc7ca92c47c h1:phqIq0L53N4iFoZfCjnD5mu9QnpnsADQ9jI+sDz+GiU=
 github.com/simple-container-com/sc-plugin-cloudru/api v0.0.0-20261027184304-7dc7ca92c47c/go.mod h1:0Wr/ZOhcM7mB7GANwZSUvamEhpGpRI7LO3roTG8vGO8=
 github.com/simple-container-com/sc-plugin-mongodb/api v0.0.0-20261029130510-ff1589792eaa h1:y+iTXrgLbZdP5WCSdbkdFOcDzANk+uBqszuVtJue+VE=
