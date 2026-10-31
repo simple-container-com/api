@@ -6,6 +6,7 @@ package pulumi
 import (
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/pkg/errors"
 
@@ -41,7 +42,10 @@ type multiRegistrar struct {
 	pref      *pApi.DnsPreference
 	log       logger.Logger
 	delegates []registrarDelegate
-	built     map[string]pApi.Registrar
+	// mu guards built: a plugin resource sidecar resolves its domain's registrar
+	// from inside an Apply, concurrently with DNS calls from other resources.
+	mu    sync.Mutex
+	built map[string]pApi.Registrar
 }
 
 func newMultiRegistrar(stackName string, registrars map[string]api.RegistrarDescriptor, pref *pApi.DnsPreference, log logger.Logger) *multiRegistrar {
@@ -125,6 +129,8 @@ func (m *multiRegistrar) forDomain(domain string) (*registrarDelegate, error) {
 }
 
 func (m *multiRegistrar) build(ctx *sdk.Context, delegate *registrarDelegate) (pApi.Registrar, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if registrar, found := m.built[delegate.name]; found {
 		return registrar, nil
 	}
@@ -143,7 +149,25 @@ func (m *multiRegistrar) build(ctx *sdk.Context, delegate *registrarDelegate) (p
 	return registrar, nil
 }
 
-func (m *multiRegistrar) registrarFor(ctx *sdk.Context, domain string) (pApi.Registrar, error) {
+// RegistrarTypeFor names the type of the registrar authoritative for domain, from
+// config alone — nothing is constructed.
+func (m *multiRegistrar) RegistrarTypeFor(domain string) (string, error) {
+	delegate, err := m.forDomain(domain)
+	if err != nil {
+		return "", err
+	}
+	return delegate.desc.Type, nil
+}
+
+// RegistrarFor constructs (once) and returns the registrar authoritative for domain.
+//
+// Exported for the plugin resource sidecar. A client stack's `domain:` is handed to
+// a plugin template inside its Provision inputs, and the plugin publishes it with a
+// registrar of its own — which it only holds if core has sent it ProvisionRegistrar.
+// Core builds delegates lazily, i.e. only for domains it writes itself, so without
+// resolving the stack's domain here first the plugin never learns that zone's
+// registrar (see makeResourceSidecar).
+func (m *multiRegistrar) RegistrarFor(ctx *sdk.Context, domain string) (pApi.Registrar, error) {
 	delegate, err := m.forDomain(domain)
 	if err != nil {
 		return nil, err
@@ -189,7 +213,7 @@ func (m *multiRegistrar) ProvisionRecords(ctx *sdk.Context, params pApi.Provisio
 }
 
 func (m *multiRegistrar) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*api.ResourceOutput, error) {
-	registrar, err := m.registrarFor(ctx, dnsRecord.Name)
+	registrar, err := m.RegistrarFor(ctx, dnsRecord.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -197,7 +221,7 @@ func (m *multiRegistrar) NewRecord(ctx *sdk.Context, dnsRecord api.DnsRecord) (*
 }
 
 func (m *multiRegistrar) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack, rule pApi.OverrideHeaderRule) (*api.ResourceOutput, error) {
-	registrar, err := m.registrarFor(ctx, rule.FromHost)
+	registrar, err := m.RegistrarFor(ctx, rule.FromHost)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +229,7 @@ func (m *multiRegistrar) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack
 }
 
 func (m *multiRegistrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack, endpoint pApi.DomainEndpoint) (*api.ResourceOutput, error) {
-	registrar, err := m.registrarFor(ctx, endpoint.Domain)
+	registrar, err := m.RegistrarFor(ctx, endpoint.Domain)
 	if err != nil {
 		return nil, err
 	}
