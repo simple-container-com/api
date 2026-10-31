@@ -211,7 +211,23 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 			if !ok {
 				continue
 			}
-			ctx.Export(k, sdk.Any(plain))
+			// Preserve the Secret flag the plugin set on this InputValue.
+			// Without wrapping with sdk.ToSecret, a plaintext access key
+			// / password / token that the plugin's own
+			// `pulumi.ToSecret(...)`-marked Output flagged as secret would
+			// land in the parent stack root as a bare string — readable
+			// via `pulumi stack output` by anything with state-bucket
+			// access, and printed plaintext in preview + apply logs. The
+			// aws plugin's AccessKey.Secret and ECR auth password both
+			// hit this on the first harvest. See InputValue.secret in
+			// plugin.proto (field 10) — plugins set it when wrapping a
+			// secret output; SC core honours it here.
+			out := sdk.Any(plain)
+			if v.GetSecret() {
+				ctx.Export(k, sdk.ToSecret(out))
+			} else {
+				ctx.Export(k, out)
+			}
 		}
 
 		return &api.ResourceOutput{Ref: fmt.Sprintf("plugin:%s:%s", pluginName, resp.GetUrn())}, nil
