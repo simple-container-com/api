@@ -44,10 +44,15 @@ var (
 
 // RegisterPluginDriver adds a plugin-advertised driver to the table.
 //
-// Refuses to shadow a built-in and refuses a second registration of the same name,
-// in both cases naming the plugins involved. Both are configuration errors an
-// operator can fix (uninstall one of the plugins), and neither may resolve
+// Refuses to shadow a true built-in and refuses a second registration of the same
+// name, in both cases naming the plugins involved. Both are configuration errors
+// an operator can fix (uninstall one of the plugins), and neither may resolve
 // silently: which plugin won would decide which cloud a machine is created in.
+//
+// A row flagged `MigratedToPlugin: true` is NOT treated as a true built-in — the
+// row exists only for its capability metadata (see DriverInfo.MigratedToPlugin's
+// doc comment on capabilities.go), and the plugin is the authoritative source of
+// implementation for that driver name.
 func RegisterPluginDriver(pluginName, driver string, info DriverInfo) error {
 	if pluginName == "" {
 		return errors.Errorf("cannot register vm driver %q: no plugin name", driver)
@@ -55,7 +60,7 @@ func RegisterPluginDriver(pluginName, driver string, info DriverInfo) error {
 	if driver == "" {
 		return errors.Errorf("plugin %q advertised a vm driver with no name", pluginName)
 	}
-	if _, builtin := Drivers[driver]; builtin {
+	if existing, builtin := Drivers[driver]; builtin && !existing.MigratedToPlugin {
 		return errors.Errorf(
 			"plugin %q advertises vm provider %q, which SC core provides itself; "+
 				"a plugin cannot replace a built-in driver", pluginName, driver,
@@ -82,22 +87,38 @@ func RegisterPluginDriver(pluginName, driver string, info DriverInfo) error {
 
 // LookupDriver resolves a `provider:` value against the built-in table first and
 // the plugin table second. The ordering is the no-shadowing rule above, enforced a
-// second time at read: a built-in always wins.
+// second time at read: a built-in always wins — except a `MigratedToPlugin: true`
+// row, which is capability metadata rather than an implementation. For those we
+// fall through to the plugin table, so a registered plugin driver with the same
+// name wins. If no plugin has registered, the row's metadata (Capabilities,
+// Unverified, RoadmapItem) still answers so Validate's keyed-off-capabilities
+// checks keep working.
 func LookupDriver(driver string) (DriverInfo, bool) {
-	if info, ok := Drivers[driver]; ok {
+	if info, ok := Drivers[driver]; ok && !info.MigratedToPlugin {
 		return info, true
 	}
 	pluginDriversMu.RLock()
 	defer pluginDriversMu.RUnlock()
-	info, ok := pluginDrivers[driver]
-	return info, ok
+	if info, ok := pluginDrivers[driver]; ok {
+		return info, true
+	}
+	// No plugin registered a migrated driver — serve the stale built-in metadata
+	// so Validate still has a row to reason about (an operator deploying without
+	// the plugin pin would otherwise read "unknown provider" instead of the real
+	// state, which is "the plugin is not installed").
+	if info, ok := Drivers[driver]; ok {
+		return info, true
+	}
+	return DriverInfo{}, false
 }
 
 // PluginForDriver names the plugin that provides a driver, or "" for a built-in.
 // This is what routes a vm resource to the VmHosts RPC instead of an in-tree
-// driver (pkg/clouds/pulumi/vm's driverFor).
+// driver (pkg/clouds/pulumi/vm's driverFor). A `MigratedToPlugin: true` built-in
+// row is NOT a true built-in — defer to the plugin table so dispatch routes to
+// the registered plugin's RPC.
 func PluginForDriver(driver string) string {
-	if _, builtin := Drivers[driver]; builtin {
+	if info, builtin := Drivers[driver]; builtin && !info.MigratedToPlugin {
 		return ""
 	}
 	pluginDriversMu.RLock()

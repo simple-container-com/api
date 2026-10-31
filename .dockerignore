@@ -1,11 +1,26 @@
 # Allowlist: the docker build context is the repo root, and NOTHING else may
 # ride along. Two reasons this matters:
 #  - .sc/ holds DECRYPTED secrets after `sc secrets reveal` runs in CI — it
-#    must never enter a build context (and with the `COPY . .` Go-builder
-#    stages in github-actions.Dockerfile / cloud-helpers.aws.Dockerfile, it
-#    would land in cacheable builder layers, not just the context tarball).
+#    must never enter a build context.
 #  - the context used to ship docs/, dist/, .git/ etc. for a build that needs
 #    none of them.
+#
+# The source tree is NO LONGER in the allowlist. `!cmd`, `!pkg`, `!internal`,
+# `!go.sum` and `!tools.go` existed solely for the `COPY . .` in the `gobuild`
+# stages of github-actions.Dockerfile / cloud-helpers.aws.Dockerfile. Those
+# stages were removed 2026-10-30: the binary is compiled natively by the
+# caller and arrives via `COPY dist/<bin>` (see the comment on that line for
+# why). `go.mod` stays — github-actions.Dockerfile's builder stage reads the
+# pinned Pulumi version out of it.
+#
+# `dist/` is allowed PER FILE, not as a directory. A bare `!dist` would sweep
+# in whatever a developer's local `welder run build-all` left there —
+# `dist/linux-amd64/sc` and friends are ~70 MB each and belong in no image.
+# Naming the two binaries keeps the context to exactly what is COPYed. The
+# nested exception works under the leading `*` (verified 2026-10-30: a probe
+# context with `!dist/github-actions` admitted that file and excluded both a
+# sibling under dist/ and .sc/secrets.yaml).
+#
 # `bin` is NOT allowed. It was, solely because github-actions-staging.Dockerfile
 # COPYed ./bin/github-actions built on the host by welder; both that Dockerfile
 # and build-staging.yml were removed 2026-10-20. caddy.Dockerfile's
@@ -13,9 +28,6 @@
 # so nothing needs it now — and keeping it would ship a local 565 MB bin/sc
 # into every build context.
 *
-!cmd
-!pkg
-!internal
 !go.mod
-!go.sum
-!tools.go
+!dist/github-actions
+!dist/cloud-helpers

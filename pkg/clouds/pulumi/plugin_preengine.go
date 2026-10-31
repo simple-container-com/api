@@ -127,9 +127,24 @@ func (b *preEnginePluginBundle) loadOne(ctx context.Context, name string, spec a
 	if err := verifySHA256(spec); err != nil {
 		return err
 	}
+	// hashicorp/go-plugin's `logStderr` emits raw plugin stderr through
+	// this logger at `hclog.Debug` (client.go:1186). So when the plugin
+	// process panics in a goroutine — e.g. an ApplyT continuation in a
+	// lifted driver — Go dumps the stack trace to the plugin's stderr,
+	// go-plugin reads it and tries to log it at Debug, and a `Warn`-level
+	// logger throws every byte of the trace away. SC core then only sees
+	// `plugin process exited: exit status 2` with no further diagnostics,
+	// which turns every goroutine panic into a day of guesswork.
+	//
+	// Keep this at `hclog.Debug` so plugin panic traces propagate. The
+	// extra chatter from a healthy plugin is small — most plugin output
+	// goes through SC core's own progress logger, not stderr.
+	//
+	// Live-caught 2026-10-30 on forge-baas: an aws plugin ApplyT panic
+	// surfaced as `exit status 2` with no trace until this was flipped.
 	hcLog := hclog.New(&hclog.LoggerOptions{
 		Name:   "sc-plugin-" + name,
-		Level:  hclog.Warn,
+		Level:  hclog.Debug,
 		Output: os.Stderr,
 	})
 	cli, err := scPlugin.NewClient(scPlugin.ClientConfig{

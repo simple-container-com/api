@@ -49,19 +49,60 @@ func TestRegisterPluginDriver_BehavesLikeABuiltIn(t *testing.T) {
 	Expect(ok).To(BeFalse())
 }
 
-// A plugin may not take over a driver name core ships. Resolving this silently
-// would decide which cloud a machine is created in by map iteration order.
+// A plugin may not take over a driver name core ships AN IMPLEMENTATION FOR.
+// Resolving this silently would decide which cloud a machine is created in by
+// map iteration order. Uses `byo` because it is the one truly in-tree driver;
+// every other row in `Drivers` is capability metadata whose implementation is
+// (or will be) plugin-owned, and those legitimately coexist with their plugin
+// (see TestRegisterPluginDriver_MigratedToPluginAllowsRegistration below).
 func TestRegisterPluginDriver_CannotShadowABuiltIn(t *testing.T) {
 	RegisterTestingT(t)
 	defer ResetPluginDrivers()
 
-	err := RegisterPluginDriver("sc-plugin-rogue", DriverCloudruEvolution, pluginRow())
+	err := RegisterPluginDriver("sc-plugin-rogue", DriverByo, pluginRow())
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("SC core provides itself"))
 
 	// And the built-in row is untouched.
+	info, ok := LookupDriver(DriverByo)
+	Expect(ok).To(BeTrue())
+	Expect(info.Plugin).To(BeEmpty())
+}
+
+// A row flagged `MigratedToPlugin: true` is NOT a true built-in and MUST allow a
+// plugin to register the same name — the row exists only for its capability
+// metadata; the plugin is the authoritative implementation.
+//
+// Live-caught 2026-10-30 on a two-peaks deploy against api v2026.10.54:
+// sc-plugin-cloudru advertises `cloudru-evolution-vm`, api's then-strict
+// collision check refused the registration, every cloudru deploy went red with
+// `plugin %q advertises vm provider %q, which SC core provides itself`.
+func TestRegisterPluginDriver_MigratedToPluginAllowsRegistration(t *testing.T) {
+	RegisterTestingT(t)
+	defer ResetPluginDrivers()
+
+	// Precondition: the row exists and is flagged.
+	Expect(Drivers[DriverCloudruEvolution].MigratedToPlugin).To(BeTrue(),
+		"DriverCloudruEvolution must stay flagged so sc-plugin-cloudru can register it without colliding")
+
+	// The plugin registers; no error.
+	Expect(RegisterPluginDriver("cloudru", DriverCloudruEvolution, pluginRow())).ToNot(HaveOccurred())
+
+	// LookupDriver returns the plugin's row (not the stale built-in metadata),
+	// and PluginForDriver names the plugin so dispatch routes to its VmHosts RPC.
 	info, ok := LookupDriver(DriverCloudruEvolution)
 	Expect(ok).To(BeTrue())
+	Expect(info.Plugin).To(Equal("cloudru"))
+	Expect(PluginForDriver(DriverCloudruEvolution)).To(Equal("cloudru"))
+
+	// Without a registered plugin, LookupDriver falls back to the built-in
+	// metadata so Validate's capability-keyed checks keep working — a config
+	// deployed without the plugin pin reads "the plugin is not installed", not
+	// "unknown provider".
+	ResetPluginDrivers()
+	info, ok = LookupDriver(DriverCloudruEvolution)
+	Expect(ok).To(BeTrue())
+	Expect(info.MigratedToPlugin).To(BeTrue())
 	Expect(info.Plugin).To(BeEmpty())
 }
 
