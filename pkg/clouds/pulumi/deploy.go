@@ -278,6 +278,10 @@ func (p *pulumi) processResourceDependency(ctx *sdk.Context, stack api.Stack, pa
 	} else {
 		provisionParams.ParentStack = resParentStackInfo
 		provisionParams.StackDescriptor = dep.stackDescriptor
+		// Nil for a plugin-dispatched type, which owns its provider inside the
+		// plugin's own pctx (see getProvisionParams, Addendum H) — there is no
+		// core-side handle to wait on. AddDependency drops it; a nil left in
+		// the dependency slice panics sdk.DependsOn at the next registration.
 		dep.collector.AddDependency(provisionParams.Provider)
 		provisionParams.ComputeContext = dep.collector
 		res, err := fnc(ctx, stack, api.ResourceInput{
