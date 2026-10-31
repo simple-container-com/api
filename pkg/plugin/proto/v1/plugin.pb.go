@@ -205,7 +205,23 @@ type RequestHeader struct {
 	// state and not plan a destroy of every per-env secret.
 	//
 	// When empty (older SC core), plugins should fall back to `stack_name`.
-	CliStackName  string `protobuf:"bytes,12,opt,name=cli_stack_name,json=cliStackName,proto3" json:"cli_stack_name,omitempty"`
+	CliStackName string `protobuf:"bytes,12,opt,name=cli_stack_name,json=cliStackName,proto3" json:"cli_stack_name,omitempty"`
+	// True if the current Pulumi update is a preview (dry-run). Plugins MUST
+	// thread this value into `sdk.RunInfo.DryRun` when building their own
+	// `sdk.Context` so `pctx.DryRun()` answers truthfully. Without it a plugin's
+	// `pctx.DryRun()` is always false and every preview-skip guard misfires —
+	// live-caught 2026-10-31 against sc-plugin-cloudflare's Pages uploader:
+	// `if ctx.DryRun()` failed to skip the upload-token request in preview, the
+	// PagesProject didn't exist yet, and the request hung 30 min until the GH
+	// Actions job timed out. The field is explicit on the wire rather than
+	// inferred from ctx because `sdk.RunInfo.DryRun` has to be set at
+	// `sdk.NewContext(ctx, …)` time — the plugin can't recover the flag from
+	// the monitor address alone.
+	//
+	// When unset (older SC core), plugins should treat as false — same behaviour
+	// they had before this field existed, so preview-skip guards keep misfiring
+	// against old cores but the plugin itself does not break.
+	DryRun        bool `protobuf:"varint,13,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -315,6 +331,13 @@ func (x *RequestHeader) GetCliStackName() string {
 		return x.CliStackName
 	}
 	return ""
+}
+
+func (x *RequestHeader) GetDryRun() bool {
+	if x != nil {
+		return x.DryRun
+	}
+	return false
 }
 
 // InputValue is the typed carrier for a resource input or a config field on the
@@ -3824,7 +3847,7 @@ var File_v1_plugin_proto protoreflect.FileDescriptor
 
 const file_v1_plugin_proto_rawDesc = "" +
 	"\n" +
-	"\x0fv1/plugin.proto\x12\fsc.plugin.v1\"\x9b\x04\n" +
+	"\x0fv1/plugin.proto\x12\fsc.plugin.v1\"\xb4\x04\n" +
 	"\rRequestHeader\x12'\n" +
 	"\x0fmonitor_address\x18\x01 \x01(\tR\x0emonitorAddress\x12%\n" +
 	"\x0eengine_address\x18\x02 \x01(\tR\rengineAddress\x12\x1d\n" +
@@ -3837,11 +3860,12 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\rprovider_urns\x18\b \x03(\v2-.sc.plugin.v1.RequestHeader.ProviderUrnsEntryR\fproviderUrns\x120\n" +
 	"\x14sccore_broker_stream\x18\t \x01(\rR\x12sccoreBrokerStream\x12%\n" +
 	"\x0esccore_address\x18\v \x01(\tR\rsccoreAddress\x12$\n" +
-	"\x0ecli_stack_name\x18\f \x01(\tR\fcliStackName\x1a?\n" +
+	"\x0ecli_stack_name\x18\f \x01(\tR\fcliStackName\x12\x17\n" +
+	"\adry_run\x18\r \x01(\bR\x06dryRun\x1a?\n" +
 	"\x11ProviderUrnsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\n" +
-	"\x10\vJ\x04\b\r\x10\x10\"\x8d\x03\n" +
+	"\x10\vJ\x04\b\x0e\x10\x10\"\x8d\x03\n" +
 	"\n" +
 	"InputValue\x12#\n" +
 	"\fstring_value\x18\x01 \x01(\tH\x00R\vstringValue\x12\x1d\n" +
