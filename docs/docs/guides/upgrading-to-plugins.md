@@ -1,11 +1,11 @@
 ---
 title: Upgrading to SC plugins
-description: Cloudflare and Yandex Cloud support moved out of the sc binary into separate plugin binaries. This page is everything you need to do about it.
+description: Cloudflare, Yandex Cloud, Cloud.ru, MongoDB Atlas and AWS support moved out of the sc binary into separate plugin binaries. This page is everything you need to do about it.
 platform: platform
 product: simple-container
 category: devguide
 subcategory: upgrade
-date: '2026-10-27'
+date: '2026-10-30'
 ---
 
 # Upgrading to SC plugins
@@ -33,16 +33,19 @@ What changes is that a `server.yaml` using a plugin-owned type should now say
 Grep your stacks for the type tokens that moved out of tree:
 
 ```bash
-grep -rnE 'type:[[:space:]]*(cloudflare|yandex|yc-dns|yc-bucket|yc-serverless-container|yc-object-storage|yc-kms|yc-lockbox|yc-service-account)' .sc/stacks/
+grep -rnE 'type:[[:space:]]*(cloudflare|yandex|yc-dns|yc-bucket|yc-serverless-container|yc-object-storage|yc-kms|yc-lockbox|yc-service-account|cloudru|cloudru-container|cloudru-postgres|mongodb-atlas|aws|aws-token|aws-lambda|aws-static-website|ecs-fargate|s3-bucket|ecr-repository|aws-rds-postgres|aws-rds-mysql|aws-cloudtrail-security-alerts|aws-kms)' .sc/stacks/
 ```
 
 | Plugin | Repository | Type tokens it now owns |
 |---|---|---|
 | **`cloudflare`** | [`simple-container-com/sc-plugin-cloudflare`](https://github.com/simple-container-com/sc-plugin-cloudflare) | `cloudflare` (DNS registrar) |
 | **`yandex`** | [`simple-container-com/sc-plugin-yandex`](https://github.com/simple-container-com/sc-plugin-yandex) | `yandex` (provider), `yc-dns`, `yc-bucket`, `yc-serverless-container`, `yc-object-storage`, `yc-kms`, `yc-lockbox`, `yc-service-account` |
+| **`cloudru`** | [`simple-container-com/sc-plugin-cloudru`](https://github.com/simple-container-com/sc-plugin-cloudru) | `cloudru` (provider), `cloudru-container`, `cloudru-postgres` |
+| **`mongodb`** | [`simple-container-com/sc-plugin-mongodb`](https://github.com/simple-container-com/sc-plugin-mongodb) | `mongodb-atlas` (provider + ComputeProcessor for the `uses:` env fan-out) |
+| **`aws`** | [`simple-container-com/sc-plugin-aws`](https://github.com/simple-container-com/sc-plugin-aws) | `aws` (provider), `aws-token`, state-store `s3-bucket`, secrets-provider `aws-kms`, templates `aws-lambda` / `ecs-fargate` / `aws-static-website`, resources `s3-bucket` / `ecr-repository` / `aws-rds-postgres` / `aws-rds-mysql` / `aws-cloudtrail-security-alerts`, and the `cloud-helpers` Lambda for CloudWatch alerts + health events |
 
-Everything else — AWS, GCP, Kubernetes, Cloud.ru, MongoDB, `k3s`, `vm` — is
-still built into `sc`. No action needed for those.
+Everything else — GCP, Kubernetes, `k3s`, `vm` — is still built into `sc`. No
+action needed for those.
 
 No hits? You are done; stop reading.
 
@@ -121,6 +124,21 @@ plugins:
       type: github-release
       repository: simple-container-com/sc-plugin-yandex
       version: v2026.10.26-36a86d2
+  cloudru:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-cloudru
+      version: v2026.10.27-7dc7ca9
+  mongodb:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-mongodb
+      version: v2026.10.29-c0b4733
+  aws:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-aws
+      version: v2026.10.30-b021ccb
 
 resources:
   registrar:
@@ -130,8 +148,9 @@ resources:
       # ... unchanged
 ```
 
-**The map key is the plugin name** (`cloudflare`, `yandex`) exactly as the
-error message spells it — not the repository, not the type token.
+**The map key is the plugin name** (`cloudflare`, `yandex`, `cloudru`,
+`mongodb`, `aws`) exactly as the error message spells it — not the repository,
+not the type token.
 
 ### Pick a version
 
@@ -165,6 +184,100 @@ Adding the block does not change any provisioned resource, so **no
 re-provision is required** just to adopt it — the block is read from
 `server.yaml` on every command. Run `sc preview` first if you want to see
 that for yourself.
+
+---
+
+## 3b. Pinning the plugins is only half of it — the CLI floats too
+
+The `plugins:` pins above fix which plugin *binaries* run. They say nothing
+about which `sc` runs, and by default that is whatever is newest.
+
+`simple-container-com/api/.github/actions/deploy-client-stack` has a
+`version` input, but it is **"Version to deploy"** — the artifact CalVer,
+mapped to env `VERSION`, which `sc deploy --deploy-version` reads and SC
+injects as a Docker build arg. The action has **no** SC-CLI-version input.
+The CLI comes from the `simplecontainer/github-actions` image tag,
+resolved as `latest`.
+
+So a workflow line like
+
+```yaml
+# Pin SC CLI to 2026.10.7 — the first release with the Fargate SG UDP egress fix…
+version: "${{ github.event.inputs.sc_version || '2026.10.7' }}"
+```
+
+does neither of the things it looks like: the CLI still floats, and every
+deployed image is stamped `VERSION=2026.10.7` instead of its
+`YYYY.MM.DD-<sha>` CalVer — so the running binary can no longer tell you
+which build it is.
+
+To learn which CLI actually ran, grep the job log for
+`Simple Container CLI version:` — never infer it from the workflow input.
+It prints twice: the requested tag, then the resolved number. forge-baas
+across 2026-10-29 and 10-30, under an identical workflow input:
+
+| run | CLI logged | result |
+|---|---|---|
+| 40953533956 (10-29 20:57) | `latest` → 2026.10.45 | red (nil-pointer panic) |
+| 41101319935 (10-30 17:45) | `latest` → 2026.10.50 | red (both stacks) |
+| 41113107084 (10-30 19:10) | `latest` → 2026.10.52 | green |
+
+**That sequence shows the CLI float, but it does NOT isolate the CLI as
+the cause of the outcome change** — until the plugins block in the parent
+`server.yaml` grew an explicit `aws:` entry (which happened at the end of
+10-30), `sc` auto-latest-resolved the aws plugin as well, and the plugin
+cut three releases inside this very window. Two moving halves. The lesson
+is the unpinnedness itself: three outcomes across three CLI versions and
+an unknown number of plugin versions in two days, under one unchanged
+workflow input. If you want a different outcome than yesterday from the
+same input, pin **both** halves — this section covers the CLI; §3's
+`plugins:` block covers the plugins.
+
+!!! warning "Don't confuse `Simple Container CLI version:` with `Deploy version:`"
+    The same log also prints `Deploy version:` (e.g. `2026.10.7` on
+    10-30). That is the **artifact CalVer** from `$VERSION`, which SC
+    stamps onto the deployed image as a Docker build arg — a third,
+    unrelated version from the CLI and the plugins. If you grep for
+    the wrong one, you'll pin something that doesn't move the CLI at
+    all.
+
+**Pin it at the image tag if you want reproducible deploys.** The pin is
+in the workflow, not in `server.yaml`:
+
+```yaml
+# .github/workflows/deploy.yaml
+jobs:
+  deploy:
+    container:
+      image: simplecontainer/github-actions:2026.10.45
+    steps:
+      - uses: simple-container-com/api/.github/actions/deploy-client-stack@v2026.10.45
+```
+
+!!! warning "The plugins pin different api refs. Cross-plugin skew is the normal state."
+    Every plugin and the CLI share the `api` module across a gRPC bus, but
+    the plugins are released independently and almost never pin the same
+    `api` SHA. As of 2026-10-30 the five live plugins pinned five different
+    `api` refs spanning four days:
+
+    | plugin | api ref in `plugin/go.mod` |
+    |---|---|
+    | aws | `v0.0.0-20261030131545-7d88543d7487` (10-30 13:15) |
+    | yandex | `v0.0.0-20261029151018-e0ac743c03f5` (10-29 15:10) |
+    | mongodb | `v0.0.0-20261029105927-d49ee7927310` (10-29 10:59) |
+    | cloudflare | `v0.0.0-20261028062016-731821e9ee10` (10-28 06:20) |
+    | cloudru | `v0.0.0-20261027182937-685d153ee7de` (10-27 18:29) |
+
+    So you cannot "match the CLI to the plugin's api ref" even in
+    principle — the plugins don't agree with each other, let alone with
+    core. The bus runs multiple api versions simultaneously by design;
+    no tested combination exists. What makes a deploy reproducible is
+    pinning both halves — `plugins:` in `server.yaml` AND the GitHub
+    Actions image tag — not matching SHAs.
+
+    Each plugin's `api` ref lives in `plugin/go.mod` (NOT the root
+    `go.mod`, which has no api dep). If you need to know which api a
+    particular plugin release was built against, read that one line.
 
 ---
 
@@ -239,6 +352,46 @@ file whose hash already matches and makes no network call. The binary name is
 
 ---
 
+## 6b. Preview before you deploy a stack that was in-tree yesterday
+
+A plugin is wire-compatible with pre-split state — URNs are byte-identical,
+and `sc preview` on a plugin-pinned stack should read as the same resource
+graph it had before. Before you deploy a stack that was still in-tree on its
+last green run, run `sc deploy -s <stack> -e <env> -P` (the `-P` is preview-
+only) and read the plan: **zero creates and zero deletes** on the resources
+you expect to be untouched is the pass criterion.
+
+If the plan wants to **create and delete the same shape of resource at once
+with a different URN** — a Secret, a provider, a DatabaseUser, a worker
+script — you've hit a URN-parity miss between in-tree and the plugin. Three
+patterns bit forge's own staging smoke on 2026-10-30:
+
+- **Secret name uses the parent CLI stack name**
+  (`<stack>--<env>--values----<KEY>`), not the child stack. If the preview
+  turns `forge-notifier--staging--values----API_KEY` into
+  `forge-notifier--staging--staging--values----API_KEY` (note the doubled
+  `staging`), the plugin is reading the child name. Fixed in `sc`
+  `v2026.10.53+` by carrying both via a new `cli_stack_name` header field.
+- **Provider URN flips between parent and child prefix** on the first
+  deploy that moves a `uses:` dependency type to the plugin bus — e.g.
+  mongodb-atlas going from
+  `forge-notifier--staging--mongodb-atlas--mongodb--staging--provider--staging`
+  (child, in-tree) to `forge-notifier--mongodb-atlas--…` (parent, plugin).
+  This destroys the DatabaseUser + random password with it. Also fixed in
+  `sc` `v2026.10.53+` once the compute-processor sidecar carries the child
+  name.
+- **A plugin returns `EOF`** mid-provision (`error reading from server:
+  EOF`). This is `pulumi-aws`'s driver calling `ctx.Log.Warn` in a
+  background goroutine on a plugin pctx whose `logState.engine` is nil.
+  Fixed by the EngineProxy in `sc` `v2026.10.53+` — upgrade `sc` and the
+  issue goes away.
+
+If you see any of the above on an older `sc`, **do not proceed with the
+deploy** — pin the plugin at the version that matches your `sc`, upgrade
+`sc` to `v2026.10.53` or newer, and preview again.
+
+---
+
 ## 7. Things to know before you hit them
 
 **Published platforms are `linux/amd64`, `linux/arm64`, and `darwin/arm64`.**
@@ -300,6 +453,13 @@ and older still have Cloudflare and Yandex compiled in and ignore the
 `plugins:` block, so a `server.yaml` carrying the block stays compatible with
 both. **Add the block before you upgrade `sc`, not after** — that ordering
 makes the upgrade a no-op rather than a flag day.
+
+For `cloudru`, `mongodb` and `aws`, the pre-split `sc` is `2026.10.44` and
+older. Those versions still have the respective driver compiled in and
+ignore the plugin entry, so the "pin the block first, then upgrade `sc`"
+rule applies to them too. The one asymmetry: §6b's URN-parity + EngineProxy
+fixes landed in `sc` `v2026.10.53+` and the corresponding plugin releases
+of the same date — downgrade `sc` *or* the plugin individually, not both.
 
 ---
 

@@ -12,9 +12,11 @@ import (
 	"google.golang.org/grpc"
 
 	. "github.com/onsi/gomega"
+
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	scPlugin "github.com/simple-container-com/api/pkg/plugin"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
@@ -224,4 +226,72 @@ func TestComputeProcessorSidecar_HandlesNilParentStack(t *testing.T) {
 	}, sdk.WithMocks("project", "stack", &refMocks{}))
 	Expect(err).ToNot(HaveOccurred())
 	Expect(stub.gotReq.GetParentInfoJson()).To(BeEmpty())
+}
+
+// dependingResource exists only so the test can register something that
+// carries a DependsOn option — that registration is where the panic landed.
+type dependingResource struct {
+	sdk.CustomResourceState
+}
+
+// TestComputeContextCollector_DropsNilProviderDependency — every stack with a
+// plugin-dispatched resource panicked on deploy, and this is the shape of it.
+//
+// processResourceDependency hands provisionParams.Provider to the collector for
+// each dependency resource. For a plugin-dispatched type that Provider is nil on
+// purpose: getProvisionParams skips initProvider because the plugin constructs
+// the provider in its own pctx, where a ProviderResource handle cannot cross
+// back. Collected anyway, the nil reached sdk.DependsOn(collector.Dependencies())
+// on the next registration — the stack's docker image — and Pulumi's
+// addDependency dereferenced it to read a URN:
+//
+//	panic: runtime error: invalid memory address or nil pointer dereference
+//	  pulumi.addDependency(...)       rpc.go:75
+//	  resourceDependencySet.addDeps() resource.go:873
+//	  (*Context).getOpts()            context.go:2778
+//
+// Live-caught 2026-10-29 on forge-conductor and forge-baas once in-tree mongodb
+// was dropped (api #511) and `mongodb-atlas` became a plugin type.
+//
+// The Dependencies() assertion below is what reports a regression; the
+// registration after it is the real thing, and with the guard removed it
+// reproduces the production trace verbatim — addDependency({0x0, 0x0}) — inside
+// Pulumi's own goroutine, which takes the test binary down with it.
+func TestComputeContextCollector_DropsNilProviderDependency(t *testing.T) {
+	RegisterTestingT(t)
+
+	collector := pApi.NewComputeContextCollector(context.Background(), logger.New(), "backend", "prod")
+
+	// What processResourceDependency does for a plugin-dispatched type.
+	collector.AddDependency(nil)
+	Expect(collector.Dependencies()).To(BeEmpty(), "a nil provider must never reach the dependency slice")
+
+	err := sdk.RunErr(func(ctx *sdk.Context) error {
+		var res dependingResource
+		return ctx.RegisterResource("test:index:Depending", "image", sdk.Map{}, &res,
+			sdk.DependsOn(collector.Dependencies()))
+	}, sdk.WithMocks("project", "stack", &refMocks{}))
+	Expect(err).ToNot(HaveOccurred())
+}
+
+// A real provider is still a real dependency — the nil guard must not swallow
+// the in-tree case, where the image genuinely has to wait on the provider.
+func TestComputeContextCollector_KeepsRealDependency(t *testing.T) {
+	RegisterTestingT(t)
+
+	collector := pApi.NewComputeContextCollector(context.Background(), logger.New(), "backend", "prod")
+
+	err := sdk.RunErr(func(ctx *sdk.Context) error {
+		var provider dependingResource
+		if err := ctx.RegisterResource("pulumi:providers:test", "provider", sdk.Map{}, &provider); err != nil {
+			return err
+		}
+		collector.AddDependency(&provider)
+		Expect(collector.Dependencies()).To(HaveLen(1))
+
+		var res dependingResource
+		return ctx.RegisterResource("test:index:Depending", "image", sdk.Map{}, &res,
+			sdk.DependsOn(collector.Dependencies()))
+	}, sdk.WithMocks("project", "stack", &refMocks{}))
+	Expect(err).ToNot(HaveOccurred())
 }

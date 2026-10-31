@@ -133,6 +133,11 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 		if a, dnsAware := clientStackDesc.Config.Config.(api.DnsConfigAware); dnsAware {
 			dnsPreference.BaseZone = a.OverriddenBaseZone()
 		}
+		// Thread the preference onto p so getProvisionParams can include it
+		// in ProvisionParams.DnsPreference — the plugin-bus sidecar needs
+		// it to resolve the active registrar's plugin coords for the
+		// deploying stack's base zone (D8 PeerInvoke bridge).
+		p.dnsPreference = dnsPreference
 		if err = p.initRegistrar(ctx, stack, dnsPreference); err != nil {
 			return errors.Wrapf(err, "failed to init registrar for stack %q in env %q", fullStackName, params.Environment)
 		}
@@ -273,6 +278,10 @@ func (p *pulumi) processResourceDependency(ctx *sdk.Context, stack api.Stack, pa
 	} else {
 		provisionParams.ParentStack = resParentStackInfo
 		provisionParams.StackDescriptor = dep.stackDescriptor
+		// Nil for a plugin-dispatched type, which owns its provider inside the
+		// plugin's own pctx (see getProvisionParams, Addendum H) — there is no
+		// core-side handle to wait on. AddDependency drops it; a nil left in
+		// the dependency slice panics sdk.DependsOn at the next registration.
 		dep.collector.AddDependency(provisionParams.Provider)
 		provisionParams.ComputeContext = dep.collector
 		res, err := fnc(ctx, stack, api.ResourceInput{

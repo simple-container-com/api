@@ -53,7 +53,7 @@ require (
 	github.com/pulumi/pulumi/sdk/v3 v3.245.0
 	github.com/samber/lo v1.53.0
 	github.com/simple-container-com/sc-plugin-aws/api v0.0.0-20261029194547-4f8f024bc425
-	github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261026175043-5eddde358585
+	github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261031083455-cdbcf98c7bfb
 	github.com/simple-container-com/sc-plugin-cloudru/api v0.0.0-20261027184304-7dc7ca92c47c
 	github.com/simple-container-com/sc-plugin-mongodb/api v0.0.0-20261029130510-ff1589792eaa
 	github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261026175213-36a86d2f6b52

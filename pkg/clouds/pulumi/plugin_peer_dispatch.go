@@ -96,12 +96,34 @@ func (d *bundlePeerDispatcher) DispatchPeer(ctx context.Context, pluginName, rpc
 		}
 		return proto.Marshal(resp)
 
+	case "NewOverrideHeaderRule":
+		req := &scpluginv1.NewOverrideHeaderRuleRequest{}
+		if err := proto.Unmarshal(payload, req); err != nil {
+			return nil, errors.Wrapf(err, "peer invoke %q.%s: unmarshal request", pluginName, rpcName)
+		}
+		resp, err := cli.NewOverrideHeaderRule(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return proto.Marshal(resp)
+
+	case "ProvisionDomainForEndpoint":
+		req := &scpluginv1.ProvisionDomainForEndpointRequest{}
+		if err := proto.Unmarshal(payload, req); err != nil {
+			return nil, errors.Wrapf(err, "peer invoke %q.%s: unmarshal request", pluginName, rpcName)
+		}
+		resp, err := cli.ProvisionDomainForEndpoint(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return proto.Marshal(resp)
+
 	// Add further RPCs here as composite-plugin needs surface. New
 	// cases are purely additive — a plugin asking for an unlisted RPC
 	// gets the clear "not supported in this core" error below rather
 	// than an opaque transport failure.
 
 	default:
-		return nil, errors.Errorf("peer invoke %q.%s: SC core does not support that RPC on PeerInvoke (supported: Provision, Provider, NewDnsRecord, ProvisionRegistrar, VmHosts)", pluginName, rpcName)
+		return nil, errors.Errorf("peer invoke %q.%s: SC core does not support that RPC on PeerInvoke (supported: Provision, Provider, NewDnsRecord, NewOverrideHeaderRule, ProvisionDomainForEndpoint, ProvisionRegistrar, VmHosts)", pluginName, rpcName)
 	}
 }

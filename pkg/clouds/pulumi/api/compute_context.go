@@ -11,9 +11,8 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
@@ -137,7 +136,18 @@ func (c *Collector) AddSecretEnvVariableIfNotExist(name, value, resType, resName
 	c.addEnvVarIfNotExist(name, value, resType, resName, stackName, true)
 }
 
+// AddDependency collects a resource every compute consumer must wait on.
+//
+// A nil resource is dropped rather than collected: `Dependencies()` feeds
+// `sdk.DependsOn(...)`, and Pulumi's addDependency dereferences each entry to
+// read its URN, so one nil in the slice panics the whole deploy. Plugin-
+// dispatched resource types legitimately have no core-side provider to depend
+// on — see getProvisionParams in provision.go — and that is the caller that
+// found this the hard way.
 func (c *Collector) AddDependency(res sdk.Resource) {
+	if res == nil {
+		return
+	}
 	c.dependencies = append(c.dependencies, res)
 }
 
@@ -231,11 +241,16 @@ func GetParentOutput(ref *sdk.StackReference, outName string, parentRefString st
 		value = parentOutput.SecretValue
 	}
 	if value == nil {
-		return "", errors.Wrapf(err, "no secret value for output %q from %q", outName, parentRefString)
+		return "", errors.Errorf("no %s value for output %q from %q", lo.If(secret, "secret").Else("plain"), outName, parentRefString)
 	}
-	if s, ok := value.(string); ok {
-		return s, nil
-	} else {
-		return "", errors.Wrapf(err, "parent output %q is not of type string (%T)", s, value)
+	s, ok := value.(string)
+	if !ok {
+		// Was: `errors.Wrapf(err, "parent output %q is not of type string (%T)", s, value)` —
+		// `err` is nil here, so Wrapf produced an empty-string error, and `%q` fed `s` (the
+		// zero-value "" from the failed assertion). Diagnostic-free. The (%T) hint of what
+		// the value actually was is the useful bit, especially when it's a
+		// `map[string]interface{}` placeholder from an undecryptable-secret StackReference.
+		return "", errors.Errorf("parent output %q from %q is %T, not string (undecryptable secret rendered as placeholder? state backend reachable?)", outName, parentRefString, value)
 	}
+	return s, nil
 }

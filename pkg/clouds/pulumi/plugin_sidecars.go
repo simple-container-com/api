@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/pkg/errors"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -85,7 +85,7 @@ func (b *preEnginePluginBundle) makeSecretsProviderSidecar(cli *scPlugin.Client,
 // --- resource sidecar (same as existing pluginProvisionFunc) ---
 
 func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.ProvisionFunc {
-	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	return func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 		addr, err := requireMonitorAddr(input.Descriptor.Type)
 		if err != nil {
 			return nil, err
@@ -93,9 +93,43 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 		if err := b.provisionDomainRegistrar(ctx, pluginName, input, params); err != nil {
 			return nil, err
 		}
-		stackName, env := stackAndEnv(input)
-		resp, err := cli.Provision(ctx.Context(), &scpluginv1.ProvisionRequest{
-			Header:       &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, ProviderUrns: activeProviderURNs()},
+		// Use the api.Stack argument's Name (the childStack name — e.g.
+		// "forge-notifier--staging") rather than input.StackParams.StackName
+		// (the CLI --stack value — e.g. "forge-notifier"). In-tree drivers
+		// receive stack.Name = "<project>--<env>" (via toChildStack +
+		// StackNameInEnv in pkg/clouds/pulumi/provisioner.go). An in-plugin
+		// resource that names itself off stack.Name — ECR repo, Lambda
+		// function, IAM role, API Gateway — would otherwise produce a
+		// URN missing the env suffix, breaking the no-destroy invariant.
+		stackName := stack.Name
+		if stackName == "" {
+			stackName, _ = stackAndEnv(input)
+		}
+		_, env := stackAndEnv(input)
+		cliStack, _ := stackAndEnv(input)
+		req := &scpluginv1.ProvisionRequest{
+			Header: &scpluginv1.RequestHeader{
+				MonitorAddress: addr,
+				// The Pulumi engine's log endpoint. Without it ctx.Log on
+				// the plugin's own pctx nil-derefs — pulumi-aws calls
+				// ctx.Log.Warn in resolveDeployImageRef's ApplyT when a
+				// deploy would ship by tag, and the panic in that
+				// background goroutine exits status 2 with no visible
+				// trace. The Pulumi engine exports this env var on every
+				// RunFunc, so SC core can read it directly.
+				EngineAddress: engineAddr(),
+				StackName:     stackName,
+				// Parent-stack name — see RequestHeader.cli_stack_name in
+				// plugin.proto. The plugin uses this to shape
+				// `input.StackParams.StackName` for drivers whose state
+				// URN carries PARENT prefix (aws secrets, env-var fan-out)
+				// while `stack_name` keeps CHILD for the ECR/Lambda URN
+				// family #516 fixed.
+				CliStackName: cliStack,
+				Environment:  env,
+				ProjectName:  ctx.Project(),
+				ProviderUrns: activeProviderURNs(),
+			},
 			ResourceType: typeToken,
 			ResourceName: input.Descriptor.Name,
 			Inputs:       serializeConfigToInputs(input.Descriptor.Config.Config),
@@ -103,13 +137,52 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 			// `uses:` resources contributed from params.ComputeContext. Without
 			// this a plugin template got none of it — no MONGO_*, no bucket env.
 			ComputeEnvVars: computeContextToProto(params.ComputeContext),
-		})
+		}
+		// If the deploying stack has an active registrar backed by a plugin,
+		// pack its coordinates so the receiving plugin can proxy DNS back via
+		// SCCore.PeerInvoke (D8). pApi.Registrar is a cross-plugin service;
+		// without this a plugin's Provision that calls params.Registrar.*
+		// nil-dereferences.
+		if pr := resolvePluginRegistrar(ctx, params); pr != nil {
+			req.RegistrarPluginName = pr.pluginName
+			req.RegistrarType = pr.typeToken
+			req.RegistrarMainDomain = pr.mainDomain
+		}
+		resp, err := cli.Provision(ctx.Context(), req)
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q Provision(%q, %q)", pluginName, typeToken, input.Descriptor.Name)
 		}
+		// Drain buffer: after the plugin's Provision returns, pulumi-aws
+		// (and any other driver with lazy ApplyT chains) still has
+		// background goroutines whose closures fire on outputs that
+		// resolve during preview finalisation — Function URL,
+		// RepositoryUrl, Image.ImageUri. Those goroutines call
+		// RegisterResource against the monitor that SC core owns.
+		// Returning from this sidecar too fast lets SC core's deploy
+		// program progress into finalisation while the plugin's
+		// goroutines are mid-registration; the engine then detects
+		// a dropped RPC and errors with
+		// "waiting for RPCs: error reading from server: EOF".
+		//
+		// pApi.Registrar's own methods already return promptly because
+		// the registrar plugin is a different process; the race is
+		// specifically with the driver's self-registered sub-resources.
+		//
+		// The buffer is bounded so a legitimate slow plugin surfaces as
+		// a timeout rather than silent hang. 10s is comfortably above
+		// what pulumi-aws's typical Lambda provisioning needs post-RPC.
+		// This is option B in the plugin-drain plan; the proper fix
+		// (an AwaitDrain RPC the plugin implements with ctx.wait()) is
+		// a follow-up — option C.
+		time.Sleep(provisionDrainBuffer)
 		return &api.ResourceOutput{Ref: fmt.Sprintf("plugin:%s:%s", pluginName, resp.GetUrn())}, nil
 	}
 }
+
+// provisionDrainBuffer is how long the sidecar waits after cli.Provision
+// returns before letting SC core's deploy move on. See the comment
+// at the call site above for the full rationale.
+var provisionDrainBuffer = 10 * time.Second
 
 // provisionDomainRegistrar makes sure the plugin holds the registrar for the client
 // stack's `domain:` before its Provision runs.
@@ -267,12 +340,25 @@ func (b *preEnginePluginBundle) makeRegistrarSidecar(cli *scPlugin.Client, plugi
 // --- compute processor sidecar ---
 
 func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.ComputeProcessorFunc {
-	return func(ctx *sdk.Context, _ api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+	return func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, collector pApi.ComputeContextCollector, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 		addr, err := requireMonitorAddr(typeToken)
 		if err != nil {
 			return nil, err
 		}
-		stackName, env := stackAndEnv(input)
+		// Pass the child stack name (`forge-notifier--staging`), not
+		// `input.StackParams.StackName` (the CLI --stack value — e.g.
+		// `forge-notifier`). The in-tree ComputeProcessor + its initProvider
+		// baked `stack.Name` into every resource and the provider URN; a plugin
+		// that reads the parent name instead produces a byte-different URN and
+		// Pulumi plans a destroy of the live mongodb provider +
+		// DatabaseUser + random password on first deploy that moves the type
+		// to the plugin bus. Mirrors the same guard the resource sidecar got
+		// in #516.
+		stackName := stack.Name
+		if stackName == "" {
+			stackName, _ = stackAndEnv(input)
+		}
+		_, env := stackAndEnv(input)
 
 		// ParentInfo crosses as JSON — the Go struct carries a nested
 		// *api.StackConfigDependencyResource whose shape evolves faster than
@@ -444,6 +530,21 @@ func requireMonitorAddr(typeToken string) (string, error) {
 	return addr, nil
 }
 
+// engineAddr returns the active session's EngineProxy address, or an empty
+// string when no session is attached. Unlike requireMonitorAddr this is
+// best-effort — a plugin that doesn't need ctx.Log (no-op driver) runs
+// fine without an engine conn, so an empty return is not an error.
+func engineAddr() string {
+	activeSessionMu.Lock()
+	defer activeSessionMu.Unlock()
+	if activeSession == nil {
+		return ""
+	}
+	activeSession.mu.Lock()
+	defer activeSession.mu.Unlock()
+	return activeSession.engineProxyAddr
+}
+
 // activeProviderURNs returns a snapshot of provider URNs the active session
 // has recorded via Provider sidecar invocations. Used in RequestHeader for
 // downstream Provision calls.
@@ -577,6 +678,49 @@ func computeContextToProto(cc pApi.ComputeContext) []*scpluginv1.ComputeEnvVaria
 	add(plain, false)
 	add(secret, true)
 	return out
+}
+
+// resolvePluginRegistrar peeks at ProvisionParams.Registrar and returns
+// the active *pluginRegistrar authoritative for the deploying stack's
+// base DNS zone, so the sidecar can pack its coordinates into
+// ProvisionRequest for the receiving plugin to proxy DNS calls back
+// via PeerInvoke (D8).
+//
+//   - For a plain *pluginRegistrar: return it directly.
+//   - For a *multiRegistrar: resolve via its forDomain against the
+//     stack's preferred base zone (DnsPreference), then type-assert.
+//   - For an in-tree registrar: return nil — in-tree registrars have no
+//     plugin bus endpoint and callers that need one must declare one.
+func resolvePluginRegistrar(ctx *sdk.Context, params pApi.ProvisionParams) *pluginRegistrar {
+	switch r := params.Registrar.(type) {
+	case *pluginRegistrar:
+		return r
+	case *multiRegistrar:
+		if r == nil {
+			return nil
+		}
+		baseZone := ""
+		if params.DnsPreference != nil {
+			baseZone = params.DnsPreference.BaseZone
+		}
+		if baseZone == "" {
+			return nil
+		}
+		delegate, err := r.forDomain(baseZone)
+		if err != nil {
+			return nil
+		}
+		built, err := r.build(ctx, delegate)
+		if err != nil {
+			return nil
+		}
+		if pr, ok := built.(*pluginRegistrar); ok {
+			return pr
+		}
+		return nil
+	default:
+		return nil
+	}
 }
 
 // pluginRegistrar is the SC-core-side wrapper around a plugin's Registrar

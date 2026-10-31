@@ -181,9 +181,33 @@ type RequestHeader struct {
 	// does not expose a callback endpoint (older cores, or test harnesses
 	// that spawn plugins without a broker); the plugin must then skip any
 	// SCCore RPC. Added in Phase 1e for D8 (PeerInvoke).
+	//
+	// Deprecated in favour of sccore_address below: the broker's host→plugin
+	// ConnInfo delivery races the plugin's first Dial even when host-side
+	// Accept is synchronous (observed on sc-plugin-aws / forge-notifier
+	// staging preview, 2026-10-30). A plain TCP endpoint is simpler and
+	// deterministic. Kept wire-compatible.
 	SccoreBrokerStream uint32 `protobuf:"varint,9,opt,name=sccore_broker_stream,json=sccoreBrokerStream,proto3" json:"sccore_broker_stream,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// SCCore callback endpoint SC core serves this plugin's PeerInvoke /
+	// ResolveSecret / ResolveCredential RPCs on. "host:port" over local
+	// TCP (loopback-only). Empty when SC core does not expose a callback
+	// (older core, test harnesses). Prefer this over sccore_broker_stream.
+	SccoreAddress string `protobuf:"bytes,11,opt,name=sccore_address,json=sccoreAddress,proto3" json:"sccore_address,omitempty"`
+	// The CLI `--stack` value (parent-stack name — e.g. "forge-notifier"), as
+	// distinct from `stack_name` which carries the childStack name
+	// ("forge-notifier--staging"). In-tree drivers received stack.Name = CHILD
+	// (via `stack` arg) AND deployParams.StackName = PARENT (via
+	// `input.StackParams.StackName`). Both are used, and they shape different
+	// URNs: a Lambda function/ECR repo named off `stack.Name` CHILD prefix; a
+	// secrets-manager Secret named via `toSecretName(deployParams, …)` PARENT
+	// prefix. #516 flipped `stack_name` from PARENT to CHILD to fix ECR/Lambda
+	// URNs; the plugin needs this PARENT value to keep `toSecretName` matching
+	// state and not plan a destroy of every per-env secret.
+	//
+	// When empty (older SC core), plugins should fall back to `stack_name`.
+	CliStackName  string `protobuf:"bytes,12,opt,name=cli_stack_name,json=cliStackName,proto3" json:"cli_stack_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RequestHeader) Reset() {
@@ -277,6 +301,20 @@ func (x *RequestHeader) GetSccoreBrokerStream() uint32 {
 		return x.SccoreBrokerStream
 	}
 	return 0
+}
+
+func (x *RequestHeader) GetSccoreAddress() string {
+	if x != nil {
+		return x.SccoreAddress
+	}
+	return ""
+}
+
+func (x *RequestHeader) GetCliStackName() string {
+	if x != nil {
+		return x.CliStackName
+	}
+	return ""
 }
 
 // InputValue is the typed carrier for a resource input or a config field on the
@@ -2558,8 +2596,18 @@ type ProvisionRequest struct {
 	// crosses the bus in either direction with its stack/resource metadata.
 	// Older plugins ignore the field.
 	ComputeEnvVars []*ComputeEnvVariable `protobuf:"bytes,7,rep,name=compute_env_vars,json=computeEnvVars,proto3" json:"compute_env_vars,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Active registrar for the deploying stack, so a plugin whose
+	// Provision needs DNS registration can proxy the call back to the
+	// registrar plugin via SCCore.PeerInvoke (D8). SC core fills these
+	// in the Provision sidecar — see pkg/clouds/pulumi/plugin_sidecars.go
+	// makeResourceSidecar. Empty when the deploying stack has no
+	// registrar (preview-only / scratch stacks); a plugin that assumes
+	// one is present must handle the empty case with a clear error.
+	RegistrarPluginName string `protobuf:"bytes,8,opt,name=registrar_plugin_name,json=registrarPluginName,proto3" json:"registrar_plugin_name,omitempty"`  // e.g. "cloudflare"
+	RegistrarType       string `protobuf:"bytes,9,opt,name=registrar_type,json=registrarType,proto3" json:"registrar_type,omitempty"`                      // the registrar type token (e.g. "cloudflare")
+	RegistrarMainDomain string `protobuf:"bytes,10,opt,name=registrar_main_domain,json=registrarMainDomain,proto3" json:"registrar_main_domain,omitempty"` // MainDomain() value — pApi.Registrar's base zone
+	unknownFields       protoimpl.UnknownFields
+	sizeCache           protoimpl.SizeCache
 }
 
 func (x *ProvisionRequest) Reset() {
@@ -2639,6 +2687,27 @@ func (x *ProvisionRequest) GetComputeEnvVars() []*ComputeEnvVariable {
 		return x.ComputeEnvVars
 	}
 	return nil
+}
+
+func (x *ProvisionRequest) GetRegistrarPluginName() string {
+	if x != nil {
+		return x.RegistrarPluginName
+	}
+	return ""
+}
+
+func (x *ProvisionRequest) GetRegistrarType() string {
+	if x != nil {
+		return x.RegistrarType
+	}
+	return ""
+}
+
+func (x *ProvisionRequest) GetRegistrarMainDomain() string {
+	if x != nil {
+		return x.RegistrarMainDomain
+	}
+	return ""
 }
 
 type ProvisionResponse struct {
@@ -3755,7 +3824,7 @@ var File_v1_plugin_proto protoreflect.FileDescriptor
 
 const file_v1_plugin_proto_rawDesc = "" +
 	"\n" +
-	"\x0fv1/plugin.proto\x12\fsc.plugin.v1\"\xc8\x03\n" +
+	"\x0fv1/plugin.proto\x12\fsc.plugin.v1\"\x9b\x04\n" +
 	"\rRequestHeader\x12'\n" +
 	"\x0fmonitor_address\x18\x01 \x01(\tR\x0emonitorAddress\x12%\n" +
 	"\x0eengine_address\x18\x02 \x01(\tR\rengineAddress\x12\x1d\n" +
@@ -3766,11 +3835,13 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\trun_token\x18\x06 \x01(\tR\brunToken\x12\x19\n" +
 	"\btrace_id\x18\a \x01(\tR\atraceId\x12R\n" +
 	"\rprovider_urns\x18\b \x03(\v2-.sc.plugin.v1.RequestHeader.ProviderUrnsEntryR\fproviderUrns\x120\n" +
-	"\x14sccore_broker_stream\x18\t \x01(\rR\x12sccoreBrokerStream\x1a?\n" +
+	"\x14sccore_broker_stream\x18\t \x01(\rR\x12sccoreBrokerStream\x12%\n" +
+	"\x0esccore_address\x18\v \x01(\tR\rsccoreAddress\x12$\n" +
+	"\x0ecli_stack_name\x18\f \x01(\tR\fcliStackName\x1a?\n" +
 	"\x11ProviderUrnsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\n" +
-	"\x10\x10\"\x8d\x03\n" +
+	"\x10\vJ\x04\b\r\x10\x10\"\x8d\x03\n" +
 	"\n" +
 	"InputValue\x12#\n" +
 	"\fstring_value\x18\x01 \x01(\tH\x00R\vstringValue\x12\x1d\n" +
@@ -3988,7 +4059,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x11StackOutputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x14\n" +
-	"\x12PreDestroyResponse\"\xc1\x04\n" +
+	"\x12PreDestroyResponse\"\xd0\x05\n" +
 	"\x10ProvisionRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12#\n" +
@@ -3997,7 +4068,11 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x12dependency_outputs\x18\x05 \x03(\v25.sc.plugin.v1.ProvisionRequest.DependencyOutputsEntryR\x11dependencyOutputs\x12\x1d\n" +
 	"\n" +
 	"parent_urn\x18\x06 \x01(\tR\tparentUrn\x12J\n" +
-	"\x10compute_env_vars\x18\a \x03(\v2 .sc.plugin.v1.ComputeEnvVariableR\x0ecomputeEnvVars\x1aS\n" +
+	"\x10compute_env_vars\x18\a \x03(\v2 .sc.plugin.v1.ComputeEnvVariableR\x0ecomputeEnvVars\x122\n" +
+	"\x15registrar_plugin_name\x18\b \x01(\tR\x13registrarPluginName\x12%\n" +
+	"\x0eregistrar_type\x18\t \x01(\tR\rregistrarType\x122\n" +
+	"\x15registrar_main_domain\x18\n" +
+	" \x01(\tR\x13registrarMainDomain\x1aS\n" +
 	"\vInputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\x1aD\n" +
