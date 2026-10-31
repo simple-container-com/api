@@ -95,8 +95,25 @@ message RequestHeader {
   // When empty (older SC core), plugins should fall back to `stack_name`.
   string cli_stack_name = 12;
 
+  // True if the current Pulumi update is a preview (dry-run). Plugins MUST
+  // thread this value into `sdk.RunInfo.DryRun` when building their own
+  // `sdk.Context` so `pctx.DryRun()` answers truthfully. Without it a plugin's
+  // `pctx.DryRun()` is always false and every preview-skip guard misfires —
+  // live-caught 2026-10-31 against sc-plugin-cloudflare's Pages uploader:
+  // `if ctx.DryRun()` failed to skip the upload-token request in preview, the
+  // PagesProject didn't exist yet, and the request hung 30 min until the GH
+  // Actions job timed out. The field is explicit on the wire rather than
+  // inferred from ctx because `sdk.RunInfo.DryRun` has to be set at
+  // `sdk.NewContext(ctx, …)` time — the plugin can't recover the flag from
+  // the monitor address alone.
+  //
+  // When unset (older SC core), plugins should treat as false — same behaviour
+  // they had before this field existed, so preview-skip guards keep misfiring
+  // against old cores but the plugin itself does not break.
+  bool dry_run = 13;
+
   // Reserved for future use. Not v1.
-  reserved 10, 13 to 15;
+  reserved 10, 14 to 15;
 }
 
 // InputValue is the typed carrier for a resource input or a config field on the

@@ -129,6 +129,11 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 				Environment:  env,
 				ProjectName:  ctx.Project(),
 				ProviderUrns: activeProviderURNs(),
+				// Preview vs apply. Plugins thread this into
+				// sdk.RunInfo.DryRun — see RequestHeader.dry_run in
+				// plugin.proto for the 2026-10-31 cloudflare-pages hang
+				// that motivated the field.
+				DryRun: ctx.DryRun(),
 			},
 			ResourceType: typeToken,
 			ResourceName: input.Descriptor.Name,
@@ -175,6 +180,40 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 		// (an AwaitDrain RPC the plugin implements with ctx.wait()) is
 		// a follow-up — option C.
 		time.Sleep(provisionDrainBuffer)
+
+		// Lift the plugin's exports into THIS context's exports map. The
+		// plugin's `pctx.Export(k, v)` only stashes into the plugin's own
+		// pctx — which SC core never closes, so Pulumi never fires the
+		// corresponding RegisterResourceOutputs for them and the parent
+		// stack root ends up with zero plugin resource outputs. The compute
+		// processor downstream reads parent outputs via StackReference, so
+		// a `uses: [mongodb]` client stack sees empty strings for the
+		// project id, mongo URI, etc. and refuses.
+		//
+		// Fix: plugins populate ProvisionResponse.Outputs on their way out
+		// (reading back pctx.GetCurrentExportMap() after draining), and SC
+		// core re-exports those keys HERE, on its OWN ctx. That lands them
+		// in the parent stack root's RegisterResourceOutputs call at the
+		// end of this update, exactly like the in-tree code did pre-split.
+		//
+		// Live-caught 2026-10-31 after the mongodb cascade recovery:
+		// `/forge/infra` had 6 output keys, all templates — no plugin
+		// resource exports at all (aws forge-storage bucket exports were
+		// also missing; they just hadn't bitten because pre-split cached
+		// outputs still carried them for existing consumers). Two-peaks's
+		// first `uses: [mongodb]` deploy after the adopt caught it clean.
+		//
+		// Older plugins that don't populate Outputs just send an empty
+		// map; this loop is a no-op for them. New plugins pick up the
+		// convention incrementally.
+		for k, v := range resp.GetOutputs() {
+			plain, ok := scPlugin.InputValueToPlain(v)
+			if !ok {
+				continue
+			}
+			ctx.Export(k, sdk.Any(plain))
+		}
+
 		return &api.ResourceOutput{Ref: fmt.Sprintf("plugin:%s:%s", pluginName, resp.GetUrn())}, nil
 	}
 }
@@ -266,7 +305,7 @@ func (b *preEnginePluginBundle) makeProviderSidecar(cli *scPlugin.Client, plugin
 		}
 		stackName, env := stackAndEnv(input)
 		resp, err := cli.Provider(ctx.Context(), &scpluginv1.ProviderRequest{
-			Header:               &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env},
+			Header:               &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
 			ProviderType:         typeToken,
 			ProviderResourceName: input.Descriptor.Name,
 			Inputs:               serializeConfigToInputs(input.Descriptor.Config.Config),
@@ -375,7 +414,7 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 		}
 
 		resp, err := cli.ComputeProcess(ctx.Context(), &scpluginv1.ComputeProcessRequest{
-			Header:         &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env},
+			Header:         &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
 			ResourceType:   typeToken,
 			ResourceName:   input.Descriptor.Name,
 			Inputs:         serializeConfigToInputs(input.Descriptor.Config.Config),
