@@ -133,12 +133,12 @@ plugins:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-mongodb
-      version: v2026.10.31-b69a903
+      version: v2026.11.01-c9f5514
   aws:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-aws
-      version: v2026.11.01-92f5d1b
+      version: v2026.11.01-e377550
 
 resources:
   registrar:
@@ -394,10 +394,10 @@ deploy** — pin the plugin at the version that matches your `sc`, upgrade
 
 ## 6c. The cascade-era traps (October–November 2026)
 
-Four classes of surprise bit the fleet across the cascade recovery (2026-10-24
+Eight classes of surprise bit the fleet across the cascade recovery (2026-10-24
 through 2026-11-01). Each is paired below with the SC + plugin floor that
 makes it go away. If you are upgrading from a plugin pinned at a 2026-10-29 or
-earlier release, read all four before you preview — three of them present as
+earlier release, read all eight before you preview — six of them present as
 success.
 
 ### 1 — Preview wants to destroy everything in state
@@ -484,6 +484,71 @@ did.
 
 **Fix**: pin sc-plugin-aws `>= v2026.11.01-92f5d1b`.
 
+### 6 — Renaming a MongoDB cluster destroys CNAME + password secret
+
+A `server.yaml` edit that only changes an operator-visible knob — the
+`clusterName:` under a mongodb-atlas resource — makes the next deploy delete
+the parent's registrar `cloudflare:index/record:Record`, its Cloudflare
+worker-script, and the `mongodb-password-*` SecretsManager entry on AWS. The
+Atlas cluster itself is also replaced (truncated name, new ID). Live-caught
+on forge-notifier run 41330569069 (2026-11-01).
+
+Root cause: `sc-plugin-mongodb` before `v2026.11.01-c9f5514` fed the operator's
+custom `ClusterName` into BOTH the Pulumi logical resource name (which
+anchors the URN) AND the resource's exported outputs. Because the custom name
+is also run through `TrimStringMiddle` to fit Atlas's 23-char ceiling, the
+output *keys* under the parent stack change shape (e.g.
+`infra--mongodb--staging-password` → `infra--mon--b--staging-password`).
+SC core sees the old keys as "no longer in program" and plans a destroy of
+each — including the AWS secret and the Cloudflare CNAME that referenced
+them, because the whole derived subtree is now orphan.
+
+**Fix**: pin sc-plugin-mongodb `>= v2026.11.01-c9f5514`. The fix splits
+`pulumiResourceName` (URN-anchored, derived from stack identity) from
+`exportClusterName` (operator-visible, used for the Atlas cluster's cloud
+name and the export keys), so URNs stay stable across cluster renames.
+
+### 7 — Deployed container missing env vars from `uses:` resources (sc-plugin-aws only)
+
+After pinning sc-plugin-aws `v2026.11.01-91284ba` or earlier, a deployed
+Lambda / ECS task comes up with `uses:`-sourced env vars unset — the Mongo
+URI, S3 bucket name, etc. that the parent stack correctly exports — even
+though the preview plan reads clean and the deploy exits 0. Live-caught on
+forge-notifier run 41336224941 (2026-11-01).
+
+Root cause: sc-plugin-aws's `capturingCollector` had one `envVars` pool and
+an ECS-only `inputSecrets`, and its `EnvVariables()` / `SecretEnvVariables()`
+readers always returned `nil` for aws-lambda and aws-static-website stacks.
+The Lambda template reads
+`params.ComputeContext.EnvVariables()` to inject incoming env vars into
+the function's env; with `nil` back, nothing to inject.
+
+**Fix**: pin sc-plugin-aws `>= v2026.11.01-91284ba`. The fix splits the
+collector into incoming (seeded from `ProvisionRequest.compute_env_vars`)
+and outgoing (`AddEnvVariableIfNotExist` writes) pools; the readers now
+return the incoming pool for every cfg type.
+
+### 8 — Deploy green with no DNS record created (sc-plugin-aws only)
+
+A Lambda / ECS / static-site stack with `domain:` configured deploys green,
+but the Cloudflare CNAME + Worker script that should point at the Lambda
+URL / ALB never appears. The deploy plan is small (unrelated creates +
+updates); nothing in the plan or the Lambda logs flags a problem; the
+registrar plugin's own log is quiet. Live-caught on forge-notifier run
+41339900839 (2026-11-01).
+
+Root cause: sc-plugin-aws's cross-plugin registrar bridge
+(`scCoreRegistrar.NewDnsRecord` / `NewOverrideHeaderRule` /
+`ProvisionDomainForEndpoint`) wrapped the PeerInvoke call in an `ApplyT`
+chain and returned the resulting `*api.ResourceOutput`. The Lambda / ECS
+templates discard the returned ResourceOutput (they only check `err`), so
+Pulumi's SDK dead-strips the orphan `ApplyT` and the PeerInvoke RPC that
+would register the Cloudflare resource never fires.
+
+**Fix**: pin sc-plugin-aws `>= v2026.11.01-e377550`. The fix calls
+`ctx.Export(unique-key, urnOut)` inside each bridge method as a forcing
+function so Pulumi retains the Output chain.
+
 ---
 
 ## 7. Things to know before you hit them
@@ -496,11 +561,11 @@ If you are starting fresh, these are the floors that make the four traps in
 | Component | Floor | Why |
 |---|---|---|
 | `sc` CLI | `v2026.10.61` | `dry_run` plumbing (§6c.2) + `ProvisionResponse.Outputs` export (§6c.3) |
-| sc-plugin-aws | `v2026.11.01-92f5d1b` | cascade fix + dry-run uptake + Secret-safe harvest + parent-env swap (§6c.1/2/4/5) |
+| sc-plugin-aws | `v2026.11.01-e377550` | cascade fix + dry-run + Secret-safe harvest + parent-env swap + incoming env-var pool + registrar bridge ctx.Export (§6c.1/2/4/5/7/8) |
 | sc-plugin-cloudflare | `v2026.11.01-2c9a8ff` | cascade fix + dry-run uptake + Pages Direct Upload + Site inline wire-decode workaround |
-| sc-plugin-mongodb | `v2026.10.31-b69a903` | cascade fix + dry-run uptake + Secret-safe harvest |
+| sc-plugin-mongodb | `v2026.11.01-c9f5514` | cascade fix + dry-run + Secret-safe harvest + URN-vs-export-key split (§6c.6) |
 | sc-plugin-cloudru | `v2026.11.01-b5e5ae4` | cascade fix (dry-run uptake deferred until the plugin's `api` dep catches up to v2026.10.60) |
-| sc-plugin-yandex | `v2026.10.29-e6833cd` | PR #8 `await-pending-registrations` — the `settle()`/`finishPulumiContext()` pattern mongodb+aws now mimic |
+| sc-plugin-yandex | `v2026.10.29-e6833cd` | PR #8 `await-pending-registrations` — the `settle()`/`finishPulumiContext()` pattern mongodb+aws now mimic (packaged in `api/pkg/plugin/runtime` since v2026.11.01) |
 
 Grepping job logs: all five plugins print `pre-engine loaded plugin "<name>"
 <version>` on startup (see §4). A version below the floor is the fastest
@@ -562,6 +627,9 @@ plugins:
 | `output "<name>" not found on stack <parent>` on a consumer with `uses: [<type>]` | §6c.3 — SC core < 2026.10.61 OR plugin without harvest helper | Pin both `sc` and plugin to §7.1 floors; re-provision parent |
 | An output you expect to be secret prints as a bare string in `pulumi stack export` | §6c.4 — plugin's harvest helper discards the Secret flag | Pin plugin to §7.1 floor; re-provision parent to re-export |
 | `resource not found: <wf-id>--<svc>--<child-env>--<key>` on isolated-stack preview | §6c.5 — sc-plugin-aws compute-process used child env | Pin sc-plugin-aws `>= v2026.11.01-92f5d1b` |
+| Changing a mongodb-atlas `clusterName:` plans to delete the parent's CNAME, worker script and MONGO password secret | §6c.6 — sc-plugin-mongodb coupled URN naming to the operator's custom cluster name | Pin sc-plugin-mongodb `>= v2026.11.01-c9f5514` **before** editing the knob; existing clusters are not affected until the knob changes |
+| Deployed Lambda / ECS task comes up with `uses:`-sourced env vars unset but preview reads clean | §6c.7 — sc-plugin-aws collector dropped incoming compute env vars | Pin sc-plugin-aws `>= v2026.11.01-91284ba`, redeploy |
+| Deploy green but the Cloudflare DNS record for a Lambda / ECS stack with `domain:` never appears | §6c.8 — sc-plugin-aws registrar bridge `ApplyT` dead-stripped by Pulumi | Pin sc-plugin-aws `>= v2026.11.01-e377550`, redeploy |
 
 ---
 

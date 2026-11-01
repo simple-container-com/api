@@ -148,21 +148,74 @@ api.RegisterPluginRequirement(api.PluginRequirement{
 
 ## 3. Author the provisioning tier (`/plugin/internal`)
 
-Four `plugin/cmd/sc-plugin-<cloud>/main.go` scaffolding pieces that need no
-changes — keep them from the template:
+The handler scaffolding that used to be copy-pasted into every plugin's
+`main.go` now lives in [`api/pkg/plugin/runtime`](https://github.com/simple-container-com/api/tree/main/pkg/plugin/runtime).
+Import it, don't re-copy it — rolling your own re-earns the bugs it was built
+to prevent. See [`pkg/plugin/runtime/wait.go`](https://github.com/simple-container-com/api/blob/main/pkg/plugin/runtime/wait.go)
+for the package doc.
 
-- `pulumiContextFromHeader(ctx, header)` — opens one `sdk.Context` per RPC
-  against the monitor address in the request header.
-- `waitForRef(ref any) string` — blocks until a Pulumi
-  `IDOutput`/`URNOutput`/`StringOutput` resolves. The countermeasure for
-  Pulumi's async `RegisterResource`: a handler that returns before its
-  outputs resolve lets `defer pctx.Close()` tear down the engine
-  connection mid-registration, and the deploy hangs silently.
+**The five helpers every production plugin uses:**
+
+- `runtime.NewContext(stdctx, req.GetHeader(), opts...)` — opens one
+  `sdk.Context` per RPC. `WithLocalEngineFallback(publisher)` keeps
+  background `ctx.Log` calls from panicking when the header carries no
+  engine address.
+- `runtime.Settle[T](rctx, &resp, &err)` — `defer`red at the top of
+  every handler. Drains pending `RegisterResource` goroutines via
+  `go:linkname` into `(*Context).wait`, closes the context, folds any
+  wait-error into the handler's named return. **Without this**, a
+  handler that returns before its registrations resolve lets Pulumi's
+  teardown drop them silently, and SC core plans a destroy of every
+  state entry on the next apply (playbook trap 7).
+- `runtime.HarvestExports(stdctx, pctx)` — reads every `pctx.Export(k, v)`
+  made during the handler, awaits each `sdk.Output`, and converts into
+  `map[string]*scpluginv1.InputValue`. **Preserves the Secret flag** —
+  the live-caught regression it exists to prevent (playbook trap 11)
+  landed access keys and RDS passwords plaintext in the parent stack
+  root.
+- `runtime.ParentInfoFromRequest(req)` + `runtime.ResourceInputForComputeProcess(req, parent, cfg)`
+  — ComputeProcess helpers. The latter swaps the child env for the
+  parent's when `ParentInfo.ParentEnv` is non-empty, so parent-stack
+  lookup keys resolve correctly on isolated stacks (playbook trap 12).
+- `runtime.DecodeInputs[T](req.GetInputs(), &target)` — unmarshals the
+  plugin's typed input map into your config struct via `scPlugin.InputsToPlain` +
+  yaml round-trip. Handles nested maps and lists correctly, which the
+  earlier scalar-only variants in aws/mongodb/cloudru lost (playbook
+  trap 14).
+
+Two things that stay per-plugin:
+
 - `LogStream` — drains the plugin's progress Publisher onto the gRPC
   stream. Skip this and the plugin is silent for the whole of a
-  multi-step RPC chain.
-- `strVal(v *scpluginv1.InputValue) string` — reads a string input from
-  the plugin bus's typed input map.
+  multi-step RPC chain. The template wires it correctly; don't touch it.
+- `strVal(v *scpluginv1.InputValue) string` and small input accessors —
+  one-liners that read scalar fields off `InputValue`. Keep them local.
+
+**Idiomatic handler skeleton:**
+
+```go
+func (p *myPlugin) Provision(stdctx context.Context, req *scpluginv1.ProvisionRequest) (resp *scpluginv1.ProvisionResponse, err error) {
+    rctx, err := runtime.NewContext(stdctx, req.GetHeader(), runtime.WithLocalEngineFallback(p.progress))
+    if err != nil {
+        return nil, err
+    }
+    defer runtime.Settle(rctx, &resp, &err)
+
+    var cfg MyCloudBucketConfig
+    if err := runtime.DecodeInputs(req.GetInputs(), &cfg); err != nil {
+        return nil, errors.Wrap(err, "decode bucket inputs")
+    }
+
+    // register cloud resources against rctx.Pulumi; rctx.Pulumi.Export(key, out)
+    // every value a consumer might want.
+
+    outputs, err := runtime.HarvestExports(stdctx, rctx.Pulumi)
+    if err != nil {
+        return nil, err
+    }
+    return &scpluginv1.ProvisionResponse{Urn: urn, Outputs: outputs}, nil
+}
+```
 
 What you change:
 
@@ -354,14 +407,26 @@ type myPlugin struct {
 }
 ```
 
-!!! warning "Broker-capture plumbing is still open"
-    `pkg/plugin/goplugin.go`'s `scCloudPlugin.GRPCServer` currently ignores
-    the broker argument (`_`). Capturing it on the Impl requires an
-    additional one-line api change (a `BrokerAware` interface). Until that
-    lands, `NewPeerClient` on the plugin side errors with "nil broker"
-    because the plugin never gets one. This is tracked as a Phase 1e
-    follow-up; **composite plugins pattern is designed and the server
-    endpoint is live, but the plugin-side capture is not yet wired.**
+`BrokerAware` is live (`api` #514). `pkg/plugin/goplugin.go`'s
+`scCloudPlugin.GRPCServer` type-asserts the Impl against the one-method
+interface `type BrokerAware interface { SetBroker(*hplugin.GRPCBroker) }`
+and calls `SetBroker` when it exists; `NewPeerClient` dials through it.
+Used in production today by `sc-plugin-aws`, which delegates
+`NewDnsRecord` / `ProvisionDomainForEndpoint` / `NewOverrideHeaderRule`
+to the operator-configured registrar (typically `cloudflare`).
+
+!!! danger "Dead-strip the ApplyT around PeerInvoke — the 2026-11-01 trap"
+    If your bridge method returns a `*api.ResourceOutput{Ref: urnOut}`
+    where `urnOut` is an `ApplyT` chain containing the PeerInvoke call,
+    and the caller discards the ResourceOutput, Pulumi's SDK **dead-strips
+    the orphan Output** and the PeerInvoke RPC never fires — the deploy
+    reads green with the DNS record silently never registered. **Fix**:
+    `ctx.Export(unique-key, urnOut)` inside the bridge method before
+    returning, as a forcing function. Keys must be unique per
+    (stack, resource/endpoint/rule) so stacks with multiple records
+    don't collide. Live-caught on forge-notifier run 41339900839; fixed
+    in `sc-plugin-aws v2026.11.01-e377550`. See
+    [playbook trap 15](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-11-01/plugin-extraction-playbook/README.md).
 
 **Rules of the road** (D8):
 - A composite plugin NEVER imports a peer plugin's SDK as a Go module.
@@ -450,9 +515,13 @@ Manually-pushed `v*` tags produce named releases for pinning or rollback.
 
 ---
 
-## 6. The three gotchas
+## 6. The gotchas
 
-Each cost a round trip at least once. Keep them in mind as you author.
+Each cost a round trip at least once. Keep them in mind as you author. The
+canonical trap-by-trap catalogue (fifteen entries as of 2026-11-01) lives at
+[forge/docs/design/2026-11-01/plugin-extraction-playbook/](https://github.com/simple-container-com/forge/tree/main/docs/design/2026-11-01/plugin-extraction-playbook/)
+— the subset below is the ones you will hit as an author rather than as the
+operator picking up a bad release.
 
 ### 6.1 Zone-vs-baseDnsZone — the 2026-10-28 incident
 
@@ -470,16 +539,20 @@ if pref.BaseZone == "" {
 }
 ```
 
-### 6.2 Await before returning
+### 6.2 Drain before you return
 
 Pulumi fires `RegisterResource` from a goroutine. A handler that returns
-before its outputs resolve lets `defer pctx.Close()` tear the engine
-connection down mid-registration. The resource never lands in state;
-the deploy either hangs or reports green with the resource missing.
+before those registrations finish lets `pctx.Close()` tear the engine
+connection down mid-flight. SC core sees no registrations for the handler's
+run, concludes "those resources no longer exist in the program", and plans a
+destroy of each state entry on the next apply. See the `wait.go` package doc
+of [`pkg/plugin/runtime`](https://github.com/simple-container-com/api/blob/main/pkg/plugin/runtime/wait.go)
+for the Pulumi-SDK linkname that `runtime.Settle` uses to drain.
 
-Every RPC handler must `waitForRef` (or equivalent) on the resources it
-registered before returning. The template's `main.go` does this for
-you — don't skip the `urn := waitForRef(out.Ref)` line.
+**Don't skip the `defer runtime.Settle(rctx, &resp, &err)` line.** The
+template wires it correctly out of the box; rolling your own with
+`pctx.Close()` instead is the shape that cost every pre-cascade plugin
+version one round trip.
 
 ### 6.3 `go.mod` replace directives don't resolve on CI
 
@@ -494,7 +567,57 @@ The `/plugin` module's `replace github.com/.../sc-plugin-<cloud>/api => ../api`
 IS fine — that's a sibling module in the same repo and CI checks it
 out together.
 
-### 6.4 `gci` section lists are per-repo
+### 6.4 Operator-named resources need a stable URN separate from the export key
+
+When you honour an operator's `name:` override (`atlasCfg.ClusterName`, a
+bucket's explicit `bucketName`), use it ONLY for the resource's cloud-side
+name and for export keys consumer stacks will read. The Pulumi URN that
+anchors state **must stay stable** — derive it from the stack's identity, not
+from a knob the operator can change. If you let the operator rename a cluster
+and that rename flows into the Pulumi logical name, every orphan output under
+the old name reads as "no longer in program" and gets destroyed on the next
+apply — including the operator-owned Secret the parent exported.
+
+**Pattern:**
+
+```go
+pulumiResourceName := toClusterName(stack.Name, input)   // stable, used in URNs
+exportClusterName := pulumiResourceName
+if cfg.ClusterName != "" {
+    exportClusterName = cfg.ClusterName                  // operator-visible
+}
+cluster, _ := mongodbatlas.NewCluster(ctx,
+    fmt.Sprintf("%s-cluster", pulumiResourceName),       // URN-anchored
+    &mongodbatlas.ClusterArgs{Name: sdk.StringPtr(exportClusterName)})
+ctx.Export(toClusterIdExport(exportClusterName), cluster.ClusterId)
+```
+
+Live-caught on forge-notifier run 41330569069 (2026-11-01) — the mongodb
+plugin coupled URN naming to the operator's custom cluster name and renaming
+the cluster deleted the CNAME and MONGO_PASSWORD secret. Fixed in
+`sc-plugin-mongodb v2026.11.01-c9f5514`. See [playbook trap 13](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-11-01/plugin-extraction-playbook/README.md).
+
+### 6.5 Collector helpers that distinguish incoming vs outgoing env vars
+
+A plugin that runs both Provision (reads INCOMING env vars from the consumer
+stack's `uses:` resources) **and** ComputeProcess (produces OUTGOING env
+vars from this plugin's own resources) needs two separate pools in its
+`ComputeContextCollector`. A single-pool implementation that returns `nil`
+from `EnvVariables()` / `SecretEnvVariables()` silently drops the consumer's
+MONGO_PASSWORD / bucket env / anything else their parent exported. The
+deploy reads green; the deployed container boots with the env unset.
+
+**Pattern:** seed the INCOMING pool from `req.GetComputeEnvVars()` in your
+newProvisionCollector; expose `EnvVariables()` / `SecretEnvVariables()` as
+reads of that pool. The OUTGOING pool is what `AddEnvVariableIfNotExist` /
+`AddSecretEnvVariableIfNotExist` write into during ComputeProcess, and what
+`ToResponse()` ships back in `ComputeProcessResponse.EnvVars`.
+
+Live-caught on forge-notifier run 41336224941 (2026-11-01). Fixed in
+`sc-plugin-aws v2026.11.01-91284ba`. See
+[playbook trap 14](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-11-01/plugin-extraction-playbook/README.md).
+
+### 6.6 `gci` section lists are per-repo
 
 Each SC repo has its own `.golangci.yml` with a `linters-settings.gci.sections`
 list. **Copy the one from the repo you're linting**, not the one you
@@ -505,25 +628,44 @@ remember. Running `gci` with the wrong section list is a lint-only diff —
 
 ## 7. Prior art
 
-Three plugin repos live today, each highlighting a different pattern:
+Five plugin repos live today, each highlighting a different pattern:
 
 - [`sc-plugin-cloudflare`](https://github.com/simple-container-com/sc-plugin-cloudflare) —
-  registrar-only. Simplest `main.go` scaffolding; the cleanest copy source
-  for `pulumiContextFromHeader`, `waitForRef`, `LogStream`.
+  registrar-only. Simplest handler surface; cleanest reference for the
+  `ProvisionRegistrar` / `NewDnsRecord` / `NewOverrideHeaderRule` /
+  `ProvisionDomainForEndpoint` RPCs. Pages Direct Upload for static sites.
 - [`sc-plugin-yandex`](https://github.com/simple-container-com/sc-plugin-yandex) —
-  full provider+resource+state-store+secrets-provider surface. Origin of
-  the release-workflow OOM pins; also carries `decodeInputsAs[T]` for
-  deep nested config.
+  full provider + resource + state-store + secrets-provider surface.
+  Origin of the release-workflow OOM pins and the `settle()` /
+  `finishPulumiContext()` pattern now packaged in `pkg/plugin/runtime`.
+  Multi-registrar slice + longest-zone picker; composite-output
+  resolution for YC objects with multi-field IDs.
 - [`sc-plugin-cloudru`](https://github.com/simple-container-com/sc-plugin-cloudru) —
   dual-mode binary (plugin + lifted cobra CLI). The pattern for clouds
   with no Pulumi provider at all: resources become `pulumi-command`
   `local.Command`s shelling to the plugin binary by absolute path from
-  the plugin cache.
+  the plugin cache. VM driver + custom `cloudru-evolution-vm` plus
+  the `VmHosts` RPC flow.
+- [`sc-plugin-mongodb`](https://github.com/simple-container-com/sc-plugin-mongodb) —
+  the first ComputeProcess-heavy plugin. `uses:` fan-out produces
+  `MONGO_URI` / `MONGO_USER` / `MONGO_PASSWORD` env vars with secret
+  flags preserved. `PreDestroy` with a database-drop hook. Also the
+  origin of the URN-vs-export-key split for operator-named clusters
+  (see §6.5).
+- [`sc-plugin-aws`](https://github.com/simple-container-com/sc-plugin-aws) —
+  the biggest surface by far: provider + state-store (`s3-bucket`) +
+  secrets-provider (`aws-kms`) + templates (`aws-lambda`, `ecs-fargate`,
+  `aws-static-website`) + resources (`s3-bucket`, `ecr-repository`,
+  `aws-rds-postgres`, `aws-rds-mysql`, `aws-cloudtrail-security-alerts`)
+  + the `cloud-helpers` Lambda. Also the first plugin to use the
+  `BrokerAware` → `PeerInvoke` path to delegate DNS registration to
+  cloudflare without a Go-module import (D8).
 
 The template at
 [`sc-plugin-echo`](https://github.com/simple-container-com/sc-plugin-echo)
-is lifted from these three — cloudflare's scaffolding, yandex's release
-workflow, cloudru's `init()` + `RegisterPluginRequirement` pattern.
+is lifted from these five — cloudflare's RPC shape, yandex's release
+workflow, cloudru's `init()` + `RegisterPluginRequirement` pattern,
+mongodb's ComputeProcess + PreDestroy shape, aws's PeerInvoke bridge.
 
 ## 8. The acceptance test
 

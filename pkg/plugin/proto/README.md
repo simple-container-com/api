@@ -8,26 +8,56 @@ for why there are two gRPC conversations and this one is only one of them.
 
 ## Scope of v1 (the current `v1/plugin.proto`)
 
-A "walking skeleton" surface: the four RPCs you can't build an echo plugin without.
+Five plugins ship on this surface today: `sc-plugin-aws`, `sc-plugin-cloudflare`,
+`sc-plugin-cloudru`, `sc-plugin-mongodb`, `sc-plugin-yandex`. Everything the
+in-tree drivers did is reachable through the RPCs below.
 
-| RPC | Who calls | Purpose |
-|---|---|---|
-| `Schema` | SC core → plugin | Advertise provider / resource / registrar / state-store types this plugin owns, plus the Pulumi provider plugins (versions, download URLs) the engine must have available. |
-| `InitStateStore` | SC core → plugin | Configure the Pulumi state backend (S3, GCS, YC Object Storage, …) **before** the Automation API engine starts. |
-| `Provider` | SC core → plugin | Register the explicit `pulumi:providers:<pkg>` resource. Returns its URN for SC core to wire into every downstream `Provision` via `RequestHeader.provider_urns`. |
-| `Provision` | SC core → plugin | Register one SC-level resource against the monitor. Returns the resulting URN + outputs. |
-| `ResolveSecret` / `ResolveCredential` | plugin → SC core (callback) | Vault-pattern cleartext fetch — the plugin bus never carries secret plaintext. |
+### `service SCCloudPlugin` (SC core → plugin)
 
-Not v1 — reserved for the next proto PR once the `pkg/plugin/` runtime (Step 2) is on
-the floor:
+| RPC | Purpose |
+|---|---|
+| `Schema` | Advertise the provider / auth / registrar / template / resource / compute-processor / state-store / secrets-provider / VM-driver types this plugin owns, plus the Pulumi provider plugins (versions, download URLs) the engine must have available. |
+| `InitStateStore` | Configure the Pulumi state backend (S3, GCS, YC Object Storage, …) **before** the Automation API engine starts. |
+| `InitSecretsProvider` | Pre-engine config for the secrets provider (KMS, Lockbox, …) that encrypts Pulumi state secrets. |
+| `Provider` | Register the explicit `pulumi:providers:<pkg>` resource. Returns its URN for SC core to wire into every downstream `Provision` via `RequestHeader.provider_urns`. |
+| `Provision` | Register one SC-level resource against the monitor. Returns the resulting URN + harvested outputs (see §Outputs below). |
+| `ComputeProcess` | Resolve a `uses:` dependency into env variables + template-extension values for the consuming stack (e.g. `MONGO_URI` from a MongoDB cluster). |
+| `ProvisionRegistrar` | DNS registrar bootstrap (e.g. zone lookup, token validation) before per-record calls. |
+| `NewDnsRecord` | Register one DNS record. Returns the resulting URN. |
+| `NewOverrideHeaderRule` | Register one HTTP header override rule (e.g. a Cloudflare Transform Rule). |
+| `ProvisionDomainForEndpoint` | Register a hostname → endpoint binding (e.g. a Cloudflare Worker route or a YC API Gateway attachment). |
+| `PreDestroy` | Cloud-specific cleanup before Pulumi's destroy phase (e.g. mongodb drops databases named in `-service-user` outputs). Fire-and-forget: SC core does not block destroy on the response. |
+| `VmHosts` | Build the `[]VmHost` a VM-driver resource exposes to downstream SSH-based provisioners. |
+| `LogStream` | Server-stream progress events from the plugin's `scPlugin.Publisher` onto the engine's log channel. |
 
-- `ComputeProcess` — compute-side injection (env variables, dependency placeholders).
-- `Registrar` — DNS registrar RPCs (`ProvisionRecords`, `NewRecord`, `NewOverrideHeaderRule`, `ProvisionDomainForEndpoint`, `NewWorkerScript`).
-- `PreDestroy` — pre-destroy hooks per cloud.
+### `service SCCore` (plugin → SC core, over a go-plugin broker stream)
+
+| RPC | Purpose |
+|---|---|
+| `ResolveSecret` / `ResolveCredential` | Vault-pattern cleartext fetch — the plugin bus never carries secret plaintext. |
+| `PeerInvoke` | Composite plugins ask SC core to invoke an RPC on a *peer* plugin by name (see [D8](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-10-24/sc-plugin-architecture/06-decisions.md#d8-composite-plugins-over-peer-plugin-invocation-not-go-module-imports)). Used today by the aws plugin to delegate `NewDnsRecord` / `ProvisionDomainForEndpoint` / `NewOverrideHeaderRule` to the operator-configured registrar (typically `cloudflare`). |
+
+### Outputs — the harvest contract
+
+`ProvisionResponse.Outputs` carries the plugin's `pctx.Export(k, v)` calls as
+`map<string, InputValue>` — SC core re-exports every entry onto the parent stack
+root so `uses:` consumers resolve them. The `InputValue.Secret` flag is the
+secret bit that SC core wraps with `sdk.ToSecret` on the re-export.
+
+**Both halves of this contract must be lived by the plugin runtime**: the harvest
+helper must await every `sdk.Output` and preserve the Secret flag, and bridge
+methods that wrap PeerInvoke in an `ApplyT` must `ctx.Export` the resulting
+`Output` so Pulumi does not dead-strip it. See
+[`pkg/plugin/runtime`](../runtime/) for the shared implementation; the two live
+regressions that produced it (`v2026.10.60`+ and the sc-plugin-aws
+`v2026.11.01-e377550` cascade) are documented in
+[forge/docs/design/2026-11-01/plugin-extraction-playbook/](https://github.com/simple-container-com/forge/tree/main/docs/design/2026-11-01/plugin-extraction-playbook/)
+traps 11, 13, 14, 15.
+
+### Not yet in v1
+
 - `Fingerprint` — server-streaming health channel (Nomad-pattern — see
-  [03 §6.4](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-10-24/sc-plugin-architecture/03-architecture.md#64-health-progress-graceful-shutdown)).
-- `PeerInvoke` — composite plugins ask SC core to invoke on a peer plugin
-  (see [D8](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-10-24/sc-plugin-architecture/06-decisions.md#d8-composite-plugins-over-peer-plugin-invocation-not-go-module-imports)).
+  [03 §6.4](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-10-24/sc-plugin-architecture/03-architecture.md#64-health-progress-graceful-shutdown)). Health inference today still happens inside SC core.
 
 ## Versioning
 
