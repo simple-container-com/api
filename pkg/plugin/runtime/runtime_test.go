@@ -22,12 +22,12 @@ import (
 func TestLinknameResolves(t *testing.T) {
 	t.Parallel()
 	// Reference pulumiContextWait so the compiler emits the external symbol
-	// into this test binary (otherwise an unused private function could be
-	// dead-stripped and the linkname never resolved).
-	fn := pulumiContextWait
-	if fn == nil {
-		t.Fatal("pulumiContextWait resolved to nil — the linkname target has changed")
-	}
+	// into this test binary (otherwise the unused private function could be
+	// dead-stripped and the linkname never resolved). The runtime value is
+	// a Go function pointer that is never nil by construction — staticcheck
+	// SA4031 would reject a `== nil` guard here — so the compile-plus-link
+	// is itself the test.
+	_ = pulumiContextWait
 }
 
 // TestResourceInputForComputeProcess_ParentEnvSwap exercises the
