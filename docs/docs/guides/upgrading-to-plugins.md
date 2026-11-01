@@ -118,27 +118,27 @@ plugins:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-cloudflare
-      version: v2026.10.26-5eddde3
+      version: v2026.11.01-2c9a8ff
   yandex:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-yandex
-      version: v2026.10.26-36a86d2
+      version: v2026.10.29-e6833cd
   cloudru:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-cloudru
-      version: v2026.10.27-7dc7ca9
+      version: v2026.11.01-b5e5ae4
   mongodb:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-mongodb
-      version: v2026.10.29-c0b4733
+      version: v2026.10.31-b69a903
   aws:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-aws
-      version: v2026.10.30-b021ccb
+      version: v2026.11.01-92f5d1b
 
 resources:
   registrar:
@@ -392,7 +392,123 @@ deploy** — pin the plugin at the version that matches your `sc`, upgrade
 
 ---
 
+## 6c. The cascade-era traps (October–November 2026)
+
+Four classes of surprise bit the fleet across the cascade recovery (2026-10-24
+through 2026-11-01). Each is paired below with the SC + plugin floor that
+makes it go away. If you are upgrading from a plugin pinned at a 2026-10-29 or
+earlier release, read all four before you preview — three of them present as
+success.
+
+### 1 — Preview wants to destroy everything in state
+
+Every state entry owned by the plugin reads `- <urn>` in the plan, including
+resources you did not touch. The engine logs look benign; the plan does not.
+
+Root cause: the handler ran `defer done()` on the plugin's pulumi context,
+closing the Context before async `RegisterResource` goroutines resolved their
+URNs. SC core saw no registrations for this run, concluded "those resources
+no longer exist in the program", and planned a destroy of each. Live-caught
+across all five plugins in the week of 2026-10-27 — see
+`forge/docs/design/2026-10-24/sc-plugin-architecture/04-no-destroy-invariant.md`.
+
+**Fix**: pin to a cascade-fix release of each plugin, listed in §7.1 below.
+These releases replace `defer done()` with a drain-and-settle helper that
+waits for pending registrations before closing the Context.
+
+### 2 — Preview "succeeds" but the uploader ran anyway
+
+The `sc preview` output reads clean, but the deployment target reflects the
+new program — the Pages bundle shipped, the S3 bucket received the new
+`aws s3 sync`, the `local.NewCommand` fired. The symptom is only visible on
+inspecting the destination, not in SC output.
+
+Root cause: before SC `v2026.10.60`, `sc` did not propagate the engine's
+dry-run flag into the plugin bus. The plugin's own `ctx.DryRun()` returned
+`false` even during preview, so any `if ctx.DryRun()` guard was never taken.
+
+**Fix**: pin **both** `sc >= v2026.10.60` AND the plugin to a release that
+reads `header.dry_run` and threads it into `sdk.RunInfo.DryRun`. The plugin
+release list in §7.1 marks which lines are post-fix.
+
+### 3 — A consumer stack can't find an output after the parent re-provisions
+
+Service with `uses: [mongodb]` (or `uses: [bucket]`, or any typed reference
+to a parent-stack export) fails with `output "<name>" not found on stack
+<parent>`. The parent stack provisioned green. `pulumi stack output --json`
+on the parent shows the output does not exist.
+
+Root cause: before SC `v2026.10.61`, SC core discarded the plugin's
+`ProvisionResponse.Outputs` map on the receiving side — the plugin was
+exporting the outputs correctly to its own pctx, but SC core never re-exported
+them onto the parent-stack-level program. The `uses:` lookup therefore
+resolved against an empty namespace.
+
+**Fix**: pin **both** `sc >= v2026.10.61` AND the plugin to a release that
+calls the harvest helper from `plugin/cmd/<plugin>/main.go`. Verify by
+running `pulumi stack export` on the parent stack post-deploy and grepping
+for the output name under `.deployment.resources[].outputs`.
+
+### 4 — An exported secret prints plaintext in `pulumi stack output --json`
+
+An output that should carry the Pulumi secret sigil
+(`"4dabf18193072939515e22adb298388d": "1b47061264138c4ac30d75fd1265ec17"`)
+appears as a bare string. Live-caught on an AWS access-key secret and an ECR
+auth password in the first cut of the harvest helper.
+
+Root cause: the first implementation of `harvestPctxExports` on sc-plugin-aws
+(before `v2026.11.01-92f5d1b`) and sc-plugin-mongodb (before
+`v2026.10.31-b69a903`) resolved the exported `Output` with
+`internals.UnsafeAwaitOutput(ctx, out).Value` and discarded the `.Secret`
+return. The resolved value was then shipped as a plaintext string over the
+plugin bus.
+
+**Fix**: pin aws and mongodb to the versions listed in §7.1.
+
+Note: `pulumi stack output --json` masks EVERY secret as the literal string
+`"[secret]"`, so a non-secret output that *should* be secret and a correctly-
+secret output are indistinguishable there. The authoritative check is
+`pulumi stack export` + grep for the sigil (`4dabf181…`) on the output.
+
+### 5 — Isolated stack lookup against the wrong env (sc-plugin-aws only)
+
+An isolated preview-stack with naming like `<wf-id>--service--staging` fails
+compute-process resolution with `resource not found: <stack>--<child-env>--<key>`
+even though the parent stack export exists under `<stack>--staging--<key>`.
+
+Root cause: sc-plugin-aws's compute-process built the lookup key using the
+CLIENT (child) environment rather than the PARENT environment. Fixed in
+`v2026.11.01-92f5d1b` by swapping the lookup to `parent.ParentEnv` when
+non-empty, mirroring what mongodb's `resourceInputFromComputeProcess` already
+did.
+
+**Fix**: pin sc-plugin-aws `>= v2026.11.01-92f5d1b`.
+
+---
+
 ## 7. Things to know before you hit them
+
+### 7.1 Minimum sane versions
+
+If you are starting fresh, these are the floors that make the four traps in
+§6c go away. Later versions are fine; earlier ones are the trap.
+
+| Component | Floor | Why |
+|---|---|---|
+| `sc` CLI | `v2026.10.61` | `dry_run` plumbing (§6c.2) + `ProvisionResponse.Outputs` export (§6c.3) |
+| sc-plugin-aws | `v2026.11.01-92f5d1b` | cascade fix + dry-run uptake + Secret-safe harvest + parent-env swap (§6c.1/2/4/5) |
+| sc-plugin-cloudflare | `v2026.11.01-2c9a8ff` | cascade fix + dry-run uptake + Pages Direct Upload + Site inline wire-decode workaround |
+| sc-plugin-mongodb | `v2026.10.31-b69a903` | cascade fix + dry-run uptake + Secret-safe harvest |
+| sc-plugin-cloudru | `v2026.11.01-b5e5ae4` | cascade fix (dry-run uptake deferred until the plugin's `api` dep catches up to v2026.10.60) |
+| sc-plugin-yandex | `v2026.10.29-e6833cd` | PR #8 `await-pending-registrations` — the `settle()`/`finishPulumiContext()` pattern mongodb+aws now mimic |
+
+Grepping job logs: all five plugins print `pre-engine loaded plugin "<name>"
+<version>` on startup (see §4). A version below the floor is the fastest
+thing to check when a trap shape looks familiar.
+
+### Other operational notes
+
+
 
 **Published platforms are `linux/amd64`, `linux/arm64`, and `darwin/arm64`.**
 There is no `darwin/amd64` (Intel Mac) or Windows asset today. On an
@@ -442,6 +558,10 @@ plugins:
 | `plugins "a" and "b" both claim state-store type "x"` | Two plugins own the same token | Remove one |
 | `plugin spec has neither path nor source` | A `plugins:` entry is empty | Give it `source:` or `path:` |
 | `unknown plugin source type "oci"` | Only `github-release` is supported in v1 | Use `github-release` or `path:` |
+| Preview plans `- <urn>` for every resource owned by the plugin | §6c.1 — plugin pre-cascade-fix | Pin plugin to §7.1 floor; **do not apply** |
+| `output "<name>" not found on stack <parent>` on a consumer with `uses: [<type>]` | §6c.3 — SC core < 2026.10.61 OR plugin without harvest helper | Pin both `sc` and plugin to §7.1 floors; re-provision parent |
+| An output you expect to be secret prints as a bare string in `pulumi stack export` | §6c.4 — plugin's harvest helper discards the Secret flag | Pin plugin to §7.1 floor; re-provision parent to re-export |
+| `resource not found: <wf-id>--<svc>--<child-env>--<key>` on isolated-stack preview | §6c.5 — sc-plugin-aws compute-process used child env | Pin sc-plugin-aws `>= v2026.11.01-92f5d1b` |
 
 ---
 
