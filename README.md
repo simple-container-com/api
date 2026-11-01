@@ -70,6 +70,43 @@ Check out the [full documentation](https://docs.simple-container.com) for detail
 
 ---
 
+## **Plugins**
+
+Cloud integrations ship as independently released plugin binaries that `sc`
+downloads and talks to over a local gRPC bus. Everything about an operator's
+`client.yaml` stays the same; `server.yaml` names which plugin release to use.
+
+| Plugin | Repository | Owns |
+|---|---|---|
+| `aws` | [simple-container-com/sc-plugin-aws](https://github.com/simple-container-com/sc-plugin-aws) | `aws` provider, `aws-lambda` / `ecs-fargate` / `aws-static-website` templates, `s3-bucket` / `ecr-repository` / `aws-rds-postgres` / `aws-rds-mysql` / `aws-cloudtrail-security-alerts` resources, `aws-kms` secrets-provider, `s3-bucket` state-store, `cloud-helpers` Lambda |
+| `cloudflare` | [simple-container-com/sc-plugin-cloudflare](https://github.com/simple-container-com/sc-plugin-cloudflare) | `cloudflare` DNS registrar, Workers overrides, Pages Direct Upload |
+| `cloudru` | [simple-container-com/sc-plugin-cloudru](https://github.com/simple-container-com/sc-plugin-cloudru) | `cloudru` provider, `cloudru-container`, `cloudru-postgres`, `cloudru-evolution-vm` |
+| `mongodb` | [simple-container-com/sc-plugin-mongodb](https://github.com/simple-container-com/sc-plugin-mongodb) | `mongodb-atlas` provider + ComputeProcessor for `uses:` env fan-out, PreDestroy database-drop hook |
+| `yandex` | [simple-container-com/sc-plugin-yandex](https://github.com/simple-container-com/sc-plugin-yandex) | `yandex` provider, `yc-dns`, `yc-serverless-container`, `yc-object-storage`, `yc-kms`, `yc-lockbox`, `yc-service-account`, `yandex-vm` |
+| `echo` (template) | [simple-container-com/sc-plugin-echo](https://github.com/simple-container-com/sc-plugin-echo) | Template every new plugin starts from — `gh repo create --template` and swap in your cloud |
+
+Everything else — GCP, Kubernetes, `k3s`, `vm` — is still built into `sc`.
+
+- **Operator guide**: [docs/docs/guides/upgrading-to-plugins.md](docs/docs/guides/upgrading-to-plugins.md)
+  — nothing is required of you (plugins auto-resolve to the latest release), but
+  pinning the `plugins:` block in `server.yaml` is strongly recommended.
+- **Author guide**: [docs/docs/guides/plugin-authoring.md](docs/docs/guides/plugin-authoring.md)
+  — step-by-step for a new cloud plugin, starting from `sc-plugin-echo`.
+- **Runtime library**: [pkg/plugin/runtime](pkg/plugin/runtime) —
+  `NewContext`, `Settle`, `HarvestExports`, `ResourceInputForComputeProcess`,
+  `DecodeInputs`. Every production plugin builds on this; do not re-copy the
+  equivalents from an older plugin.
+- **Bus protocol**: [pkg/plugin/README.md](pkg/plugin/README.md) and
+  [pkg/plugin/proto/README.md](pkg/plugin/proto/README.md) — RPC surface,
+  dispatch wiring, extraction checklist.
+- **Design**: [sc-plugin-architecture](https://github.com/simple-container-com/forge/tree/main/docs/design/2026-10-24/sc-plugin-architecture)
+  (full rationale + two-gRPC conversation shape).
+- **Trap catalogue**: [plugin-extraction-playbook](https://github.com/simple-container-com/forge/tree/main/docs/design/2026-11-01/plugin-extraction-playbook/)
+  — fifteen live-caught traps as of 2026-11-01, with fix patterns and §4
+  lint-pass checks for the next extraction.
+
+---
+
 ## **Contributing**
 
 We welcome contributions! Please see our [CONTRIBUTING.md](docs/CONTRIBUTING.md) for guidelines on how to get involved, and our [CODE_OF_CONDUCT.md](docs/CODE_OF_CONDUCT.md) for the community standards every participant is expected to uphold.

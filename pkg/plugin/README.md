@@ -1,15 +1,22 @@
 # `pkg/plugin/` — SC plugin runtime
 
-The SC-core-side plugin runtime: proto definitions, go-plugin lifecycle wrappers,
-MonitorProxy, pluginSession. Together with the dispatch wiring in
-`pkg/clouds/pulumi/plugin_dispatch.go` + `plugin_preengine.go`, this is Phase 0
-Steps 1 + 2 + 4 + 4b of the
+The SC-core-side plugin runtime plus the shared **plugin-side runtime library**
+(`runtime/`) every SC plugin builds on: proto definitions, go-plugin lifecycle
+wrappers, MonitorProxy, pluginSession, SCCore callback server, PeerInvoke
+plumbing, and the handler scaffolding (`runtime.NewContext`, `runtime.Settle`,
+`runtime.HarvestExports`, `runtime.ResourceInputForComputeProcess`,
+`runtime.DecodeInputs`). Together with the dispatch wiring in
+`pkg/clouds/pulumi/plugin_dispatch.go` + `plugin_preengine.go` + `plugin_sidecars.go`,
+this is the base layer of the
 [`sc-plugin-architecture`](https://github.com/simple-container-com/forge/tree/main/docs/design/2026-10-24/sc-plugin-architecture)
 design.
 
 Read the design doc first — this README assumes you have the architecture context,
 especially §3 "The two gRPC conversations" and Addendum C "state-storage and
-secrets-provider as plugins".
+secrets-provider as plugins". For the **trap catalogue** collected across the
+five-plugin extraction wave, read
+[forge/docs/design/2026-11-01/plugin-extraction-playbook/](https://github.com/simple-container-com/forge/tree/main/docs/design/2026-11-01/plugin-extraction-playbook/)
+before you start extracting a new one.
 
 ## Package shape
 
@@ -23,6 +30,18 @@ pkg/plugin/
   client.go                     # SC-core-side: plugin.NewClient
   server.go                     # plugin-side: plugin.Serve
   monitor_proxy.go              # loopback gRPC ResourceMonitor forwarding to the real engine
+  callback_server.go            # SC-core-side SCCore server (ResolveSecret, PeerInvoke)
+  peer.go                       # plugin-side PeerInvoke client helper
+  compute.go                    # ComputeResult builder (env vars, tpl extensions)
+  vmhosts.go                    # VmHost builder
+  publisher.go                  # progress Publisher routed to LogStream
+  runtime/                      # plugin-side handler scaffolding (new in 2026-11-01)
+    context.go                  #   NewContext + Settle generic
+    wait.go                     #   go:linkname (*Context).wait — the drain
+    engine.go                   #   LocalEngineAddress for background ctx.Log calls
+    harvest.go                  #   HarvestExports — Secret-preserving output harvest
+    compute.go                  #   ResourceInputForComputeProcess parent-env swap
+    decode.go                   #   DecodeInputs[T] via scPlugin.InputsToPlain
   roundtrip_test.go             # unit test: handshake + Schema roundtrip
   provision_smoke_test.go       # unit test: plugin dials MonitorAddress + RegisterResource
   integration_test.go           # (build tag `integration`) real Pulumi engine Stage A
@@ -52,23 +71,33 @@ and wraps the config in `api.PluginFieldConfig`.
 
 ## Writing a plugin
 
-Minimum viable plugin binary — see `testdata/echo-plugin/main.go` for the smallest
-real example:
+The template at
+[`simple-container-com/sc-plugin-echo`](https://github.com/simple-container-com/sc-plugin-echo)
+is the fastest start — clone it, swap in your cloud's config structs, keep the
+runtime wiring. The author guide at
+[docs/docs/guides/plugin-authoring.md](../../docs/docs/guides/plugin-authoring.md)
+walks the full path.
+
+The minimum viable binary — using the runtime library every production plugin
+builds on:
 
 ```go
 package main
 
 import (
     "context"
+    "os"
 
     hclog "github.com/hashicorp/go-hclog"
 
     plugin "github.com/simple-container-com/api/pkg/plugin"
     scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
+    "github.com/simple-container-com/api/pkg/plugin/runtime"
 )
 
 type myPlugin struct {
     scpluginv1.UnimplementedSCCloudPluginServer
+    progress *plugin.Publisher
 }
 
 func (p *myPlugin) Schema(_ context.Context, _ *scpluginv1.SchemaRequest) (*scpluginv1.SchemaResponse, error) {
@@ -78,23 +107,56 @@ func (p *myPlugin) Schema(_ context.Context, _ *scpluginv1.SchemaRequest) (*scpl
     }, nil
 }
 
-func (p *myPlugin) Provision(ctx context.Context, req *scpluginv1.ProvisionRequest) (*scpluginv1.ProvisionResponse, error) {
-    // Dial MonitorAddress from req.Header, call pulumirpc.RegisterResource.
-    // See testdata/provision-plugin/main.go for the pattern.
-    //
-    // The URN SC core will see is:
-    //   urn:pulumi:<stack>::<project>::<req.ResourceType>::<req.ResourceName>
-    // Choose names deterministically — see 04 §1.2 for the back-compat contract.
-    return &scpluginv1.ProvisionResponse{Urn: "..."}, nil
+func (p *myPlugin) Provision(stdctx context.Context, req *scpluginv1.ProvisionRequest) (resp *scpluginv1.ProvisionResponse, err error) {
+    // runtime.NewContext opens one sdk.Context against req.Header.MonitorAddress
+    // and defers a drain-then-close via runtime.Settle. WithLocalEngineFallback
+    // keeps background ctx.Log calls from panicking when the header has no
+    // engine address.
+    rctx, err := runtime.NewContext(stdctx, req.GetHeader(), runtime.WithLocalEngineFallback(p.progress))
+    if err != nil {
+        return nil, err
+    }
+    defer runtime.Settle(rctx, &resp, &err)
+
+    // ... register cloud resources against rctx.Pulumi ...
+    // ... rctx.Pulumi.Export(key, out) for every value the parent should see ...
+
+    outputs, err := runtime.HarvestExports(stdctx, rctx.Pulumi)
+    if err != nil {
+        return nil, err
+    }
+    return &scpluginv1.ProvisionResponse{Urn: "...", Outputs: outputs}, nil
 }
 
 func main() {
+    publisher := plugin.NewPublisher()
     plugin.Serve(plugin.ServerConfig{
-        Impl:   &myPlugin{},
-        Logger: hclog.New(&hclog.LoggerOptions{Name: "my-plugin"}),
+        Impl:   &myPlugin{progress: publisher},
+        Logger: hclog.New(&hclog.LoggerOptions{
+            Name:   "my-plugin",
+            Level:  hclog.Warn,
+            Output: os.Stderr,
+        }),
     })
 }
 ```
+
+**Three invariants `runtime.*` enforces for you** — each has caused a live
+regression at least once (see the extraction playbook):
+
+- **Drain before you return.** `runtime.Settle` runs `(*Context).wait` via
+  `go:linkname` before closing the SDK context. Returning without draining
+  drops every pending `RegisterResource` and SC core plans a destroy of each
+  state entry on the next apply. (Playbook trap 7, 2026-10-27.)
+- **Preserve the Secret flag on exports.** `runtime.HarvestExports` calls
+  `internals.UnsafeAwaitOutput` and copies `.Secret` into
+  `InputValue.Secret`. Dropping it lands the value plaintext in the parent
+  stack root. (Playbook trap 11, 2026-10-31.)
+- **Export cross-plugin bridge Outputs.** If your plugin wraps a PeerInvoke
+  call in an `ApplyT`, you MUST `rctx.Pulumi.Export(unique-key, urnOut)` the
+  resulting Output. Callers that discard the ResourceOutput let Pulumi
+  dead-strip the orphan chain — the PeerInvoke never fires and the DNS
+  record silently never registers. (Playbook trap 15, 2026-11-01.)
 
 Build:
 ```sh
@@ -118,8 +180,13 @@ resources:
 
 ## Extracting a driver from `pkg/clouds/pulumi/<cloud>/` — checklist
 
-The point of all of this is to let a driver live in its own repo. Steps for a
-greenfield driver (cloudflare, yandex, cloudru) using the already-wired paths:
+The point of all of this is to let a driver live in its own repo. Five drivers
+have come out this way so far (cloudflare, yandex, cloudru, mongodb, aws); the
+next milestone is gcp. The playbook at
+[forge/docs/design/2026-11-01/plugin-extraction-playbook/](https://github.com/simple-container-com/forge/tree/main/docs/design/2026-11-01/plugin-extraction-playbook/)
+is the canonical trap-by-trap guide — read it alongside this checklist.
+
+Steps:
 
 - [ ] **Decide the plugin's advertised type names.** Add `:` in each (required by
       the config-tier fall-through). Keep the type strings byte-identical to what
@@ -135,6 +202,15 @@ greenfield driver (cloudflare, yandex, cloudru) using the already-wired paths:
       types. For resource plugins, Provision dials MonitorAddress and calls
       RegisterResource with the exact type token Pulumi expects
       (e.g. `cloudflare:index/record:Record` — NOT `sc-cloudflare:record:Record`).
+- [ ] **Use `pkg/plugin/runtime` for the handler scaffolding** — do NOT re-copy
+      the per-plugin `drain.go` / `pulumiContextFromHeader` / harvest triad from
+      an older plugin. Every handler starts with
+      `rctx, err := runtime.NewContext(stdctx, req.GetHeader(), runtime.WithLocalEngineFallback(p.progress))`
+      + `defer runtime.Settle(rctx, &resp, &err)`. Returning outputs?
+      `runtime.HarvestExports`. ComputeProcess? `runtime.ParentInfoFromRequest`
+      + `runtime.ResourceInputForComputeProcess`. Decoding typed inputs?
+      `runtime.DecodeInputs[T]`. These helpers encode the invariants in
+      playbook traps 7, 11, 12, 14 — rolling your own re-earns the bugs.
 - [ ] **Lift the current in-tree driver code** from `pkg/clouds/pulumi/<cloud>/`
       into the plugin's `/plugin/internal/`. Rewrite the entry points from the
       pApi.Register*() init() pattern to SCCloudPluginServer method implementations.
@@ -158,19 +234,30 @@ For composite drivers (kubernetes, k3s, mongodb that compose other clouds), add:
 - [ ] **PeerInvoke RPC** (proto wiring pending — composite plugin asks SC core to
       invoke on another plugin, per [D8](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-10-24/sc-plugin-architecture/06-decisions.md#d8)).
 
-## Not-yet-wired surfaces (planned)
+## Shipped surfaces (what the five plugins actually use)
+
+| Surface | Plugin RPC | Shipped example |
+|---|---|---|
+| State-store | `InitStateStore` | aws `s3-bucket`, yandex `yc-object-storage` |
+| Secrets-provider | `InitSecretsProvider` | aws `aws-kms`, yandex `yc-kms` |
+| Provider | `Provider` | aws, yandex, cloudru providers; mongodb Atlas provider |
+| Resource / Template | `Provision` | every resource/template token in `supported-resources.md` tagged "plugin" |
+| Compute processor | `ComputeProcess` | mongodb `uses:` fan-out (MONGO_URI/USER/PASSWORD), aws `s3-bucket` consumer env |
+| Registrar | `ProvisionRegistrar`, `NewDnsRecord`, `NewOverrideHeaderRule`, `ProvisionDomainForEndpoint` | cloudflare; aws delegates DNS to the operator-configured registrar via `PeerInvoke` |
+| PreDestroy | `PreDestroy` | mongodb drops databases named in `-service-user` outputs before Pulumi destroys the cluster |
+| VM driver | `VmHosts` | yandex `yandex-vm`, cloudru `cloudru-evolution-vm` |
+| LogStream | `LogStream` (server-stream) | every plugin's `scPlugin.Publisher` routed to the engine's progress channel |
+| Peer invoke | `SCCore.PeerInvoke` (plugin → core → peer plugin) | aws delegates `NewDnsRecord`, `NewOverrideHeaderRule`, `ProvisionDomainForEndpoint` to `cloudflare` without a Go-module import (D8) |
+
+## Not yet wired
 
 | What | Current state | Blocker |
 |---|---|---|
-| Secrets-provider plugin | Proto in; sidecar wiring pending | `pkg/clouds/pulumi/provision.go:78-110` secretsProviderUrl plumbing needs the same sidecar pattern as InitStateStore |
-| Provider plugin (plugin owns `pulumi:providers:<pkg>`) | Proto in | `initProvider` cast at `provision.go:336` — short-circuit for plugin providers is in Step 4; the plugin-provided provider URN needs plumbing through to downstream resources |
-| Compute processor plugin | Proto in | Plugin's returned outputs don't yet flow through `ComputeContext.Collector`; downstream env/placeholders won't see them |
-| Registrar plugin | Proto in | DNS registrar dispatch at `provision.go:241` needs the same fall-through as resource dispatch |
-| PreDestroyHook plugin | Not yet in proto | Add a `PreDestroy` RPC and wire into `pApi.PreDestroyHookFuncs` |
-| Fingerprint streamed health | Not yet in proto | Server-streaming RPC; adds reactive health checks per Nomad pattern |
+| Fingerprint streamed health | Not yet in proto | Server-streaming RPC per Nomad pattern. Health inference today still happens inside SC core via `pkg/clouds/pulumi/healthcheck.go`. |
 
-Each is a scoped follow-up PR — none architecturally hard. The two-phase plugin
-lifecycle (pre-engine + in-engine) already covers all of them.
+The two-phase plugin lifecycle (pre-engine + in-engine) + the SCCore callback
+server (ResolveSecret / ResolveCredential / PeerInvoke) cover everything the
+five extracted plugins needed.
 
 ## Testing
 
