@@ -7,6 +7,9 @@ import (
 	"context"
 	"encoding/json"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -67,6 +70,17 @@ func convertStackConfigViaPlugin(ctx context.Context, pluginName string, req api
 
 	resp, err := cli.ConvertStackConfig(ctx, rpcReq)
 	if err != nil {
+		// A plugin binary that predates the RPC answers gRPC
+		// Unimplemented (the generated UnimplementedSCCloudPluginServer
+		// shim). SC core treats this as "plugin cannot answer yet" and
+		// falls through to the pre-A2 cloud*ConverterMapping path —
+		// peer-flagged standing rule from forge-escalation-resolve
+		// after the 2026-11-02 ConvertStackConfig fleet break. New
+		// RPCs on SCCloudPlugin must be additive by construction, not
+		// discipline.
+		if status.Code(err) == codes.Unimplemented {
+			return nil, api.ErrPluginUnimplementedConversion
+		}
 		return nil, errors.Wrapf(err, "stackread: plugin %q ConvertStackConfig", pluginName)
 	}
 
