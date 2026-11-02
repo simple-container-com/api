@@ -6,7 +6,34 @@ package api
 import (
 	"context"
 	"encoding/json"
+	stderrors "errors"
+
+	"github.com/pkg/errors"
 )
+
+// ErrPluginUnimplementedConversion is the sentinel the stackread
+// converter returns when a plugin's binary predates the
+// ConvertStackConfig RPC (gRPC Unimplemented). SC core treats this
+// as "the plugin cannot answer the RPC yet" and falls through to
+// the pre-A2 cloud*ConverterMapping path, which is still populated
+// via each plugin's /api/init.go blank-imports — strictly additive.
+//
+// Rationale: new RPCs on the SCCloudPlugin service must be forward-
+// and backward-compatible, so a CLI release that adds a required
+// RPC does not break every deployed stack whose pinned plugin
+// binary predates it. This sentinel is the mechanism; the standing
+// rule for every future new RPC is to catch Unimplemented at the
+// dial site and fall through to a known-good legacy path (if one
+// exists) or return a legible operator error (if not).
+//
+// Peer-flagged root cause of the ConvertStackConfig fleet break
+// 2026-11-02: api #535 shipped the caller + no plugin release had
+// the handler + forge's aws pin predated the handler. Every
+// isolated-matrix deploy hit "ConvertStackConfig: Unimplemented".
+// With this fallback, that failure mode becomes silent: the plugin
+// says Unimplemented, SC core uses the typed-converter mapping,
+// deploy proceeds as it did before A2.
+var ErrPluginUnimplementedConversion = stderrors.New("plugin does not implement ConvertStackConfig")
 
 // PluginStackConverter is the injection point SC core's parse-time path
 // uses to turn a plugin-owned template's merged StackConfig* into the
@@ -179,6 +206,38 @@ func (p *PluginPreparedInput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p.Input)
 }
 
+// incompatibleTemplateTypeError returns the error SC core produces
+// when a template type has NO cloud*ConverterMapping entry. The
+// Prepare*ForDeploy fallthrough fires either because:
+//
+//   - The type is unknown entirely (operator typo or unsupported
+//     cloud) — generic "incompatible server template type" message.
+//   - The type is plugin-owned BUT the plugin binary predates
+//     ConvertStackConfig AND no legacy /api/init.go registered a
+//     cloud*ConverterMapping entry for it (A2-born types like
+//     yc-static-site, cloudflare-pages, aws-static-website). In this
+//     case the operator needs to bump the plugin pin, NOT edit
+//     client.yaml. Emit a legible pin-bump hint instead of the
+//     generic "incompatible" that would send them hunting in the
+//     wrong place.
+//
+// The Unimplemented → mapping fallback at convertPluginOwnedTemplate
+// is strictly safe ONLY for types that predate A2 (and therefore
+// have a legacy mapping entry). Types born post-A2 fall through to
+// this path and need the plugin pin advanced — see 2026-11-02
+// incident report at
+// forge/docs/roadmap/items/sc-convertstackconfig-unimplemented-breaks-every-deploy.md.
+func incompatibleTemplateTypeError(stackName, typeName string) error {
+	if binding, ok := IsPluginOwnedType(typeName); ok {
+		return errors.Errorf(
+			"template type %q is plugin-owned by %q, which does not implement ConvertStackConfig, "+
+				"and no legacy converter exists for it — bump the %q plugin pin to a release containing the handler",
+			typeName, binding.PluginName, binding.PluginName,
+		)
+	}
+	return errors.Errorf("incompatible server template type %q for %q", typeName, stackName)
+}
+
 // convertPluginOwnedTemplate branches off Prepare*ForDeploy when the
 // template type is plugin-owned. Returns (desc, true) on hit,
 // (nil, false) on miss (type not plugin-owned, or no converter
@@ -201,6 +260,17 @@ func convertPluginOwnedTemplate(ctx context.Context, stackDir, stackName, parent
 		TemplateConfig: tpl.Config.Config,
 	})
 	if err != nil {
+		if stderrors.Is(err, ErrPluginUnimplementedConversion) {
+			// Plugin binary predates the RPC. Fall through to the
+			// pre-A2 cloud*ConverterMapping path by returning
+			// isPluginOwned=false — the caller's branch at
+			// pkg/api/client.go treats this as a non-plugin-owned
+			// template and uses the typed-converter mapping that
+			// the plugin's /api/init.go populated at Go-link time.
+			// Standing rule — see ErrPluginUnimplementedConversion
+			// doc for the shape every future new RPC should wear.
+			return nil, false, nil
+		}
 		return nil, true, err
 	}
 	return &StackDescriptor{
