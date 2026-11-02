@@ -94,6 +94,84 @@ func RegisterProviderConfig(configMapping ConfigRegisterMap) {
 	providerConfigMapping = lo.Assign(providerConfigMapping, configMapping)
 }
 
+// PluginOwnedKind labels which role a plugin-registered type fills so the
+// three Detect call-sites in read.go and the three Prepare*ForDeploy
+// branches in client.go can tell plugin-owned templates from
+// plugin-owned resources/registrars/provisioner-fields.
+//
+// Populated at parse time by pkg/stackread via RegisterPluginOwnedType —
+// one entry per type each declared plugin's Schema RPC advertises.
+type PluginOwnedKind string
+
+const (
+	PluginOwnedKindResource         PluginOwnedKind = "resource"
+	PluginOwnedKindTemplate         PluginOwnedKind = "template"
+	PluginOwnedKindRegistrar        PluginOwnedKind = "registrar"
+	PluginOwnedKindStateStore       PluginOwnedKind = "state-store"
+	PluginOwnedKindSecretsProvider  PluginOwnedKind = "secrets-provider"
+	PluginOwnedKindComputeProcessor PluginOwnedKind = "compute-processor"
+	PluginOwnedKindVmDriver         PluginOwnedKind = "vm-driver"
+	PluginOwnedKindProvisionerField PluginOwnedKind = "provisioner-field"
+)
+
+// PluginOwnedBinding is the record for a single type → plugin
+// association captured by RegisterPluginOwnedType.
+type PluginOwnedBinding struct {
+	Kind       PluginOwnedKind
+	PluginName string // name under server.yaml's plugins: block
+}
+
+var pluginOwnedTypes = map[string]PluginOwnedBinding{}
+
+// RegisterPluginOwnedType records that the named type is owned by a
+// plugin binary (its Schema RPC advertised it). Installs an opaque
+// decoder into providerConfigMapping so the generic parse path at
+// pkg/api/read.go recognises the type without needing a Go-link-time
+// struct. The decoder preserves Config.Config as a map[string]any — the
+// plugin receives the raw YAML tree on the provision bus and decodes it
+// into its own typed Input shape there.
+//
+// If the type was already registered via api.RegisterProviderConfig
+// (an in-tree type or a plugin's /api/init.go typed registration), the
+// typed decoder wins — do NOT overwrite it. This keeps the pre-parse
+// strictly ADDITIVE: a plugin that cached /api still gives SC core the
+// richer parse-time validation it had, and types SC core has never
+// heard of fall through to the opaque path.
+//
+// pluginName is the key under server.yaml's `plugins:` block (the
+// stackread caller passes it through from descriptor.Plugins). The
+// A2 ConvertStackConfig path uses it to dial the right plugin.
+func RegisterPluginOwnedType(name string, kind PluginOwnedKind, pluginName string) {
+	if name == "" {
+		return
+	}
+	pluginOwnedTypes[name] = PluginOwnedBinding{Kind: kind, PluginName: pluginName}
+	if _, exists := providerConfigMapping[name]; !exists {
+		providerConfigMapping[name] = pluginOwnedConfigDecoder
+	}
+}
+
+// IsPluginOwnedType reports whether name was recorded by
+// RegisterPluginOwnedType and returns the full binding (kind + plugin
+// name). Lookups are case sensitive — plugin type names are matched
+// byte-for-byte.
+func IsPluginOwnedType(name string) (PluginOwnedBinding, bool) {
+	b, ok := pluginOwnedTypes[name]
+	return b, ok
+}
+
+// pluginOwnedConfigDecoder is the ConfigReaderFunc shared by every
+// plugin-owned type. It keeps the raw Config.Config map intact so the
+// plugin receives the operator's YAML tree verbatim. The plugin side
+// decodes into its typed Input via yaml round-trip (same shape the
+// Provision RPC already uses).
+func pluginOwnedConfigDecoder(cfg *Config) (Config, error) {
+	if cfg == nil {
+		return Config{}, nil
+	}
+	return *cfg, nil
+}
+
 func RegisterProvisioner(provisionerMapping ProvisionerRegisterMap) {
 	provisionerConfigMapping = lo.Assign(provisionerConfigMapping, provisionerMapping)
 }

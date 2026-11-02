@@ -5,10 +5,8 @@ package pulumi
 
 import (
 	"context"
-	"os"
 	"sync"
 
-	hclog "github.com/hashicorp/go-hclog"
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -115,57 +113,15 @@ func (b *preEnginePluginBundle) Load(ctx context.Context, specs map[string]api.P
 }
 
 func (b *preEnginePluginBundle) loadOne(ctx context.Context, name string, spec api.PluginSpec) error {
-	// Resolve the binary — either spec.Path verbatim, or fetch from the
-	// release URL + verify sha256. Honours spec.Source for the download path.
-	resolvedPath, err := scPlugin.ResolveBinaryPath(spec, scPlugin.DefaultCacheRoot)
-	if err != nil {
-		return errors.Wrap(err, "resolve plugin binary")
-	}
-	// SHA256 was checked by ResolveBinaryPath for source-driven loads; for
-	// path-driven loads, verify here (verifySHA256 only runs when sha256 is set).
-	spec.Path = resolvedPath
-	if err := verifySHA256(spec); err != nil {
-		return err
-	}
-	// hashicorp/go-plugin's `logStderr` emits raw plugin stderr through
-	// this logger at `hclog.Debug` (client.go:1186). So when the plugin
-	// process panics in a goroutine — e.g. an ApplyT continuation in a
-	// lifted driver — Go dumps the stack trace to the plugin's stderr,
-	// go-plugin reads it and tries to log it at Debug, and a `Warn`-level
-	// logger throws every byte of the trace away. SC core then only sees
-	// `plugin process exited: exit status 2` with no further diagnostics,
-	// which turns every goroutine panic into a day of guesswork.
-	//
-	// Keep this at `hclog.Debug` so plugin panic traces propagate. The
-	// extra chatter from a healthy plugin is small — most plugin output
-	// goes through SC core's own progress logger, not stderr.
-	//
-	// Live-caught 2026-10-30 on forge-baas: an aws plugin ApplyT panic
-	// surfaced as `exit status 2` with no trace until this was flipped.
-	hcLog := hclog.New(&hclog.LoggerOptions{
-		Name:   "sc-plugin-" + name,
-		Level:  hclog.Debug,
-		Output: os.Stderr,
-	})
-	cli, err := scPlugin.NewClient(scPlugin.ClientConfig{
-		Path:    resolvedPath,
-		Managed: true,
-		Logger:  hcLog,
-		// Wire the composite-plugin broker. Each spawned plugin gets its
-		// own SCCore endpoint; a PeerInvoke call on it dispatches by
-		// plugin name back into THIS bundle's registry. The dispatcher
-		// captures the bundle so lookups route to all plugins loaded in
-		// this process, including those that spawn after this one — the
-		// lookup is lazy, done at call time.
-		Peer: &bundlePeerDispatcher{bundle: b},
-	})
+	// Wire the composite-plugin broker. Each spawned plugin gets its
+	// own SCCore endpoint; a PeerInvoke call on it dispatches by
+	// plugin name back into THIS bundle's registry. The dispatcher
+	// captures the bundle so lookups route to all plugins loaded in
+	// this process, including those that spawn after this one — the
+	// lookup is lazy, done at call time.
+	cli, schema, err := scPlugin.ResolveAndSchema(ctx, name, spec, scPlugin.DefaultCacheRoot, nil, &bundlePeerDispatcher{bundle: b})
 	if err != nil {
 		return err
-	}
-	schema, err := cli.Schema(ctx, &scpluginv1.RequestHeader{})
-	if err != nil {
-		cli.Close()
-		return errors.Wrap(err, "schema")
 	}
 	// Start the LogStream consumer BEFORE acquiring the bundle lock so a
 	// slow stream open doesn't serialise plugin loads.

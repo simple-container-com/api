@@ -4,6 +4,7 @@
 package provisioner
 
 import (
+	"context"
 	"os"
 	"path"
 	"testing"
@@ -33,7 +34,7 @@ func TestReadServerDescriptor_MissingIsNotInvalid(t *testing.T) {
 	RegisterTestingT(t)
 	root := writeStack(t, "client-only", "")
 
-	_, err := (&provisioner{}).readServerDescriptor(root, "client-only")
+	_, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "client-only")
 
 	Expect(err).NotTo(BeNil())
 	Expect(errors.Is(err, api.ErrServerDescriptorInvalid)).To(BeFalse(),
@@ -46,7 +47,7 @@ func TestReadServerDescriptor_MalformedIsInvalid(t *testing.T) {
 	RegisterTestingT(t)
 	root := writeStack(t, "broken", "provisioner: [this is not a mapping\n")
 
-	_, err := (&provisioner{}).readServerDescriptor(root, "broken")
+	_, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "broken")
 
 	Expect(err).NotTo(BeNil())
 	Expect(errors.Is(err, api.ErrServerDescriptorInvalid)).To(BeTrue())
@@ -91,7 +92,7 @@ func TestReadServerDescriptor_MissingPluginPinIsAutoInjected(t *testing.T) {
 	})()
 	root := writeStack(t, "dist", unpinnedCloudflareStack)
 
-	desc, err := (&provisioner{}).readServerDescriptor(root, "dist")
+	desc, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "dist")
 
 	Expect(err).To(BeNil())
 	Expect(desc).NotTo(BeNil())
@@ -116,7 +117,7 @@ func TestReadServerDescriptor_UnresolvablePluginPinIsInvalidAndActionable(t *tes
 	})()
 	root := writeStack(t, "dist", unpinnedCloudflareStack)
 
-	_, err := (&provisioner{}).readServerDescriptor(root, "dist")
+	_, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "dist")
 
 	Expect(err).NotTo(BeNil())
 	Expect(errors.Is(err, api.ErrServerDescriptorInvalid)).To(BeTrue())
@@ -165,7 +166,7 @@ resources:
       zoneName: example.com
 `)
 
-	desc, err := (&provisioner{}).readServerDescriptor(root, "dist")
+	desc, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "dist")
 
 	Expect(err).To(BeNil())
 	Expect(desc).NotTo(BeNil())

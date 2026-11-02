@@ -372,6 +372,76 @@ message ComputeProcessResponse {
   repeated TemplateExtension tpl_extensions = 5;
 }
 
+// ConvertStackConfigRequest — SC core asks the plugin to turn a
+// consumer stack's merged StackConfig* (compose/single-image/static)
+// into the plugin's own typed Input (LambdaInput / StaticSiteInput /
+// EcsFargateInput / …). Previously this conversion lived in SC-core-side
+// closures that each plugin's /api/init.go installed into
+// cloud{SingleImage,Compose,StaticSite}ConverterMapping, which forced
+// SC core to Go-link-time-import every plugin's /api. The RPC moves the
+// conversion across the bus so plugins can introduce new template types
+// via a plugin release alone, with no SC CLI rebuild. See
+// forge/docs/design/2026-11-02/plugin-types-parse-time-registration/.
+message ConvertStackConfigRequest {
+  RequestHeader header = 1;
+  // template_type is the `type:` the server.yaml declared for this
+  // stack's template (one of ResourceTypes advertised by the plugin's
+  // Schema; a plugin that advertises templates folds them in there).
+  string template_type = 2;
+  // The CLI-side stack name (from ClientDescriptor.Stacks key), passed
+  // through to the plugin's existing ToXxxConfig closures that accept
+  // stackName. Equivalent to StackParams.StackName.
+  string stack_name = 3;
+  // Operator-side ${git:root}, pre-resolved. Plugins that read
+  // bundleDir or similar paths relative to the repo root need this.
+  string stack_dir = 4;
+  // The merged StackConfig* (StackConfigCompose / StackConfigSingleImage /
+  // StackConfigStatic — whichever the client.yaml declared) as a scalar
+  // InputValue tree. Same marshalling the Provision RPC already uses
+  // (yaml round-trip in pkg/plugin/compute.go). The plugin unmarshals
+  // into its typed StackConfig and feeds its existing ToXxxConfig
+  // closure.
+  map<string, InputValue> stack_config = 5;
+  // template_config is the server.yaml-side TEMPLATE config body
+  // (StackDescriptor.Config.Config at the parent provisioning time —
+  // e.g. aws:TemplateConfig for aws templates, cloudflare:PagesTemplateConfig
+  // for cloudflare, …). SC core's pre-A2 path decoded this via
+  // providerConfigMapping into the plugin's typed struct; A2's opaque
+  // decoder keeps it as a raw map so the full template config crosses
+  // the bus here and the plugin decodes into its own typed TemplateConfig.
+  map<string, InputValue> template_config = 6;
+}
+
+message ConvertStackConfigResponse {
+  // The plugin's typed Input (StaticSiteInput / LambdaInput /
+  // EcsFargateInput / etc.) marshalled as a scalar InputValue tree.
+  // SC core wraps it in a pluginPreparedInput adapter whose Config.Config
+  // the Provision RPC forwards verbatim.
+  map<string, InputValue> input = 1;
+  // Structured fields SC core type-asserts off clientStackDesc.Config.Config
+  // via Go interfaces downstream (DnsConfigAware / ResourceAware /
+  // WithDependsOnResources). An opaque gRPC return type cannot satisfy
+  // a Go interface, so we lift the three facts the asserts actually
+  // read and pin them on the adapter.
+  //
+  // base_dns_zone — DnsConfigAware.DnsConfig().OverriddenBaseZone,
+  // asserted at pkg/clouds/pulumi/deploy.go:133.
+  string base_dns_zone = 2;
+  // uses — ResourceAware.Uses(), asserted at
+  // pkg/clouds/pulumi/deploy.go:146 and pkg/provisioner/unresolved.go:109.
+  // Lists `uses: [<resource>]` declarations the deployed stack reads
+  // compute env from.
+  repeated string uses = 3;
+  // depends_on_resources — WithDependsOnResources.DependsOnResources(),
+  // asserted at pkg/clouds/pulumi/deploy.go:153 and
+  // pkg/provisioner/unresolved.go:112. Each entry carries the full
+  // (name, owner, resource, env) shape of api.StackConfigDependencyResource,
+  // encoded as JSON so a future field addition on the Go struct does
+  // not require a proto bump (same forward-compat shape
+  // ComputeProcessRequest.parent_info_json uses).
+  repeated bytes depends_on_resources_json = 4;
+}
+
 // ComputeEnvVariable mirrors pApi.ComputeEnvVariable
 // (pkg/clouds/pulumi/api/cloud_provider.go). secret=true selects
 // collector.AddSecretEnvVariableIfNotExist; false selects the plain one.
@@ -793,6 +863,13 @@ service SCCloudPlugin {
   rpc Provider(ProviderRequest) returns (ProviderResponse);
   rpc Provision(ProvisionRequest) returns (ProvisionResponse);
   rpc ComputeProcess(ComputeProcessRequest) returns (ComputeProcessResponse);
+  // ConvertStackConfig — the plugin's typed Input converter, lifted
+  // out of SC-core-side cloud{SingleImage,Compose,StaticSite}ConverterMapping.
+  // Called once per deploy per client stack whose template type is
+  // plugin-owned (api.IsPluginOwnedType reports the binding). Plugins
+  // that do not own templates leave this as the generated Unimplemented
+  // stub — SC core only dials it when the type is plugin-owned.
+  rpc ConvertStackConfig(ConvertStackConfigRequest) returns (ConvertStackConfigResponse);
   rpc ProvisionRegistrar(ProvisionRegistrarRequest) returns (ProvisionRegistrarResponse);
   // Phase 1b per-method registrar RPCs (the stubbed pluginRegistrar
   // methods on SC core proxy here).

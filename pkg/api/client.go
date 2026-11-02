@@ -391,6 +391,18 @@ func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName s
 	if err != nil {
 		return nil, err
 	}
+	// Plugin-owned template path (A2) — a plugin that advertised this
+	// type via Schema answers ConvertStackConfig to produce its typed
+	// Input. SC core's in-tree converter mapping is skipped. The
+	// returned pluginPreparedInput satisfies the three downstream
+	// interface asserts (DnsConfigAware, ResourceAware,
+	// WithDependsOnResources).
+	if desc, isPluginOwned, err := convertPluginOwnedTemplate(ctx, stackDir, stackName, parentStack, *stackDesc, clientConfig); isPluginOwned {
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert single image via plugin for type %q in stack %q", stackDesc.Type, stackName)
+		}
+		return desc, nil
+	}
 	if tplFun, found := cloudSingleImageConverterMapping[stackDesc.Type]; !found {
 		return nil, errors.Errorf("incompatible server template type %q for %q", stackDesc.Type, stackName)
 	} else if input, err := tplFun(stackDesc.Config.Config, clientConfig); err != nil {
@@ -410,6 +422,19 @@ func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName strin
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
 		return nil, err
+	}
+
+	// Plugin-owned template path (A2) — ConvertStackConfig over the bus.
+	// Note the plugin receives clientConfig directly; it is responsible
+	// for reading docker-compose.yaml via its own stackDir-relative
+	// resolution if its converter needs the compose tree. The in-tree
+	// `compose.ReadDockerCompose` call below is for the legacy converter
+	// mapping only.
+	if desc, isPluginOwned, err := convertPluginOwnedTemplate(ctx, stackDir, stackName, parentStack, *stackDesc, clientConfig); isPluginOwned {
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert cloud compose via plugin for type %q in stack %q", stackDesc.Type, stackName)
+		}
+		return desc, nil
 	}
 
 	composeCfg, err := compose.ReadDockerCompose(ctx, stackDir, clientConfig.DockerComposeFile)
@@ -436,6 +461,15 @@ func PrepareStaticForDeploy(ctx context.Context, stackDir, stackName string, tpl
 	stackDesc, err := DetectTemplateType(tpl)
 	if err != nil {
 		return nil, err
+	}
+
+	// Plugin-owned template path (A2). yc-static-site, cloudflare-pages,
+	// aws-static-website and friends go through ConvertStackConfig.
+	if desc, isPluginOwned, err := convertPluginOwnedTemplate(ctx, stackDir, stackName, parentStack, *stackDesc, clientConfig); isPluginOwned {
+		if err != nil {
+			return nil, errors.Wrapf(err, "failed to convert cloud static site via plugin for type %q in stack %q", stackDesc.Type, stackName)
+		}
+		return desc, nil
 	}
 
 	if tplFun, found := cloudStaticSiteConverterMapping[stackDesc.Type]; !found {
