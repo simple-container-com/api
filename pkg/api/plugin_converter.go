@@ -73,60 +73,82 @@ func RegisterPluginStackConverter(c PluginStackConverter) {
 	pluginStackConverter = c
 }
 
-// pluginPreparedInput wraps a PluginStackConvertResult as a Go value
+// PluginPreparedInput wraps a PluginStackConvertResult as a Go value
 // that satisfies DnsConfigAware, ResourceAware, and
 // WithDependsOnResources — the three interfaces SC core type-asserts
 // off clientStackDesc.Config.Config at pkg/clouds/pulumi/deploy.go
 // (lines 133, 146, 153) and pkg/provisioner/unresolved.go (109, 112).
 //
+// EVERY FIELD MUST BE EXPORTED. SC core walks this struct via
+// reflection in pkg/provisioner/placeholders (applyTemplatesRecursive)
+// for `${X}` placeholder substitution, and that walker calls
+// reflect.Value.Set on every field. A reflect.Set into an unexported
+// field panics with "reflect.Value.Set using value obtained using
+// unexported field" — live-caught on forge-aigateway isolated run
+// 41469779418 (2026-11-02), which panicked before any resource was
+// provisioned and failed every service in the matrix.
+//
 // Also satisfies the no-op side of each interface for stacks whose
 // plugin response omitted the structured fields (empty []string / nil
 // slice reads as "no constraints" — same as a stack that never
 // declared the attribute).
-type pluginPreparedInput struct {
-	result *PluginStackConvertResult
+//
+// Note that method NAMES collide with the fields they expose, so the
+// fields have an underscore suffix. The interface methods thunk to
+// the fields and are what Go code sees via type-assertion; the fields
+// are what the placeholders walker sees via reflection.
+type PluginPreparedInput struct {
+	// Input is the plugin's typed Input (decoded back into a
+	// map[string]any by pkg/stackread via scPlugin.InputsToPlain so
+	// the reflect walker never has to deal with unexported fields the
+	// plugin's typed struct might have carried).
+	Input any `yaml:"input,omitempty" json:"input,omitempty"`
+	// BaseDnsZone_ is the typed Input's api.DnsConfigAware.OverriddenBaseZone.
+	BaseDnsZone_ string `yaml:"baseDnsZone,omitempty" json:"baseDnsZone,omitempty"`
+	// Uses_ is the typed Input's api.ResourceAware.Uses.
+	Uses_ []string `yaml:"uses,omitempty" json:"uses,omitempty"`
+	// DependsOnResources_ is the typed Input's
+	// api.WithDependsOnResources.DependsOnResources.
+	DependsOnResources_ []StackConfigDependencyResource `yaml:"dependsOnResources,omitempty" json:"dependsOnResources,omitempty"`
 }
 
 // NewPluginPreparedInput wraps a plugin's typed Input + the three
 // structured fields for downstream type-asserts. The pkg/stackread
 // converter calls this after decoding the ConvertStackConfigResponse.
-func NewPluginPreparedInput(result *PluginStackConvertResult) *pluginPreparedInput {
-	return &pluginPreparedInput{result: result}
+func NewPluginPreparedInput(result *PluginStackConvertResult) *PluginPreparedInput {
+	if result == nil {
+		return &PluginPreparedInput{}
+	}
+	return &PluginPreparedInput{
+		Input:               result.Input,
+		BaseDnsZone_:        result.BaseDnsZone,
+		Uses_:               result.Uses,
+		DependsOnResources_: result.DependsOnResources,
+	}
 }
 
 // OverriddenBaseZone implements DnsConfigAware.
-func (p *pluginPreparedInput) OverriddenBaseZone() string {
-	if p == nil || p.result == nil {
+func (p *PluginPreparedInput) OverriddenBaseZone() string {
+	if p == nil {
 		return ""
 	}
-	return p.result.BaseDnsZone
+	return p.BaseDnsZone_
 }
 
 // Uses implements ResourceAware.
-func (p *pluginPreparedInput) Uses() []string {
-	if p == nil || p.result == nil {
+func (p *PluginPreparedInput) Uses() []string {
+	if p == nil {
 		return nil
 	}
-	return p.result.Uses
+	return p.Uses_
 }
 
 // DependsOnResources implements WithDependsOnResources.
-func (p *pluginPreparedInput) DependsOnResources() []StackConfigDependencyResource {
-	if p == nil || p.result == nil {
+func (p *PluginPreparedInput) DependsOnResources() []StackConfigDependencyResource {
+	if p == nil {
 		return nil
 	}
-	return p.result.DependsOnResources
-}
-
-// Input returns the plugin's typed Input so callers that need to
-// forward it onwards (e.g. the Provision RPC marshal) can reach it.
-// The field type is any because SC core does NOT inspect it — the
-// plugin owns both ends of the round-trip.
-func (p *pluginPreparedInput) Input() any {
-	if p == nil || p.result == nil {
-		return nil
-	}
-	return p.result.Input
+	return p.DependsOnResources_
 }
 
 // convertPluginOwnedTemplate branches off Prepare*ForDeploy when the
