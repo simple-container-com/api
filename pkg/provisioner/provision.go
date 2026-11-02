@@ -15,6 +15,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/secrets/scoped"
+	"github.com/simple-container-com/api/pkg/stackread"
 )
 
 func (p *provisioner) Provision(ctx context.Context, params api.ProvisionParams) error {
@@ -102,7 +103,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 			Name: stackName,
 		}
 
-		if serverDesc, err := p.readServerDescriptor(stacksDir, stackName); err != nil && (errors.Is(err, api.ErrServerDescriptorInvalid) || !readOpts.IgnoreServerMissing || lo.Contains(readOpts.RequireServerConfigs, stackName)) {
+		if serverDesc, err := p.readServerDescriptor(ctx, stacksDir, stackName); err != nil && (errors.Is(err, api.ErrServerDescriptorInvalid) || !readOpts.IgnoreServerMissing || lo.Contains(readOpts.RequireServerConfigs, stackName)) {
 			// A server.yaml that EXISTS but is malformed or rejected is fatal even
 			// under IgnoreServerMissing. Swallowing it leaves stack.Server zero and
 			// the failure resurfaces as "provisioner is not set for stack %q" with
@@ -192,9 +193,15 @@ func (p *provisioner) resolvePlaceholders() error {
 	return nil
 }
 
-func (p *provisioner) readServerDescriptor(rootDir string, stackName string) (*api.ServerDescriptor, error) {
+func (p *provisioner) readServerDescriptor(ctx context.Context, rootDir string, stackName string) (*api.ServerDescriptor, error) {
 	descFilePath := path.Join(rootDir, stackName, api.ServerDescriptorFileName)
-	if desc, err := api.ReadServerDescriptor(descFilePath); err != nil {
+	// Plugin-aware two-pass: pass 1 unmarshals the plugins: block and
+	// spawns each plugin to discover its Schema types; pass 2 is the
+	// normal api.ReadServerConfigs with full type knowledge. Types
+	// previously requiring a Go-link-time registration via plugin
+	// /api/init() now cross the opaque decoder, so an SC CLI release
+	// per plugin-type is no longer required.
+	if desc, err := stackread.ReadServerDescriptor(ctx, descFilePath); err != nil {
 		// Distinguish "no server.yaml here" (a client-only stack dir, which
 		// IgnoreServerMissing is for) from "server.yaml is present but we could
 		// not use it" (bad YAML, failed validation). Only the former is

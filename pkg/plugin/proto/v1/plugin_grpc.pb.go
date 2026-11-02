@@ -46,6 +46,7 @@ const (
 	SCCloudPlugin_Provider_FullMethodName                   = "/sc.plugin.v1.SCCloudPlugin/Provider"
 	SCCloudPlugin_Provision_FullMethodName                  = "/sc.plugin.v1.SCCloudPlugin/Provision"
 	SCCloudPlugin_ComputeProcess_FullMethodName             = "/sc.plugin.v1.SCCloudPlugin/ComputeProcess"
+	SCCloudPlugin_ConvertStackConfig_FullMethodName         = "/sc.plugin.v1.SCCloudPlugin/ConvertStackConfig"
 	SCCloudPlugin_ProvisionRegistrar_FullMethodName         = "/sc.plugin.v1.SCCloudPlugin/ProvisionRegistrar"
 	SCCloudPlugin_NewDnsRecord_FullMethodName               = "/sc.plugin.v1.SCCloudPlugin/NewDnsRecord"
 	SCCloudPlugin_NewOverrideHeaderRule_FullMethodName      = "/sc.plugin.v1.SCCloudPlugin/NewOverrideHeaderRule"
@@ -70,6 +71,13 @@ type SCCloudPluginClient interface {
 	Provider(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
 	Provision(ctx context.Context, in *ProvisionRequest, opts ...grpc.CallOption) (*ProvisionResponse, error)
 	ComputeProcess(ctx context.Context, in *ComputeProcessRequest, opts ...grpc.CallOption) (*ComputeProcessResponse, error)
+	// ConvertStackConfig — the plugin's typed Input converter, lifted
+	// out of SC-core-side cloud{SingleImage,Compose,StaticSite}ConverterMapping.
+	// Called once per deploy per client stack whose template type is
+	// plugin-owned (api.IsPluginOwnedType reports the binding). Plugins
+	// that do not own templates leave this as the generated Unimplemented
+	// stub — SC core only dials it when the type is plugin-owned.
+	ConvertStackConfig(ctx context.Context, in *ConvertStackConfigRequest, opts ...grpc.CallOption) (*ConvertStackConfigResponse, error)
 	ProvisionRegistrar(ctx context.Context, in *ProvisionRegistrarRequest, opts ...grpc.CallOption) (*ProvisionRegistrarResponse, error)
 	// Phase 1b per-method registrar RPCs (the stubbed pluginRegistrar
 	// methods on SC core proxy here).
@@ -151,6 +159,16 @@ func (c *sCCloudPluginClient) ComputeProcess(ctx context.Context, in *ComputePro
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ComputeProcessResponse)
 	err := c.cc.Invoke(ctx, SCCloudPlugin_ComputeProcess_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) ConvertStackConfig(ctx context.Context, in *ConvertStackConfigRequest, opts ...grpc.CallOption) (*ConvertStackConfigResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ConvertStackConfigResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_ConvertStackConfig_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -251,6 +269,13 @@ type SCCloudPluginServer interface {
 	Provider(context.Context, *ProviderRequest) (*ProviderResponse, error)
 	Provision(context.Context, *ProvisionRequest) (*ProvisionResponse, error)
 	ComputeProcess(context.Context, *ComputeProcessRequest) (*ComputeProcessResponse, error)
+	// ConvertStackConfig — the plugin's typed Input converter, lifted
+	// out of SC-core-side cloud{SingleImage,Compose,StaticSite}ConverterMapping.
+	// Called once per deploy per client stack whose template type is
+	// plugin-owned (api.IsPluginOwnedType reports the binding). Plugins
+	// that do not own templates leave this as the generated Unimplemented
+	// stub — SC core only dials it when the type is plugin-owned.
+	ConvertStackConfig(context.Context, *ConvertStackConfigRequest) (*ConvertStackConfigResponse, error)
 	ProvisionRegistrar(context.Context, *ProvisionRegistrarRequest) (*ProvisionRegistrarResponse, error)
 	// Phase 1b per-method registrar RPCs (the stubbed pluginRegistrar
 	// methods on SC core proxy here).
@@ -295,6 +320,9 @@ func (UnimplementedSCCloudPluginServer) Provision(context.Context, *ProvisionReq
 }
 func (UnimplementedSCCloudPluginServer) ComputeProcess(context.Context, *ComputeProcessRequest) (*ComputeProcessResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ComputeProcess not implemented")
+}
+func (UnimplementedSCCloudPluginServer) ConvertStackConfig(context.Context, *ConvertStackConfigRequest) (*ConvertStackConfigResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ConvertStackConfig not implemented")
 }
 func (UnimplementedSCCloudPluginServer) ProvisionRegistrar(context.Context, *ProvisionRegistrarRequest) (*ProvisionRegistrarResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ProvisionRegistrar not implemented")
@@ -442,6 +470,24 @@ func _SCCloudPlugin_ComputeProcess_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(SCCloudPluginServer).ComputeProcess(ctx, req.(*ComputeProcessRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_ConvertStackConfig_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ConvertStackConfigRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).ConvertStackConfig(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_ConvertStackConfig_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).ConvertStackConfig(ctx, req.(*ConvertStackConfigRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -595,6 +641,10 @@ var SCCloudPlugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ComputeProcess",
 			Handler:    _SCCloudPlugin_ComputeProcess_Handler,
+		},
+		{
+			MethodName: "ConvertStackConfig",
+			Handler:    _SCCloudPlugin_ConvertStackConfig_Handler,
 		},
 		{
 			MethodName: "ProvisionRegistrar",

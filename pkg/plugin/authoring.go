@@ -5,9 +5,9 @@ package plugin
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 
@@ -120,6 +120,80 @@ func AwaitAll(ctx context.Context, outputs ...sdk.Output) error {
 		}
 	}
 	return nil
+}
+
+// PlainToInputs is the inverse of InputsToPlain: it serialises a Go value
+// (typed struct or map[string]any) into the plugin bus's InputValue map
+// via a JSON round-trip. Nested objects and lists travel as InputMap /
+// InputList. SC core uses this to marshal both plain-resource configs
+// (serializeConfigToInputs in plugin_sidecars.go — a thin wrapper) and
+// template-conversion stack configs (pkg/stackread's ConvertStackConfig
+// dialler).
+//
+// The output is deterministic for a given input: JSON numbers return as
+// doubles; a plugin decoding into an int field receives the integral
+// value through yaml.v3's number coercion.
+func PlainToInputs(cfg any) map[string]*scpluginv1.InputValue {
+	out := map[string]*scpluginv1.InputValue{}
+	if cfg == nil {
+		return out
+	}
+	b, err := json.Marshal(cfg)
+	if err != nil {
+		return out
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return out
+	}
+	for k, v := range raw {
+		if iv := PlainToInputValue(v); iv != nil {
+			out[k] = iv
+		}
+	}
+	return out
+}
+
+// PlainToInputValue maps one decoded value onto the bus's InputValue.
+// Returns nil for a nil / null input — the caller then omits the key,
+// which a plugin reads back as the zero value (same semantics as the
+// null meant). Used recursively for nested maps and lists.
+func PlainToInputValue(v any) *scpluginv1.InputValue {
+	switch sv := v.(type) {
+	case string:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_StringValue{StringValue: sv}}
+	case bool:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_BoolValue{BoolValue: sv}}
+	case float64:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_DoubleValue{DoubleValue: sv}}
+	case int:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_DoubleValue{DoubleValue: float64(sv)}}
+	case int64:
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_DoubleValue{DoubleValue: float64(sv)}}
+	case map[string]any:
+		fields := make(map[string]*scpluginv1.InputValue, len(sv))
+		for k, item := range sv {
+			if iv := PlainToInputValue(item); iv != nil {
+				fields[k] = iv
+			}
+		}
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_MapValue{MapValue: &scpluginv1.InputMap{Fields: fields}}}
+	case []any:
+		items := make([]*scpluginv1.InputValue, 0, len(sv))
+		for _, item := range sv {
+			// A list keeps its positions: a null element becomes an
+			// empty InputValue (decoded back as nil) rather than
+			// vanishing and shifting every later element.
+			iv := PlainToInputValue(item)
+			if iv == nil {
+				iv = &scpluginv1.InputValue{}
+			}
+			items = append(items, iv)
+		}
+		return &scpluginv1.InputValue{Value: &scpluginv1.InputValue_ListValue{ListValue: &scpluginv1.InputList{Items: items}}}
+	default:
+		return nil
+	}
 }
 
 // InputsToPlain turns a request's InputValue map back into plain Go values —

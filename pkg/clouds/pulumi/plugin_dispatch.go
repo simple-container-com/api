@@ -5,11 +5,6 @@ package pulumi
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"io"
-	"os"
-	"strings"
 	"sync"
 
 	hclog "github.com/hashicorp/go-hclog"
@@ -215,33 +210,9 @@ func (p *pulumi) startPluginSession(ctx *sdk.Context) error {
 	return nil
 }
 
-// verifySHA256 validates spec.SHA256 against the binary at spec.Path when
-// a hash is configured. An empty hash is a warn-and-proceed per D10 — the
-// smoke accepts this; production should treat it as an error.
-func verifySHA256(spec api.PluginSpec) error {
-	if spec.SHA256 == "" {
-		return nil
-	}
-	f, err := os.Open(spec.Path)
-	if err != nil {
-		return errors.Wrap(err, "open plugin for hash check")
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return errors.Wrap(err, "hash plugin binary")
-	}
-	got := hex.EncodeToString(h.Sum(nil))
-	want := strings.TrimSpace(spec.SHA256)
-	if !strings.EqualFold(got, want) {
-		return errors.Errorf("plugin SHA256 mismatch: want %s, got %s", want, got)
-	}
-	return nil
-}
-
 // Unused imports after the refactor: context, api are kept because sidecars
 // in plugin_sidecars.go reach into activeSession via these types.
 var (
 	_ context.Context = nil
-	_ api.PluginSpec  // keep import for verifySHA256
+	_ api.PluginSpec  // kept for the sidecar scope that reaches activeSession
 )

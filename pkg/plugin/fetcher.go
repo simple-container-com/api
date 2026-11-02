@@ -168,6 +168,26 @@ func checkCached(path, expectedSHA string) (bool, error) {
 	return strings.EqualFold(got, expectedSHA), nil
 }
 
+// VerifySHA256 validates spec.SHA256 against the binary at spec.Path when a
+// hash is configured. An empty hash is a warn-and-proceed (D10) — the smoke
+// accepts this; production should treat it as an error. ResolveBinaryPath
+// already checks the hash for github-release fetches on cache miss; this
+// helper covers the path: mode where the operator points at a local binary.
+func VerifySHA256(spec api.PluginSpec) error {
+	if spec.SHA256 == "" {
+		return nil
+	}
+	got, err := fileSHA256(spec.Path)
+	if err != nil {
+		return errors.Wrap(err, "hash plugin binary")
+	}
+	want := strings.TrimSpace(spec.SHA256)
+	if !strings.EqualFold(got, want) {
+		return errors.Errorf("plugin SHA256 mismatch: want %s, got %s", want, got)
+	}
+	return nil
+}
+
 func fileSHA256(path string) (string, error) {
 	f, err := os.Open(path)
 	if err != nil {

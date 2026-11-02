@@ -218,6 +218,16 @@ func (c *Client) ComputeProcess(ctx context.Context, req *scpluginv1.ComputeProc
 	return c.stub.ComputeProcess(ctx, req)
 }
 
+// ConvertStackConfig asks the plugin to turn a merged StackConfig*
+// into its typed Input. SC core dials this when
+// api.IsPluginOwnedType(templateType) returns a binding whose
+// PluginName matches this Client's plugin — see pkg/api/client.go's
+// Prepare*ForDeploy branches.
+func (c *Client) ConvertStackConfig(ctx context.Context, req *scpluginv1.ConvertStackConfigRequest) (*scpluginv1.ConvertStackConfigResponse, error) {
+	c.stampHeader(req.GetHeader())
+	return c.stub.ConvertStackConfig(ctx, req)
+}
+
 // ProvisionRegistrar calls through to the plugin's ProvisionRegistrar RPC.
 func (c *Client) ProvisionRegistrar(ctx context.Context, req *scpluginv1.ProvisionRegistrarRequest) (*scpluginv1.ProvisionRegistrarResponse, error) {
 	c.stampHeader(req.GetHeader())
