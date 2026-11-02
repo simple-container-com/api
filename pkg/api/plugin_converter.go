@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 )
 
 // PluginStackConverter is the injection point SC core's parse-time path
@@ -149,6 +150,33 @@ func (p *PluginPreparedInput) DependsOnResources() []StackConfigDependencyResour
 		return nil
 	}
 	return p.DependsOnResources_
+}
+
+// MarshalJSON unwraps PluginPreparedInput for the Provision bus. SC
+// core forwards the deploying stack's `Config.Config` across the bus
+// via pkg/clouds/pulumi/plugin_sidecars.go's serializeConfigToInputs,
+// which calls json.Marshal. The plugin's Provision handler decodes
+// the resulting InputValue tree into its typed Input shape
+// (*LambdaInput, *StaticSiteInput, …). Without this method, the
+// serialised shape would be `{input: {...real Input fields...},
+// baseDnsZone: ..., uses: [...], dependsOnResources: [...]}` — and
+// the plugin's decoder would find every expected Input field at the
+// top level is nil, panic'ing on first dereference. Live-caught on
+// forge-aigateway isolated-stack run 41483738313 (2026-11-02).
+//
+// Returning just p.Input makes the wire shape identical to what SC
+// core's pre-A2 Prepare*ForDeploy produced: the raw typed Input is
+// what the plugin's Provision handler expects.
+//
+// SC core's own interface asserts (DnsConfigAware / ResourceAware /
+// WithDependsOnResources) are still answered by the methods above —
+// those read the exported *_ fields, which are preserved on the
+// SC-core-side wrapper. Only the WIRE representation unwraps.
+func (p *PluginPreparedInput) MarshalJSON() ([]byte, error) {
+	if p == nil || p.Input == nil {
+		return []byte("null"), nil
+	}
+	return json.Marshal(p.Input)
 }
 
 // convertPluginOwnedTemplate branches off Prepare*ForDeploy when the

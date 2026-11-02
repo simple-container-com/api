@@ -4,6 +4,7 @@
 package api
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 
@@ -55,4 +56,48 @@ func TestPluginPreparedInput_ReflectWalkerCanSetEveryField(t *testing.T) {
 	require.Equal(t, "", nilPrepared.OverriddenBaseZone())
 	require.Nil(t, nilPrepared.Uses())
 	require.Nil(t, nilPrepared.DependsOnResources())
+}
+
+// TestPluginPreparedInput_MarshalJSONUnwraps locks in the wire-shape
+// invariant that panicked forge-aigateway on isolated-stack run
+// 41483738313 (2026-11-02): SC core forwards the deploying stack's
+// Config.Config across the Provision bus via
+// pkg/clouds/pulumi/plugin_sidecars.go's serializeConfigToInputs,
+// which calls json.Marshal. The plugin's Provision handler decodes
+// the InputValue tree into its typed Input shape. Without
+// MarshalJSON unwrap, the plugin saw the wrapper shape (input: {},
+// baseDnsZone_: ..., …) and every expected Input field was nil,
+// panic'ing on first dereference.
+//
+// This test asserts the json.Marshal output is identical to a direct
+// marshal of the typed Input — no wrapper envelope.
+func TestPluginPreparedInput_MarshalJSONUnwraps(t *testing.T) {
+	typedInput := map[string]any{
+		"handler":     "bootstrap",
+		"memory":      1024,
+		"baseDnsZone": "example.com",
+		"environment": map[string]any{"LOG_LEVEL": "info"},
+	}
+	prepared := NewPluginPreparedInput(&PluginStackConvertResult{
+		Input:              typedInput,
+		BaseDnsZone:        "example.com",
+		Uses:               []string{"mongodb"},
+		DependsOnResources: []StackConfigDependencyResource{{Name: "parent"}},
+	})
+
+	got, err := json.Marshal(prepared)
+	require.NoError(t, err)
+
+	want, err := json.Marshal(typedInput)
+	require.NoError(t, err)
+
+	require.JSONEq(t, string(want), string(got),
+		"MarshalJSON must unwrap to the raw Input shape (no wrapper envelope) — the plugin's Provision handler decodes directly into its typed Input (*LambdaInput, *StaticSiteInput, …) with the fields at the top level, not nested under `input:`")
+
+	// A nil / empty wrapper marshals to JSON null so the plugin can
+	// treat the absence correctly rather than seeing an empty object.
+	empty := NewPluginPreparedInput(nil)
+	emptyJSON, err := json.Marshal(empty)
+	require.NoError(t, err)
+	require.Equal(t, "null", string(emptyJSON))
 }
