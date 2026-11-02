@@ -404,7 +404,7 @@ func PrepareCloudSingleImageForDeploy(ctx context.Context, stackDir, stackName s
 		return desc, nil
 	}
 	if tplFun, found := cloudSingleImageConverterMapping[stackDesc.Type]; !found {
-		return nil, errors.Errorf("incompatible server template type %q for %q", stackDesc.Type, stackName)
+		return nil, incompatibleTemplateTypeError(stackName, stackDesc.Type)
 	} else if input, err := tplFun(stackDesc.Config.Config, clientConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert single image for type %q in stack %q", stackDesc.Type, stackName)
 	} else {
@@ -443,7 +443,7 @@ func PrepareCloudComposeForDeploy(ctx context.Context, stackDir, stackName strin
 	}
 
 	if tplFun, found := cloudComposeConverterMapping[stackDesc.Type]; !found {
-		return nil, errors.Errorf("incompatible server template type %q for %q", stackDesc.Type, stackName)
+		return nil, incompatibleTemplateTypeError(stackName, stackDesc.Type)
 	} else if input, err := tplFun(stackDesc.Config.Config, composeCfg, clientConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert cloud compose for type %q in stack %q", stackDesc.Type, stackName)
 	} else {
@@ -473,7 +473,7 @@ func PrepareStaticForDeploy(ctx context.Context, stackDir, stackName string, tpl
 	}
 
 	if tplFun, found := cloudStaticSiteConverterMapping[stackDesc.Type]; !found {
-		return nil, errors.Errorf("incompatible server template type %q for %q", stackDesc.Type, stackName)
+		return nil, incompatibleTemplateTypeError(stackName, stackDesc.Type)
 	} else if input, err := tplFun(stackDesc.Config.Config, stackDir, stackName, clientConfig); err != nil {
 		return nil, errors.Wrapf(err, "failed to convert cloud static site for type %q in stack %q", stackDesc.Type, stackName)
 	} else {

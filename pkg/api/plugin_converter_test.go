@@ -117,15 +117,12 @@ func TestPluginPreparedInput_MarshalJSONUnwraps(t *testing.T) {
 // adds a required RPC is additive by construction, not a flag day.
 func TestConvertPluginOwnedTemplate_UnimplementedFallsThrough(t *testing.T) {
 	// Register a plugin-owned type so IsPluginOwnedType returns true
-	// for our test. Must set the converter seam BEFORE calling.
+	// for our test. Rolling back the package-level registration via the
+	// public surface would need a de-register entry point which doesn't
+	// exist; test namespacing (unique typeName) keeps this test
+	// independent of others.
 	const typeName = "test-unimpl-template"
 	RegisterPluginOwnedType(typeName, PluginOwnedKindResource, "test-plugin")
-	t.Cleanup(func() {
-		// Rolling back a package-level registration via the public
-		// surface would need a de-register entry point we don't have;
-		// test namespacing (unique typeName) keeps this test
-		// independent of others.
-	})
 
 	// Stub converter — always returns the Unimplemented sentinel.
 	called := false
@@ -176,4 +173,40 @@ func TestConvertPluginOwnedTemplate_NonUnimplementedErrorBubbles(t *testing.T) {
 	)
 	require.True(t, isPluginOwned, "non-Unimplemented errors stay on the plugin-owned branch")
 	require.ErrorIs(t, err, wantErr)
+}
+
+// TestIncompatibleTemplateTypeError_PluginOwnedWithNoLegacy covers
+// peer forge-escalation-resolve's gap on PR #538: when a plugin-owned
+// template type returns Unimplemented AND no cloud*ConverterMapping
+// entry exists (A2-born types like yc-static-site, cloudflare-pages,
+// aws-static-website), the error must point at the plugin pin, NOT
+// the generic "incompatible template type" that would misdirect the
+// operator to edit client.yaml. See
+// forge/docs/roadmap/items/sc-convertstackconfig-unimplemented-breaks-every-deploy.md.
+func TestIncompatibleTemplateTypeError_PluginOwnedWithNoLegacy(t *testing.T) {
+	const typeName = "test-no-legacy-template"
+	RegisterPluginOwnedType(typeName, PluginOwnedKindResource, "test-plugin")
+
+	err := incompatibleTemplateTypeError("demo-stack", typeName)
+	require.Error(t, err)
+	msg := err.Error()
+	require.Contains(t, msg, "plugin-owned by \"test-plugin\"",
+		"error must name the plugin so the operator knows which pin to bump")
+	require.Contains(t, msg, "bump the \"test-plugin\" plugin pin",
+		"error must be an explicit pin-bump instruction, not the generic 'incompatible template type'")
+	require.NotContains(t, msg, "incompatible server template type",
+		"the generic message would misdirect the operator to edit client.yaml")
+}
+
+// TestIncompatibleTemplateTypeError_UnknownType ensures the generic
+// "incompatible server template type" message still fires for types
+// that are NEITHER in cloud*ConverterMapping NOR plugin-owned — a
+// typo in client.yaml, or an unsupported cloud. The pin-bump hint
+// would be wrong here (there's no plugin to bump).
+func TestIncompatibleTemplateTypeError_UnknownType(t *testing.T) {
+	const typeName = "test-truly-unknown-template"
+	// Deliberately NOT calling RegisterPluginOwnedType — IsPluginOwnedType
+	// returns false, so the fallback is the generic message.
+	err := incompatibleTemplateTypeError("demo-stack", typeName)
+	require.ErrorContains(t, err, "incompatible server template type \"test-truly-unknown-template\" for \"demo-stack\"")
 }

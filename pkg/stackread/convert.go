@@ -73,11 +73,17 @@ func convertStackConfigViaPlugin(ctx context.Context, pluginName string, req api
 		// A plugin binary that predates the RPC answers gRPC
 		// Unimplemented (the generated UnimplementedSCCloudPluginServer
 		// shim). SC core treats this as "plugin cannot answer yet" and
-		// falls through to the pre-A2 cloud*ConverterMapping path —
-		// peer-flagged standing rule from forge-escalation-resolve
-		// after the 2026-11-02 ConvertStackConfig fleet break. New
-		// RPCs on SCCloudPlugin must be additive by construction, not
-		// discipline.
+		// falls through to the pre-A2 cloud*ConverterMapping path.
+		// Standing rule from the 2026-11-02 ConvertStackConfig fleet
+		// break (forge/docs/roadmap/items/sc-convertstackconfig-unimplemented-breaks-every-deploy.md):
+		// new RPCs on SCCloudPlugin must be additive by construction,
+		// not discipline.
+		//
+		// status.Code auto-unwraps wrapped status errors on grpc-go
+		// >= v1.80 via errors.As (status/status.go). If this module's
+		// grpc pin ever downgrades below that, the check would miss a
+		// wrapped Unimplemented and bubble it as a generic error —
+		// surface the gap in that review, not here.
 		if status.Code(err) == codes.Unimplemented {
 			return nil, api.ErrPluginUnimplementedConversion
 		}

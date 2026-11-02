@@ -6,7 +6,9 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	stderrors "errors"
+
+	"github.com/pkg/errors"
 )
 
 // ErrPluginUnimplementedConversion is the sentinel the stackread
@@ -31,7 +33,7 @@ import (
 // With this fallback, that failure mode becomes silent: the plugin
 // says Unimplemented, SC core uses the typed-converter mapping,
 // deploy proceeds as it did before A2.
-var ErrPluginUnimplementedConversion = errors.New("plugin does not implement ConvertStackConfig")
+var ErrPluginUnimplementedConversion = stderrors.New("plugin does not implement ConvertStackConfig")
 
 // PluginStackConverter is the injection point SC core's parse-time path
 // uses to turn a plugin-owned template's merged StackConfig* into the
@@ -204,6 +206,38 @@ func (p *PluginPreparedInput) MarshalJSON() ([]byte, error) {
 	return json.Marshal(p.Input)
 }
 
+// incompatibleTemplateTypeError returns the error SC core produces
+// when a template type has NO cloud*ConverterMapping entry. The
+// Prepare*ForDeploy fallthrough fires either because:
+//
+//   - The type is unknown entirely (operator typo or unsupported
+//     cloud) — generic "incompatible server template type" message.
+//   - The type is plugin-owned BUT the plugin binary predates
+//     ConvertStackConfig AND no legacy /api/init.go registered a
+//     cloud*ConverterMapping entry for it (A2-born types like
+//     yc-static-site, cloudflare-pages, aws-static-website). In this
+//     case the operator needs to bump the plugin pin, NOT edit
+//     client.yaml. Emit a legible pin-bump hint instead of the
+//     generic "incompatible" that would send them hunting in the
+//     wrong place.
+//
+// The Unimplemented → mapping fallback at convertPluginOwnedTemplate
+// is strictly safe ONLY for types that predate A2 (and therefore
+// have a legacy mapping entry). Types born post-A2 fall through to
+// this path and need the plugin pin advanced — see 2026-11-02
+// incident report at
+// forge/docs/roadmap/items/sc-convertstackconfig-unimplemented-breaks-every-deploy.md.
+func incompatibleTemplateTypeError(stackName, typeName string) error {
+	if binding, ok := IsPluginOwnedType(typeName); ok {
+		return errors.Errorf(
+			"template type %q is plugin-owned by %q, which does not implement ConvertStackConfig, "+
+				"and no legacy converter exists for it — bump the %q plugin pin to a release containing the handler",
+			typeName, binding.PluginName, binding.PluginName,
+		)
+	}
+	return errors.Errorf("incompatible server template type %q for %q", typeName, stackName)
+}
+
 // convertPluginOwnedTemplate branches off Prepare*ForDeploy when the
 // template type is plugin-owned. Returns (desc, true) on hit,
 // (nil, false) on miss (type not plugin-owned, or no converter
@@ -226,7 +260,7 @@ func convertPluginOwnedTemplate(ctx context.Context, stackDir, stackName, parent
 		TemplateConfig: tpl.Config.Config,
 	})
 	if err != nil {
-		if errors.Is(err, ErrPluginUnimplementedConversion) {
+		if stderrors.Is(err, ErrPluginUnimplementedConversion) {
 			// Plugin binary predates the RPC. Fall through to the
 			// pre-A2 cloud*ConverterMapping path by returning
 			// isPluginOwned=false — the caller's branch at
