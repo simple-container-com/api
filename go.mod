@@ -56,7 +56,7 @@ require (
 	github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261031083455-cdbcf98c7bfb
 	github.com/simple-container-com/sc-plugin-cloudru/api v0.0.0-20261027184304-7dc7ca92c47c
 	github.com/simple-container-com/sc-plugin-mongodb/api v0.0.0-20261029130510-ff1589792eaa
-	github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261026175213-36a86d2f6b52
+	github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261101233310-67602079742f
 	github.com/spf13/afero v1.15.0
 	github.com/spf13/cobra v1.10.2
 	github.com/stretchr/testify v1.11.1
