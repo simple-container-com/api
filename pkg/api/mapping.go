@@ -147,7 +147,7 @@ func RegisterPluginOwnedType(name string, kind PluginOwnedKind, pluginName strin
 	}
 	pluginOwnedTypes[name] = PluginOwnedBinding{Kind: kind, PluginName: pluginName}
 	if _, exists := providerConfigMapping[name]; !exists {
-		providerConfigMapping[name] = pluginOwnedConfigDecoder
+		providerConfigMapping[name] = pluginOwnedWrappingDecoder(name)
 	}
 	// StateStore / SecretsProvider types additionally live in
 	// provisionerFieldConfigMapping, read by ReadProvisionerFieldConfig
@@ -161,17 +161,31 @@ func RegisterPluginOwnedType(name string, kind PluginOwnedKind, pluginName strin
 	// provisionerFieldConfigMapping was not.
 	if kind == PluginOwnedKindStateStore || kind == PluginOwnedKindSecretsProvider {
 		if _, exists := provisionerFieldConfigMapping[name]; !exists {
-			provisionerFieldConfigMapping[name] = pluginOwnedProvisionerFieldConfigDecoder(name)
+			provisionerFieldConfigMapping[name] = pluginOwnedWrappingDecoder(name)
 		}
 	}
 }
 
-// pluginOwnedProvisionerFieldConfigDecoder returns a ProvisionerFieldConfigReadFunc that
-// wraps the raw YAML in a PluginFieldConfig carrying the type name — the
-// same shape pluginFieldConfig() in read.go builds for the `:` fall-through
-// path. Returning a closure keeps the type name captured at registration
-// time so the generic decoder can emit it as cfg.ProviderType() later.
-func pluginOwnedProvisionerFieldConfigDecoder(typeName string) ProvisionerFieldConfigReadFunc {
+// pluginOwnedWrappingDecoder wraps the raw YAML in a *PluginFieldConfig
+// carrying the type name. Single decoder for all plugin-owned types —
+// AUTH, state-storage, secrets-provider, resource, registrar — because
+// *PluginFieldConfig implements api.AuthConfig / api.StateStorageConfig /
+// api.SecretsProviderConfig, which is exactly the set of interfaces the
+// downstream SC-core-side type-asserts off.
+//
+// This supersedes the pre-fix split (pluginOwnedConfigDecoder raw-pass
+// + pluginOwnedProvisionerFieldConfigDecoder wrapping), which broke
+// authentication: the raw-pass decoder's `Config{Config: map[string]any}`
+// does NOT satisfy api.AuthConfig, so AuthDescriptor.AuthConfig() errored,
+// DetectAuthProvider returned the error, ReadSecretsDescriptor silently
+// dropped the whole secrets.yaml (IgnoreSecretsMissing=true swallows the
+// error), and `${auth:aws}` never resolved. Live-caught on forge-runtime
+// isolated verify run 41711977418 (2026-11-03): walker-diag showed
+// `${auth:aws}` entering and leaving the walker unchanged — not because
+// the walker missed the string, but because tplAuth could not find
+// `stack.Secrets.Auth["aws"]`, which was absent because secrets parse
+// failed for the aws-token type.
+func pluginOwnedWrappingDecoder(typeName string) func(cfg *Config) (Config, error) {
 	return func(cfg *Config) (Config, error) {
 		if cfg == nil {
 			return Config{}, nil

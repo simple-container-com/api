@@ -3,6 +3,8 @@
 
 package api
 
+import "strings"
+
 // Bootstrap for the five canonical SC plugins.
 //
 // Why this file exists. Pre-A3, each plugin's /api module was blank-
@@ -109,4 +111,78 @@ func init() {
 			Repository: "simple-container-com/sc-plugin-mongodb",
 		},
 	})
+
+	// ALSO populate providerConfigMapping (via RegisterPluginOwnedType)
+	// for every bootstrap token, so DetectResourcesType / DetectAuthType /
+	// DetectTemplateType / DetectRegistrarType / ReadProvisionerFieldConfig
+	// resolve plugin-owned types without needing a successful spawn of
+	// stackread.DiscoverPluginTypes first. RegisterPluginRequirement
+	// above populates pluginByType (for the error-hint and for
+	// ValidatePluginRequirements's "did you declare plugins?" check);
+	// this line populates the type-resolution maps the full parse path
+	// actually reads from.
+	//
+	// Live-caught on forge-runtime isolated verify run 41711977418
+	// (2026-11-03): walker-diag showed `${auth:aws}` entering and leaving
+	// the walker unchanged. Root cause: DetectAuthProvider looked up
+	// `aws-token` in providerConfigMapping, found nothing (bootstrap only
+	// seeded pluginByType), failed with "unknown auth type", and
+	// ReadSecretsDescriptor silently dropped the whole secrets.yaml
+	// (IgnoreSecretsMissing=true in the deploy ReadOpts). That left
+	// stack.Secrets.Auth["aws"] empty, so tplAuth returned the input
+	// placeholder unchanged, and the plugin received `${auth:aws}` as a
+	// literal.
+	//
+	// Kinds are approximate — every type is registered as Resource because
+	// RegisterPluginOwnedType's current behaviour is to seed
+	// providerConfigMapping for all kinds alike, and the kind field is
+	// only read by the auth / state-storage / secrets-provider
+	// post-processing in RegisterPluginOwnedType itself. If a future kind
+	// gains distinct behaviour, this list needs to be re-categorised. The
+	// state-storage and secrets-provider tokens below are tagged with
+	// their real kind so `provisionerFieldConfigMapping` gets populated
+	// via the kind-gated branch.
+	for pluginName, kinds := range map[string]map[PluginOwnedKind][]string{
+		"aws": {
+			PluginOwnedKindResource:        {"aws", "ecs-fargate", "aws-lambda", "aws-static-website", "aws-rds-postgres", "aws-rds-mysql", "aws-cloudtrail-security-alerts", "ecr-repository"},
+			PluginOwnedKindStateStore:      {"s3-bucket"},
+			PluginOwnedKindSecretsProvider: {"aws-kms", "aws-secrets-manager"},
+			// Auth tokens MUST be registered too — see the comment
+			// above for the forge-runtime regression.
+			PluginOwnedKindResource + "/auth": {"aws-token"},
+		},
+		"yandex": {
+			PluginOwnedKindResource:           {"yandex", "yc-bucket", "yc-wildcard-cert", "yc-serverless-container", "yc-static-website", "yc-lockbox"},
+			PluginOwnedKindRegistrar:          {"yc-dns"},
+			PluginOwnedKindStateStore:         {"yc-object-storage"},
+			PluginOwnedKindSecretsProvider:    {"yc-kms"},
+			PluginOwnedKindResource + "/auth": {"yc-service-account"},
+		},
+		"cloudflare": {
+			PluginOwnedKindResource:  {"cloudflare-static-website"},
+			PluginOwnedKindRegistrar: {"cloudflare"},
+		},
+		"cloudru": {
+			PluginOwnedKindResource:           {"cloudru", "cloudru-container-app", "cloudru-vm", "cloudru-evolution-vm"},
+			PluginOwnedKindRegistrar:          {"cloudru-dns"},
+			PluginOwnedKindResource + "/auth": {"cloudru-access-key", "cloudru-evolution-key"},
+		},
+		"mongodb": {
+			PluginOwnedKindResource: {"mongodb-atlas"},
+		},
+	} {
+		for kind, tokens := range kinds {
+			// Strip the "/auth" sentinel — the kind for auth is
+			// Resource as far as RegisterPluginOwnedType cares
+			// (providerConfigMapping gets seeded regardless). The
+			// sentinel is only here so the grouping stays readable.
+			realKind := kind
+			if idx := strings.Index(string(kind), "/"); idx >= 0 {
+				realKind = PluginOwnedKind(string(kind)[:idx])
+			}
+			for _, t := range tokens {
+				RegisterPluginOwnedType(t, realKind, pluginName)
+			}
+		}
+	}
 }

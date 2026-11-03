@@ -517,14 +517,65 @@ type PluginFieldConfig struct {
 	Provision   bool           `json:"provision" yaml:"provision"`
 }
 
-func (p *PluginFieldConfig) ProviderType() string     { return p.TypeName }
-func (p *PluginFieldConfig) CredentialsValue() string { return p.Credentials }
-func (p *PluginFieldConfig) ProjectIdValue() string   { return p.ProjectID }
+func (p *PluginFieldConfig) ProviderType() string { return p.TypeName }
+
+// CredentialsValue returns the string the placeholder resolver substitutes
+// for `${auth:<name>}`. Two shapes:
+//
+//   - `.Credentials` is non-empty — a `credentials: "…"` key was declared
+//     in YAML (state-storage / secrets-provider form) — return it verbatim.
+//   - `.Credentials` is empty but `.Raw` has entries — this is an AUTH
+//     block (aws-token, yc-service-account, cloudru-access-key, …). The
+//     pre-A3 typed AuthConfig impls returned `api.AuthToString(r)` in this
+//     case — a JSON serialisation of the whole struct — so a downstream
+//     plugin decoding `credentials: "…"` could parse the full account
+//     config. Mirror that here by marshalling Raw.
+//
+// Returns empty string only when there is genuinely no credential
+// material to expand (ambient-credential path; UsesAmbientCredentials
+// relies on this).
+func (p *PluginFieldConfig) CredentialsValue() string {
+	if p.Credentials != "" {
+		return p.Credentials
+	}
+	if len(p.Raw) == 0 {
+		return ""
+	}
+	// Omit the `type` key from the serialised auth blob — plugin-side
+	// decoders unmarshal into their typed AccountConfig which does not
+	// declare it, and an unknown JSON key either errors out (strict
+	// decoders) or clutters the blob (lenient ones). The same trimming
+	// is what api.AuthToString did for the pre-A3 typed structs.
+	trimmed := make(map[string]any, len(p.Raw))
+	for k, v := range p.Raw {
+		if k == "type" {
+			continue
+		}
+		trimmed[k] = v
+	}
+	b, err := json.Marshal(trimmed)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func (p *PluginFieldConfig) ProjectIdValue() string {
+	if p.ProjectID != "" {
+		return p.ProjectID
+	}
+	// Auth-shape configs often carry account/projectId in Raw.
+	if v := stringFromMap(p.Raw, "projectId"); v != "" {
+		return v
+	}
+	return stringFromMap(p.Raw, "account")
+}
+
 func (p *PluginFieldConfig) StorageUrl() string       { return p.URL }
 func (p *PluginFieldConfig) KeyUrl() string           { return p.URL } // secrets-provider interface
 func (p *PluginFieldConfig) IsProvisionEnabled() bool { return p.Provision }
 func (p *PluginFieldConfig) UsesAmbientCredentials() bool {
-	return p.Credentials == "" // if no explicit creds, assume ambient (env/role)
+	return p.Credentials == "" && len(p.Raw) == 0
 }
 
 // MarshalJSON merges the Raw map with the typed fields so the plugin bus
