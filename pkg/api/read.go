@@ -616,6 +616,19 @@ func (p *PluginFieldConfig) DnsRecords() []DnsRecord {
 			Value:   stringFromMap(m, "value"),
 			Proxied: boolFromMap(m, "proxied"),
 		}
+		if pr, ok := m["priority"]; ok {
+			switch v := pr.(type) {
+			case float64:
+				p := int(v)
+				rec.Priority = &p
+			case int:
+				p := v
+				rec.Priority = &p
+			case int64:
+				p := int(v)
+				rec.Priority = &p
+			}
+		}
 		out = append(out, rec)
 	}
 	return out

@@ -121,4 +121,13 @@ type DnsRecord struct {
 	ValueOut sdk.StringOutput `json:"-" yaml:"-"`
 	Value    string           `json:"value" yaml:"value"`
 	Proxied  bool             `json:"proxied" yaml:"proxied"`
+	// Priority is used by MX / SRV / URI record types and ignored by
+	// every other type (CNAME / A / TXT etc.). Nilable so the common
+	// case (non-MX records) marshals as empty rather than `priority: 0`,
+	// which cloudflare-pulumi's Record resource treats as a value
+	// rather than "unset" and sends to the API — producing an MX with
+	// priority 0 where the operator intended "not applicable".
+	// pulumi-cloudflare/sdk/v6 Record documents: "Required for MX, SRV
+	// and URI records; unused by other record types."
+	Priority *int `json:"priority,omitempty" yaml:"priority,omitempty"`
 }
