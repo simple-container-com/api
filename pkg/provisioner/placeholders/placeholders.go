@@ -306,17 +306,7 @@ func (p *placeholders) initTemplate(opts []Option) *template.Template {
 
 // value must be a string
 func (p *placeholders) applyTemplateOnString(value string, opts []Option) string {
-	out := p.initTemplate(opts).Exec(value)
-	// DIAGNOSTIC (temporary, api fix-plugin-field-marshal-merges-raw):
-	// forge-conductor isolated verify ships ${auth:aws} to the plugin
-	// despite phResolver.Resolve having run. Log any string that enters
-	// the walker with a placeholder AND whether it came out resolved.
-	// Printed to stderr so sc deploy inherits it through its command
-	// pipe without touching the placeholders package's logger graph.
-	if strings.Contains(value, "${") {
-		_, _ = fmt.Fprintf(os.Stderr, "placeholder-walker-diag: in=%q out=%q\n", value, out)
-	}
-	return out
+	return p.initTemplate(opts).Exec(value)
 }
 
 // out must be a pointer
