@@ -737,3 +737,41 @@ func (p *PluginFieldConfig) MarshalJSON() ([]byte, error) {
 	}
 	return json.Marshal(merged)
 }
+
+// MarshalYAML mirrors MarshalJSON for the yaml.v3 path. Parent-stack
+// provisioning (pkg/clouds/pulumi/provision.go) `yaml.Marshal`s each
+// StackDescriptor into a Pulumi-exported secret the child deploy later
+// reads back via `yaml.Unmarshal`. Without a MarshalYAML, the default
+// struct-tag path honours `yaml:"-"` on Raw and emits only the four
+// typed slots — operator-declared keys that have no typed counterpart
+// (`accountId`, `bucketName`, `zoneName`, …) silently disappear from
+// the state, and the child deploy dials the plugin with an empty
+// `accountId` → `ToPagesConfig` → `accountId is empty`.
+//
+// Live-caught 2026-11-03 on navizon's cloudflare-static-website
+// isolated-stack child deploy. Diagnosed by navizon session; same
+// merge semantics as MarshalJSON.
+func (p *PluginFieldConfig) MarshalYAML() (interface{}, error) {
+	merged := map[string]any{}
+	for k, v := range p.Raw {
+		merged[k] = v
+	}
+	if p.TypeName != "" {
+		merged["type"] = p.TypeName
+	}
+	if p.URL != "" {
+		merged["url"] = p.URL
+	}
+	if p.Credentials != "" {
+		merged["credentials"] = p.Credentials
+	}
+	if p.ProjectID != "" {
+		merged["projectId"] = p.ProjectID
+	}
+	if _, present := merged["provision"]; !present {
+		merged["provision"] = p.Provision
+	} else if p.Provision {
+		merged["provision"] = true
+	}
+	return merged, nil
+}
