@@ -578,6 +578,49 @@ func (p *PluginFieldConfig) UsesAmbientCredentials() bool {
 	return p.Credentials == "" && len(p.Raw) == 0
 }
 
+// DnsRecords implements api.RegistrarConfig for plugin-owned registrars
+// (cloudflare, cloudru-dns, yc-dns, …). Reads the `dnsRecords` list out
+// of the Raw map that pluginOwnedWrappingDecoder preserved — the plugin
+// bus's RegistrarConfig type-assertion at
+// pkg/clouds/pulumi/plugin_sidecars.go:382 required this method, and
+// without it operator-declared `dnsRecords:` entries on a plugin-owned
+// registrar were silently dropped on the wire. Live-caught 2026-11-03
+// against sc-plugin-cloudflare v2026.11.02-8b9eb75: a navizon-infra
+// server.yaml with four `dnsRecords:` entries completed `sc provision`
+// as `Resources: 2 unchanged` and never emitted any
+// `cloudflare:index/record:Record`.
+//
+// The `type` key is consulted first for the DnsRecord type field; a
+// `proxied` key arrives from YAML as `bool` but the bus serialises the
+// whole map through JSON, which keeps bools as bools in map[string]any,
+// so no extra parsing is needed for this scalar — the map[string]any
+// unmarshal path keeps them bool-typed.
+func (p *PluginFieldConfig) DnsRecords() []DnsRecord {
+	raw, ok := p.Raw["dnsRecords"]
+	if !ok {
+		return nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]DnsRecord, 0, len(list))
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		rec := DnsRecord{
+			Name:    stringFromMap(m, "name"),
+			Type:    stringFromMap(m, "type"),
+			Value:   stringFromMap(m, "value"),
+			Proxied: boolFromMap(m, "proxied"),
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
 // MarshalJSON merges the Raw map with the typed fields so the plugin bus
 // (pkg/clouds/pulumi.serializeConfigToInputs → json.Marshal → gRPC
 // InputValue tree) carries the full operator-declared config, not just
