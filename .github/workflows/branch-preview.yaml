@@ -293,49 +293,15 @@ jobs:
             .sc/stacks/dist/bundle/sc-${{ matrix.os }}-${{ matrix.arch }}-v*.tar.gz.sbom.cdx.json
           retention-days: 1
 
-  build-binaries:
-    name: Build ${{ matrix.target }} binary
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
-    timeout-minutes: 60
-    needs: [prepare, build-setup]
-    strategy:
-      matrix:
-        include:
-          - target: github-actions
-            cmd: github-actions
-            output: dist/github-actions
-          - target: cloud-helpers
-            cmd: cloud-helpers
-            output: dist/cloud-helpers
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
-        with:
-          go-version-file: go.mod
-          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
-          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
-          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
-          # we are back on Blacksmith/hosted, where it should behave as before.
-          # One variable controls both routing and caching, so a revert is complete.
-          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
-      - name: create build directories
-        run: |
-          mkdir -p dist
-      - name: build ${{ matrix.target }}
-        env:
-          VERSION: ${{ needs.prepare.outputs.version }}
-          CGO_ENABLED: "0"
-        run: |
-          go build -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" -o ${{ matrix.output }} ./cmd/${{ matrix.cmd }}
-      - name: upload ${{ matrix.target }} binary
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
-        with:
-          name: ${{ matrix.target }}-binary
-          path: ${{ matrix.output }}
-          retention-days: 1
+  # build-binaries was REMOVED here (equivalent of push.yaml #466).
+  # It compiled github-actions + cloud-helpers, uploaded them as artifacts,
+  # and docker-build downloaded them before COPY-ing into the image. Both
+  # halves are gone — docker-build now compiles natively in its own job
+  # (matrix.heavy_go leg below), the same shape push.yaml landed in
+  # #518 / 255f82f8 after six consecutive releases proved the in-image
+  # gobuild and the artifact handoff were both strictly slower than a
+  # native compile in the consuming job. See the long rationale on the
+  # `compile ${{ matrix.go_bin }} for the image` step in push.yaml.
 
   test:
     name: Run tests
@@ -361,29 +327,58 @@ jobs:
           go test ./...
 
   docker-build:
-    name: Docker build and push preview ${{ matrix.target }} image
-    runs-on: ${{ vars.FORGE_CI_RUNNER && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
+    name: Docker build and push preview ${{ matrix.image }} image
+    # PER-LEG routing — mirrors push.yaml's shape, backported here for the
+    # same reasons. Both preview matrix entries compile Go in the
+    # consuming job (`matrix.heavy_go: true`), so both need the fleet's
+    # 20 GiB guests — the GitHub-hosted 16 GB OOMs on the ~12.9 GB-class
+    # link peak (push.yaml rationale documents this at length).
+    #
+    # Preview has no kubectl/caddy legs, so the hosted-fallback branch of
+    # this expression is dormant for now — kept so a future lightweight
+    # preview leg can opt in by omitting `heavy_go` without a workflow
+    # restructure.
+    runs-on: >-
+      ${{ vars.FORGE_CI_RUNNER
+          && (matrix.heavy_go && fromJSON(vars.FORGE_CI_RUNNER) || fromJSON('["ubuntu-latest"]'))
+          || fromJSON('["blacksmith-8vcpu-ubuntu-2204"]') }}
     timeout-minutes: 60
-    needs: [prepare, build-setup, build-binaries, test]
+    needs: [prepare, build-setup, build-platforms, test]
     permissions:
       contents: read
       id-token: write       # OIDC token for keyless cosign + attest-build-provenance
       attestations: write
     strategy:
+      # fail-fast: false so a failure in one image does not cancel the
+      # sibling leg mid-build. Preview tags are not atomic-promoted the way
+      # push.yaml's are, but each leg still signs and attests, and cancelling
+      # mid-attestation leaves a published image with an incomplete
+      # provenance chain — which the warn-only aggregator below should see
+      # and report rather than silently swallow.
+      fail-fast: false
       matrix:
         include:
-          - target: github-actions
+          - image: github-actions
+            # heavy_go: this leg compiles Go, so it needs fleet RAM (see
+            # runs-on) and gets the native-compile step below. go_bin /
+            # go_cmd are read by that step and by nothing else; go_bin must
+            # match the `COPY dist/<bin>` in the Dockerfile and the
+            # `!dist/<bin>` line in .dockerignore.
+            heavy_go: true
+            go_bin: github-actions
+            go_cmd: ./cmd/github-actions
             cache_scope: github-actions
-            binary: github-actions
             dockerfile: github-actions.Dockerfile
             image_repo: simplecontainer/github-actions
             tag_prefix: "simplecontainer/github-actions:"
-          - target: cloud-helpers
+          - image: cloud-helpers
             # matches push.yaml's `image: cloud-helpers-aws` so the prod
-            # cache fallback above resolves; the artifact/tag names stay
-            # `cloud-helpers`.
+            # cache fallback below resolves; the preview tag stays
+            # `cloud-helpers:aws-<preview-version>`.
+            heavy_go: true
+            go_bin: cloud-helpers
+            go_cmd: ./cmd/cloud-helpers
             cache_scope: cloud-helpers-aws
-            binary: cloud-helpers
             dockerfile: cloud-helpers.aws.Dockerfile
             image_repo: simplecontainer/cloud-helpers
             tag_prefix: "simplecontainer/cloud-helpers:aws-"
@@ -391,13 +386,48 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-      - name: download ${{ matrix.target }} binary
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c  # v8.0.1
+      # ── the Go binary for the two image legs that ship one ────────────────
+      #
+      # Compiled HERE, natively, in this same job — not in the image, and
+      # not downloaded as an artifact (both prior shapes were strictly
+      # slower; the long rationale lives in push.yaml). This is a backport
+      # of push.yaml #518 (255f82f8).
+      #
+      # The flags are byte-identical to build-platforms, push.yaml's
+      # equivalent step, and welder's build-github-actions /
+      # build-cloud-helpers tasks (welder.yaml:118-131). They must stay
+      # that way: a flag difference forks the Go build cache into a
+      # second namespace (so this goes cold for no reason) AND changes the
+      # binary the preview attests.
+      - name: Set up Go
+        if: matrix.heavy_go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e  # v7.0.0
         with:
-          name: ${{ matrix.target }}-binary
-          path: dist
-      - name: fix binary permissions
-        run: chmod +x dist/${{ matrix.binary }}
+          go-version-file: go.mod
+          # Conditional on the runner, not hardcoded: the self-hosted fleet keeps
+          # GOCACHE/GOMODCACHE on a persistent volume, so the action's own cache is
+          # pure overhead there (and its backend 401s). If FORGE_CI_RUNNER is unset
+          # we are back on Blacksmith/hosted, where it should behave as before.
+          cache: ${{ vars.FORGE_CI_RUNNER == '' }}
+      - name: compile ${{ matrix.go_bin }} for the image
+        if: matrix.heavy_go
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ needs.prepare.outputs.version }}
+          GO_BIN: ${{ matrix.go_bin }}
+          GO_CMD: ${{ matrix.go_cmd }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          go build -trimpath -buildvcs=false \
+            -ldflags "-s -w -X=github.com/simple-container-com/api/internal/build.Version=${VERSION}" \
+            -o "dist/${GO_BIN}" "${GO_CMD}"
+          # Assert both the file and the version stamp here, where the error
+          # names the cause instead of surfacing as a broken image. The
+          # Dockerfile `COPY dist/<bin>` fails loudly on a missing file but
+          # would not catch a zero-byte one.
+          test -s "dist/${GO_BIN}" && test -x "dist/${GO_BIN}"
+          ls -l "dist/${GO_BIN}"
       - name: install sc tool
         uses: simple-container-com/actions/install-sc@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       - name: prepare secrets for build
@@ -409,14 +439,99 @@ jobs:
       - name: Setup Docker Buildx with advanced caching
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c  # v4.2.0
         with:
+          # Persistent builder so `RUN --mount=type=cache` download mounts
+          # (pulumi-dl, gcloud-dl in github-actions.Dockerfile) survive
+          # between runs. Matches push.yaml. On an ephemeral runner
+          # (ubuntu-latest / Blacksmith) this is a no-op, not a behaviour
+          # change — the VM is discarded either way.
+          name: forge-ci
+          cleanup: false
+          keep-state: true
           driver-opts: |
             image=moby/buildkit:buildx-stable-1
+
+      # Bound the persistent builder's cache + reclaim guest cache-drive
+      # space before a cold gobuild. Backport of push.yaml #473
+      # (eaa2460d). Preview and release share the same `forge-ci` builder
+      # on the same fleet guests, so a preview run with no reclaim can
+      # leave a release blocked on the 25 GB floor just as readily as a
+      # release run blocked itself. See push.yaml for the ENOSPC
+      # rationale behind the floor; the escalation tiers are identical.
+      - name: Bound the persistent builder's cache
+        if: vars.FORGE_CI_RUNNER != ''
+        continue-on-error: true
+        env:
+          FLOOR_GB: "25"
+        run: |
+          set -uo pipefail
+
+          root=$(docker info --format '{{.DockerRootDir}}' 2>/dev/null || true)
+          root="${root:-/var/lib/docker}"
+
+          free_gb() {
+            { df -BG --output=avail "$1" 2>/dev/null | tail -1 | tr -dc '0-9'; } || true
+          }
+
+          reclaim() {
+            label="$1"; shift
+            before=$(free_gb "${root}")
+            "$@" >/dev/null 2>&1 || true
+            after=$(free_gb "${root}")
+            echo "  ${label}: ${before:-?} GB -> ${after:-?} GB free"
+            avail="${after}"
+          }
+
+          echo "dockerd data-root: ${root}"
+
+          du_raw=$(docker buildx du --builder forge-ci 2>/dev/null || true)
+          du_total=$(printf '%s\n' "${du_raw}" | awk '/^Total:/ {print $NF; exit}')
+          echo "builder cache total: ${du_total:-unknown}"
+          case "${du_total:-}" in
+            0B|0|"") echo "::notice::builder is COLD — this preview build compiles the ~2095-package closure from scratch" ;;
+          esac
+
+          reclaim "prune >168h" \
+            docker buildx prune --builder forge-ci --force --filter until=168h
+
+          if [ -z "${avail:-}" ]; then
+            echo "::warning::could not read free space for ${root} — skipping the reclaim tiers"
+            exit 0
+          fi
+
+          echo "free: ${avail} GB (floor ${FLOOR_GB} GB)"
+          [ "${avail}" -ge "${FLOOR_GB}" ] && { echo "above the floor — nothing to reclaim"; exit 0; }
+
+          echo "::warning::under ${FLOOR_GB} GB free for dockerd — escalating reclaim"
+
+          reclaim "prune all buildkit" \
+            docker buildx prune --builder forge-ci --all --force
+          [ "${avail:-0}" -ge "${FLOOR_GB}" ] && exit 0
+
+          case "${root}" in
+            /cache/*) ;;
+            *) echo "data-root is not on the guest cache drive — no further tiers"; exit 0 ;;
+          esac
+
+          reclaim "docker image prune -af" docker image prune -af
+          [ "${avail:-0}" -ge "${FLOOR_GB}" ] && exit 0
+
+          reclaim "drop /cache/go-mod" \
+            sh -c 'rm -rf /cache/go-mod/* /cache/go-mod/.[!.]* 2>/dev/null; mkdir -p /cache/go-mod'
+          [ "${avail:-0}" -ge "${FLOOR_GB}" ] && exit 0
+
+          echo "::warning::dropping the golden go-build cache — the next Go job on this guest compiles cold"
+          reclaim "drop /cache/go-build" \
+            sh -c 'rm -rf /cache/go-build/* /cache/go-build/.[!.]* 2>/dev/null; mkdir -p /cache/go-build'
+
+          if [ "${avail:-0}" -lt "${FLOOR_GB}" ]; then
+            echo "::error::still only ${avail:-?} GB free after every reclaim tier — this guest's cache drive is too small for a cold gobuild; grow ${root%/docker}'s backing image"
+          fi
       - name: Disable IPv6 (Blacksmith runners have broken IPv6 to Docker Hub)
         run: sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
       - name: Docker login using SC secrets
         run: |
           sc stack secret-get -s dist dockerhub-cicd-token | docker login --username simplecontainer --password-stdin
-      - name: Build and push preview ${{ matrix.target }} image
+      - name: Build and push preview ${{ matrix.image }} image
         id: build_and_push
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a  # v7.3.0
         with:
@@ -425,14 +540,23 @@ jobs:
           platforms: linux/amd64
           tags: ${{ matrix.tag_prefix }}${{ needs.prepare.outputs.version }}
           push: true
-          # Writes its own preview tier; reads prod as a warm fallback.
-          # Reading a higher-trust scope is safe, writing one is not.
-          # matrix.cache_scope (not matrix.target) so the prod fallback
-          # actually matches push.yaml's image names.
+          # ONE exporter, the registry one — same as push.yaml after #517
+          # (491610a3). The `type=gha,mode=max` scope that lived here cost
+          # 167–434 s per leg on the production workflow (release run
+          # 41061777656: cloud-helpers 166.8 s, github-actions 434.4 s),
+          # and bought nothing the registry exporter doesn't already give
+          # us. Importing from gha was free (<5 s), but writing was slow
+          # AND actively evicted the fleet's own `prod-buildcache`
+          # registry entries out of the 10 GB Actions cache budget.
+          #
+          # Preview reads BOTH its own tier and prod as a fallback (safe —
+          # higher-trust reads are fine, higher-trust writes are not).
+          # cache_scope mirrors push.yaml's image names so the prod
+          # fallback resolves.
           cache-from: |
-            type=gha,scope=preview-${{ matrix.cache_scope }}
-            type=gha,scope=prod-${{ matrix.cache_scope }}
-          cache-to: type=gha,mode=max,scope=preview-${{ matrix.cache_scope }}
+            type=registry,ref=${{ matrix.image_repo }}:preview-buildcache
+            type=registry,ref=${{ matrix.image_repo }}:prod-${{ matrix.cache_scope }}-buildcache
+          cache-to: type=registry,ref=${{ matrix.image_repo }}:preview-buildcache,mode=max
           # Never cache-hit the distro-upgrade layer. `runtime` is the final
           # stage in every one of these Dockerfiles; its base is digest-pinned
           # and its `apk/dnf upgrade` RUN string never changes, so with
@@ -453,13 +577,13 @@ jobs:
       # Same steps, weaker promise: a preview does NOT get the release gate, and
       # its tags go live before anything is signed. The warn-only aggregator
       # below is the accurate statement of what a preview guarantees.
-      - name: Sign + attest ${{ matrix.target }} (SBOM + cosign + SLSA)
+      - name: Sign + attest ${{ matrix.image }} (SBOM + cosign + SLSA)
         id: signattest
         if: steps.build_and_push.outcome == 'success'
         uses: simple-container-com/actions/sign-and-attest@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
         with:
           image-ref: ${{ matrix.image_repo }}@${{ steps.build_and_push.outputs.digest }}
-          image-name: ${{ matrix.target }}
+          image-name: ${{ matrix.image }}
           subject-name: index.docker.io/${{ matrix.image_repo }}
           subject-digest: ${{ steps.build_and_push.outputs.digest }}
           # Soft-fail. push.yaml sets this too, but follows it with a gate
@@ -473,19 +597,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p digests
-          printf '%s@%s\n' "$IMAGE_REPO" "$DIGEST" > "digests/${{ matrix.target }}.txt"
-      - name: Upload digest artifact for ${{ matrix.target }}
+          printf '%s@%s\n' "$IMAGE_REPO" "$DIGEST" > "digests/${{ matrix.image }}.txt"
+      - name: Upload digest artifact for ${{ matrix.image }}
         if: steps.build_and_push.outcome == 'success'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: image-digest-${{ matrix.target }}
-          path: digests/${{ matrix.target }}.txt
+          name: image-digest-${{ matrix.image }}
+          path: digests/${{ matrix.image }}.txt
           retention-days: 1
       # Warn-only on purpose. Previews and staging builds are not releases:
       # nothing in SECURITY.md promises a consumer they carry a complete
       # attestation chain, and blocking them would stall iteration on a
       # Sigstore hiccup. push.yaml gates releases instead.
-      - name: Soft-fail aggregator for ${{ matrix.target }} attestation
+      - name: Soft-fail aggregator for ${{ matrix.image }} attestation
         if: always() && steps.build_and_push.outcome == 'success'
         env:
           SIGN_OUTCOME: ${{ steps.signattest.outputs.sign-outcome }}
@@ -498,9 +622,9 @@ jobs:
             if [ "$v" != "success" ]; then fail=1; fi
           done
           if [ "$fail" -eq 1 ]; then
-            echo "::warning title=Attestation incomplete::${{ matrix.target }} preview published but attestation steps failed (sign=$SIGN_OUTCOME sbom=$SBOM_OUTCOME attest-sbom=$ATTEST_SBOM_OUTCOME slsa=$SLSA_OUTCOME)."
+            echo "::warning title=Attestation incomplete::${{ matrix.image }} preview published but attestation steps failed (sign=$SIGN_OUTCOME sbom=$SBOM_OUTCOME attest-sbom=$ATTEST_SBOM_OUTCOME slsa=$SLSA_OUTCOME)."
           else
-            echo "All attestation steps succeeded for ${{ matrix.target }} preview."
+            echo "All attestation steps succeeded for ${{ matrix.image }} preview."
           fi
 
   publish-sc-preview:
