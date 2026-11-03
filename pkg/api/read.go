@@ -4,6 +4,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -524,4 +525,60 @@ func (p *PluginFieldConfig) KeyUrl() string           { return p.URL } // secret
 func (p *PluginFieldConfig) IsProvisionEnabled() bool { return p.Provision }
 func (p *PluginFieldConfig) UsesAmbientCredentials() bool {
 	return p.Credentials == "" // if no explicit creds, assume ambient (env/role)
+}
+
+// MarshalJSON merges the Raw map with the typed fields so the plugin bus
+// (pkg/clouds/pulumi.serializeConfigToInputs → json.Marshal → gRPC
+// InputValue tree) carries the full operator-declared config, not just
+// the four typed slots.
+//
+// Two reasons this is needed. First, Raw holds operator-declared keys
+// that have no typed slot — `bucketName` on state-storage, `keyName` on
+// secrets-provider — and without merging them the plugin never sees
+// them (`Raw` carries `json:"-"`). Second, the placeholder resolver
+// (pkg/provisioner/placeholders) walks the typed fields BOTH as struct
+// fields AND via the Raw map; both end up with resolved values post-
+// Resolve. Merging in this order (Raw first, typed fields override)
+// means a stray stale value in Raw is beaten by the typed field, so a
+// re-run after an edit cannot ship pre-resolution data.
+//
+// Live-caught 2026-11-03 on forge-conductor isolated verify run
+// 41680853191: plugin received `credentials: "${auth:aws}"` because
+// json.Marshal(*PluginFieldConfig) only emitted the four typed fields,
+// and the resolver's path to one of them was obstructed by an
+// unexported ancestor. Merging via Raw sidesteps that walker-path
+// fragility: whichever route the resolver takes, the plugin bus sees
+// the resolved value.
+func (p *PluginFieldConfig) MarshalJSON() ([]byte, error) {
+	merged := map[string]any{}
+	for k, v := range p.Raw {
+		merged[k] = v
+	}
+	// Typed fields override Raw. Non-zero check matches the semantics the
+	// receiving plugin expects: an unset credentials/url/projectId is
+	// omitted entirely so the plugin's own default (ambient creds, etc.)
+	// applies rather than being overridden by an empty string.
+	if p.TypeName != "" {
+		merged["type"] = p.TypeName
+	}
+	if p.URL != "" {
+		merged["url"] = p.URL
+	}
+	if p.Credentials != "" {
+		merged["credentials"] = p.Credentials
+	}
+	if p.ProjectID != "" {
+		merged["projectId"] = p.ProjectID
+	}
+	// Provision is a bool — merge it unconditionally; its zero (false) is
+	// a legitimate value, and Raw may or may not carry it.
+	if _, present := merged["provision"]; !present {
+		merged["provision"] = p.Provision
+	} else if p.Provision {
+		// Only override when the typed field says true; false in the typed
+		// slot is the zero value and should not clobber a Raw-declared
+		// explicit true.
+		merged["provision"] = true
+	}
+	return json.Marshal(merged)
 }
