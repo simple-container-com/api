@@ -149,6 +149,43 @@ func RegisterPluginOwnedType(name string, kind PluginOwnedKind, pluginName strin
 	if _, exists := providerConfigMapping[name]; !exists {
 		providerConfigMapping[name] = pluginOwnedConfigDecoder
 	}
+	// StateStore / SecretsProvider types additionally live in
+	// provisionerFieldConfigMapping, read by ReadProvisionerFieldConfig
+	// (pkg/api/read.go). The pre-A3 plugin /api/init() populated BOTH
+	// maps via separate RegisterProviderConfig + RegisterProvisionerFieldConfig
+	// calls; after the strip, dynamic discovery has to seed both. Live-
+	// caught 2026-11-03 on forge-conductor isolated verify
+	// (run 41670670084): parse failed with
+	// `unknown provisioner field config type "s3-bucket"` because
+	// providerConfigMapping was populated by stackread but
+	// provisionerFieldConfigMapping was not.
+	if kind == PluginOwnedKindStateStore || kind == PluginOwnedKindSecretsProvider {
+		if _, exists := provisionerFieldConfigMapping[name]; !exists {
+			provisionerFieldConfigMapping[name] = pluginOwnedProvisionerFieldConfigDecoder(name)
+		}
+	}
+}
+
+// pluginOwnedProvisionerFieldConfigDecoder returns a ProvisionerFieldConfigReadFunc that
+// wraps the raw YAML in a PluginFieldConfig carrying the type name — the
+// same shape pluginFieldConfig() in read.go builds for the `:` fall-through
+// path. Returning a closure keeps the type name captured at registration
+// time so the generic decoder can emit it as cfg.ProviderType() later.
+func pluginOwnedProvisionerFieldConfigDecoder(typeName string) ProvisionerFieldConfigReadFunc {
+	return func(cfg *Config) (Config, error) {
+		if cfg == nil {
+			return Config{}, nil
+		}
+		raw, _ := cfg.Config.(map[string]any)
+		return Config{Config: &PluginFieldConfig{
+			TypeName:    typeName,
+			Raw:         raw,
+			URL:         stringFromMap(raw, "url"),
+			Credentials: stringFromMap(raw, "credentials"),
+			ProjectID:   stringFromMap(raw, "projectId"),
+			Provision:   boolFromMap(raw, "provision"),
+		}}, nil
+	}
 }
 
 // IsPluginOwnedType reports whether name was recorded by
