@@ -211,18 +211,6 @@ func IsPluginOwnedType(name string) (PluginOwnedBinding, bool) {
 	return b, ok
 }
 
-// pluginOwnedConfigDecoder is the ConfigReaderFunc shared by every
-// plugin-owned type. It keeps the raw Config.Config map intact so the
-// plugin receives the operator's YAML tree verbatim. The plugin side
-// decodes into its typed Input via yaml round-trip (same shape the
-// Provision RPC already uses).
-func pluginOwnedConfigDecoder(cfg *Config) (Config, error) {
-	if cfg == nil {
-		return Config{}, nil
-	}
-	return *cfg, nil
-}
-
 func RegisterProvisioner(provisionerMapping ProvisionerRegisterMap) {
 	provisionerConfigMapping = lo.Assign(provisionerConfigMapping, provisionerMapping)
 }
