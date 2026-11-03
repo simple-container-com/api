@@ -19,6 +19,13 @@ references**, provisions the state bucket and blobs on **Object Storage**, and (
 a `.ru` domain is declared) publishes the service through an **API Gateway** with a
 CNAME in the **Cloud DNS** zone you own.
 
+!!! info "Driving this guide with an AI agent"
+    `sc assistant mcp` exposes every step on this page as MCP tool calls.
+    Claude Code / Cursor / [Simple Forge](https://simple-forge.com) can
+    scaffold `secrets.yaml` + `server.yaml`, run `sc secrets add` / `hide`,
+    and dispatch `sc provision` without a human touching YAML.
+    See the [AI Assistant guide](../ai-assistant/index.md).
+
 ---
 
 # **Prerequisites**
@@ -94,8 +101,28 @@ values:
   &cfg.AccountConfig)` itself or fail with `folderId must be set` — the
   built-in `yc-*` types already do.
 
-> The `.sc/stacks/*/secrets.yaml` files are **gitignored**; the encrypted
-> `.sc/secrets.yaml` registry is committed. Do not commit the plaintext.
+## **Step 1b: Register and encrypt the secrets file**
+
+The file above is **plaintext right now** — the YC SA private key and the
+S3 access-key pair are both in the clear. Register and encrypt BEFORE
+`git add`:
+
+```sh
+sc secrets add .sc/stacks/devops/secrets.yaml   # register + gitignore
+sc secrets hide                                 # encrypt in place
+```
+
+!!! danger "Never commit a plaintext `secrets.yaml`"
+    `sc secrets add` adds the file to `.sc/secrets.yaml`'s `files:` list
+    and appends it to `.gitignore`; `sc secrets hide` encrypts it to every
+    registered recipient. Both are required. An agent driving this guide
+    MUST run both before any `git add` step, and MUST NOT use `git add -A`
+    / `git add .` with plaintext credentials on disk.
+
+    A leaked YC SA private key gives folder-admin to whoever finds it —
+    see [Secrets Management](secrets-management.md) for rotation, key
+    types (`ssh-rsa`, `ssh-ed25519`), and recovering from an accidental
+    commit.
 
 ---
 

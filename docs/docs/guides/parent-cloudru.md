@@ -15,6 +15,16 @@ date: '2026-10-24'
 This guide is for **DevOps teams** deploying on **Cloud.ru** with **Simple Container**.
 Three delivery paths are supported, all from one credential:
 
+!!! info "Driving this guide with an AI agent"
+    `sc assistant mcp` exposes every step on this page as MCP tool calls.
+    Claude Code / Cursor / [Simple Forge](https://simple-forge.com) can
+    scaffold `secrets.yaml` + `server.yaml`, run `sc secrets add` / `hide`,
+    and dispatch `sc provision` without a human touching YAML. The
+    "which Cloud.ru do you have?" branch below is also a conversation
+    the agent can walk you through, so you don't pick the wrong auth type
+    silently. See the [AI Assistant guide](../ai-assistant/index.md).
+
+
 | Path | Template | What runs | Use when |
 |---|---|---|---|
 | **Serverless** | `cloudru-container-app` | an Evolution **Container App** — public HTTPS, scale to zero | a stateless HTTP service; the cheapest thing that exists |
@@ -132,9 +142,30 @@ auth:
       region: ru-moscow-1
 ```
 
-Edit the file with `sc secrets reveal -F`, and **`sc secrets hide -F` before any
-commit** — `secrets.yaml` is gitignored either way, but an interrupted edit leaves it
-decrypted on disk.
+## **Step 1b: Register and encrypt the secrets file**
+
+The block above is **plaintext** — the Cloud.ru key secret is a bearer
+credential equivalent to a password, and both the Evolution key pair and
+the Advanced access/secret pair unlock the whole project. Register and
+encrypt before `git add`:
+
+```sh
+sc secrets add .sc/stacks/devops/secrets.yaml   # register + gitignore
+sc secrets hide                                 # encrypt in place
+```
+
+!!! danger "Never commit a plaintext `secrets.yaml`"
+    Both commands are required. Later edits should go through
+    `sc secrets reveal -F` → edit → `sc secrets hide -F` BEFORE any
+    `git add` — `secrets.yaml` is gitignored either way, but an
+    interrupted edit leaves it decrypted on disk and a wandering
+    `git add -f` can still catch it.
+
+    An agent driving this guide MUST run both commands before any
+    staging step, and MUST NOT use `git add -A` / `git add .` with
+    plaintext credentials on disk. See
+    [Secrets Management](secrets-management.md) for recipient types
+    (`ssh-rsa`, `ssh-ed25519`) and rotation.
 
 ---
 

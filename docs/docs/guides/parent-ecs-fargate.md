@@ -15,6 +15,21 @@ This guide is for **DevOps teams** who want to configure a **parent stack (`serv
 
 With this setup, developers can **deploy microservices to ECS Fargate** while using **MongoDB Atlas as a managed database**.
 
+!!! info "Driving this guide with an AI agent"
+    Every step on this page is driveable by `sc`'s MCP server
+    (`sc assistant mcp`). An agent can scaffold the configuration below,
+    register secrets, and provision the parent stack end-to-end without a
+    human touching YAML:
+
+    - `sc assistant devops` for a conversational scaffold of `server.yaml` + `secrets.yaml`.
+    - [Simple Forge](https://simple-forge.com) runs the full `sc-parent-setup`
+      skill against your repo — including the ECS-Fargate + Atlas shape
+      documented here — and reports back with a PR.
+
+    See the [AI Assistant guide](../ai-assistant/index.md). Agents MUST
+    follow the Step-1b `sc secrets add` + `sc secrets hide` discipline
+    below; see the admonition there.
+
 ---
 
 # **Prerequisites**
@@ -64,11 +79,33 @@ values:
 > or the `AWS_*` environment — so CI can assume a short-lived federated role instead
 > of storing long-lived keys in `secrets.yaml`.
 
+## **Step 1b: Register and encrypt the secrets file**
+
+The file above is **plaintext right now**. Before `git add`, register it with
+SC so `.sc/secrets.yaml` tracks it, `.gitignore` protects it, and
+`sc secrets hide` can encrypt it:
+
+```sh
+sc secrets add .sc/stacks/devops/secrets.yaml   # register + gitignore
+sc secrets hide                                 # encrypt in place
+```
+
+!!! danger "Never commit a plaintext `secrets.yaml`"
+    Both commands are required. `sc secrets add` without `sc secrets hide`
+    leaves AWS + Atlas credentials on disk unencrypted — one `git add -f`
+    away from leaking. An agent driving this guide MUST run both commands
+    before any staging step and MUST NOT run `git add -A` / `git add .`
+    while plaintext credentials are on disk. See
+    [Secrets Management](secrets-management.md) for recipient types
+    (`ssh-rsa`, `ssh-ed25519`, `awskms://`) and rotation.
+
 ### **What This Does**
 
 Stores **AWS credentials** for programmatic access.
 
 Saves **MongoDB Atlas API keys** for provisioning databases.
+
+Encrypts both to every registered recipient so the file is safe to commit.
 
 ---
 

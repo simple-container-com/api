@@ -19,6 +19,15 @@ As a **developer at Organization**, you can **deploy a new service (`billing`)**
 
 **Deployment is automated** using `sc deploy`.
 
+!!! info "Driving this guide with an AI agent"
+    An agent (Claude Code / Cursor / [Simple Forge](https://simple-forge.com))
+    can walk the whole flow below via `sc assistant mcp`: generate the
+    `client.yaml`, scaffold the Dockerfile/docker-compose, and dispatch
+    `sc deploy` on your behalf. Simple Forge runs it as the
+    `sc-add-service` + `sc-service-deploy` skill pair, opening a PR and
+    deploying as soon as it merges. See the
+    [AI Assistant guide](../ai-assistant/index.md).
+
 ---
 
 # **Steps to Deploy the `billing` Service**

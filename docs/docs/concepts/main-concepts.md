@@ -25,6 +25,15 @@ Simple Container splits a deployment into two layers:
 This separation is the load-bearing design decision. Everything else in SC
 follows from it.
 
+!!! tip "Agents work at this layer, not below it"
+    When an AI agent (Claude Code, Cursor, [Simple Forge](https://simple-forge.com))
+    operates on an SC repo, it reasons in parent/service terms via the MCP
+    server (`sc assistant mcp`). It calls tools like `scaffold_stack` and
+    `provision` directly — it does not synthesise YAML from scratch. That
+    is why the vocabulary on this page matters: the same words name the
+    MCP tools, the CLI subcommands, and the YAML fields. See the
+    [AI Assistant guide](../ai-assistant/index.md).
+
 ## Architecture overview
 
 ```mermaid

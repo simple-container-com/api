@@ -270,7 +270,7 @@ sc secrets add-recipient <path-to-their-pubkey>
 sc secrets hide                                   # re-encrypt to the new set
 ```
 Also used to add a `github` profile key for CI/CD. See
-[Secrets Management](../guides/secrets-management.md#recipient-management)
+[Secrets Management → Team Collaboration Workflow](../guides/secrets-management.md#team-collaboration-workflow)
 for recipient types (SSH RSA, SSH ed25519, AWS KMS, GCP KMS), rotation
 procedures, and the two-profile model (`default` for local, `github` for
 GitHub Actions).
