@@ -128,8 +128,26 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		p.logger.Debug(ctx, "✅ Successfully logged into Pulumi Cloud")
 		be, err = httpstate.New(ctx, cmdutil.Diag(), cloudUrl, project, false)
 	default:
-		p.logger.Debug(ctx, "🔧 Using DIY backend with storage URL: %s", stateStorageCfg.StorageUrl())
-		be, err = diy.Login(ctx, cmdutil.Diag(), stateStorageCfg.StorageUrl(), project)
+		// Prefer PULUMI_BACKEND_URL when the sidecar just set it — that's
+		// the authoritative URL for a plugin-owned state backend. The
+		// in-tree typed decoders implement StorageUrl() (e.g. aws
+		// AccountConfig returns `s3://<bucketName>`), but
+		// *api.PluginFieldConfig (the post-A3 opaque wrapper) only
+		// surfaces an operator-declared `url:` key — which forge-infra
+		// style configs don't declare because the PLUGIN builds the URL
+		// from `bucketName:` at InitStateStore time. Live-caught on
+		// forge-runtime isolated verify run 41732187684 (2026-11-03):
+		// state-store init succeeded (plugin logged
+		// `initialised state-store type "s3-bucket" at "s3://..."`) but
+		// diy.Login then got the empty StorageUrl() and errored with
+		// `diy URL  has an illegal prefix`.
+		storageUrl := stateStorageCfg.StorageUrl()
+		if envUrl := os.Getenv("PULUMI_BACKEND_URL"); envUrl != "" && storageUrl == "" {
+			storageUrl = envUrl
+			p.logger.Debug(ctx, "🔧 Storage URL empty on config, using PULUMI_BACKEND_URL=%s", envUrl)
+		}
+		p.logger.Debug(ctx, "🔧 Using DIY backend with storage URL: %s", storageUrl)
+		be, err = diy.Login(ctx, cmdutil.Diag(), storageUrl, project)
 		if err != nil {
 			p.logger.Debug(ctx, "❌ Failed to login to DIY backend: %v", err)
 		} else {
