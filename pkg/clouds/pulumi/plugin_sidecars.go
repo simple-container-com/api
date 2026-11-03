@@ -35,6 +35,13 @@ import (
 
 func (b *preEnginePluginBundle) makeStateStoreSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.InitStateStoreFunc {
 	return func(ctx context.Context, authCfg api.StateStorageConfig, log logger.Logger) error {
+		// DIAGNOSTIC (temporary): dump the exact JSON the plugin receives
+		// so we can see whether bucketName / credentials / etc. survive the
+		// MarshalJSON merge and reach the plugin bus.
+		if bytes, mErr := json.Marshal(authCfg); mErr == nil {
+			log.Info(ctx, "state-store sidecar diag (plugin=%q type=%q): JSON=%s", pluginName, typeToken, string(bytes))
+		}
+
 		resp, err := cli.InitStateStore(ctx, &scpluginv1.InitStateStoreRequest{
 			Header:         &scpluginv1.RequestHeader{},
 			StateStoreType: typeToken,
