@@ -119,13 +119,28 @@ values:
   DOMAIN_NAME: "myapp.example.com"                     # Your actual domain name
 ```
 
-**Important:** Replace the example values above with your actual AWS credentials and domain name.
+**Important:** Replace the example values above with your actual AWS credentials and domain name. The file is **plaintext right now** — do not touch git until Step 3b finishes.
 
-Add the secrets file to Simple Container's managed secrets:
+### Step 3b: Register and encrypt the secrets file
 
 ```bash
+# 1. Register — adds the file to .sc/secrets.yaml's `files:` list AND
+#    appends it to .gitignore so a bare `git add .` cannot catch the
+#    plaintext.
 sc secrets add .sc/stacks/infrastructure/secrets.yaml
+
+# 2. Encrypt in place — only now is it safe to commit `.sc/secrets.yaml`
+#    (the ciphertext registry) alongside the rest of the repo.
+sc secrets hide
 ```
+
+!!! danger "Never commit a plaintext `secrets.yaml`"
+    The two steps above are both required. `sc secrets add` without
+    `sc secrets hide` leaves plaintext credentials on disk — gitignored
+    for the moment, but one `git add -f` away from leaking. See the
+    [Secrets Management guide](../guides/secrets-management.md) for key
+    types (`ssh-rsa`, `ssh-ed25519`, `awskms://`, `gcpkms://`), the
+    reveal-and-work loop, and recovering from an accidental commit.
 
 ## Step 4: Provision the parent stack
 

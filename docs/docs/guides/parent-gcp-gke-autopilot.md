@@ -15,6 +15,13 @@ This guide is for **DevOps teams** who want to configure a **parent stack (`serv
 
 With this setup, developers can **deploy microservices to GKE Autopilot** while leveraging **GCP-native services like CloudSQL, Redis, and Pub/Sub**.
 
+!!! info "Driving this guide with an AI agent"
+    `sc assistant mcp` exposes every step on this page as MCP tool calls.
+    Claude Code / Cursor / [Simple Forge](https://simple-forge.com) can
+    scaffold `secrets.yaml` + `server.yaml`, run `sc secrets add` / `hide`,
+    and dispatch `sc provision` without a human touching YAML.
+    See the [AI Assistant guide](../ai-assistant/index.md).
+
 ---
 
 # **Prerequisites**
@@ -66,11 +73,33 @@ values:
   MONGODB_ATLAS_PRIVATE_KEY: "private-key-456"
 ```
 
+## **Step 1b: Register and encrypt the secrets file**
+
+The file above is **plaintext right now** — the GCP service-account
+private key gives whoever holds it the exact IAM powers the SA has
+(creating GKE clusters, CloudSQL instances, etc.). Register and encrypt
+BEFORE `git add`:
+
+```sh
+sc secrets add .sc/stacks/devops/secrets.yaml   # register + gitignore
+sc secrets hide                                 # encrypt in place
+```
+
+!!! danger "Never commit a plaintext `secrets.yaml`"
+    Both commands are required. An agent driving this guide MUST run
+    both before any staging step, and MUST NOT use `git add -A` /
+    `git add .` with plaintext credentials on disk. The GCP SA key
+    `private_key` field above is the exact string a scanner looks for.
+    See [Secrets Management](secrets-management.md) for recipient types
+    (`ssh-rsa`, `ssh-ed25519`, `gcpkms://`) and rotation.
+
 ### **What This Does**
 
 **Stores GCP service account credentials** (`gcloud`).
 
 **Saves API tokens for DNS management**.
+
+Encrypts both to every registered recipient so the file is safe to commit.
 
 ---
 

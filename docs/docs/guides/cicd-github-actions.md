@@ -2,6 +2,17 @@
 
 This comprehensive guide covers how to set up continuous integration and deployment (CI/CD) pipelines using Simple Container's built-in GitHub Actions integration. Simple Container automatically generates optimized workflow files from your infrastructure configuration, providing seamless deployment automation.
 
+!!! info "Driving this guide with an AI agent"
+    An agent (Claude Code / Cursor / [Simple Forge](https://simple-forge.com))
+    can scaffold the entire GitHub Actions wiring described below via
+    `sc assistant mcp`: generate the server.yaml CI/CD block, run
+    `sc secrets add` + `sc secrets hide` on the plaintext secrets file,
+    inject `SIMPLE_CONTAINER_CONFIG` into the right GitHub secret, and
+    commit the workflow files. Forge additionally runs the
+    `sc-service-deploy` skill end-to-end against an opened PR, so the
+    full "merge triggers deploy" loop can be delivered as a single agent
+    run. See the [AI Assistant guide](../ai-assistant/index.md).
+
 ## Overview
 
 Simple Container's CI/CD integration provides:
@@ -151,6 +162,18 @@ cicd:
 
 ## Secret Configuration
 
+!!! danger "Register and encrypt BEFORE committing"
+    `sc secrets add` + `sc secrets hide` are the only safe way to put a
+    `secrets.yaml` on a shared branch. Both commands are required for every
+    file containing credentials. See the installation guide's
+    [Managing Secrets with sc](../getting-started/installation.md#managing-secrets-with-sc)
+    section for the lifecycle. For CI/CD, the `github` profile encryption
+    key is embedded in the base64 `SIMPLE_CONTAINER_CONFIG` GitHub secret —
+    see [`sc secrets init`](secrets-management.md#sc-secrets-init) for how
+    to initialise it with `sc secrets init --profile github --generate`
+    and the [Configuration Override](secrets-management.md#configuration-override)
+    section for how `cfg.github.yaml` is base64-encoded into the GitHub secret.
+
 Create a `secrets.yaml` file in your stack directory for CI/CD secrets:
 
 ```yaml
@@ -183,6 +206,19 @@ values:
   staging-api-key: your-staging-api-key
   production-api-key: your-production-api-key
 ```
+
+Then — **before `git add`** — register and encrypt the file:
+
+```bash
+sc secrets add .sc/stacks/<stack>/secrets.yaml   # register + gitignore
+sc secrets hide                                  # encrypt in place
+```
+
+See [Secrets Management](secrets-management.md) for recipient types,
+rotation, and the two-profile model (`default` for local, `github` for
+CI). An agent driving this guide MUST run both commands before any
+staging step; `sc-init-secrets` (in `forge-conductor`'s skill set)
+encodes the same invariant for Simple Forge runs.
 
 ## Command Usage
 

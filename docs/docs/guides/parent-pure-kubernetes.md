@@ -16,6 +16,13 @@ This guide is for **DevOps teams** who want to configure a **parent stack (`serv
 
 With this setup, developers can deploy microservices without needing to manage the Kubernetes infrastructure themselves.
 
+!!! info "Driving this guide with an AI agent"
+    `sc assistant mcp` exposes every step on this page as MCP tool calls.
+    Claude Code / Cursor / [Simple Forge](https://simple-forge.com) can
+    scaffold `secrets.yaml` + `server.yaml`, run `sc secrets add` / `hide`,
+    and dispatch `sc provision` without a human touching YAML.
+    See the [AI Assistant guide](../ai-assistant/index.md).
+
 ---
 
 # **Prerequisites**
@@ -79,11 +86,31 @@ values:
   pass-phrase: some-secret-passphrase
 ```
 
+## **Step 1b: Register and encrypt the secrets file**
+
+The file above is **plaintext** — a leaked `kubeconfig` grants whichever
+account it names on the API server (frequently cluster-admin). Register
+and encrypt BEFORE `git add`:
+
+```sh
+sc secrets add .sc/stacks/devops/secrets.yaml   # register + gitignore
+sc secrets hide                                 # encrypt in place
+```
+
+!!! danger "Never commit a plaintext `secrets.yaml`"
+    Both commands are required. An agent driving this guide MUST run
+    both before any staging step and MUST NOT use `git add -A` /
+    `git add .` with a plaintext kubeconfig on disk. See
+    [Secrets Management](secrets-management.md) for recipient types
+    (`ssh-rsa`, `ssh-ed25519`) and rotation.
+
 ### **What This Does**
 
 Stores **Kubernetes authentication (`kubeconfig`)**.
 
 Saves **Docker registry credentials** for pulling images.
+
+Encrypts both to every registered recipient so the file is safe to commit.
 
 ---
 
