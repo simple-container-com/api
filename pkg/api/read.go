@@ -546,18 +546,66 @@ func (p *PluginFieldConfig) CredentialsValue() string {
 	// declare it, and an unknown JSON key either errors out (strict
 	// decoders) or clutters the blob (lenient ones). The same trimming
 	// is what api.AuthToString did for the pre-A3 typed structs.
+	//
+	// Coerce int/float values to strings along the way: YAML unmarshals
+	// an unquoted `account: 123456789012` as a number, and the plugin's
+	// typed AccountConfig has `Account string` — json.Unmarshal of a
+	// JSON number into a string field errors with
+	// "json: cannot unmarshal number into Go struct field AccountConfig.account
+	// of type string". Live-caught on forge-runtime isolated verify
+	// run 41728259367 (2026-11-03). AWS/YC/Cloudru auth fields are
+	// string-typed on every typed AccountConfig struct, so coercing
+	// numeric scalars to strings restores the lenient semantics the
+	// pre-A3 typed unmarshal had (Go's encoding/yaml coerces numbers
+	// into string fields silently; encoding/json does not).
 	trimmed := make(map[string]any, len(p.Raw))
 	for k, v := range p.Raw {
 		if k == "type" {
 			continue
 		}
-		trimmed[k] = v
+		trimmed[k] = coerceToStringIfScalarNumber(v)
 	}
 	b, err := json.Marshal(trimmed)
 	if err != nil {
 		return ""
 	}
 	return string(b)
+}
+
+// coerceToStringIfScalarNumber turns YAML-parsed numeric scalars into
+// their string representation so a downstream json.Unmarshal into a
+// string field doesn't fail. Preserves non-number types (bool, nested
+// map/slice) unchanged — those decoders handle themselves. Nested maps
+// are walked recursively because nested credential blocks (e.g. a
+// config-under-config shape) carry the same hazard.
+func coerceToStringIfScalarNumber(v any) any {
+	switch x := v.(type) {
+	case int:
+		return fmt.Sprintf("%d", x)
+	case int32:
+		return fmt.Sprintf("%d", x)
+	case int64:
+		return fmt.Sprintf("%d", x)
+	case float32:
+		return fmt.Sprintf("%v", x)
+	case float64:
+		// Preserve integer-valued floats as integer strings
+		// (`123` not `123.0`) — AWS account IDs are integer-looking
+		// strings, and `123.0` doesn't round-trip through
+		// AccountConfig.Account.
+		if x == float64(int64(x)) {
+			return fmt.Sprintf("%d", int64(x))
+		}
+		return fmt.Sprintf("%v", x)
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, v := range x {
+			out[k] = coerceToStringIfScalarNumber(v)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 func (p *PluginFieldConfig) ProjectIdValue() string {
