@@ -54,7 +54,6 @@ require (
 	github.com/samber/lo v1.53.0
 	github.com/simple-container-com/sc-plugin-aws/api v0.0.0-20261102081521-e5fd1e8fa7a8
 	github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261031083455-cdbcf98c7bfb
-	github.com/simple-container-com/sc-plugin-cloudru/api v0.0.0-20261027184304-7dc7ca92c47c
 	github.com/simple-container-com/sc-plugin-mongodb/api v0.0.0-20261029130510-ff1589792eaa
 	github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261101233310-67602079742f
 	github.com/spf13/afero v1.15.0

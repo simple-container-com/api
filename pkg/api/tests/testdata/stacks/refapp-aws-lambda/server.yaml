@@ -1,4 +1,10 @@
 schemaVersion: 1.0
+plugins:
+  aws:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-aws
+      version: v2026.10.29-4f8f024
 provisioner:
   inherit: common
 secrets:

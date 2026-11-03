@@ -9,7 +9,69 @@ import (
 	"github.com/samber/lo"
 )
 
-const ServerSchemaVersion = "1.0"
+const (
+	// ServerSchemaVersion is the DEFAULT value SC uses when writing a new
+	// server.yaml. Not a required pin — an empty schemaVersion field is
+	// treated as the 1.0-compatible lenient mode.
+	ServerSchemaVersion = "1.0"
+
+	// ServerSchemaVersion11 is the strict-mode version. Setting
+	// `schemaVersion: 1.1` in server.yaml opts into:
+	//   - `plugins:` MUST declare any out-of-tree plugin-owned type the
+	//     stack uses. No GitHub auto-inject fallback.
+	//   - Unknown schemaVersion strings fail at parse time.
+	// 1.0 (or empty) keeps the pre-A3 lenient behaviour.
+	ServerSchemaVersion11 = "1.1"
+
+	// UpgradingToPluginsDocsURL is the migration guide operators are
+	// pointed at from every plugin-related parse error. Keep in one place
+	// so a URL change in the docs site is a single edit here.
+	UpgradingToPluginsDocsURL = "https://docs.simple-container.com/guides/upgrading-to-plugins/"
+)
+
+// SupportedServerSchemaVersions lists every value `schemaVersion:` may
+// legally hold. An empty string is treated as implicit 1.0 and does not
+// need to appear here; the validator special-cases it.
+var SupportedServerSchemaVersions = map[string]bool{
+	ServerSchemaVersion:   true, // 1.0
+	ServerSchemaVersion11: true, // 1.1
+}
+
+// IsStrictSchemaVersion reports whether the descriptor opts into strict
+// mode (schemaVersion 1.1 or newer). Call sites gate plugin-aware
+// behaviour on this — in strict mode we refuse to auto-inject or guess;
+// in lenient mode (1.0 / empty) we preserve the pre-A3 fallback UX.
+func (sd *ServerDescriptor) IsStrictSchemaVersion() bool {
+	if sd == nil {
+		return false
+	}
+	return sd.SchemaVersion == ServerSchemaVersion11
+}
+
+// ValidateSchemaVersion rejects a server.yaml carrying an unknown
+// schemaVersion string. Empty is accepted (implicit 1.0). Call this
+// early, before any plugin-aware parse step runs.
+func (sd *ServerDescriptor) ValidateSchemaVersion() error {
+	if sd == nil || sd.SchemaVersion == "" {
+		return nil
+	}
+	if SupportedServerSchemaVersions[sd.SchemaVersion] {
+		return nil
+	}
+	known := make([]string, 0, len(SupportedServerSchemaVersions))
+	for v := range SupportedServerSchemaVersions {
+		known = append(known, v)
+	}
+	// Sort for stable error output. The map is small (<10 entries) so
+	// the allocation is negligible.
+	for i := 1; i < len(known); i++ {
+		for j := i; j > 0 && known[j] < known[j-1]; j-- {
+			known[j], known[j-1] = known[j-1], known[j]
+		}
+	}
+	return fmt.Errorf("unsupported schemaVersion %q — this build accepts: %v. See %s for the upgrade guide",
+		sd.SchemaVersion, known, UpgradingToPluginsDocsURL)
+}
 
 type ProvisionParams struct {
 	StacksDir    string   `json:"rootDir" yaml:"rootDir"`
