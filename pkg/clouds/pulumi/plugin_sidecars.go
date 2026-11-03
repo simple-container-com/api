@@ -35,6 +35,29 @@ import (
 
 func (b *preEnginePluginBundle) makeStateStoreSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.InitStateStoreFunc {
 	return func(ctx context.Context, authCfg api.StateStorageConfig, log logger.Logger) error {
+		// DIAGNOSTIC (temporary, api fix-plugin-field-marshal-merges-raw):
+		// report what the plugin bus is about to send. Forge-conductor
+		// isolated verify run 41703785187 hit
+		//   convert aws-token credentials to AccountConfig: invalid
+		//   character '$' looking for beginning of value
+		// against a preview CLI that already has PluginFieldConfig.MarshalJSON
+		// merging Raw with typed slots. The resolver "has unresolved
+		// placeholders" warning says `${auth:aws}` survived Resolve → so
+		// one of: the typed slot isn't being walked, the Raw map isn't
+		// being walked, or MarshalJSON isn't being called. Print both
+		// Go-typed shape and JSON-marshal output to find out.
+		if dyn, ok := authCfg.(*api.PluginFieldConfig); ok {
+			log.Info(ctx, "state-store sidecar diagnostic (plugin=%q type=%q): typed Credentials=%q Raw[credentials]=%v TypeName=%q URL=%q",
+				pluginName, typeToken, dyn.Credentials, dyn.Raw["credentials"], dyn.TypeName, dyn.URL)
+		} else {
+			log.Info(ctx, "state-store sidecar diagnostic (plugin=%q type=%q): authCfg concrete type is %T (NOT *PluginFieldConfig — walker may have stashed it elsewhere)",
+				pluginName, typeToken, authCfg)
+		}
+		if b, mErr := json.Marshal(authCfg); mErr == nil {
+			log.Info(ctx, "state-store sidecar diagnostic (plugin=%q type=%q): JSON on the wire: %s",
+				pluginName, typeToken, string(b))
+		}
+
 		resp, err := cli.InitStateStore(ctx, &scpluginv1.InitStateStoreRequest{
 			Header:         &scpluginv1.RequestHeader{},
 			StateStoreType: typeToken,
