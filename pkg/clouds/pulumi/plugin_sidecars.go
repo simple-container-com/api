@@ -829,14 +829,19 @@ func (r *pluginRegistrar) NewRecord(ctx *sdk.Context, record api.DnsRecord) (*ap
 		return nil, err
 	}
 	if record.Value != "" {
-		resp, err := r.cli.NewDnsRecord(ctx.Context(), &scpluginv1.NewDnsRecordRequest{
+		req := &scpluginv1.NewDnsRecordRequest{
 			Header:        &scpluginv1.RequestHeader{MonitorAddress: addr},
 			RegistrarType: r.typeToken,
 			RecordName:    record.Name,
 			RecordType:    record.Type,
 			ValueResolved: record.Value,
 			Proxied:       record.Proxied,
-		})
+		}
+		if record.Priority != nil {
+			p := int32(*record.Priority)
+			req.Priority = &p
+		}
+		resp, err := r.cli.NewDnsRecord(ctx.Context(), req)
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q NewDnsRecord(%q)", r.pluginName, record.Name)
 		}
@@ -849,14 +854,19 @@ func (r *pluginRegistrar) NewRecord(ctx *sdk.Context, record api.DnsRecord) (*ap
 		return &api.ResourceOutput{Ref: sdk.String(resp.GetUrn()).ToStringOutput()}, nil
 	}
 	urnOut := record.ValueOut.ApplyT(func(resolved string) (string, error) {
-		resp, err := r.cli.NewDnsRecord(ctx.Context(), &scpluginv1.NewDnsRecordRequest{
+		req := &scpluginv1.NewDnsRecordRequest{
 			Header:        &scpluginv1.RequestHeader{MonitorAddress: addr},
 			RegistrarType: r.typeToken,
 			RecordName:    record.Name,
 			RecordType:    record.Type,
 			ValueResolved: resolved,
 			Proxied:       record.Proxied,
-		})
+		}
+		if record.Priority != nil {
+			p := int32(*record.Priority)
+			req.Priority = &p
+		}
+		resp, err := r.cli.NewDnsRecord(ctx.Context(), req)
 		if err != nil {
 			return "", errors.Wrapf(err, "plugin %q NewDnsRecord(%q)", r.pluginName, record.Name)
 		}

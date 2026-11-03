@@ -2158,6 +2158,14 @@ type NewDnsRecordRequest struct {
 	RecordType    string `protobuf:"bytes,4,opt,name=record_type,json=recordType,proto3" json:"record_type,omitempty"`
 	ValueResolved string `protobuf:"bytes,5,opt,name=value_resolved,json=valueResolved,proto3" json:"value_resolved,omitempty"`
 	Proxied       bool   `protobuf:"varint,6,opt,name=proxied,proto3" json:"proxied,omitempty"`
+	// Priority — used by MX / SRV / URI records, ignored by everything
+	// else. optional so SC core can omit it on non-MX records and the
+	// plugin side can distinguish "unset" from "priority 0". Live-caught
+	// on navizon-infra 2026-11-03: Proton Mail MX setup needs
+	// priority 10 → mail.protonmail.ch, priority 20 → mailsec.protonmail.ch,
+	// and before this field the records were being sent without priority
+	// at all (and some clouds would silently default to 0).
+	Priority      *int32 `protobuf:"varint,7,opt,name=priority,proto3,oneof" json:"priority,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2232,6 +2240,13 @@ func (x *NewDnsRecordRequest) GetProxied() bool {
 		return x.Proxied
 	}
 	return false
+}
+
+func (x *NewDnsRecordRequest) GetPriority() int32 {
+	if x != nil && x.Priority != nil {
+		return *x.Priority
+	}
+	return 0
 }
 
 type NewDnsRecordResponse struct {
@@ -4257,7 +4272,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x1aProvisionRegistrarResponse\x12\x1f\n" +
 	"\vmain_domain\x18\x01 \x01(\tR\n" +
 	"mainDomain\x12'\n" +
-	"\x0fregistered_urns\x18\x02 \x03(\tR\x0eregisteredUrns\"\xf4\x01\n" +
+	"\x0fregistered_urns\x18\x02 \x03(\tR\x0eregisteredUrns\"\xa2\x02\n" +
 	"\x13NewDnsRecordRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12%\n" +
 	"\x0eregistrar_type\x18\x02 \x01(\tR\rregistrarType\x12\x1f\n" +
@@ -4266,7 +4281,9 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\vrecord_type\x18\x04 \x01(\tR\n" +
 	"recordType\x12%\n" +
 	"\x0evalue_resolved\x18\x05 \x01(\tR\rvalueResolved\x12\x18\n" +
-	"\aproxied\x18\x06 \x01(\bR\aproxied\"(\n" +
+	"\aproxied\x18\x06 \x01(\bR\aproxied\x12\x1f\n" +
+	"\bpriority\x18\a \x01(\x05H\x00R\bpriority\x88\x01\x01B\v\n" +
+	"\t_priority\"(\n" +
 	"\x14NewDnsRecordResponse\x12\x10\n" +
 	"\x03urn\x18\x01 \x01(\tR\x03urn\"\xa0\x03\n" +
 	"\x1cNewOverrideHeaderRuleRequest\x123\n" +
@@ -4659,6 +4676,7 @@ func file_v1_plugin_proto_init() {
 		(*InputValue_OutputRef)(nil),
 		(*InputValue_SecretRef)(nil),
 	}
+	file_v1_plugin_proto_msgTypes[23].OneofWrappers = []any{}
 	file_v1_plugin_proto_msgTypes[39].OneofWrappers = []any{
 		(*OutputValue_Literal)(nil),
 		(*OutputValue_Ref)(nil),
