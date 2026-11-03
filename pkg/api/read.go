@@ -4,6 +4,7 @@
 package api
 
 import (
+	"fmt"
 	"os"
 	"strings"
 
@@ -11,6 +12,36 @@ import (
 
 	"github.com/pkg/errors"
 )
+
+// unknownTypeHint enriches an "unknown type" error with a plugin-aware
+// hint whenever the token appears to be plugin-owned. Returns the empty
+// string for tokens that fall into the Pulumi-style gRPC type-token
+// shape (handled by the plugin fall-through) or that we have no
+// knowledge of. The hint always ends with a link to the upgrade guide
+// so an operator who has never heard of the plugin split can find out
+// what changed.
+func unknownTypeHint(typeToken string) string {
+	if typeToken == "" {
+		return ""
+	}
+	pluginRequirementsMu.Lock()
+	req, known := pluginByType[typeToken]
+	pluginRequirementsMu.Unlock()
+	if known {
+		return fmt.Sprintf(
+			" — this is an out-of-tree SC plugin type owned by %q. "+
+				"Declare it under `plugins:` in server.yaml:\n\n"+
+				"plugins:\n  %s:\n    source:\n      type: %s\n      repository: %s\n      version: v<pick-a-release-tag>\n\n"+
+				"See %s for the upgrade guide.",
+			req.PluginName, req.PluginName, req.DefaultSource.Type,
+			req.DefaultSource.Repository, UpgradingToPluginsDocsURL,
+		)
+	}
+	return fmt.Sprintf(
+		". If this is a plugin-owned type, declare it under `plugins:` "+
+			"in server.yaml — see %s", UpgradingToPluginsDocsURL,
+	)
+}
 
 const (
 	ServerDescriptorFileName  = "server.yaml"
@@ -58,6 +89,9 @@ func ReadServerDescriptor(path string) (*ServerDescriptor, error) {
 	descriptor, err := ReadDescriptor(path, &ServerDescriptor{})
 	if err != nil {
 		return descriptor, errors.Wrapf(err, "failed to read server descriptor from %q", path)
+	}
+	if err := descriptor.ValidateSchemaVersion(); err != nil {
+		return descriptor, errors.Wrapf(err, "server descriptor %q", path)
 	}
 	res, err := ReadServerConfigs(descriptor)
 	if err != nil {
@@ -268,7 +302,7 @@ func DetectPerStackResourcesType(p *PerStackResourcesDescriptor) (*PerStackResou
 					p.Resources[stackName] = resources
 					continue
 				}
-				return nil, errors.Errorf("unknown type %q for resource %q", resource.Type, resourceName)
+				return nil, errors.Errorf("unknown type %q for resource %q%s", resource.Type, resourceName, unknownTypeHint(resource.Type))
 			}
 			var err error
 			resource.Config, err = fn(&resource.Config)
@@ -309,7 +343,7 @@ func DetectRegistrarType(p *PerStackResourcesDescriptor) (*PerStackResourcesDesc
 				registrar.Config = pluginFieldConfig(registrar.Type, &registrar.Config)
 				return registrar, true, nil
 			}
-			return registrar, false, errors.Errorf("unknown registrar type %q", registrar.Type)
+			return registrar, false, errors.Errorf("unknown registrar type %q%s", registrar.Type, unknownTypeHint(registrar.Type))
 		}
 		config, err := fn(&registrar.Config)
 		if err != nil {
@@ -359,7 +393,7 @@ func DetectTemplatesType(descriptor *ServerDescriptor) (*ServerDescriptor, error
 
 func DetectTemplateType(tpl StackDescriptor) (*StackDescriptor, error) {
 	if fn, found := providerConfigMapping[tpl.Type]; !found {
-		return nil, errors.Errorf("unknown template type %q", tpl.Type)
+		return nil, errors.Errorf("unknown template type %q%s", tpl.Type, unknownTypeHint(tpl.Type))
 	} else {
 		stackDesc := tpl
 		var err error
@@ -377,7 +411,7 @@ func DetectSecretsType(descriptor *ServerDescriptor) (*ServerDescriptor, error) 
 	}
 
 	if fn, found := providerConfigMapping[descriptor.Secrets.Type]; !found {
-		return nil, errors.Errorf("unknown secrets type %q", descriptor.Secrets.Type)
+		return nil, errors.Errorf("unknown secrets type %q%s", descriptor.Secrets.Type, unknownTypeHint(descriptor.Secrets.Type))
 	} else {
 		var err error
 		descriptor.Secrets.Config, err = fn(&descriptor.Secrets.Config)

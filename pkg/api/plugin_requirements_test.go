@@ -13,6 +13,10 @@ import (
 
 func TestValidatePluginRequirements_AutoInjectsLatest(t *testing.T) {
 	RegisterTestingT(t)
+	// Reset before registering: plugin_bootstrap.go#init() seeds the five
+	// canonical plugins, and this test needs a clean slate so the resolver
+	// stub is only asked about cloudflare.
+	resetPluginRequirementsForTest()
 
 	RegisterPluginRequirement(PluginRequirement{
 		PluginName: "cloudflare",
@@ -47,6 +51,7 @@ func TestValidatePluginRequirements_AutoInjectsLatest(t *testing.T) {
 
 func TestValidatePluginRequirements_ResolverFailureFallsBackToError(t *testing.T) {
 	RegisterTestingT(t)
+	resetPluginRequirementsForTest()
 
 	RegisterPluginRequirement(PluginRequirement{
 		PluginName: "cloudflare",
@@ -83,6 +88,7 @@ func TestValidatePluginRequirements_ResolverFailureFallsBackToError(t *testing.T
 
 func TestValidatePluginRequirements_BlockPresent(t *testing.T) {
 	RegisterTestingT(t)
+	resetPluginRequirementsForTest()
 
 	RegisterPluginRequirement(PluginRequirement{
 		PluginName: "cloudflare",
@@ -122,6 +128,7 @@ func TestValidatePluginRequirements_BlockPresent(t *testing.T) {
 
 func TestValidatePluginRequirements_UnrelatedTypesSilent(t *testing.T) {
 	RegisterTestingT(t)
+	resetPluginRequirementsForTest()
 
 	RegisterPluginRequirement(PluginRequirement{
 		PluginName: "cloudflare",
@@ -150,6 +157,7 @@ func TestValidatePluginRequirements_UnrelatedTypesSilent(t *testing.T) {
 
 func TestValidatePluginRequirements_MultipleMissingAutoInjected(t *testing.T) {
 	RegisterTestingT(t)
+	resetPluginRequirementsForTest()
 
 	RegisterPluginRequirement(PluginRequirement{
 		PluginName: "cloudflare",
@@ -206,6 +214,7 @@ func TestValidatePluginRequirements_MultipleMissingAutoInjected(t *testing.T) {
 
 func TestValidatePluginRequirements_PartialResolverFailure(t *testing.T) {
 	RegisterTestingT(t)
+	resetPluginRequirementsForTest()
 
 	RegisterPluginRequirement(PluginRequirement{
 		PluginName: "cloudflare",
@@ -262,6 +271,7 @@ func TestValidatePluginRequirements_PartialResolverFailure(t *testing.T) {
 // now reaches the driver through the VmConfigAware interface.
 func TestValidatePluginRequirements_VmProviderTriggersAutoInject(t *testing.T) {
 	RegisterTestingT(t)
+	resetPluginRequirementsForTest()
 
 	RegisterPluginRequirement(PluginRequirement{
 		PluginName: "cloudru",
@@ -310,6 +320,7 @@ func TestValidatePluginRequirements_VmProviderTriggersAutoInject(t *testing.T) {
 // a parse variant may not carry a concrete VmConfig.
 func TestValidatePluginRequirements_VmWithoutConfigAwareSilent(t *testing.T) {
 	RegisterTestingT(t)
+	resetPluginRequirementsForTest()
 
 	RegisterPluginRequirement(PluginRequirement{
 		PluginName: "cloudru",
@@ -352,6 +363,7 @@ func (f *fakeVmConfig) DriverType() string { return f.driver }
 // operators get the same output on every run.
 func TestValidatePluginRequirements_AlphabeticalErrorOrder(t *testing.T) {
 	RegisterTestingT(t)
+	resetPluginRequirementsForTest()
 
 	RegisterPluginRequirement(PluginRequirement{
 		PluginName: "cloudflare",

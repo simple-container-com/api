@@ -251,20 +251,34 @@ func ValidatePluginRequirements(descriptor *ServerDescriptor) error {
 	}
 	sort.Strings(missingNames)
 
+	// schemaVersion 1.1 opts into strict mode: never auto-inject, go
+	// straight to the paste-this-block error. The reasoning is the same
+	// shape as the resolver-failed case below, so we re-use its builder
+	// with a synthetic "reason" so the operator sees ONE clear hint.
+	strict := descriptor.IsStrictSchemaVersion()
+	strictReason := fmt.Errorf("schemaVersion %q requires an explicit `plugins:` declaration (no auto-inject fallback)",
+		descriptor.SchemaVersion)
+
 	unresolved := map[string]error{}
-	for _, name := range missingNames {
-		req := needed[name]
-		tag, err := currentResolver()(req.DefaultSource.Repository)
-		if err != nil {
-			unresolved[name] = err
-			continue
+	if strict {
+		for _, name := range missingNames {
+			unresolved[name] = strictReason
 		}
-		if descriptor.Plugins == nil {
-			descriptor.Plugins = map[string]PluginSpec{}
+	} else {
+		for _, name := range missingNames {
+			req := needed[name]
+			tag, err := currentResolver()(req.DefaultSource.Repository)
+			if err != nil {
+				unresolved[name] = err
+				continue
+			}
+			if descriptor.Plugins == nil {
+				descriptor.Plugins = map[string]PluginSpec{}
+			}
+			src := req.DefaultSource
+			src.Version = tag
+			descriptor.Plugins[name] = PluginSpec{Source: &src}
 		}
-		src := req.DefaultSource
-		src.Version = tag
-		descriptor.Plugins[name] = PluginSpec{Source: &src}
 	}
 
 	if len(unresolved) == 0 {
@@ -278,8 +292,13 @@ func ValidatePluginRequirements(descriptor *ServerDescriptor) error {
 
 	var b strings.Builder
 	b.WriteString("server.yaml uses type tokens owned by out-of-tree SC plugins ")
-	b.WriteString("that are not declared under `plugins:` and whose latest release ")
-	b.WriteString("could not be resolved from GitHub. Reasons:\n")
+	if strict {
+		b.WriteString("that are not declared under `plugins:`. ")
+		b.WriteString(fmt.Sprintf("Reasons (schemaVersion %q, strict mode):\n", descriptor.SchemaVersion))
+	} else {
+		b.WriteString("that are not declared under `plugins:` and whose latest release ")
+		b.WriteString("could not be resolved from GitHub. Reasons:\n")
+	}
 	for _, name := range unresolvedNames {
 		b.WriteString(fmt.Sprintf("  - %s: %s\n", name, unresolved[name]))
 	}
@@ -302,6 +321,7 @@ func ValidatePluginRequirements(descriptor *ServerDescriptor) error {
 		req := needed[name]
 		b.WriteString(fmt.Sprintf("https://github.com/%s/releases ", req.DefaultSource.Repository))
 	}
+	b.WriteString(fmt.Sprintf("\n\nSee %s for the upgrade guide.", UpgradingToPluginsDocsURL))
 	return fmt.Errorf("%s", b.String())
 }
 

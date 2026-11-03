@@ -59,6 +59,9 @@ func ReadServerDescriptor(ctx context.Context, path string) (*api.ServerDescript
 	if err != nil {
 		return descriptor, errors.Wrapf(err, "failed to read server descriptor from %q", path)
 	}
+	if err := descriptor.ValidateSchemaVersion(); err != nil {
+		return descriptor, errors.Wrapf(err, "server descriptor %q", path)
+	}
 	if err := DiscoverPluginTypes(ctx, descriptor); err != nil {
 		return descriptor, errors.Wrapf(err, "failed to discover plugin types from %q", path)
 	}
