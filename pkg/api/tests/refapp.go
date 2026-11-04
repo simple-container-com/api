@@ -6,14 +6,14 @@ package tests
 import (
 	"fmt"
 
+	"github.com/simple-container-com/sc-plugin-aws/api"
+	"github.com/simple-container-com/sc-plugin-mongodb/api"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/github"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi"
-	"github.com/simple-container-com/sc-plugin-aws/api"
-	"github.com/simple-container-com/sc-plugin-cloudflare/api"
-	"github.com/simple-container-com/sc-plugin-mongodb/api"
 )
 
 var CommonGcpCredentials = gcloud.Credentials{
@@ -153,20 +153,25 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: api.RegistrarDescriptor{
-			Type: cloudflare.RegistrarType,
-			Config: api.Config{Config: &cloudflare.RegistrarConfig{
-				AuthConfig: cloudflare.AuthConfig{
-					Credentials: api.Credentials{
-						Credentials: "${secret:CLOUDFLARE_API_TOKEN}",
-					},
-					AccountId: "12345",
-				},
-				ZoneName: "sc-refapp.org",
-				Records: []api.DnsRecord{
-					{
-						Name:  "@",
-						Type:  "TXT",
-						Value: "MS=ms83691649",
+			Type: "cloudflare",
+			// Post-A3 the cloudflare registrar config decodes opaquely
+			// via api/plugin_bootstrap.go's wrap-cover. accountId in the
+			// yaml is unquoted (12345) → yaml.v3 unmarshal keeps it as int.
+			// Credentials is extracted into the typed slot by the
+			// wrap-cover decoder.
+			Config: api.Config{Config: &api.PluginFieldConfig{
+				TypeName:    "cloudflare",
+				Credentials: "${secret:CLOUDFLARE_API_TOKEN}",
+				Raw: map[string]any{
+					"credentials": "${secret:CLOUDFLARE_API_TOKEN}",
+					"accountId":   12345,
+					"zoneName":    "sc-refapp.org",
+					"dnsRecords": []any{
+						map[string]any{
+							"name":  "@",
+							"type":  "TXT",
+							"value": "MS=ms83691649",
+						},
 					},
 				},
 			}},
@@ -282,20 +287,21 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: api.RegistrarDescriptor{
-			Type: cloudflare.RegistrarType,
-			Config: api.Config{Config: &cloudflare.RegistrarConfig{
-				AuthConfig: cloudflare.AuthConfig{
-					Credentials: api.Credentials{
-						Credentials: "<encrypted-secret>",
-					},
-					AccountId: "12345",
-				},
-				ZoneName: "sc-refapp.org",
-				Records: []api.DnsRecord{
-					{
-						Name:  "@",
-						Type:  "TXT",
-						Value: "MS=ms83691649",
+			Type: "cloudflare",
+			// Post-resolve: ${secret:CLOUDFLARE_API_TOKEN} → <encrypted-secret>.
+			Config: api.Config{Config: &api.PluginFieldConfig{
+				TypeName:    "cloudflare",
+				Credentials: "<encrypted-secret>",
+				Raw: map[string]any{
+					"credentials": "<encrypted-secret>",
+					"accountId":   12345,
+					"zoneName":    "sc-refapp.org",
+					"dnsRecords": []any{
+						map[string]any{
+							"name":  "@",
+							"type":  "TXT",
+							"value": "MS=ms83691649",
+						},
 					},
 				},
 			}},
