@@ -8,7 +8,6 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-	"github.com/simple-container-com/sc-plugin-mongodb/api"
 
 	"github.com/simple-container-com/api/pkg/api"
 	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
@@ -94,16 +93,20 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				ghConfig := cicdConfig.(*github.GitHubActionsCiCdConfig)
 				Expect(ghConfig.Organization).To(Equal("simple-container-org"))
 
+				// Post-A3 the mongodb-atlas config decodes opaquely into
+				// *api.PluginFieldConfig; assert via the Raw map rather
+				// than through sc-plugin-mongodb's typed `AtlasConfig`.
 				resMongoCfg := stacks["refapp"].Server.Resources.Resources["staging"].Resources["mongodb"].Config.Config
-				Expect(resMongoCfg).To(BeAssignableToTypeOf(&mongodb.AtlasConfig{}))
-				mongoConfig := resMongoCfg.(*mongodb.AtlasConfig)
-				Expect(mongoConfig.PublicKey).To(Equal("<encrypted-secret>"))
-				Expect(mongoConfig.PrivateKey).To(Equal("<encrypted-secret>"))
-				Expect(mongoConfig.InstanceSize).To(Equal("M10"))
-				Expect(mongoConfig.OrgId).To(Equal("5b89110a4e6581562623c59c"))
-				Expect(mongoConfig.ProjectId).To(Equal("5b89110a4e6581562623c59c"))
-				Expect(mongoConfig.ProjectName).To(Equal("refapp"))
-				Expect(mongoConfig.Region).To(Equal("US_SOUTH_1"))
+				Expect(resMongoCfg).To(BeAssignableToTypeOf(&api.PluginFieldConfig{}))
+				mongoField := resMongoCfg.(*api.PluginFieldConfig)
+				Expect(mongoField.TypeName).To(Equal("mongodb-atlas"))
+				Expect(mongoField.Raw["publicKey"]).To(Equal("<encrypted-secret>"))
+				Expect(mongoField.Raw["privateKey"]).To(Equal("<encrypted-secret>"))
+				Expect(mongoField.Raw["instanceSize"]).To(Equal("M10"))
+				Expect(mongoField.Raw["orgId"]).To(Equal("5b89110a4e6581562623c59c"))
+				Expect(mongoField.Raw["projectId"]).To(Equal("5b89110a4e6581562623c59c"))
+				Expect(mongoField.Raw["projectName"]).To(Equal("refapp"))
+				Expect(mongoField.Raw["region"]).To(Equal("US_SOUTH_1"))
 
 				// client
 				Expect(stacks["refapp"].Client.Stacks).To(HaveKey("staging"))

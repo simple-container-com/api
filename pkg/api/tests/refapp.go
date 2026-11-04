@@ -6,14 +6,14 @@ package tests
 import (
 	"fmt"
 
+	"github.com/simple-container-com/sc-plugin-aws/api"
+	"github.com/simple-container-com/sc-plugin-cloudflare/api"
+
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/github"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi"
-	"github.com/simple-container-com/sc-plugin-aws/api"
-	"github.com/simple-container-com/sc-plugin-cloudflare/api"
-	"github.com/simple-container-com/sc-plugin-mongodb/api"
 )
 
 var CommonGcpCredentials = gcloud.Credentials{
@@ -303,30 +303,41 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	},
 }
 
+// mongodbAtlasResourceConfig is the opaque-decoded form of the
+// mongodb-atlas resource block in testdata/stacks/refapp/server.yaml.
+// Before api #543's A3 strip, sc-plugin-mongodb/api's init() registered
+// a typed ReadAtlasConfig decoder that produced *mongodb.AtlasConfig;
+// after the strip, api/plugin_bootstrap.go seeds the wrap-cover opaque
+// decoder that produces *api.PluginFieldConfig with the raw yaml map
+// in Raw. Nested maps/lists are the yaml.v3 default shapes.
 var mongodbAtlasResourceConfig = api.ResourceDescriptor{
-	Type: mongodb.ResourceTypeMongodbAtlas,
-	Config: api.Config{Config: &mongodb.AtlasConfig{
-		Admins:       []string{"smecsia"},
-		Developers:   []string{},
-		InstanceSize: "${var:atlas-instance-size}",
-		OrgId:        "${var:atlas-org-id}",
-		ProjectId:    "${var:atlas-project-id}",
-		ProjectName:  "${stack:name}",
-		Region:       "${var:atlas-region}",
-		PrivateKey:   "${secret:MONGODB_ATLAS_PRIVATE_KEY}",
-		PublicKey:    "${secret:MONGODB_ATLAS_PUBLIC_KEY}",
-		NetworkConfig: &mongodb.AtlasNetworkConfig{
-			PrivateLinkEndpoint: &mongodb.PrivateLinkEndpoint{
-				ProviderName: "AWS",
-			},
-		},
-		ExtraProviders: map[string]api.AuthDescriptor{
-			"AWS": {
-				Type: "aws-token",
-				Config: api.Config{
-					Config: &awsAccountConfig,
+	Type: "mongodb-atlas",
+	Config: api.Config{Config: &api.PluginFieldConfig{
+		TypeName:  "mongodb-atlas",
+		ProjectID: "${var:atlas-project-id}",
+		Raw: map[string]any{
+			"admins":       []any{"smecsia"},
+			"developers":   []any{},
+			"instanceSize": "${var:atlas-instance-size}",
+			"orgId":        "${var:atlas-org-id}",
+			"projectId":    "${var:atlas-project-id}",
+			"projectName":  "${stack:name}",
+			"region":       "${var:atlas-region}",
+			"privateKey":   "${secret:MONGODB_ATLAS_PRIVATE_KEY}",
+			"publicKey":    "${secret:MONGODB_ATLAS_PUBLIC_KEY}",
+			"networkConfig": map[string]any{
+				"privateLinkEndpoint": map[string]any{
+					"providerName": "AWS",
 				},
-				Inherit: api.Inherit{},
+			},
+			"extraProviders": map[string]any{
+				"AWS": map[string]any{
+					"type": "aws-token",
+					"config": map[string]any{
+						"credentials": "${auth:aws}",
+						"account":     "${auth:aws.projectId}",
+					},
+				},
 			},
 		},
 	}},
@@ -417,30 +428,43 @@ var RefappServerDescriptor = &api.ServerDescriptor{
 	},
 }
 
+// resolvedMongodbAtlasResource mirrors mongodbAtlasResourceConfig after
+// the placeholder resolver has walked over it (`${var:...}` → fixture
+// value, `${secret:...}` → `<encrypted-secret>` sentinel, etc.). The
+// shape stays opaque — same *api.PluginFieldConfig wrapper, same Raw
+// map structure.
 var resolvedMongodbAtlasResource = api.ResourceDescriptor{
-	Type: mongodb.ResourceTypeMongodbAtlas,
-	Config: api.Config{Config: &mongodb.AtlasConfig{
-		Admins:       []string{"smecsia"},
-		Developers:   []string{},
-		InstanceSize: "M10",
-		OrgId:        "5b89110a4e6581562623c59c",
-		ProjectId:    "5b89110a4e6581562623c59c",
-		ProjectName:  "refapp",
-		Region:       "US_SOUTH_1",
-		PrivateKey:   "<encrypted-secret>",
-		PublicKey:    "<encrypted-secret>",
-		NetworkConfig: &mongodb.AtlasNetworkConfig{
-			PrivateLinkEndpoint: &mongodb.PrivateLinkEndpoint{
-				ProviderName: "AWS",
-			},
-		},
-		ExtraProviders: map[string]api.AuthDescriptor{
-			"AWS": {
-				Type: "aws-token",
-				Config: api.Config{
-					Config: &resolvedAwsAccountConfig,
+	Type: "mongodb-atlas",
+	Config: api.Config{Config: &api.PluginFieldConfig{
+		TypeName:  "mongodb-atlas",
+		ProjectID: "5b89110a4e6581562623c59c",
+		Raw: map[string]any{
+			"admins":       []any{"smecsia"},
+			"developers":   []any{},
+			"instanceSize": "M10",
+			"orgId":        "5b89110a4e6581562623c59c",
+			"projectId":    "5b89110a4e6581562623c59c",
+			"projectName":  "refapp",
+			"region":       "US_SOUTH_1",
+			"privateKey":   "<encrypted-secret>",
+			"publicKey":    "<encrypted-secret>",
+			"networkConfig": map[string]any{
+				"privateLinkEndpoint": map[string]any{
+					"providerName": "AWS",
 				},
-				Inherit: api.Inherit{},
+			},
+			"extraProviders": map[string]any{
+				"AWS": map[string]any{
+					"type": "aws-token",
+					"config": map[string]any{
+						// Pre-resolved aws-token credentials match resolvedAwsAccountConfig.Credentials.Credentials
+						// verbatim — Go's json.Marshal HTML-escapes `<` to `<`, so a `<aws-access-key>`
+						// placeholder round-trips as `<aws-access-key>` through the secret-reveal
+						// path. Keep in lockstep with the typed const at refapp.go:41.
+						"credentials": resolvedAwsAccountConfig.Credentials.Credentials,
+						"account":     "000",
+					},
+				},
 			},
 		},
 	}},
