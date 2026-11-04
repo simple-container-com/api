@@ -98,7 +98,6 @@ func (p *MonitorProxy) Serve() (string, func(), error) {
 	}
 	// Plaintext on loopback, forced by the Pulumi SDK's monitor transport —
 	// see this function's doc comment for the threat model.
-	// nosemgrep: grpc-server-insecure-connection
 	srv := grpc.NewServer()
 	pulumirpc.RegisterResourceMonitorServer(srv, p)
 	go func() {

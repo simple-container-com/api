@@ -17,6 +17,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/github"
+	"github.com/simple-container-com/api/pkg/stackread"
 )
 
 // ParentRepositoryInfo holds information about parent repository configuration
@@ -420,14 +421,19 @@ func autoDetectConfigFileWithLogging(ctx context.Context, logger Logger, configF
 }
 
 // validateAndLoadServerConfig loads and validates server configuration
-// If configFile is empty, attempts to create configuration from parent repository info
-func validateAndLoadServerConfig(configFile string) (*api.ServerDescriptor, error) {
+// If configFile is empty, attempts to create configuration from parent repository info.
+// ctx is forwarded to stackread.ReadServerDescriptor so plugin-owned types
+// (anything a declared plugin advertises via its Schema RPC) are registered
+// BEFORE the full parse — without this, `sc cicd generate` on a stack that
+// uses plugin-owned templates fails with "unknown template type %q" because
+// providerConfigMapping is still empty when ReadServerConfigs walks the file.
+func validateAndLoadServerConfig(ctx context.Context, configFile string) (*api.ServerDescriptor, error) {
 	// Handle parent repository configuration when no server.yaml is available
 	if configFile == "" {
-		return createServerDescriptorFromParentConfig()
+		return createServerDescriptorFromParentConfig(ctx)
 	}
 
-	serverDesc, err := readServerConfig(configFile)
+	serverDesc, err := readServerConfig(ctx, configFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read server configuration: %w", err)
 	}
@@ -466,10 +472,11 @@ cicd:
 	return serverDesc, nil
 }
 
-// readServerConfig reads the server configuration file
-func readServerConfig(configFile string) (*api.ServerDescriptor, error) {
-	// Use SC's internal API to read server configuration
-	serverDesc, err := api.ReadServerDescriptor(configFile)
+// readServerConfig reads the server configuration file via the
+// plugin-aware two-pass reader (pkg/stackread) so a server.yaml that
+// uses plugin-owned types parses successfully.
+func readServerConfig(ctx context.Context, configFile string) (*api.ServerDescriptor, error) {
+	serverDesc, err := stackread.ReadServerDescriptor(ctx, configFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read server configuration: %w", err)
 	}
@@ -536,8 +543,10 @@ func getEnvironmentNames(environments map[string]github.EnvironmentConfig) []str
 }
 
 // createServerDescriptorFromParentConfig reads the actual server.yaml from parent repository
-// instead of creating synthetic configuration
-func createServerDescriptorFromParentConfig() (*api.ServerDescriptor, error) {
+// instead of creating synthetic configuration.
+// ctx is forwarded to stackread.ReadServerDescriptor so plugin-owned types
+// in the parent server.yaml are discovered before the full parse.
+func createServerDescriptorFromParentConfig(ctx context.Context) (*api.ServerDescriptor, error) {
 	// First, try to read from SC_CONFIG environment variable (GitHub Actions scenario)
 	config, err := readConfigFromSCConfigEnv()
 	if err != nil {
@@ -563,7 +572,7 @@ func createServerDescriptorFromParentConfig() (*api.ServerDescriptor, error) {
 	}
 
 	// Clone parent repository and read actual server.yaml configuration
-	serverDesc, err := cloneParentRepositoryAndReadServerConfig(config.ParentRepository, config.PrivateKey)
+	serverDesc, err := cloneParentRepositoryAndReadServerConfig(ctx, config.ParentRepository, config.PrivateKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read CI/CD configuration from parent repository: %w", err)
 	}
@@ -591,7 +600,7 @@ func readConfigFromSCConfigEnv() (*api.ConfigFile, error) {
 
 // cloneParentRepositoryAndReadServerConfig clones the parent repository and reads server.yaml
 // Reuses logic similar to parent repository operations in GitHub Actions
-func cloneParentRepositoryAndReadServerConfig(parentRepoURL, privateKey string) (*api.ServerDescriptor, error) {
+func cloneParentRepositoryAndReadServerConfig(ctx context.Context, parentRepoURL, privateKey string) (*api.ServerDescriptor, error) {
 	devopsDir := ".devops-cicd-temp"
 
 	// Remove existing directory if it exists
@@ -646,8 +655,9 @@ func cloneParentRepositoryAndReadServerConfig(parentRepoURL, privateKey string) 
 		}
 	}
 
-	// Use SC's internal API to read server configuration
-	serverDesc, err := api.ReadServerDescriptor(parentServerYaml)
+	// Use SC's plugin-aware two-pass reader so plugin-owned types declared
+	// in the parent's server.yaml are discovered before the full parse.
+	serverDesc, err := stackread.ReadServerDescriptor(ctx, parentServerYaml)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read server.yaml from parent repository: %w", err)
 	}
