@@ -83,7 +83,6 @@ func LocalEngineAddress(fromHeader string, progress *scPlugin.Publisher) (string
 		}
 		// Plaintext on 127.0.0.1 only, forced by the Pulumi SDK's engine
 		// transport; the in-process fallback engine is never exposed off-host.
-		// nosemgrep: grpc-server-insecure-connection
 		srv := grpc.NewServer()
 		pulumirpc.RegisterEngineServer(srv, &localEngine{progress: progress})
 		go func() { _ = srv.Serve(lis) }()

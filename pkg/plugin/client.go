@@ -138,7 +138,6 @@ func startSCCoreListener(peer PeerDispatcher) (string, func(), error) {
 	}
 	// Plaintext on 127.0.0.1 only (ephemeral port, never exposed off-host):
 	// the plugin subprocess dials this address on the same machine.
-	// nosemgrep: grpc-server-insecure-connection
 	s := grpc.NewServer()
 	scpluginv1.RegisterSCCoreServer(s, NewCallbackServer(peer))
 	go func() { _ = s.Serve(ln) }()

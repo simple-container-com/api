@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   semgrep:
-    uses: simple-container-com/actions/.github/workflows/semgrep.yml@5061c0a28f850f4d8f5f990856cd31c9699760fc # main (actions#23 merged)
+    uses: simple-container-com/actions/.github/workflows/semgrep.yml@307cc2cbcb14b0123daba0ebd1fdea91bfc7e871 # main (actions#53 merged)
     permissions:
       contents: read
     with:
@@ -64,4 +64,13 @@ jobs:
       #   (shell.yml) flags curl/wget output piped into a shell across
       #   `**/*.yml`/`**/*.yaml` by regex, with no Bash sub-parse — so no
       #   coverage is lost by suppressing the registry rule.
-      disabled-rules: 'go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5,go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface,yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell'
+      #
+      #   `grpc-server-insecure-connection` — fires on every credential-less
+      #   `grpc.NewServer()`, including the loopback-only servers in
+      #   pkg/plugin (Pulumi engine/monitor transport, go-plugin SCCore
+      #   callback), which are plaintext by design. Replacement coverage:
+      #   SC `go-grpc-server-plaintext-non-loopback` (go-canon.yml, ERROR)
+      #   flags the same call unless the function binds a loopback/unix
+      #   listener or passes `grpc.Creds(...)`, so a gRPC server reachable
+      #   from the network without TLS still fails the gate.
+      disabled-rules: 'go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5,go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface,yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell,go.grpc.security.grpc-server-insecure-connection.grpc-server-insecure-connection'
