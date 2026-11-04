@@ -5,7 +5,6 @@ package tests
 
 import (
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/sc-plugin-aws/api"
 )
 
 var RefappAwsServerDescriptor = &api.ServerDescriptor{
@@ -52,15 +51,8 @@ var RefappAwsLambdaServerDescriptor = &api.ServerDescriptor{
 	},
 	Templates: map[string]api.StackDescriptor{
 		"lambda-per-app": {
-			Type: aws.TemplateTypeAwsLambda,
-			Config: api.Config{Config: &aws.TemplateConfig{
-				AccountConfig: aws.AccountConfig{
-					Account: "${auth:aws.projectId}",
-					Credentials: api.Credentials{
-						Credentials: "${auth:aws}",
-					},
-				},
-			}},
+			Type:   "aws-lambda",
+			Config: api.Config{Config: &awsLambdaTemplateConfig},
 		},
 	},
 	Resources: api.PerStackResourcesDescriptor{
@@ -106,10 +98,8 @@ var ResolvedRefappAwsLambdaServerDescriptor = &api.ServerDescriptor{
 	CiCd:          ResolvedCommonServerDescriptor.CiCd,
 	Templates: map[string]api.StackDescriptor{
 		"lambda-per-app": {
-			Type: aws.TemplateTypeAwsLambda,
-			Config: api.Config{Config: &aws.TemplateConfig{
-				AccountConfig: resolvedAwsAccountConfig,
-			}},
+			Type:   "aws-lambda",
+			Config: api.Config{Config: &resolvedAwsLambdaTemplateConfig},
 		},
 	},
 	Resources: api.PerStackResourcesDescriptor{
