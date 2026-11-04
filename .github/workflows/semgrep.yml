@@ -73,4 +73,14 @@ jobs:
       #   flags the same call unless the function binds a loopback/unix
       #   listener or passes `grpc.Creds(...)`, so a gRPC server reachable
       #   from the network without TLS still fails the gate.
-      disabled-rules: 'go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5,go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface,yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell,go.grpc.security.grpc-server-insecure-connection.grpc-server-insecure-connection'
+      #   `raw-html-format` — intermittently exceeds Semgrep's per-rule
+      #   timeout on the 4.7k-line generated pkg/plugin/proto/v1/plugin.pb.go
+      #   (`Timeout when running ... raw-html-format on plugin.pb.go`), which
+      #   scan.sh counts as an engine error and fails the build with zero real
+      #   findings (same commit green, then red). It has never produced a
+      #   finding here: SC renders no HTML from Go string formatting, and
+      #   gosec's template.HTML / unescaped-HTML checks in `p/gosec` remain
+      #   enabled. Not worked around with a .semgrepignore: a repo-level
+      #   .semgrepignore replaces Semgrep's built-in default ignore list and
+      #   pulled ~330 test/generated files into the scan.
+      disabled-rules: 'go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5,go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface,yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell,go.lang.security.injection.raw-html-format.raw-html-format,go.grpc.security.grpc-server-insecure-connection.grpc-server-insecure-connection'
