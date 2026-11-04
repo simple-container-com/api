@@ -53,7 +53,16 @@ import (
 //     advertised by any plugin gets a RegisterPluginOwnedType entry so
 //     providerConfigMapping has the opaque decoder for the full-parse.
 //  3. api.ReadServerConfigs — full parse-time validation. Types no
-//     longer need a Go-link-time entry.
+//     longer need a Go-link-time entry. Its final step,
+//     api.ValidatePluginRequirements, auto-injects a `plugins:` entry
+//     for every plugin-owned type the operator used without declaring
+//     the plugin (e.g. `ecs-fargate` without `plugins.aws`).
+//  4. recordPluginSpecs — records the spec of every plugin on the
+//     PARSED descriptor, auto-injected ones included, so the
+//     ConvertStackConfig dialler can re-spawn them by name. Step 2
+//     only sees the operator-declared block; without this step a
+//     server.yaml with no `plugins:` block parses fine and the deploy
+//     then fails with "no plugin spec recorded for plugin ...".
 func ReadServerDescriptor(ctx context.Context, path string) (*api.ServerDescriptor, error) {
 	descriptor, err := api.ReadDescriptor(path, &api.ServerDescriptor{})
 	if err != nil {
@@ -69,7 +78,27 @@ func ReadServerDescriptor(ctx context.Context, path string) (*api.ServerDescript
 	if err != nil {
 		return descriptor, errors.Wrapf(err, "failed to read server configs for %s", path)
 	}
+	recordPluginSpecs(res)
 	return res, nil
+}
+
+// recordPluginSpecs records every plugin spec on a fully parsed
+// descriptor for the ConvertStackConfig dialler (convert.go). It is the
+// counterpart of DiscoverPluginTypes for specs that did not exist yet
+// when the pre-parse ran: api.ValidatePluginRequirements injects them
+// during api.ReadServerConfigs. No Schema is loaded here — the
+// bootstrap seed in pkg/api already registered the auto-injected
+// plugins' types (that is how the parse succeeded), and the dialler
+// resolves the binary lazily when a conversion actually needs it, so a
+// read that never converts costs no download. Re-recording a declared
+// plugin's spec is a harmless overwrite with the same value.
+func recordPluginSpecs(descriptor *api.ServerDescriptor) {
+	if descriptor == nil {
+		return
+	}
+	for name, spec := range descriptor.Plugins {
+		recordSpecForConverter(name, spec)
+	}
 }
 
 // DiscoverPluginTypes walks descriptor.Plugins and installs an opaque
