@@ -4,6 +4,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -516,12 +517,261 @@ type PluginFieldConfig struct {
 	Provision   bool           `json:"provision" yaml:"provision"`
 }
 
-func (p *PluginFieldConfig) ProviderType() string     { return p.TypeName }
-func (p *PluginFieldConfig) CredentialsValue() string { return p.Credentials }
-func (p *PluginFieldConfig) ProjectIdValue() string   { return p.ProjectID }
+func (p *PluginFieldConfig) ProviderType() string { return p.TypeName }
+
+// CredentialsValue returns the string the placeholder resolver substitutes
+// for `${auth:<name>}`. Two shapes:
+//
+//   - `.Credentials` is non-empty — a `credentials: "…"` key was declared
+//     in YAML (state-storage / secrets-provider form) — return it verbatim.
+//   - `.Credentials` is empty but `.Raw` has entries — this is an AUTH
+//     block (aws-token, yc-service-account, cloudru-access-key, …). The
+//     pre-A3 typed AuthConfig impls returned `api.AuthToString(r)` in this
+//     case — a JSON serialisation of the whole struct — so a downstream
+//     plugin decoding `credentials: "…"` could parse the full account
+//     config. Mirror that here by marshalling Raw.
+//
+// Returns empty string only when there is genuinely no credential
+// material to expand (ambient-credential path; UsesAmbientCredentials
+// relies on this).
+func (p *PluginFieldConfig) CredentialsValue() string {
+	if p.Credentials != "" {
+		return p.Credentials
+	}
+	if len(p.Raw) == 0 {
+		return ""
+	}
+	// Omit the `type` key from the serialised auth blob — plugin-side
+	// decoders unmarshal into their typed AccountConfig which does not
+	// declare it, and an unknown JSON key either errors out (strict
+	// decoders) or clutters the blob (lenient ones). The same trimming
+	// is what api.AuthToString did for the pre-A3 typed structs.
+	//
+	// Coerce int/float values to strings along the way: YAML unmarshals
+	// an unquoted `account: 123456789012` as a number, and the plugin's
+	// typed AccountConfig has `Account string` — json.Unmarshal of a
+	// JSON number into a string field errors with
+	// "json: cannot unmarshal number into Go struct field AccountConfig.account
+	// of type string". Live-caught on forge-runtime isolated verify
+	// run 41728259367 (2026-11-03). AWS/YC/Cloudru auth fields are
+	// string-typed on every typed AccountConfig struct, so coercing
+	// numeric scalars to strings restores the lenient semantics the
+	// pre-A3 typed unmarshal had (Go's encoding/yaml coerces numbers
+	// into string fields silently; encoding/json does not).
+	trimmed := make(map[string]any, len(p.Raw))
+	for k, v := range p.Raw {
+		if k == "type" {
+			continue
+		}
+		trimmed[k] = coerceToStringIfScalarNumber(v)
+	}
+	b, err := json.Marshal(trimmed)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// coerceToStringIfScalarNumber turns YAML-parsed numeric scalars into
+// their string representation so a downstream json.Unmarshal into a
+// string field doesn't fail. Preserves non-number types (bool, nested
+// map/slice) unchanged — those decoders handle themselves. Nested maps
+// are walked recursively because nested credential blocks (e.g. a
+// config-under-config shape) carry the same hazard.
+func coerceToStringIfScalarNumber(v any) any {
+	switch x := v.(type) {
+	case int:
+		return fmt.Sprintf("%d", x)
+	case int32:
+		return fmt.Sprintf("%d", x)
+	case int64:
+		return fmt.Sprintf("%d", x)
+	case float32:
+		return fmt.Sprintf("%v", x)
+	case float64:
+		// Preserve integer-valued floats as integer strings
+		// (`123` not `123.0`) — AWS account IDs are integer-looking
+		// strings, and `123.0` doesn't round-trip through
+		// AccountConfig.Account.
+		if x == float64(int64(x)) {
+			return fmt.Sprintf("%d", int64(x))
+		}
+		return fmt.Sprintf("%v", x)
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, v := range x {
+			out[k] = coerceToStringIfScalarNumber(v)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
+func (p *PluginFieldConfig) ProjectIdValue() string {
+	if p.ProjectID != "" {
+		return p.ProjectID
+	}
+	// Auth-shape configs often carry account/projectId in Raw.
+	if v := stringFromMap(p.Raw, "projectId"); v != "" {
+		return v
+	}
+	return stringFromMap(p.Raw, "account")
+}
+
 func (p *PluginFieldConfig) StorageUrl() string       { return p.URL }
 func (p *PluginFieldConfig) KeyUrl() string           { return p.URL } // secrets-provider interface
 func (p *PluginFieldConfig) IsProvisionEnabled() bool { return p.Provision }
 func (p *PluginFieldConfig) UsesAmbientCredentials() bool {
-	return p.Credentials == "" // if no explicit creds, assume ambient (env/role)
+	return p.Credentials == "" && len(p.Raw) == 0
+}
+
+// DnsRecords implements api.RegistrarConfig for plugin-owned registrars
+// (cloudflare, cloudru-dns, yc-dns, …). Reads the `dnsRecords` list out
+// of the Raw map that pluginOwnedWrappingDecoder preserved — the plugin
+// bus's RegistrarConfig type-assertion at
+// pkg/clouds/pulumi/plugin_sidecars.go:382 required this method, and
+// without it operator-declared `dnsRecords:` entries on a plugin-owned
+// registrar were silently dropped on the wire. Live-caught 2026-11-03
+// against sc-plugin-cloudflare v2026.11.02-8b9eb75: a navizon-infra
+// server.yaml with four `dnsRecords:` entries completed `sc provision`
+// as `Resources: 2 unchanged` and never emitted any
+// `cloudflare:index/record:Record`.
+//
+// The `type` key is consulted first for the DnsRecord type field; a
+// `proxied` key arrives from YAML as `bool` but the bus serialises the
+// whole map through JSON, which keeps bools as bools in map[string]any,
+// so no extra parsing is needed for this scalar — the map[string]any
+// unmarshal path keeps them bool-typed.
+func (p *PluginFieldConfig) DnsRecords() []DnsRecord {
+	raw, ok := p.Raw["dnsRecords"]
+	if !ok {
+		return nil
+	}
+	list, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]DnsRecord, 0, len(list))
+	for _, item := range list {
+		m, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		rec := DnsRecord{
+			Name:    stringFromMap(m, "name"),
+			Type:    stringFromMap(m, "type"),
+			Value:   stringFromMap(m, "value"),
+			Proxied: boolFromMap(m, "proxied"),
+		}
+		if pr, ok := m["priority"]; ok {
+			switch v := pr.(type) {
+			case float64:
+				p := int(v)
+				rec.Priority = &p
+			case int:
+				p := v
+				rec.Priority = &p
+			case int64:
+				p := int(v)
+				rec.Priority = &p
+			}
+		}
+		out = append(out, rec)
+	}
+	return out
+}
+
+// MarshalJSON merges the Raw map with the typed fields so the plugin bus
+// (pkg/clouds/pulumi.serializeConfigToInputs → json.Marshal → gRPC
+// InputValue tree) carries the full operator-declared config, not just
+// the four typed slots.
+//
+// Two reasons this is needed. First, Raw holds operator-declared keys
+// that have no typed slot — `bucketName` on state-storage, `keyName` on
+// secrets-provider — and without merging them the plugin never sees
+// them (`Raw` carries `json:"-"`). Second, the placeholder resolver
+// (pkg/provisioner/placeholders) walks the typed fields BOTH as struct
+// fields AND via the Raw map; both end up with resolved values post-
+// Resolve. Merging in this order (Raw first, typed fields override)
+// means a stray stale value in Raw is beaten by the typed field, so a
+// re-run after an edit cannot ship pre-resolution data.
+//
+// Live-caught 2026-11-03 on forge-conductor isolated verify run
+// 41680853191: plugin received `credentials: "${auth:aws}"` because
+// json.Marshal(*PluginFieldConfig) only emitted the four typed fields,
+// and the resolver's path to one of them was obstructed by an
+// unexported ancestor. Merging via Raw sidesteps that walker-path
+// fragility: whichever route the resolver takes, the plugin bus sees
+// the resolved value.
+func (p *PluginFieldConfig) MarshalJSON() ([]byte, error) {
+	merged := map[string]any{}
+	for k, v := range p.Raw {
+		merged[k] = v
+	}
+	// Typed fields override Raw. Non-zero check matches the semantics the
+	// receiving plugin expects: an unset credentials/url/projectId is
+	// omitted entirely so the plugin's own default (ambient creds, etc.)
+	// applies rather than being overridden by an empty string.
+	if p.TypeName != "" {
+		merged["type"] = p.TypeName
+	}
+	if p.URL != "" {
+		merged["url"] = p.URL
+	}
+	if p.Credentials != "" {
+		merged["credentials"] = p.Credentials
+	}
+	if p.ProjectID != "" {
+		merged["projectId"] = p.ProjectID
+	}
+	// Provision is a bool — merge it unconditionally; its zero (false) is
+	// a legitimate value, and Raw may or may not carry it.
+	if _, present := merged["provision"]; !present {
+		merged["provision"] = p.Provision
+	} else if p.Provision {
+		// Only override when the typed field says true; false in the typed
+		// slot is the zero value and should not clobber a Raw-declared
+		// explicit true.
+		merged["provision"] = true
+	}
+	return json.Marshal(merged)
+}
+
+// MarshalYAML mirrors MarshalJSON for the yaml.v3 path. Parent-stack
+// provisioning (pkg/clouds/pulumi/provision.go) `yaml.Marshal`s each
+// StackDescriptor into a Pulumi-exported secret the child deploy later
+// reads back via `yaml.Unmarshal`. Without a MarshalYAML, the default
+// struct-tag path honours `yaml:"-"` on Raw and emits only the four
+// typed slots — operator-declared keys that have no typed counterpart
+// (`accountId`, `bucketName`, `zoneName`, …) silently disappear from
+// the state, and the child deploy dials the plugin with an empty
+// `accountId` → `ToPagesConfig` → `accountId is empty`.
+//
+// Live-caught 2026-11-03 on navizon's cloudflare-static-website
+// isolated-stack child deploy. Diagnosed by navizon session; same
+// merge semantics as MarshalJSON.
+func (p *PluginFieldConfig) MarshalYAML() (interface{}, error) {
+	merged := map[string]any{}
+	for k, v := range p.Raw {
+		merged[k] = v
+	}
+	if p.TypeName != "" {
+		merged["type"] = p.TypeName
+	}
+	if p.URL != "" {
+		merged["url"] = p.URL
+	}
+	if p.Credentials != "" {
+		merged["credentials"] = p.Credentials
+	}
+	if p.ProjectID != "" {
+		merged["projectId"] = p.ProjectID
+	}
+	if _, present := merged["provision"]; !present {
+		merged["provision"] = p.Provision
+	} else if p.Provision {
+		merged["provision"] = true
+	}
+	return merged, nil
 }

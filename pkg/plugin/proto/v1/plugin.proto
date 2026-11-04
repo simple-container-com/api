@@ -525,6 +525,14 @@ message NewDnsRecordRequest {
   string record_type = 4;
   string value_resolved = 5;
   bool proxied = 6;
+  // Priority — used by MX / SRV / URI records, ignored by everything
+  // else. optional so SC core can omit it on non-MX records and the
+  // plugin side can distinguish "unset" from "priority 0". Live-caught
+  // on navizon-infra 2026-11-03: Proton Mail MX setup needs
+  // priority 10 → mail.protonmail.ch, priority 20 → mailsec.protonmail.ch,
+  // and before this field the records were being sent without priority
+  // at all (and some clouds would silently default to 0).
+  optional int32 priority = 7;
 }
 
 message NewDnsRecordResponse {
