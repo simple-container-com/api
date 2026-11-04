@@ -94,7 +94,7 @@ func (s *Service) GenerateWorkflowsWithContext(ctx context.Context, logger Logge
 	}
 
 	// Load and validate server configuration
-	serverDesc, err := validateAndLoadServerConfig(configFile)
+	serverDesc, err := validateAndLoadServerConfig(ctx, configFile)
 	if err != nil {
 		return &Result{
 			Success: false,
@@ -183,7 +183,7 @@ func (s *Service) ValidateWorkflowsWithContext(ctx context.Context, logger Logge
 	}
 
 	// Load and validate server configuration
-	serverDesc, err := validateAndLoadServerConfig(configFile)
+	serverDesc, err := validateAndLoadServerConfig(ctx, configFile)
 	if err != nil {
 		return &Result{
 			Success: false,
@@ -275,7 +275,7 @@ func (s *Service) PreviewWorkflows(params PreviewParams) (*Result, error) {
 	}
 
 	// Load and validate server configuration
-	serverDesc, err := validateAndLoadServerConfig(configFile)
+	serverDesc, err := validateAndLoadServerConfig(context.Background(), configFile)
 	if err != nil {
 		return &Result{
 			Success: false,
@@ -303,7 +303,7 @@ func (s *Service) SyncWorkflows(params SyncParams) (*Result, error) {
 	}
 
 	// Load and validate server configuration
-	serverDesc, err := validateAndLoadServerConfig(configFile)
+	serverDesc, err := validateAndLoadServerConfig(context.Background(), configFile)
 	if err != nil {
 		return &Result{
 			Success: false,
