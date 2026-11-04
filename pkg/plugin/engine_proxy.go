@@ -70,7 +70,6 @@ func (p *EngineProxy) Serve() (string, func(), error) {
 		return "", nil, errors.Wrap(err, "listen engine proxy")
 	}
 	// Plaintext on loopback, forced by the Pulumi SDK's engine transport.
-	// nosemgrep: grpc-server-insecure-connection
 	srv := grpc.NewServer()
 	pulumirpc.RegisterEngineServer(srv, p)
 	go func() {

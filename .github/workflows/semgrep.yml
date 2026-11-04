@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   semgrep:
-    uses: simple-container-com/actions/.github/workflows/semgrep.yml@5061c0a28f850f4d8f5f990856cd31c9699760fc # main (actions#23 merged)
+    uses: simple-container-com/actions/.github/workflows/semgrep.yml@307cc2cbcb14b0123daba0ebd1fdea91bfc7e871 # main (actions#53 merged)
     permissions:
       contents: read
     with:
@@ -64,4 +64,23 @@ jobs:
       #   (shell.yml) flags curl/wget output piped into a shell across
       #   `**/*.yml`/`**/*.yaml` by regex, with no Bash sub-parse — so no
       #   coverage is lost by suppressing the registry rule.
-      disabled-rules: 'go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5,go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface,yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell'
+      #
+      #   `grpc-server-insecure-connection` — fires on every credential-less
+      #   `grpc.NewServer()`, including the loopback-only servers in
+      #   pkg/plugin (Pulumi engine/monitor transport, go-plugin SCCore
+      #   callback), which are plaintext by design. Replacement coverage:
+      #   SC `go-grpc-server-plaintext-non-loopback` (go-canon.yml, ERROR)
+      #   flags the same call unless the function binds a loopback/unix
+      #   listener or passes `grpc.Creds(...)`, so a gRPC server reachable
+      #   from the network without TLS still fails the gate.
+      #   `raw-html-format` — intermittently exceeds Semgrep's per-rule
+      #   timeout on the 4.7k-line generated pkg/plugin/proto/v1/plugin.pb.go
+      #   (`Timeout when running ... raw-html-format on plugin.pb.go`), which
+      #   scan.sh counts as an engine error and fails the build with zero real
+      #   findings (same commit green, then red). It has never produced a
+      #   finding here: SC renders no HTML from Go string formatting, and
+      #   gosec's template.HTML / unescaped-HTML checks in `p/gosec` remain
+      #   enabled. Not worked around with a .semgrepignore: a repo-level
+      #   .semgrepignore replaces Semgrep's built-in default ignore list and
+      #   pulled ~330 test/generated files into the scan.
+      disabled-rules: 'go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5,go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface,yaml.github-actions.security.gha-curl-pipe-shell.gha-curl-pipe-shell,go.lang.security.injection.raw-html-format.raw-html-format,go.grpc.security.grpc-server-insecure-connection.grpc-server-insecure-connection'

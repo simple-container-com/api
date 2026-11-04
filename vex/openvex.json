@@ -2,8 +2,8 @@
   "@context": "https://openvex.dev/ns/v0.2.0",
   "@id": "https://simple-container.com/.well-known/openvex/api.json",
   "author": "Simple Container maintainers <security@simple-container.com>",
-  "timestamp": "2026-08-21T00:00:00Z",
-  "version": 4,
+  "timestamp": "2026-11-04T00:00:00Z",
+  "version": 5,
   "tooling": "Hand-authored. Reachability evidence from `govulncheck -mode=source ./...`, `go list -deps ./...` and `go mod why -m`.",
   "statements": [
     {
