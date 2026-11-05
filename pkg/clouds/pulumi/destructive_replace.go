@@ -10,6 +10,45 @@ import (
 	"strings"
 )
 
+// safeToReplaceTypes names Pulumi resource types where `OpReplace`
+// does NOT destroy the live cloud resource — the "replace" is an
+// additive revision/version operation and the service or caller re-
+// references the new id automatically.
+//
+// The distinction is STATEFUL vs STATELESS. Stateful resources
+// (MongoCluster, Atlas Project, DNS Record, databases, buckets)
+// MUST NOT be replaced: a replace destroys the data or the live
+// serving target, and that is exactly the no-destroy-invariant class
+// S4 of cloudflare-plugin-wrong-zone was built to catch. The
+// forge-notifier 2026-10-28 outage was a Cloudflare DNS Record
+// replace that dropped the live record.
+//
+// Stateless/immutable-revision resources are the opposite: the
+// provider models a change as `replace` because the cloud API only
+// allows creating a NEW revision, but the OLD revision is retained
+// (ECS task definition: the service points at the new task-def ARN;
+// old revisions are kept around until no running task uses them).
+// Blocking every forge-baas deploy on this would make the guard
+// unusable — live-caught on forge-baas run 42077847984 the moment
+// api 2026.11.19 landed in the fleet.
+//
+// Add entries conservatively: a type belongs here ONLY if (a) the
+// provider's replace does not destroy the previous instance from the
+// cloud, AND (b) the downstream resource (service, alias, …) picks
+// up the new id without operator intervention. When in doubt, leave
+// it off the list — the operator can still opt out per-deploy with
+// `SC_ALLOW_DESTRUCTIVE_REPLACE=1`.
+var safeToReplaceTypes = map[string]struct{}{
+	// ECS task definitions are revision-based. The TF provider's
+	// `aws_ecs_task_definition` resource maps `containerDefinitions`
+	// and `family` as ForceNew; `pulumi-aws` follows. A "replace"
+	// here publishes revision N+1 — AWS ECS keeps revision N
+	// registered until no running task uses it, and the parent
+	// FargateService's taskDefinition ARN output is re-wired
+	// automatically on the same deploy. Not destruction.
+	"aws:ecs/taskDefinition:TaskDefinition": {},
+}
+
 // envAllowDestructiveReplace is the operator-level escape hatch for
 // S4 of `cloudflare-plugin-wrong-zone`. Setting it to a truthy value
 // (`1` / `true` / `yes`, case-insensitive) in the deploy environment

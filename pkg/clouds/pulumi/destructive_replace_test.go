@@ -87,6 +87,22 @@ func TestIsDestructiveReplace_OpCoverage(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			// forge-baas 2026-11-05: every deploy published a new ECS
+			// task-definition revision; before this exemption the
+			// `OpReplace && Old.ID != ''` predicate flagged it as
+			// destruction and blocked the deploy.
+			name: "ECS task definition replace → safe (revision-based, allowlisted)",
+			meta: apitype.StepEventMetadata{
+				Op:   apitype.OpReplace,
+				URN:  "urn:pulumi:forge-baas--staging::forge-baas::awsx:ecs:FargateService$awsx:ecs:FargateTaskDefinition$aws:ecs/taskDefinition:TaskDefinition::forge-baas--staging-staging-service",
+				Type: "aws:ecs/taskDefinition:TaskDefinition",
+				Old:  &apitype.StepEventStateMetadata{ID: "arn:aws:ecs:eu-central-1:645119433725:task-definition/forge-baas--staging-staging-service:42"},
+				New:  &apitype.StepEventStateMetadata{},
+				Keys: []string{"containerDefinitions", "family"},
+			},
+			want: false,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -202,6 +218,37 @@ func TestRecordDestructiveReplace_IgnoresNonDestructiveEvents(t *testing.T) {
 	if got := p.drainDestructiveReplaces(); len(got) != 0 {
 		t.Fatalf("expected no recorded replaces, got %d: %v", len(got), got)
 	}
+}
+
+// The allowlist must stay tight — adding a type here suppresses the
+// guard for EVERY deploy, so a wrong entry silently reopens the
+// no-destroy hole S4 exists to close. Pin the current membership so
+// an unintended addition fails this test rather than reaching main.
+func TestSafeToReplaceTypes_PinsCurrentMembership(t *testing.T) {
+	want := map[string]bool{
+		"aws:ecs/taskDefinition:TaskDefinition": true,
+	}
+	if len(safeToReplaceTypes) != len(want) {
+		t.Fatalf("safeToReplaceTypes membership drifted: got %v (len=%d), want len=%d", keysOfSafeToReplaceTypes(), len(safeToReplaceTypes), len(want))
+	}
+	for typ := range want {
+		if _, ok := safeToReplaceTypes[typ]; !ok {
+			t.Errorf("safeToReplaceTypes missing expected entry %q", typ)
+		}
+	}
+	for typ := range safeToReplaceTypes {
+		if !want[typ] {
+			t.Errorf("safeToReplaceTypes gained unexpected entry %q — update the test if intentional", typ)
+		}
+	}
+}
+
+func keysOfSafeToReplaceTypes() []string {
+	out := make([]string, 0, len(safeToReplaceTypes))
+	for k := range safeToReplaceTypes {
+		out = append(out, k)
+	}
+	return out
 }
 
 func TestRecordDestructiveReplace_AppendsOnMatch(t *testing.T) {
