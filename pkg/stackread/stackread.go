@@ -189,4 +189,13 @@ func registerSchemaTypes(pluginName string, schema *scpluginv1.SchemaResponse) {
 		}
 		api.RegisterPluginOwnedType(driver.GetDriver(), api.PluginOwnedKindVmDriver, pluginName)
 	}
+	// Resource types the plugin advertises as safe to replace (its
+	// provider models updates as additive new-revision creates, not
+	// destructive replaces). SC core's S4 destructive-replace guard
+	// consults this merged set via api.IsSafeToReplace. Each plugin is
+	// the authority on its own types — see
+	// forge/docs/roadmap/items/sc-safe-to-replace-via-plugin-schema.md.
+	for _, t := range schema.GetSafeToReplaceTypes() {
+		api.RegisterSafeToReplaceType(t)
+	}
 }

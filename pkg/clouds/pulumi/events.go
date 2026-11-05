@@ -11,6 +11,8 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/events"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 	"github.com/samber/lo"
+
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 type contextValueType struct{}
@@ -138,11 +140,12 @@ func isDestructiveReplace(meta apitype.StepEventMetadata) bool {
 	// a new revision" — ECS task definitions are the canonical case — is
 	// NOT a destructive step: the previous revision is retained, the
 	// parent (FargateService) re-references the new id on the same
-	// deploy. Opt out via safeToReplaceTypes. Live-caught on forge-baas
-	// run 42077847984 the moment api 2026.11.19 landed in the fleet:
-	// every deploy was failing on `aws:ecs/taskDefinition:TaskDefinition`
-	// replace. See safeToReplaceTypes for the inclusion rule.
-	if _, safe := safeToReplaceTypes[meta.Type]; safe {
+	// deploy. The set is seeded by `pkg/api` and extended at parse time
+	// by each plugin's `scpluginv1.SchemaResponse.safe_to_replace_types`.
+	// Live-caught on forge-baas run 42077847984 the moment api
+	// 2026.11.19 landed in the fleet. See api.IsSafeToReplace for the
+	// inclusion rule.
+	if api.IsSafeToReplace(meta.Type) {
 		return false
 	}
 	// A resource SC itself marked for retention is still physically

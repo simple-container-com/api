@@ -205,6 +205,26 @@ message SchemaResponse {
   // generated config reference, and the refusal an operator sees for a driver that
   // does not exist yet. SC core merges these rows into that table pre-engine.
   repeated VmDriverSpec vm_drivers = 9;
+
+  // Resource types this plugin declares as SAFE for Pulumi's `replace`
+  // op — the provider publishes a new revision additively and any
+  // consuming resource re-references the new id on the same deploy.
+  // SC core suppresses the S4 destructive-replace guard
+  // (pkg/clouds/pulumi/destructive_replace.go) for types on this list.
+  //
+  // Entries must satisfy BOTH:
+  //   1. Provider's replace does NOT destroy the previous instance
+  //      from the cloud.
+  //   2. Downstream resources (service, alias, …) pick up the new id
+  //      without operator intervention.
+  //
+  // When in doubt, leave it off — the operator can still opt out per
+  // deploy with SC_ALLOW_DESTRUCTIVE_REPLACE=1. Canonical example:
+  // `aws:ecs/taskDefinition:TaskDefinition`, where every deploy
+  // publishes a new revision and the FargateService re-references the
+  // new ARN on the same deploy. See
+  // forge/docs/roadmap/items/sc-safe-to-replace-via-plugin-schema.md.
+  repeated string safe_to_replace_types = 10;
 }
 
 // VmDriverSpec is one row of the VM driver table, as advertised by a plugin.
