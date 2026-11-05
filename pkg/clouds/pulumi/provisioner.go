@@ -8,7 +8,6 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
-
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
@@ -51,6 +50,18 @@ type pulumi struct {
 	// plugin subprocesses rather than spawning twice. See
 	// pkg/clouds/pulumi/plugin_preengine.go.
 	preEnginePlugins *preEnginePluginBundle
+
+	// destructiveReplaces is the input-driven-replacement tracker S4 of
+	// `cloudflare-plugin-wrong-zone` implements: Pulumi's URN-level
+	// no-destroy invariant catches a changed URN, but an unchanged URN
+	// with a changed REPLACE-forcing input (zone_id on a cloudflare
+	// Record, region on an aws Bucket, …) silently destroys the live
+	// resource and re-creates one that points elsewhere. The tracker is
+	// populated by processEvent as each ResourcePreEvent arrives during
+	// preview; previewStack / previewChildStack fail the operation if
+	// it is non-empty, naming the URN and the Keys that forced the
+	// replace. Not thread-safe — the event goroutine is single-reader.
+	destructiveReplaces []destructiveReplace
 }
 
 func InitPulumiProvisioner(config api.Config, opts ...api.ProvisionerOption) (api.Provisioner, error) {
