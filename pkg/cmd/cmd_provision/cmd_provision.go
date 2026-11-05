@@ -6,6 +6,7 @@ package cmd_provision
 import (
 	"fmt"
 
+	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -19,6 +20,14 @@ type provisionCmd struct {
 }
 
 func NewProvisionCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
+	// provisionEnv captures -e/--environment on `sc provision`. A parent
+	// stack is not per-env, so this flag has no runtime effect — but
+	// every recipe written from a deploy/destroy example reaches for -e
+	// and used to see "unknown shorthand flag: 'e' in -e" (sc-cli-unattended-gaps,
+	// 2026-10-24). Accepting it with a clear sentence is more useful
+	// than silently ignoring it: the caller learns parent stacks are not
+	// per-env before the next deploy fails for a different reason.
+	var provisionEnv string
 	pCmd := provisionCmd{
 		Root: rootCmd,
 		Params: api.ProvisionParams{
@@ -29,6 +38,10 @@ func NewProvisionCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		Use:   "provision",
 		Short: "Provisions stacks defined in stacks directory",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if provisionEnv != "" {
+				return errors.Errorf("--environment / -e is not applicable to `sc provision`: parent stacks are not per-env. "+
+					"Drop the flag; `sc provision -s %s` provisions every env declared under that stack's resources.", pCmd.Params.Stacks)
+			}
 			if pCmd.Preview {
 				res, err := pCmd.Root.Provisioner.PreviewProvision(cmd.Context(), pCmd.Params)
 				if err != nil {
@@ -44,6 +57,7 @@ func NewProvisionCmd(rootCmd *root_cmd.RootCmd) *cobra.Command {
 		},
 	}
 	cmd.Flags().BoolVarP(&pCmd.Preview, "preview", "P", pCmd.Preview, "Preview instead of provision (dry-run)")
+	cmd.Flags().StringVarP(&provisionEnv, "environment", "e", "", "Not applicable to `sc provision` — parent stacks are not per-env. Rejected with a clear error if set, so a recipe copied from `sc deploy` surfaces the mismatch before the deploy")
 	RegisterProvisionFlags(cmd, &pCmd.Params)
 	return cmd
 }
