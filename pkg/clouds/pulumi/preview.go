@@ -31,7 +31,7 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	p.logger.Info(ctx, "Preview parent stack %q...", stackSource.Name())
 	previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, true)...)
 	if err != nil {
-		return nil, err
+		return nil, annotateNullSecretCheckpointError(err)
 	}
 	if err := destructiveReplaceErrorFrom(p.drainDestructiveReplaces()); err != nil {
 		return nil, err
@@ -59,7 +59,7 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child stack %q...", stackSource.Name()))
 	previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, true)...)
 	if err != nil {
-		return nil, err
+		return nil, annotateNullSecretCheckpointError(err)
 	}
 	if err := destructiveReplaceErrorFrom(p.drainDestructiveReplaces()); err != nil {
 		return nil, err
