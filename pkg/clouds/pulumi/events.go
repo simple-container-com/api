@@ -134,6 +134,17 @@ func isDestructiveReplace(meta apitype.StepEventMetadata) bool {
 	if meta.Old.ID == "" {
 		return false
 	}
+	// A resource whose provider models updates as "replace by publishing
+	// a new revision" — ECS task definitions are the canonical case — is
+	// NOT a destructive step: the previous revision is retained, the
+	// parent (FargateService) re-references the new id on the same
+	// deploy. Opt out via safeToReplaceTypes. Live-caught on forge-baas
+	// run 42077847984 the moment api 2026.11.19 landed in the fleet:
+	// every deploy was failing on `aws:ecs/taskDefinition:TaskDefinition`
+	// replace. See safeToReplaceTypes for the inclusion rule.
+	if _, safe := safeToReplaceTypes[meta.Type]; safe {
+		return false
+	}
 	// A resource SC itself marked for retention is still physically
 	// present post-delete, but the state entry still gets rewritten and
 	// a replace still re-points the state at a NEW object — which is
