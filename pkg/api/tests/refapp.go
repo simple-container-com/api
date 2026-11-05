@@ -6,9 +6,6 @@ package tests
 import (
 	"fmt"
 
-	"github.com/simple-container-com/sc-plugin-aws/api"
-	"github.com/simple-container-com/sc-plugin-cloudflare/api"
-
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/github"
@@ -29,17 +26,69 @@ var CommonKubernetesCredentials = k8s.KubernetesConfig{
 	Kubeconfig: "${auth:kubernetes}",
 }
 
-var awsAccountConfig = aws.AccountConfig{
-	Account: "${auth:aws.projectId}",
-	Credentials: api.Credentials{
-		Credentials: "${auth:aws}",
+// Post-A3 the aws-owned types decode opaquely via plugin_bootstrap.go's
+// wrap-cover. pluginOwnedWrappingDecoder populates typed slots by key
+// (`credentials:` → Credentials, `projectId:` → ProjectID; NOT
+// `account:`), so the aws fixtures leave ProjectID empty — the aws
+// yaml uses `account:`.
+
+var resolvedAwsCredentialsJSON = `{"accessKey":"\u003caws-access-key\u003e","account":"000","secretAccessKey":"\u003caws-secret-key\u003e"}`
+
+// awsEcsFargateTemplateConfig covers Templates["stack-per-app-aws"]
+// (ecs-fargate) — yaml keys {credentials, account} per
+// testdata/stacks/common/server.yaml.
+var awsEcsFargateTemplateConfig = api.PluginFieldConfig{
+	TypeName:    "ecs-fargate",
+	Credentials: "${auth:aws}",
+	Raw: map[string]any{
+		"credentials": "${auth:aws}",
+		"account":     "${auth:aws.projectId}",
 	},
 }
 
-var resolvedAwsAccountConfig = aws.AccountConfig{
-	Account: "000",
-	Credentials: api.Credentials{
-		Credentials: `{"account":"000","accessKey":"\u003caws-access-key\u003e","secretAccessKey":"\u003caws-secret-key\u003e","region":"","credentials":""}`,
+var resolvedAwsEcsFargateTemplateConfig = api.PluginFieldConfig{
+	TypeName:    "ecs-fargate",
+	Credentials: resolvedAwsCredentialsJSON,
+	Raw: map[string]any{
+		"credentials": resolvedAwsCredentialsJSON,
+		"account":     "000",
+	},
+}
+
+// awsLambdaTemplateConfig covers Templates["lambda-per-app"] on the
+// aws-lambda refapp — same yaml shape as ecs-fargate.
+var awsLambdaTemplateConfig = api.PluginFieldConfig{
+	TypeName:    "aws-lambda",
+	Credentials: "${auth:aws}",
+	Raw: map[string]any{
+		"credentials": "${auth:aws}",
+		"account":     "${auth:aws.projectId}",
+	},
+}
+
+var resolvedAwsLambdaTemplateConfig = api.PluginFieldConfig{
+	TypeName:    "aws-lambda",
+	Credentials: resolvedAwsCredentialsJSON,
+	Raw: map[string]any{
+		"credentials": resolvedAwsCredentialsJSON,
+		"account":     "000",
+	},
+}
+
+// (aws-token config nested inside mongodb.ExtraProviders["AWS"] used
+// to need its own fixture var, but PR #549's mongodb opaque form keeps
+// the nested config as literal strings in Raw — no shared var required.)
+
+// awsTokenAuthConfig covers the Secrets.Auth["aws"] entry — yaml keys
+// {account, accessKey, secretAccessKey} per
+// testdata/stacks/common/secrets.yaml (different shape from the
+// template / extraProviders case above).
+var awsTokenAuthConfig = api.PluginFieldConfig{
+	TypeName: "aws-token",
+	Raw: map[string]any{
+		"account":         "000",
+		"accessKey":       "<aws-access-key>",
+		"secretAccessKey": "<aws-secret-key>",
 	},
 }
 
@@ -132,10 +181,8 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Templates: map[string]api.StackDescriptor{
 		"stack-per-app-aws": {
-			Type: aws.TemplateTypeEcsFargate,
-			Config: api.Config{Config: &aws.TemplateConfig{
-				AccountConfig: awsAccountConfig,
-			}},
+			Type:   "ecs-fargate",
+			Config: api.Config{Config: &awsEcsFargateTemplateConfig},
 		},
 		"stack-per-app": {
 			Type: gcloud.TemplateTypeGcpCloudrun,
@@ -153,20 +200,25 @@ var CommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: api.RegistrarDescriptor{
-			Type: cloudflare.RegistrarType,
-			Config: api.Config{Config: &cloudflare.RegistrarConfig{
-				AuthConfig: cloudflare.AuthConfig{
-					Credentials: api.Credentials{
-						Credentials: "${secret:CLOUDFLARE_API_TOKEN}",
-					},
-					AccountId: "12345",
-				},
-				ZoneName: "sc-refapp.org",
-				Records: []api.DnsRecord{
-					{
-						Name:  "@",
-						Type:  "TXT",
-						Value: "MS=ms83691649",
+			Type: "cloudflare",
+			// Post-A3 the cloudflare registrar config decodes opaquely
+			// via api/plugin_bootstrap.go's wrap-cover. accountId in the
+			// yaml is unquoted (12345) → yaml.v3 unmarshal keeps it as int.
+			// Credentials is extracted into the typed slot by the
+			// wrap-cover decoder.
+			Config: api.Config{Config: &api.PluginFieldConfig{
+				TypeName:    "cloudflare",
+				Credentials: "${secret:CLOUDFLARE_API_TOKEN}",
+				Raw: map[string]any{
+					"credentials": "${secret:CLOUDFLARE_API_TOKEN}",
+					"accountId":   12345,
+					"zoneName":    "sc-refapp.org",
+					"dnsRecords": []any{
+						map[string]any{
+							"name":  "@",
+							"type":  "TXT",
+							"value": "MS=ms83691649",
+						},
 					},
 				},
 			}},
@@ -268,10 +320,8 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Templates: map[string]api.StackDescriptor{
 		"stack-per-app-aws": {
-			Type: aws.TemplateTypeEcsFargate,
-			Config: api.Config{Config: &aws.TemplateConfig{
-				AccountConfig: resolvedAwsAccountConfig,
-			}},
+			Type:   "ecs-fargate",
+			Config: api.Config{Config: &resolvedAwsEcsFargateTemplateConfig},
 		},
 		"stack-per-app": {
 			Type: gcloud.TemplateTypeGcpCloudrun,
@@ -282,20 +332,21 @@ var ResolvedCommonServerDescriptor = &api.ServerDescriptor{
 	},
 	Resources: api.PerStackResourcesDescriptor{
 		Registrar: api.RegistrarDescriptor{
-			Type: cloudflare.RegistrarType,
-			Config: api.Config{Config: &cloudflare.RegistrarConfig{
-				AuthConfig: cloudflare.AuthConfig{
-					Credentials: api.Credentials{
-						Credentials: "<encrypted-secret>",
-					},
-					AccountId: "12345",
-				},
-				ZoneName: "sc-refapp.org",
-				Records: []api.DnsRecord{
-					{
-						Name:  "@",
-						Type:  "TXT",
-						Value: "MS=ms83691649",
+			Type: "cloudflare",
+			// Post-resolve: ${secret:CLOUDFLARE_API_TOKEN} → <encrypted-secret>.
+			Config: api.Config{Config: &api.PluginFieldConfig{
+				TypeName:    "cloudflare",
+				Credentials: "<encrypted-secret>",
+				Raw: map[string]any{
+					"credentials": "<encrypted-secret>",
+					"accountId":   12345,
+					"zoneName":    "sc-refapp.org",
+					"dnsRecords": []any{
+						map[string]any{
+							"name":  "@",
+							"type":  "TXT",
+							"value": "MS=ms83691649",
+						},
 					},
 				},
 			}},
@@ -457,11 +508,10 @@ var resolvedMongodbAtlasResource = api.ResourceDescriptor{
 				"AWS": map[string]any{
 					"type": "aws-token",
 					"config": map[string]any{
-						// Pre-resolved aws-token credentials match resolvedAwsAccountConfig.Credentials.Credentials
-						// verbatim — Go's json.Marshal HTML-escapes `<` to `<`, so a `<aws-access-key>`
-						// placeholder round-trips as `<aws-access-key>` through the secret-reveal
-						// path. Keep in lockstep with the typed const at refapp.go:41.
-						"credentials": resolvedAwsAccountConfig.Credentials.Credentials,
+						// Keep in lockstep with resolvedAwsCredentialsJSON — Go's json.Marshal
+						// HTML-escapes `<` to `<`, so a `<aws-access-key>` secret
+						// round-trips as `<aws-access-key>` through the secret-reveal path.
+						"credentials": resolvedAwsCredentialsJSON,
 						"account":     "000",
 					},
 				},
@@ -560,12 +610,8 @@ var CommonSecretsDescriptor = &api.SecretsDescriptor{
 			}},
 		},
 		"aws": {
-			Type: aws.AuthTypeAWSToken,
-			Config: api.Config{Config: &aws.AccountConfig{
-				Account:         "000",
-				AccessKey:       "<aws-access-key>",
-				SecretAccessKey: "<aws-secret-key>",
-			}},
+			Type:   "aws-token",
+			Config: api.Config{Config: &awsTokenAuthConfig},
 		},
 		"pulumi": {
 			Type: pulumi.AuthTypePulumiToken,
