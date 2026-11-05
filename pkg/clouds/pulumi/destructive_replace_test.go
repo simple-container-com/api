@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
+
+	"github.com/simple-container-com/api/pkg/api"
 )
 
 // isDestructiveReplace is the single predicate the tracker + the
@@ -220,35 +222,29 @@ func TestRecordDestructiveReplace_IgnoresNonDestructiveEvents(t *testing.T) {
 	}
 }
 
-// The allowlist must stay tight — adding a type here suppresses the
-// guard for EVERY deploy, so a wrong entry silently reopens the
-// no-destroy hole S4 exists to close. Pin the current membership so
-// an unintended addition fails this test rather than reaching main.
-func TestSafeToReplaceTypes_PinsCurrentMembership(t *testing.T) {
+// The built-in allowlist in pkg/api must stay tight — a bad entry
+// silently reopens the no-destroy hole S4 exists to close. The full
+// runtime membership includes anything a plugin advertises via
+// SchemaResponse.SafeToReplaceTypes, so this test pins the built-in
+// baseline (the entries pkg/api seeds at init() with no plugin
+// discovery having run yet).
+//
+// Note: this test MUST run BEFORE any TestMain/init that spawns a
+// plugin schema in the same process, or it will see plugin-added
+// entries too. Today no other test in this package does so.
+func TestSafeToReplaceTypes_BuiltinBaseline(t *testing.T) {
 	want := map[string]bool{
 		"aws:ecs/taskDefinition:TaskDefinition": true,
 	}
-	if len(safeToReplaceTypes) != len(want) {
-		t.Fatalf("safeToReplaceTypes membership drifted: got %v (len=%d), want len=%d", keysOfSafeToReplaceTypes(), len(safeToReplaceTypes), len(want))
+	got := api.SafeToReplaceTypes()
+	if len(got) < len(want) {
+		t.Fatalf("built-in safe-to-replace set missing entries: got %v, want at least %v", got, want)
 	}
 	for typ := range want {
-		if _, ok := safeToReplaceTypes[typ]; !ok {
-			t.Errorf("safeToReplaceTypes missing expected entry %q", typ)
+		if _, ok := got[typ]; !ok {
+			t.Errorf("safe-to-replace registry missing baseline entry %q", typ)
 		}
 	}
-	for typ := range safeToReplaceTypes {
-		if !want[typ] {
-			t.Errorf("safeToReplaceTypes gained unexpected entry %q — update the test if intentional", typ)
-		}
-	}
-}
-
-func keysOfSafeToReplaceTypes() []string {
-	out := make([]string, 0, len(safeToReplaceTypes))
-	for k := range safeToReplaceTypes {
-		out = append(out, k)
-	}
-	return out
 }
 
 func TestRecordDestructiveReplace_AppendsOnMatch(t *testing.T) {

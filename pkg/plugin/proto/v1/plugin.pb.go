@@ -724,9 +724,28 @@ type SchemaResponse struct {
 	// built-in driver, because the same consumers read both: config validation, the
 	// generated config reference, and the refusal an operator sees for a driver that
 	// does not exist yet. SC core merges these rows into that table pre-engine.
-	VmDrivers     []*VmDriverSpec `protobuf:"bytes,9,rep,name=vm_drivers,json=vmDrivers,proto3" json:"vm_drivers,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	VmDrivers []*VmDriverSpec `protobuf:"bytes,9,rep,name=vm_drivers,json=vmDrivers,proto3" json:"vm_drivers,omitempty"`
+	// Resource types this plugin declares as SAFE for Pulumi's `replace`
+	// op — the provider publishes a new revision additively and any
+	// consuming resource re-references the new id on the same deploy.
+	// SC core suppresses the S4 destructive-replace guard
+	// (pkg/clouds/pulumi/destructive_replace.go) for types on this list.
+	//
+	// Entries must satisfy BOTH:
+	//  1. Provider's replace does NOT destroy the previous instance
+	//     from the cloud.
+	//  2. Downstream resources (service, alias, …) pick up the new id
+	//     without operator intervention.
+	//
+	// When in doubt, leave it off — the operator can still opt out per
+	// deploy with SC_ALLOW_DESTRUCTIVE_REPLACE=1. Canonical example:
+	// `aws:ecs/taskDefinition:TaskDefinition`, where every deploy
+	// publishes a new revision and the FargateService re-references the
+	// new ARN on the same deploy. See
+	// forge/docs/roadmap/items/sc-safe-to-replace-via-plugin-schema.md.
+	SafeToReplaceTypes []string `protobuf:"bytes,10,rep,name=safe_to_replace_types,json=safeToReplaceTypes,proto3" json:"safe_to_replace_types,omitempty"`
+	unknownFields      protoimpl.UnknownFields
+	sizeCache          protoimpl.SizeCache
 }
 
 func (x *SchemaResponse) Reset() {
@@ -818,6 +837,13 @@ func (x *SchemaResponse) GetSecretsProviderTypes() []string {
 func (x *SchemaResponse) GetVmDrivers() []*VmDriverSpec {
 	if x != nil {
 		return x.VmDrivers
+	}
+	return nil
+}
+
+func (x *SchemaResponse) GetSafeToReplaceTypes() []string {
+	if x != nil {
+		return x.SafeToReplaceTypes
 	}
 	return nil
 }
@@ -4114,7 +4140,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\"D\n" +
 	"\rSchemaRequest\x123\n" +
-	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\"\xd1\x03\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\"\x84\x04\n" +
 	"\x0eSchemaResponse\x12%\n" +
 	"\x0eplugin_version\x18\x01 \x01(\tR\rpluginVersion\x12%\n" +
 	"\x0eprovider_types\x18\x02 \x03(\tR\rproviderTypes\x12%\n" +
@@ -4125,7 +4151,9 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x0epulumi_plugins\x18\a \x03(\v2%.sc.plugin.v1.PulumiPluginRequirementR\rpulumiPlugins\x124\n" +
 	"\x16secrets_provider_types\x18\b \x03(\tR\x14secretsProviderTypes\x129\n" +
 	"\n" +
-	"vm_drivers\x18\t \x03(\v2\x1a.sc.plugin.v1.VmDriverSpecR\tvmDrivers\"\xcd\x01\n" +
+	"vm_drivers\x18\t \x03(\v2\x1a.sc.plugin.v1.VmDriverSpecR\tvmDrivers\x121\n" +
+	"\x15safe_to_replace_types\x18\n" +
+	" \x03(\tR\x12safeToReplaceTypes\"\xcd\x01\n" +
 	"\fVmDriverSpec\x12\x16\n" +
 	"\x06driver\x18\x01 \x01(\tR\x06driver\x12 \n" +
 	"\vimplemented\x18\x02 \x01(\bR\vimplemented\x12\x1e\n" +
