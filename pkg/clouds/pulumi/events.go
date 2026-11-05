@@ -8,10 +8,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/samber/lo"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/events"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
+	"github.com/samber/lo"
 )
 
 type contextValueType struct{}
@@ -100,7 +99,74 @@ func (p *pulumi) procResourceFailedEvent(ctx context.Context, evt events.EngineE
 
 func (p *pulumi) procResourcePreEvent(ctx context.Context, evt events.EngineEvent) {
 	pre := evt.ResourcePreEvent
+	p.recordDestructiveReplace(pre)
 	p.logger.Info(ctx, strings.TrimSpace("[%s][pulumi/pre] %s: %s \n %s"), p.contextActionName(ctx), pre.Metadata.URN, pre.Metadata.Op, p.diffSummary(pre.Metadata.DetailedDiff))
+}
+
+// destructiveReplace records a step whose plan would destroy a live
+// resource because an input the provider marked as replace-forcing has
+// changed. Pulumi emits three events per logical replace (OpReplace
+// summary, OpCreateReplacement for the create half, OpDeleteReplaced
+// for the delete half); we track only OpReplace to avoid triple-count,
+// and only when Old has a non-empty ID (i.e. the resource exists in
+// the world — a fresh `replace` with Old.ID == "" is a provider that
+// the engine flagged for replacement before it was ever created, which
+// cannot destroy anything).
+type destructiveReplace struct {
+	URN  string
+	Type string
+	// Keys lists the inputs that the provider reported as forcing the
+	// replace. Populated from StepEventMetadata.Keys, which is set for
+	// every replace/create-replacement step.
+	Keys []string
+}
+
+// isDestructiveReplace is the single predicate the tracker and the
+// tests share, so the condition is spelled out once and both sides
+// agree on what "an input-driven destructive step" is.
+func isDestructiveReplace(meta apitype.StepEventMetadata) bool {
+	if meta.Op != apitype.OpReplace {
+		return false
+	}
+	if meta.Old == nil {
+		return false
+	}
+	if meta.Old.ID == "" {
+		return false
+	}
+	// A resource SC itself marked for retention is still physically
+	// present post-delete, but the state entry still gets rewritten and
+	// a replace still re-points the state at a NEW object — which is
+	// exactly the shape that lost the forge-notifier DNS record in the
+	// 2026-10-28 outage (Cloudflare's provider sets RetainOnDelete on
+	// WorkersRoute by convention; the Record itself did not retain).
+	// The invariant is "SC does not silently re-point a resource that
+	// exists in the world to a different instance", so retention does
+	// not opt out of the check.
+	return true
+}
+
+func (p *pulumi) recordDestructiveReplace(pre *apitype.ResourcePreEvent) {
+	if pre == nil || !isDestructiveReplace(pre.Metadata) {
+		return
+	}
+	p.destructiveReplaces = append(p.destructiveReplaces, destructiveReplace{
+		URN:  pre.Metadata.URN,
+		Type: pre.Metadata.Type,
+		Keys: append([]string(nil), pre.Metadata.Keys...),
+	})
+}
+
+// drainDestructiveReplaces returns the recorded replaces and clears
+// the tracker. previewStack / previewChildStack call this once after
+// Preview() returns to decide whether to fail the operation. Clearing
+// here (not at Preview() start) is deliberate: a `pulumi` instance can
+// be re-used across multiple preview+up cycles, and we want each to
+// be judged in isolation.
+func (p *pulumi) drainDestructiveReplaces() []destructiveReplace {
+	out := p.destructiveReplaces
+	p.destructiveReplaces = nil
+	return out
 }
 
 func (p *pulumi) procResourceOutputsEvent(ctx context.Context, evt events.EngineEvent) {

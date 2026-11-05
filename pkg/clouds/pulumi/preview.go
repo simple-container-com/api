@@ -8,10 +8,9 @@ import (
 	"encoding/json"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
@@ -32,6 +31,9 @@ func (p *pulumi) previewStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	p.logger.Info(ctx, "Preview parent stack %q...", stackSource.Name())
 	previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, true)...)
 	if err != nil {
+		return nil, err
+	}
+	if err := destructiveReplaceErrorFrom(p.drainDestructiveReplaces()); err != nil {
 		return nil, err
 	}
 	p.logger.Info(ctx, "%s", color.GreenFmt("Preview parent summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))
@@ -57,6 +59,9 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child stack %q...", stackSource.Name()))
 	previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, true)...)
 	if err != nil {
+		return nil, err
+	}
+	if err := destructiveReplaceErrorFrom(p.drainDestructiveReplaces()); err != nil {
 		return nil, err
 	}
 	p.logger.Info(ctx, "%s", color.GreenFmt("Preview child summary: %q", p.toPreviewResult(stackSource.Name(), previewResult)))

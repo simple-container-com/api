@@ -13,11 +13,10 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/pkg/errors"
-	"github.com/samber/lo"
-
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/internal/build"
 	"github.com/simple-container-com/api/pkg/api"
@@ -60,6 +59,9 @@ func (p *pulumi) provisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 		}
 		previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, params.DetailedDiff)...)
 		if err != nil {
+			return err
+		}
+		if err := destructiveReplaceErrorFrom(p.drainDestructiveReplaces()); err != nil {
 			return err
 		}
 		p.logger.Info(ctx, "%s", color.GreenFmt("Preview summary: \n%s", p.toPreviewResult(stackSource.Name(), previewResult)))
