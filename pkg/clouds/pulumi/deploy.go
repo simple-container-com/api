@@ -48,7 +48,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 		}
 		previewResult, err := stackSource.Preview(ctx, p.previewOptions(ctx, ActionContextPreview, params.DetailedDiff)...)
 		if err != nil {
-			return err
+			return annotateNullSecretCheckpointError(err)
 		}
 		if err := destructiveReplaceErrorFrom(p.drainDestructiveReplaces()); err != nil {
 			return err
@@ -65,7 +65,7 @@ func (p *pulumi) deployStack(ctx context.Context, cfg *api.ConfigFile, stack api
 
 	upRes, err := stackSource.Up(ctx, p.upOptions(ctx, ActionContextDeploy, params.SkipRefresh, params.DetailedDiff)...)
 	if err != nil {
-		return err
+		return annotateNullSecretCheckpointError(err)
 	}
 	p.logger.Info(ctx, "%s", color.GreenFmt("Update summary: \n%s", p.toUpdateResult(stackSource.Name(), upRes)))
 	return nil

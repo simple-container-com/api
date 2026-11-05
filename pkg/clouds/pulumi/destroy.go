@@ -6,13 +6,12 @@ package pulumi
 import (
 	"context"
 
-	"github.com/samber/lo"
-
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optdestroy"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optrefresh"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger/color"
@@ -33,7 +32,7 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 		p.logger.Info(ctx, "%s", color.YellowFmt("Refreshing stack %q...", s.Ref().FullyQualifiedName()))
 		refreshResult, err := stackSource.Refresh(ctx, optrefresh.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextRefresh))))
 		if err != nil {
-			return err
+			return annotateNullSecretCheckpointError(err)
 		}
 		p.logger.Info(ctx, "%s", color.YellowFmt("Refresh summary: \n%s", p.toRefreshResult(refreshResult)))
 	}
@@ -48,7 +47,7 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 		p.logger.Info(ctx, "%s", color.RedFmt("Previewing destroy stack %q...", s.Ref().FullyQualifiedName()))
 		previewResult, err := stackSource.PreviewDestroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
 		if err != nil {
-			return err
+			return annotateNullSecretCheckpointError(err)
 		}
 		p.logger.Info(ctx, "%s", color.RedFmt("Preview destroy summary: \n%s", p.toPreviewResult(params.StackName, previewResult)))
 		return nil
@@ -56,7 +55,7 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 	p.logger.Info(ctx, "%s", color.RedFmt("Destroying stack %q...", s.Ref().FullyQualifiedName()))
 	destroyResult, err := stackSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
 	if err != nil {
-		return err
+		return annotateNullSecretCheckpointError(err)
 	}
 	p.logger.Info(ctx, "%s", color.RedFmt("Destroy summary: \n%s", p.toDestroyResult(destroyResult)))
 	s, err = p.validateStateAndGetStack(ctx)
@@ -83,7 +82,7 @@ func (p *pulumi) destroyStack(ctx context.Context, cfg *api.ConfigFile, s backen
 		p.logger.Info(ctx, "%s", color.RedFmt("Destroying stack %q...", ssSource.Name()))
 		destroyResult, err = ssSource.Destroy(ctx, optdestroy.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextDestroy))))
 		if err != nil {
-			return err
+			return annotateNullSecretCheckpointError(err)
 		}
 		p.logger.Info(ctx, "%s", color.RedFmt("Destroy summary: \n%s", p.toDestroyResult(destroyResult)))
 		_, err = p.backend.RemoveStack(ctx, sStack, false, false)
