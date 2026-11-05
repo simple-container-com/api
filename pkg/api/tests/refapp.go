@@ -75,25 +75,9 @@ var resolvedAwsLambdaTemplateConfig = api.PluginFieldConfig{
 	},
 }
 
-// awsTokenExtraProviderConfig covers the aws-token config nested
-// inside mongodb.ExtraProviders["AWS"] — same yaml shape.
-var awsTokenExtraProviderConfig = api.PluginFieldConfig{
-	TypeName:    "aws-token",
-	Credentials: "${auth:aws}",
-	Raw: map[string]any{
-		"credentials": "${auth:aws}",
-		"account":     "${auth:aws.projectId}",
-	},
-}
-
-var resolvedAwsTokenExtraProviderConfig = api.PluginFieldConfig{
-	TypeName:    "aws-token",
-	Credentials: resolvedAwsCredentialsJSON,
-	Raw: map[string]any{
-		"credentials": resolvedAwsCredentialsJSON,
-		"account":     "000",
-	},
-}
+// (aws-token config nested inside mongodb.ExtraProviders["AWS"] used
+// to need its own fixture var, but PR #549's mongodb opaque form keeps
+// the nested config as literal strings in Raw — no shared var required.)
 
 // awsTokenAuthConfig covers the Secrets.Auth["aws"] entry — yaml keys
 // {account, accessKey, secretAccessKey} per
