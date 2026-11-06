@@ -198,4 +198,16 @@ func registerSchemaTypes(pluginName string, schema *scpluginv1.SchemaResponse) {
 	for _, t := range schema.GetSafeToReplaceTypes() {
 		api.RegisterSafeToReplaceType(t)
 	}
+	// Auth `type:` discriminators the plugin's config tier declares.
+	// Seeds `providerConfigMapping` with the opaque
+	// `pluginOwnedWrappingDecoder` so `DetectAuthProvider` resolves a
+	// server.yaml / secrets.yaml `auth.<name>.type: <auth-type>`
+	// without the plugin's `/api` module being link-time-imported.
+	// Before this loop existed, `plugin_bootstrap.go`'s hardcoded table
+	// was the only path — new plugin repos needed a bootstrap edit on
+	// the api side for every auth type. See
+	// forge/docs/roadmap/items/sc-plugin-auth-type-has-no-wire-path.md.
+	for _, t := range schema.GetAuthTypes() {
+		api.RegisterPluginOwnedType(t, api.PluginOwnedKindAuth, pluginName)
+	}
 }
