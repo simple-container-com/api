@@ -225,6 +225,31 @@ message SchemaResponse {
   // new ARN on the same deploy. See
   // forge/docs/roadmap/items/sc-safe-to-replace-via-plugin-schema.md.
   repeated string safe_to_replace_types = 10;
+
+  // AuthTypes lists the `type:` discriminators a plugin's auth
+  // configs use — e.g. `gcp-service-account`, `mws-service-account`,
+  // `aws-token`. SC core seeds `providerConfigMapping` with the opaque
+  // `pluginOwnedWrappingDecoder` for each entry, so a server.yaml that
+  // declares `auth.<name>.type: <auth-type>` parses without SC core
+  // needing to link-time-import the plugin's `/api` module.
+  //
+  // Before this field existed, `plugin_bootstrap.go`'s hardcoded table
+  // was the only path for a plugin core doesn't link-time-import, which
+  // meant every new plugin repo needed a bootstrap-table edit on the
+  // api side — defeating the "dynamic discovery owns it" promise for
+  // the auth half of the config tier (resource/state-store/
+  // secrets-provider/registrar/compute-processor/vm were already
+  // covered by their own Schema fields). Live-caught trying to
+  // register `mws-service-account` and `gcp-service-account` from
+  // plugins not in the bootstrap table — both died at parse with
+  // `unknown auth type` before any provisioning work ran. See
+  // forge/docs/roadmap/items/sc-plugin-auth-type-has-no-wire-path.md.
+  //
+  // Older plugin binaries that pre-date this field send no auth_types,
+  // the stackread loop runs zero times, and the bootstrap-table seed
+  // keeps covering aws/yandex/cloudflare/cloudru/mongodb exactly as
+  // today — additive by construction.
+  repeated string auth_types = 11;
 }
 
 // VmDriverSpec is one row of the VM driver table, as advertised by a plugin.

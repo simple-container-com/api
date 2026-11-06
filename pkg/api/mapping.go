@@ -112,6 +112,23 @@ const (
 	PluginOwnedKindComputeProcessor PluginOwnedKind = "compute-processor"
 	PluginOwnedKindVmDriver         PluginOwnedKind = "vm-driver"
 	PluginOwnedKindProvisionerField PluginOwnedKind = "provisioner-field"
+
+	// PluginOwnedKindAuth labels a `type:` discriminator used in a
+	// server.yaml / secrets.yaml `auth:` block. Deliberately equal to
+	// `PluginOwnedKindResource + "/auth"` — the composite string already
+	// shipped in `plugin_bootstrap.go` for aws/yandex/cloudru entries, so
+	// adding this const + refactoring the three literals is byte-identical
+	// to the existing registration; nothing changes for the five
+	// link-time-imported + bootstrap-table-seeded plugins.
+	//
+	// The const is what `stackread.registerSchemaTypes` passes to
+	// `RegisterPluginOwnedType` for every entry in a plugin's
+	// `SchemaResponse.auth_types`. Kind is read for provenance only; the
+	// state-store/secrets-provider branch at `mapping.go:162` fires on
+	// distinct kinds, so auth seeds `providerConfigMapping` alone (which
+	// is what `DetectAuthProvider` at `read.go:183` reads, and the only
+	// map the auth path touches).
+	PluginOwnedKindAuth PluginOwnedKind = PluginOwnedKindResource + "/auth"
 )
 
 // PluginOwnedBinding is the record for a single type → plugin

@@ -149,23 +149,23 @@ func init() {
 			PluginOwnedKindSecretsProvider: {"aws-kms", "aws-secrets-manager"},
 			// Auth tokens MUST be registered too — see the comment
 			// above for the forge-runtime regression.
-			PluginOwnedKindResource + "/auth": {"aws-token"},
+			PluginOwnedKindAuth: {"aws-token"},
 		},
 		"yandex": {
-			PluginOwnedKindResource:           {"yandex", "yc-bucket", "yc-wildcard-cert", "yc-serverless-container", "yc-static-website", "yc-lockbox"},
-			PluginOwnedKindRegistrar:          {"yc-dns"},
-			PluginOwnedKindStateStore:         {"yc-object-storage"},
-			PluginOwnedKindSecretsProvider:    {"yc-kms"},
-			PluginOwnedKindResource + "/auth": {"yc-service-account"},
+			PluginOwnedKindResource:        {"yandex", "yc-bucket", "yc-wildcard-cert", "yc-serverless-container", "yc-static-website", "yc-lockbox"},
+			PluginOwnedKindRegistrar:       {"yc-dns"},
+			PluginOwnedKindStateStore:      {"yc-object-storage"},
+			PluginOwnedKindSecretsProvider: {"yc-kms"},
+			PluginOwnedKindAuth:            {"yc-service-account"},
 		},
 		"cloudflare": {
 			PluginOwnedKindResource:  {"cloudflare-static-website"},
 			PluginOwnedKindRegistrar: {"cloudflare"},
 		},
 		"cloudru": {
-			PluginOwnedKindResource:           {"cloudru", "cloudru-container-app", "cloudru-vm", "cloudru-evolution-vm"},
-			PluginOwnedKindRegistrar:          {"cloudru-dns"},
-			PluginOwnedKindResource + "/auth": {"cloudru-access-key", "cloudru-evolution-key"},
+			PluginOwnedKindResource:  {"cloudru", "cloudru-container-app", "cloudru-vm", "cloudru-evolution-vm"},
+			PluginOwnedKindRegistrar: {"cloudru-dns"},
+			PluginOwnedKindAuth:      {"cloudru-access-key", "cloudru-evolution-key"},
 		},
 		"mongodb": {
 			PluginOwnedKindResource: {"mongodb-atlas"},

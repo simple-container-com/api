@@ -744,8 +744,32 @@ type SchemaResponse struct {
 	// new ARN on the same deploy. See
 	// forge/docs/roadmap/items/sc-safe-to-replace-via-plugin-schema.md.
 	SafeToReplaceTypes []string `protobuf:"bytes,10,rep,name=safe_to_replace_types,json=safeToReplaceTypes,proto3" json:"safe_to_replace_types,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// AuthTypes lists the `type:` discriminators a plugin's auth
+	// configs use — e.g. `gcp-service-account`, `mws-service-account`,
+	// `aws-token`. SC core seeds `providerConfigMapping` with the opaque
+	// `pluginOwnedWrappingDecoder` for each entry, so a server.yaml that
+	// declares `auth.<name>.type: <auth-type>` parses without SC core
+	// needing to link-time-import the plugin's `/api` module.
+	//
+	// Before this field existed, `plugin_bootstrap.go`'s hardcoded table
+	// was the only path for a plugin core doesn't link-time-import, which
+	// meant every new plugin repo needed a bootstrap-table edit on the
+	// api side — defeating the "dynamic discovery owns it" promise for
+	// the auth half of the config tier (resource/state-store/
+	// secrets-provider/registrar/compute-processor/vm were already
+	// covered by their own Schema fields). Live-caught trying to
+	// register `mws-service-account` and `gcp-service-account` from
+	// plugins not in the bootstrap table — both died at parse with
+	// `unknown auth type` before any provisioning work ran. See
+	// forge/docs/roadmap/items/sc-plugin-auth-type-has-no-wire-path.md.
+	//
+	// Older plugin binaries that pre-date this field send no auth_types,
+	// the stackread loop runs zero times, and the bootstrap-table seed
+	// keeps covering aws/yandex/cloudflare/cloudru/mongodb exactly as
+	// today — additive by construction.
+	AuthTypes     []string `protobuf:"bytes,11,rep,name=auth_types,json=authTypes,proto3" json:"auth_types,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SchemaResponse) Reset() {
@@ -844,6 +868,13 @@ func (x *SchemaResponse) GetVmDrivers() []*VmDriverSpec {
 func (x *SchemaResponse) GetSafeToReplaceTypes() []string {
 	if x != nil {
 		return x.SafeToReplaceTypes
+	}
+	return nil
+}
+
+func (x *SchemaResponse) GetAuthTypes() []string {
+	if x != nil {
+		return x.AuthTypes
 	}
 	return nil
 }
@@ -4140,7 +4171,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\"D\n" +
 	"\rSchemaRequest\x123\n" +
-	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\"\x84\x04\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\"\xa3\x04\n" +
 	"\x0eSchemaResponse\x12%\n" +
 	"\x0eplugin_version\x18\x01 \x01(\tR\rpluginVersion\x12%\n" +
 	"\x0eprovider_types\x18\x02 \x03(\tR\rproviderTypes\x12%\n" +
@@ -4153,7 +4184,9 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\n" +
 	"vm_drivers\x18\t \x03(\v2\x1a.sc.plugin.v1.VmDriverSpecR\tvmDrivers\x121\n" +
 	"\x15safe_to_replace_types\x18\n" +
-	" \x03(\tR\x12safeToReplaceTypes\"\xcd\x01\n" +
+	" \x03(\tR\x12safeToReplaceTypes\x12\x1d\n" +
+	"\n" +
+	"auth_types\x18\v \x03(\tR\tauthTypes\"\xcd\x01\n" +
 	"\fVmDriverSpec\x12\x16\n" +
 	"\x06driver\x18\x01 \x01(\tR\x06driver\x12 \n" +
 	"\vimplemented\x18\x02 \x01(\bR\vimplemented\x12\x1e\n" +
