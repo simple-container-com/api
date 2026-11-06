@@ -106,6 +106,56 @@ func TestRegisterPluginDriver_MigratedToPluginAllowsRegistration(t *testing.T) {
 	Expect(info.Plugin).To(BeEmpty())
 }
 
+// A PLACEHOLDER row — a name plus a roadmap item, `Implemented: false`, no code —
+// is not a built-in either, and must not lock the plugin that implements it out of
+// its own driver name.
+//
+// Found 2026-11-06 while scaffolding sc-plugin-mws: `mws-vm` has had a `Drivers`
+// row since the vm-matrix work, unflagged and unimplemented, so the collision check
+// answered `plugin "mws" advertises vm provider "mws-vm", which SC core provides
+// itself` for a driver SC core does not provide at all. The same wall sits in front
+// of `yc-vm`, `openstack-vm`, `vkcs-vm` and `timeweb-vm`, so this test walks every
+// unimplemented row rather than just the one that surfaced it.
+func TestRegisterPluginDriver_PlaceholderRowAllowsRegistration(t *testing.T) {
+	RegisterTestingT(t)
+	defer ResetPluginDrivers()
+
+	placeholders := make([]string, 0, len(Drivers))
+	for name, info := range Drivers {
+		if !info.Implemented && !info.MigratedToPlugin {
+			placeholders = append(placeholders, name)
+		}
+	}
+	Expect(placeholders).To(ContainElement(DriverMws),
+		"mws-vm must stay a placeholder row until a driver is implemented for it somewhere")
+
+	for _, name := range placeholders {
+		Expect(RegisterPluginDriver("sc-plugin-"+name, name, pluginRow())).ToNot(HaveOccurred(),
+			"placeholder row %q must not refuse the plugin that implements it", name)
+
+		// The plugin's row wins, and dispatch routes to its VmHosts RPC.
+		info, ok := LookupDriver(name)
+		Expect(ok).To(BeTrue())
+		Expect(info.Implemented).To(BeTrue())
+		Expect(info.Plugin).To(Equal("sc-plugin-" + name))
+		Expect(PluginForDriver(name)).To(Equal("sc-plugin-" + name))
+	}
+
+	// Without the plugin, the stale placeholder metadata still answers, so a config
+	// naming it reads "not implemented yet" and not "unknown provider".
+	ResetPluginDrivers()
+	info, ok := LookupDriver(DriverMws)
+	Expect(ok).To(BeTrue())
+	Expect(info.Implemented).To(BeFalse())
+	Expect(info.Plugin).To(BeEmpty())
+	Expect(PluginForDriver(DriverMws)).To(BeEmpty())
+
+	err := (&VmConfig{Driver: DriverMws, Region: "ru-central1", PublicIP: true}).Validate()
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("not implemented yet"))
+	Expect(err.Error()).To(ContainSubstring("sc-ru-clouds-beyond-yandex"))
+}
+
 // Two plugins claiming one driver name is an operator-fixable configuration error,
 // and the message has to name both of them — otherwise "uninstall one" is advice
 // with no object.
