@@ -578,6 +578,48 @@ func (p *PluginFieldConfig) CredentialsValue() string {
 // map/slice) unchanged — those decoders handle themselves. Nested maps
 // are walked recursively because nested credential blocks (e.g. a
 // config-under-config shape) carry the same hazard.
+//
+// Open class worth naming (breadcrumb, not a TODO — this function
+// cannot close the class without the target's Go type): a `string`
+// field whose content is itself structured — a stringified JSON object,
+// an inline JSON array, a serialized map. Known instances:
+//
+//   - Number-as-string: fixed by the branches above after forge-conductor
+//     isolated verify run 41728259367 (nested `accountId` numeric).
+//   - Object-as-string: measured against sc-plugin-mws's
+//     `AccountConfig.ServiceAccountAuthorizedKey` (verbatim authorized-key
+//     JSON document), 2026-11-06. See
+//     forge/docs/design/2026-11-01/plugin-extraction-playbook/ Trap 20.
+//
+// The timing is what makes it a trap, not the message. This coercer
+// only ever runs on the OPAQUE path — `PluginFieldConfig.CredentialsValue()`
+// is its sole caller, and `PluginFieldConfig` is produced only by
+// `pluginOwnedWrappingDecoder` (`mapping.go`). So the numeric branches
+// above are an opaque-path repair for leniency the TYPED path gets free
+// from yaml.v3 (measured: `project: 123456789012` into a `string` field
+// yields `err=<nil>, "123456789012"`).
+//
+// For structured content there is no repair available here: `Raw` is
+// `map[string]any`, there is no string-typed field for core to reject
+// against, and the nested object lands verbatim in the JSON handed to
+// the plugin. It is refused plugin-side at `api.ConvertAuth` AFTER the
+// state-store lock is taken and Pulumi has spun up, in a different
+// process. That is the trap 19 class ("validation that stops running")
+// concretised for fields the plugin never wrote.
+//
+// The typed path refuses the same tree at parse time but reports
+// `line N: cannot unmarshal !!map into string` — no field name, and
+// N indexes the marshalled intermediate (`map[string]any` → `yaml.Marshal`
+// → `yaml.Unmarshal`, `mapping.go`) rather than the operator's file,
+// so on a large auth tree it is an actively misleading locator. The
+// opaque path's `AccountConfig.<field> of type string` message is
+// strictly more useful for *identifying* the field, just not for
+// knowing *when* to fix it.
+//
+// Mitigation anchor is plugin-side: the plugin's own raw-tree decode
+// must call `Validate()` on the typed config as it decodes. Core
+// cannot fix this here without knowing the target type, which this
+// coercer runs before. Hence the breadcrumb.
 func coerceToStringIfScalarNumber(v any) any {
 	switch x := v.(type) {
 	case int:
