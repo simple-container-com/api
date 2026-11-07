@@ -71,6 +71,43 @@ func TestServerArgsRendersEachTopology(t *testing.T) {
 	Expect(ArgsMarkerPath(ServerUnit)).NotTo(Equal(ArgsMarkerPath(AgentUnit)))
 }
 
+// NodeIP is the one addressing decision SC makes for k3s, and the reason it exists
+// is that k3s's own default is wrong on a single-NIC VPS: it advertises the
+// default-route address, which there is the PUBLIC one, putting etcd peer traffic
+// and flannel's unencrypted VXLAN overlay on the internet (vm.VmHost.PrivateAddress).
+func TestNodeIPPinsBothAdvertisedAddressesOnAServerAndOnlyNodeIPOnAnAgent(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := &cfgK3s.K3sClusterConfig{}
+
+	// `--node-ip` alone is not enough on a server: the API server would still
+	// advertise its default-route address to its peers, which is the value this
+	// exists to avoid. Both flags, both to the same address.
+	first := ServerArgs(cfg, []string{"a"}, nil, JoinSpec{ClusterInit: true, NodeIP: "10.0.0.10"})
+	Expect(first).To(ContainSubstring("--node-ip 10.0.0.10"))
+	Expect(first).To(ContainSubstring("--advertise-address 10.0.0.10"))
+
+	joining := ServerArgs(cfg, []string{"a"}, nil,
+		JoinSpec{ServerURL: "https://10.0.0.10:6443", NodeIP: "10.0.0.11"})
+	Expect(joining).To(ContainSubstring("--node-ip 10.0.0.11"))
+	Expect(joining).To(ContainSubstring("--advertise-address 10.0.0.11"))
+
+	// `--advertise-address` is server-only; an agent handed it exits with an
+	// unknown-flag error and the node never starts.
+	agent := AgentArgs(JoinSpec{ServerURL: "https://10.0.0.10:6443", NodeIP: "10.0.0.12"})
+	Expect(agent).To(Equal("agent --server https://10.0.0.10:6443 --node-ip 10.0.0.12"))
+	Expect(agent).NotTo(ContainSubstring("--advertise-address"))
+
+	// An empty NodeIP renders nothing at all, on both roles. That is what keeps a
+	// single-node cluster's args marker byte-identical to what it was before this
+	// field existed — otherwise every existing control plane reinstalls for no
+	// behaviour change.
+	Expect(ServerArgs(cfg, []string{"a"}, nil, JoinSpec{ClusterInit: true})).
+		NotTo(ContainSubstring("--node-ip"))
+	Expect(AgentArgs(JoinSpec{ServerURL: "https://10.0.0.10:6443"})).
+		NotTo(ContainSubstring("--node-ip"))
+}
+
 // The join token must not reach the argument vector. It would land in the args
 // marker on the machine and in the Pulumi checkpoint as part of that string, and a
 // token rotation would then make the marker compare unequal — reinstalling a healthy

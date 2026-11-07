@@ -122,7 +122,12 @@ func K3sCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	sanInputs := []any{endpoint}
 	for i, h := range vmOut.Hosts {
 		if roles[i] == vm.RoleK3sServer {
-			sanInputs = append(sanInputs, h.Address)
+			// Both addresses of every server. The public one is what an operator and
+			// the kubeconfig dial; the private one is what peers dial, because that is
+			// what `--advertise-address` makes the API server advertise. Omitting the
+			// private one is an x509 failure on every server-to-server call, and it
+			// presents as a cluster that forms and then cannot elect a leader.
+			sanInputs = append(sanInputs, h.Address, h.EffectivePrivateAddress())
 		}
 	}
 	sans := sdk.All(sanInputs...).ApplyT(func(args []any) []string {
@@ -133,15 +138,23 @@ func K3sCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	// endpoint may be a name that does not resolve yet (the registrar writes it in
 	// the same provision) or a load balancer whose health checks only pass once the
 	// nodes it balances are up — either way a join that waits for it deadlocks.
-	joinURL := host.Address.ApplyT(func(addr string) string {
+	//
+	// Its PRIVATE address, because a join is node-to-node traffic. Equal to the
+	// public one whenever the distinction does not apply (see HostFacts).
+	joinURL := host.EffectivePrivateAddress().ApplyT(func(addr string) string {
 		return fmt.Sprintf("https://%s:%d", addr, k3s.APIPort)
 	}).(sdk.StringOutput)
 
-	installScript := sans.ApplyT(func(sans []string) string {
+	// Only on a multi-node cluster: a single node has no peers to advertise to, and
+	// pinning `--node-ip` there would change the args marker of every existing
+	// single-node cluster and reinstall its control plane for no behaviour change.
+	nodeIP := lo.If(len(vmOut.Hosts) > 1, host.EffectivePrivateAddress()).Else(sdk.String("").ToStringOutput())
+
+	installScript := sdk.All(sans, nodeIP).ApplyT(func(args []any) string {
 		// `--cluster-init` only when this cluster has more than one server: embedded
 		// etcd on a single node is a strictly worse sqlite (see JoinSpec).
-		args := ServerArgs(cfg, sans, disable, JoinSpec{ClusterInit: serverCount > 1})
-		return InstallScript(version, installURL, args, ServerUnit, "")
+		join := JoinSpec{ClusterInit: serverCount > 1, NodeIP: args[1].(string)}
+		return InstallScript(version, installURL, ServerArgs(cfg, args[0].([]string), disable, join), ServerUnit, "")
 	}).(sdk.StringOutput)
 
 	conn := pulumiVm.ConnectionArgs(host)
@@ -473,9 +486,12 @@ func installNode(
 	// The argument vector is rendered WITHOUT the token (see ServerArgs) and is
 	// therefore safe to use as a trigger: the token is in the script, and a trigger
 	// set holding it would put a cluster credential in every preview diff.
-	nodeArgs := sdk.All(a.sans, a.joinURL).ApplyT(func(args []any) string {
+	// Every node reached here is part of a multi-node cluster by construction — a
+	// single-node cluster has no node to join — so `--node-ip` is always set, to
+	// THIS host's private address rather than host 0's.
+	nodeArgs := sdk.All(a.sans, a.joinURL, host.EffectivePrivateAddress()).ApplyT(func(args []any) string {
 		sans := args[0].([]string)
-		join := JoinSpec{ServerURL: args[1].(string)}
+		join := JoinSpec{ServerURL: args[1].(string), NodeIP: args[2].(string)}
 		if role == vm.RoleK3sAgent {
 			return AgentArgs(join)
 		}

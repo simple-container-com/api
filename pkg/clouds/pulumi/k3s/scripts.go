@@ -92,6 +92,23 @@ type JoinSpec struct {
 	// sqlite to etcd on that restart, but it is a datastore conversion on a live
 	// control plane and not something to do on a whim.
 	ClusterInit bool
+
+	// NodeIP is the address this node advertises to the rest of the cluster, and
+	// becomes `--node-ip`. Empty on a single-node cluster, where there is no rest of
+	// the cluster and k3s's own default is harmless.
+	//
+	// Set on every node of a multi-node cluster, because k3s's default is to use the
+	// address of the default-route interface. On a cloud VM reached through a
+	// floating/NAT IP that is already the internal address; on a single-NIC VPS it is
+	// the PUBLIC one, and then etcd peer traffic and flannel's unencrypted VXLAN
+	// overlay cross the public internet. Config-tier validation refuses a multi-node
+	// pool whose private addresses are unknown (vm.VmHost.PrivateAddress), so by the
+	// time this is empty on a multi-node cluster something upstream is wrong.
+	//
+	// It belongs in the args vector — and therefore in the args marker — on purpose:
+	// a node whose advertised address changed must be reinstalled, not left
+	// advertising a stale one.
+	NodeIP string
 }
 
 // ServerArgs is the full argument vector SC installs a k3s server with, starting
@@ -111,6 +128,13 @@ func ServerArgs(cfg *k3s.K3sClusterConfig, sans []string, disable []string, join
 	if join.ServerURL != "" {
 		args = append(args, "--server", join.ServerURL)
 	}
+	if join.NodeIP != "" {
+		// Both flags, and both to the same value. `--node-ip` is what the node
+		// advertises and what flannel and the kubelet bind to; without
+		// `--advertise-address` the API server would still advertise its
+		// default-route address to peers, which is the value this exists to avoid.
+		args = append(args, "--node-ip", join.NodeIP, "--advertise-address", join.NodeIP)
+	}
 	for _, san := range sans {
 		args = append(args, "--tls-san", san)
 	}
@@ -127,8 +151,16 @@ func ServerArgs(cfg *k3s.K3sClusterConfig, sans []string, disable []string, join
 // `extraServerArgs` are server-only flags. k3s's agent does not merely ignore them —
 // it exits with an unknown-flag error, and the installer that forwarded them reports
 // a service that will not start.
+//
+// `--node-ip` is NOT in that category: the agent accepts it, and an agent is where
+// it matters most, since the kubelet and flannel both bind to the advertised
+// address. `--advertise-address` is server-only and so is absent here.
 func AgentArgs(join JoinSpec) string {
-	return strings.Join([]string{"agent", "--server", join.ServerURL}, " ")
+	args := []string{"agent", "--server", join.ServerURL}
+	if join.NodeIP != "" {
+		args = append(args, "--node-ip", join.NodeIP)
+	}
+	return strings.Join(args, " ")
 }
 
 // UnitFor is the systemd unit the installer will write for a role.

@@ -205,6 +205,44 @@ type VmHost struct {
 	// host 0 says `k3s-server` and host 1 says nothing is a pool whose host 1 is a
 	// guess, and the guess decides whether it joins the cluster at all.
 	Role string `json:"role,omitempty" yaml:"role,omitempty"`
+
+	// PrivateAddress is the address this machine's SIBLINGS should use to reach it.
+	// `address` is what SC dials from outside; this is what the fleet dials from
+	// inside, and on a multi-node k3s pool they are not interchangeable.
+	//
+	// Required for a multi-host k3s pool, and the reason is worth stating here
+	// rather than only in the error: k3s is told nothing about addressing by SC
+	// (`--node-ip`, `--node-external-ip` and `--flannel-iface` are set nowhere), so
+	// it defaults node-ip to the address of the default-route interface. On a cloud
+	// VM reached through a floating/NAT IP that is already the private address and
+	// everything is correct. On a single-NIC VPS with a directly attached public IP
+	// it is the PUBLIC address — and then etcd peer traffic (the cluster's entire
+	// state, every Secret) and flannel's VXLAN overlay (unencrypted; see
+	// pkg/clouds/k3s/cluster.go) cross the public internet, on a `byo` host that has
+	// no firewall to stop them (pkg/clouds/pulumi/vm/byo.go). That deploy SUCCEEDS,
+	// which is why this is a refusal and not a warning.
+	//
+	// Not required for a compose fleet: those machines never talk to each other (the
+	// only shared state is the ACME store, reached outbound over HTTPS), so there is
+	// no node-to-node traffic to misdirect.
+	//
+	// Hosters without private networking have no value to put here. That case needs
+	// an SC-managed WireGuard mesh, which does not exist yet — see the roadmap item
+	// named in the error, and forge design 2026-11-07/multi-node-clusters §5.8.
+	PrivateAddress string `json:"privateAddress,omitempty" yaml:"privateAddress,omitempty"`
+}
+
+// EffectivePrivateAddress is the address siblings of this machine should dial:
+// `privateAddress` when the operator named one, else `address`.
+//
+// The fallback is only reached on shapes that do not need the distinction — a
+// compose fleet, or a single-host pool — because validateHostRoles refuses a
+// multi-host k3s pool that names none (see VmHost.PrivateAddress).
+func (h VmHost) EffectivePrivateAddress() string {
+	if h.PrivateAddress != "" {
+		return h.PrivateAddress
+	}
+	return h.Address
 }
 
 // EffectiveRole resolves the machine's role, falling back to RoleCompose — which
@@ -658,6 +696,37 @@ func (r *VmConfig) validateHostRoles() error {
 			servers, RoleK3sServer, servers,
 		)
 	}
+	// Node-to-node addressing. A single-node cluster has no node-to-node traffic, so
+	// it is unaffected and every pre-existing single-host k3s config stays valid.
+	//
+	// Refused rather than warned because the failure mode is a SUCCESS: the cluster
+	// comes up, `kubectl get nodes` is green, and etcd plus an unencrypted VXLAN
+	// overlay are on the public internet. See VmHost.PrivateAddress for why SC
+	// cannot infer the value — k3s picks the default-route interface and `HostFacts`
+	// carries no private address to override it with.
+	if len(r.Hosts) > 1 {
+		noPrivate := lo.FilterMap(r.Hosts, func(h VmHost, i int) (string, bool) {
+			return fmt.Sprintf("hosts[%d] (%s)", i, h.Address), h.PrivateAddress == ""
+		})
+		if len(noPrivate) > 0 {
+			return errors.Errorf(
+				"a multi-node k3s pool requires `privateAddress` on every entry under `hosts`, and %s %s "+
+					"none. Without it k3s advertises whichever address the machine's default route uses — the "+
+					"public one on a single-NIC VPS — so etcd peer traffic and flannel's unencrypted VXLAN "+
+					"overlay would cross the public internet, and `provider: %s` has no firewall to stop them. "+
+					"That deploy succeeds, which is why this is refused rather than warned about. Give each host "+
+					"the address its siblings reach it on; if these machines share no private network, this "+
+					"topology needs the WireGuard mesh of roadmap item sc-vm-multi-node-clusters, which is not "+
+					"built yet — declare a compose fleet instead, which needs no node-to-node traffic at all",
+				strings.Join(noPrivate, ", "), lo.If(len(noPrivate) == 1, "names").Else("name"), DriverByo,
+			)
+		}
+		if dup, ok := firstDuplicatePrivateAddress(r.Hosts); ok {
+			// Same reasoning as the duplicate `address` check above, and the same
+			// late-and-confusing failure: two nodes claiming one node-ip.
+			return errors.Errorf("`hosts` gives %q as the `privateAddress` of more than one machine", dup)
+		}
+	}
 	return nil
 }
 
@@ -670,6 +739,24 @@ func firstDuplicateAddress(hosts []VmHost) (string, bool) {
 			return h.Address, true
 		}
 		seen[h.Address] = true
+	}
+	return "", false
+}
+
+// firstDuplicatePrivateAddress is firstDuplicateAddress over `privateAddress`.
+// Empty values are skipped: a pool that names none is either refused by
+// validateHostRoles or does not need them, and treating "" as a collision would
+// turn both of those into this error instead.
+func firstDuplicatePrivateAddress(hosts []VmHost) (string, bool) {
+	seen := make(map[string]bool, len(hosts))
+	for _, h := range hosts {
+		if h.PrivateAddress == "" {
+			continue
+		}
+		if seen[h.PrivateAddress] {
+			return h.PrivateAddress, true
+		}
+		seen[h.PrivateAddress] = true
 	}
 	return "", false
 }

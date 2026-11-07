@@ -208,6 +208,18 @@ func TestValidateHostRoles(t *testing.T) {
 		return VmHost{Address: address, PrivateKey: "k", Role: role}
 	}
 
+	// k3sHost also names the address the machine's SIBLINGS dial it on. Every valid
+	// multi-node k3s shape has to: without it k3s advertises its default-route
+	// address, which on a single-NIC VPS is the public one (VmHost.PrivateAddress).
+	// The refused shapes below deliberately do NOT use this helper — the addressing
+	// check runs after the topology checks, so a pool that is the wrong shape says so
+	// rather than complaining about addresses it would never have used.
+	k3sHost := func(address, private, role string) VmHost {
+		h := host(address, role)
+		h.PrivateAddress = private
+		return h
+	}
+
 	cases := []struct {
 		name     string
 		hosts    []VmHost
@@ -233,17 +245,65 @@ func TestValidateHostRoles(t *testing.T) {
 		{
 			name: "one server, two agents — the default k3s topology",
 			hosts: []VmHost{
-				host("203.0.113.10", string(RoleK3sServer)),
-				host("203.0.113.11", string(RoleK3sAgent)),
-				host("203.0.113.12", string(RoleK3sAgent)),
+				k3sHost("203.0.113.10", "10.0.0.10", string(RoleK3sServer)),
+				k3sHost("203.0.113.11", "10.0.0.11", string(RoleK3sAgent)),
+				k3sHost("203.0.113.12", "10.0.0.12", string(RoleK3sAgent)),
 			},
 		},
 		{
 			name: "three servers — embedded-etcd HA",
 			hosts: []VmHost{
+				k3sHost("203.0.113.10", "10.0.0.10", string(RoleK3sServer)),
+				k3sHost("203.0.113.11", "10.0.0.11", string(RoleK3sServer)),
+				k3sHost("203.0.113.12", "10.0.0.12", string(RoleK3sServer)),
+			},
+		},
+		{
+			// A single-node cluster has no node-to-node traffic, so it is exempt — and
+			// has to be, or every k3s config written before `privateAddress` existed
+			// would stop validating.
+			name:  "single k3s server needs no private address",
+			hosts: []VmHost{host("203.0.113.10", string(RoleK3sServer))},
+		},
+		{
+			// The whole point of the refusal: this shape otherwise DEPLOYS, green, with
+			// etcd and an unencrypted VXLAN overlay on the public internet.
+			name: "multi-node k3s with no private addresses",
+			hosts: []VmHost{
 				host("203.0.113.10", string(RoleK3sServer)),
-				host("203.0.113.11", string(RoleK3sServer)),
-				host("203.0.113.12", string(RoleK3sServer)),
+				host("203.0.113.11", string(RoleK3sAgent)),
+			},
+			errMatch: "a multi-node k3s pool requires `privateAddress` on every entry under `hosts`, " +
+				"and hosts[0] (203.0.113.10), hosts[1] (203.0.113.11) name none",
+		},
+		{
+			// All-or-none, same as `role`: one machine left on its default route is one
+			// machine advertising a public node-ip, which is the whole failure.
+			name: "multi-node k3s with one private address missing",
+			hosts: []VmHost{
+				k3sHost("203.0.113.10", "10.0.0.10", string(RoleK3sServer)),
+				host("203.0.113.11", string(RoleK3sAgent)),
+			},
+			errMatch: "and hosts[1] (203.0.113.11) names none",
+		},
+		{
+			// Two nodes claiming one node-ip: the second overwrites the first in the
+			// cluster, and the symptom appears nowhere near the config.
+			name: "multi-node k3s with a repeated private address",
+			hosts: []VmHost{
+				k3sHost("203.0.113.10", "10.0.0.10", string(RoleK3sServer)),
+				k3sHost("203.0.113.11", "10.0.0.10", string(RoleK3sAgent)),
+			},
+			errMatch: "`hosts` gives \"10.0.0.10\" as the `privateAddress` of more than one machine",
+		},
+		{
+			// A compose fleet is exempt: those machines never talk to each other. The
+			// only shared state is the ACME store, reached outbound over HTTPS.
+			name: "compose fleet needs no private addresses",
+			hosts: []VmHost{
+				host("203.0.113.10", string(RoleCompose)),
+				host("203.0.113.11", string(RoleCompose)),
+				host("203.0.113.12", string(RoleCompose)),
 			},
 		},
 		{
@@ -330,6 +390,18 @@ func TestEffectiveRole(t *testing.T) {
 	Expect(RoleK3sAgent.IsK3s()).To(BeTrue())
 	Expect(RoleCompose.IsK3s()).To(BeFalse())
 	Expect(VmHost{}.EffectiveRole().IsK3s()).To(BeFalse())
+}
+
+// EffectivePrivateAddress falls back to `address`, which is what keeps every
+// single-host and compose-fleet config written before `privateAddress` existed
+// producing the same HostFacts. A multi-node k3s pool cannot reach the fallback —
+// validateHostRoles refuses one that names no private addresses.
+func TestEffectivePrivateAddress(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect(VmHost{Address: "203.0.113.10"}.EffectivePrivateAddress()).To(Equal("203.0.113.10"))
+	Expect(VmHost{Address: "203.0.113.10", PrivateAddress: "10.0.0.10"}.EffectivePrivateAddress()).
+		To(Equal("10.0.0.10"))
 }
 
 // NodeCount is the single place the pool's size is decided, so that two drivers

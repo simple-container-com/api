@@ -49,8 +49,13 @@ func (byoDriver) Hosts(
 			// to wait on — but still an Output, so a cloud driver that genuinely
 			// has to resolve an address later is not a signature change here.
 			Address: sdk.String(h.Address).ToStringOutput(),
-			User:    h.EffectiveUser(cfg.SshUser),
-			Port:    h.EffectivePort(),
+			// Falls back to Address, which is only reached on shapes that have no
+			// node-to-node traffic to misdirect — a compose fleet or a single host.
+			// A multi-host k3s pool naming no `privateAddress` never gets here;
+			// validateHostRoles refuses it.
+			PrivateAddress: sdk.String(h.EffectivePrivateAddress()).ToStringOutput(),
+			User:           h.EffectiveUser(cfg.SshUser),
+			Port:           h.EffectivePort(),
 			// Both halves marked secret here, at the single point where they enter
 			// Pulumi. See the HostFacts.PrivateKey comment for why that is not
 			// optional.
