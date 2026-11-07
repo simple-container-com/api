@@ -10,6 +10,7 @@ import (
 
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
+	"github.com/samber/lo"
 
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -81,12 +82,19 @@ func collapsedRefs(int) sdk.Output {
 // runFleetDns calls fleetDnsRecords inside a Pulumi run, which it needs because the
 // guard awaits the references it is handed.
 func runFleetDns(reg pApi.Registrar, addresses []string) error {
+	return runFleetDnsWith(reg, addresses, false)
+}
+
+// runFleetDnsWith is runFleetDns with the proxied flag under the test's control, which
+// matters since #566: `domainProxied: true` is reachable on a fleet that terminates no
+// origin TLS.
+func runFleetDnsWith(reg pApi.Registrar, addresses []string, proxied bool) error {
 	return sdk.RunErr(func(ctx *sdk.Context) error {
 		params := pApi.ProvisionParams{Log: logger.New()}
 		if reg != nil {
 			params.Registrar = reg
 		}
-		return fleetDnsRecords(ctx, params, testComposeStack, testDomain, addresses, false)
+		return fleetDnsRecords(ctx, params, testComposeStack, testDomain, addresses, proxied)
 	}, sdk.WithMocks("project", testComposeStack, newComposeMocks()))
 }
 
@@ -255,4 +263,70 @@ func TestFleetDns_NothingToDo(t *testing.T) {
 		return fleetDnsRecords(ctx, params, testComposeStack, testDomain, nil, false)
 	}, sdk.WithMocks("project", testComposeStack, newComposeMocks()))).To(Succeed())
 	Expect(reg.records).To(BeEmpty())
+}
+
+// The front door #566 opened, asserted at the far end of the wiring it depends on.
+//
+// `ingress.originTls: false` means the machines serve plain HTTP and the edge in front
+// terminates TLS — which only works if the records are actually PROXIED. Nothing before
+// this test checked that `domainProxied` reaches `api.DnsRecord`, and the failure would
+// have been silent in the worst way: a green deploy, a name that resolves, an edge that
+// is never in the path, and every client talking cleartext to the origin over the public
+// internet. Asserted through VmComposeStack rather than on fleetDnsRecords, because a
+// flag that is read correctly and then dropped on the way down is exactly the bug.
+func TestVmCompose_ProxiedReachesEveryRecordOfTheFleet(t *testing.T) {
+	RegisterTestingT(t)
+
+	reg := &fakeRegistrar{ref: distinctRefs}
+	f := newComposeFixture().withIngress().withNoOriginTls().withHosts(3)
+	f.in.Deployment.StackConfig.DomainProxied = lo.ToPtr(true)
+	f.registrar = reg
+
+	_, err := f.run()
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(reg.records).To(HaveLen(3))
+	for i, rec := range reg.records {
+		Expect(rec.Proxied).To(BeTrue(), "record %d of a no-origin-TLS fleet must be proxied", i)
+	}
+
+	// And the default is unchanged: a fleet that terminates its own TLS gets unproxied
+	// records, because Caddy answers the HTTP-01 challenge on the machine.
+	own := &fakeRegistrar{ref: distinctRefs}
+	g := newComposeFixture().withIngress().withHosts(2)
+	g.registrar = own
+
+	_, err = g.run()
+	Expect(err).ToNot(HaveOccurred())
+	Expect(own.records).To(HaveLen(2))
+	for i, rec := range own.records {
+		Expect(rec.Proxied).To(BeFalse(), "record %d of a TLS-terminating fleet must not be proxied", i)
+	}
+}
+
+// The flag reaches the record on the direct path too, where a caller with no fleet to
+// deploy onto still has to get it right.
+func TestFleetDns_ProxiedIsPassedThrough(t *testing.T) {
+	RegisterTestingT(t)
+
+	reg := &fakeRegistrar{ref: distinctRefs}
+	Expect(runFleetDnsWith(reg, []string{"10.0.0.1", "10.0.0.2"}, true)).To(Succeed())
+	Expect(reg.records).To(HaveLen(2))
+	for i, rec := range reg.records {
+		Expect(rec.Proxied).To(BeTrue(), "record %d", i)
+	}
+}
+
+// The advice SC prints when it cannot create the records itself. Both halves are
+// asserted because both are reachable and the wrong one is harmful rather than merely
+// unhelpful — see manualRecordAdvice's own comment for which way each fails.
+func TestManualRecordAdvice(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect(manualRecordAdvice(true)).To(HavePrefix("proxied"))
+	Expect(manualRecordAdvice(true)).To(ContainSubstring("terminates TLS"))
+	Expect(manualRecordAdvice(true)).ToNot(ContainSubstring("ACME"))
+
+	Expect(manualRecordAdvice(false)).To(HavePrefix("unproxied"))
+	Expect(manualRecordAdvice(false)).To(ContainSubstring("ACME challenge"))
 }

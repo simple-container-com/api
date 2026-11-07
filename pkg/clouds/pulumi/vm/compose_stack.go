@@ -339,11 +339,14 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	// on a host port and an A record at `domain` would resolve to a machine with
 	// nothing listening on 443. The warnings above have already said why in that case.
 	//
-	// `DomainProxied` is nil on this path today — validateStackConfig refuses it
-	// (clouds/vm/convert.go) because a proxied domain breaks the ACME challenge Caddy
-	// runs itself — so this reads false. It is read rather than hardcoded because the
-	// refusal is due to become conditional on the fleet declaring no origin TLS, and a
-	// hardcoded false would then be a silently ignored setting.
+	// `DomainProxied` is read rather than hardcoded because it is now reachable. The
+	// refusal moved into this function (above) and allows it on a fleet that declares
+	// `ingress.originTls: false`, where proxying is not merely permitted but the entire
+	// front door: Cloudflare terminates TLS and the machines answer plain HTTP, so an
+	// unproxied record would hand clients a cleartext origin. On a fleet that terminates
+	// its own TLS the refusal has already returned by here, so this still reads false
+	// there — a proxied domain answers the HTTP-01 challenge at the edge instead of on
+	// the machine and no certificate ever issues.
 	if servesDomain && stackConfig.Domain != "" {
 		if err := fleetDnsRecords(ctx, params, stackName, stackConfig.Domain,
 			parentVm.Addresses, lo.FromPtr(stackConfig.DomainProxied)); err != nil {

@@ -60,8 +60,8 @@ func fleetDnsRecords(
 		// failure with the cause two stacks away.
 		params.Log.Warn(ctx.Context(),
 			"stack %q claims domain %q but the parent stack declares no registrar, so SC creates no DNS record. "+
-				"Point %q at %s yourself, unproxied — the machine answers the ACME challenge itself",
-			stackName, domain, domain, addresses)
+				"Point %q at %s yourself, %s",
+			stackName, domain, domain, addresses, manualRecordAdvice(proxied))
 		return nil
 	}
 
@@ -79,8 +79,8 @@ func fleetDnsRecords(
 				// descriptor exists but is not configured.
 				params.Log.Warn(ctx.Context(),
 					"stack %q claims domain %q but the parent stack's registrar is not configured, so SC creates "+
-						"no DNS record. Point %q at %s yourself, unproxied",
-					stackName, domain, domain, addresses)
+						"no DNS record. Point %q at %s yourself, %s",
+					stackName, domain, domain, addresses, manualRecordAdvice(proxied))
 				return nil
 			}
 			return errors.Wrapf(err, "failed to create the A record for %q at %s (host %d of the fleet)",
@@ -136,4 +136,24 @@ func fleetDnsRecords(
 			"over, so a dead machine costs roughly 1/%d of requests until it is replaced",
 		stackName, domain, len(addresses), addresses, len(addresses))
 	return nil
+}
+
+// manualRecordAdvice is what to tell an operator who has to create the records by hand
+// because the parent stack has no usable registrar.
+//
+// Which half is right depends on the fleet's front door, and the wrong half is not
+// merely unhelpful. Told to proxy a fleet that terminates its own TLS, they get a name
+// whose HTTP-01 challenge is answered at Cloudflare's edge instead of on the machine, so
+// no certificate ever issues and Caddy retries forever. Told NOT to proxy a fleet
+// running `ingress.originTls: false`, they point clients straight at an origin that
+// serves plain HTTP on :80 by design — the edge that was supposed to terminate TLS is
+// bypassed, and the only thing that was ever protecting that hop is gone.
+//
+// Both halves used to be one hardcoded "unproxied", correct until #566 made
+// `domainProxied: true` reachable.
+func manualRecordAdvice(proxied bool) string {
+	if proxied {
+		return "proxied — the fleet serves plain HTTP and the edge in front of it terminates TLS"
+	}
+	return "unproxied — the machines answer the ACME challenge themselves"
 }
