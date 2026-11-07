@@ -106,6 +106,41 @@ func TestK3sClusterConfigValidate(t *testing.T) {
 				return c
 			},
 		},
+		{
+			name: "one server is the default and is accepted explicitly",
+			cfg:  func() *K3sClusterConfig { c := valid(); c.Servers = 1; return c },
+		},
+		{
+			name: "three servers are accepted",
+			cfg:  func() *K3sClusterConfig { c := valid(); c.Servers = 3; return c },
+		},
+		{
+			// Refused rather than rounded: etcd elects a leader by majority, so two
+			// members tolerate zero failures — either machine going away takes the
+			// API server down with it, which is strictly worse than one server.
+			name:    "two servers are refused with the quorum reason",
+			cfg:     func() *K3sClusterConfig { c := valid(); c.Servers = 2; return c },
+			wantErr: "tolerate no failures at all",
+		},
+		{
+			name:    "four servers are refused too",
+			cfg:     func() *K3sClusterConfig { c := valid(); c.Servers = 4; return c },
+			wantErr: "needs an odd number (1, 3, 5)",
+		},
+		{
+			name:    "a negative server count is refused",
+			cfg:     func() *K3sClusterConfig { c := valid(); c.Servers = -1; return c },
+			wantErr: "`servers` must be positive",
+		},
+		{
+			// The UPPER bound is deliberately not checked here: this config does not
+			// know how many hosts the vm resource it names has. The provisioning
+			// tier refuses that combination, where both numbers are in hand
+			// (pkg/clouds/pulumi/k3s/cluster.go, rolesOf).
+			name:    "a server count exceeding any plausible pool still validates here",
+			cfg:     func() *K3sClusterConfig { c := valid(); c.Servers = 99; return c },
+			wantErr: "",
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			RegisterTestingT(t)
@@ -119,6 +154,18 @@ func TestK3sClusterConfigValidate(t *testing.T) {
 			Expect(err.Error()).To(ContainSubstring(tc.wantErr))
 		})
 	}
+}
+
+// The default lives in exactly one place so the provisioning tier never re-derives
+// it. A resource that disagreed with itself about which hosts are servers would join
+// a machine as an agent on one apply and as an etcd member on the next, and the
+// second of those is not reversible by changing the number back.
+func TestEffectiveServers(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect((&K3sClusterConfig{}).EffectiveServers()).To(Equal(1))
+	Expect((&K3sClusterConfig{Servers: 1}).EffectiveServers()).To(Equal(1))
+	Expect((&K3sClusterConfig{Servers: 3}).EffectiveServers()).To(Equal(3))
 }
 
 // The dependency declaration is the entire mechanism by which a cluster sees its
