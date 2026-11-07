@@ -70,10 +70,15 @@
 #               region       {env.ACME_S3_REGION}
 #               access_key   {env.ACME_S3_ACCESS_KEY}
 #               secret_key   {env.ACME_S3_SECRET_KEY}
-#               use_path_style                        # minio + most non-AWS
+#               use_path_style true                   # minio + most non-AWS
 #               prefix       acme
 #           }
 #       }
+#
+#   THE VALUE ON `use_path_style` IS LOAD-BEARING. UnmarshalCaddyfile reads
+#   every subdirective with `if !d.Args(&value) { continue }`, so a bare
+#   `use_path_style` is not an error and is not true — it is silently skipped.
+#   Same for `insecure`. Render every boolean with an explicit true/false.
 #
 #   `use_path_style` is not cosmetic: virtual-host addressing requires the
 #   bucket name to be a DNS label of the endpoint, which minio and several
