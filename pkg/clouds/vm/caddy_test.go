@@ -485,3 +485,66 @@ func TestRenderCaddySiteRefusals(t *testing.T) {
 		Expect(err).To(HaveOccurred(), "%s must be refused", name)
 	}
 }
+
+// `ingress.originTls: false`: the machine serves plain HTTP for an edge that
+// terminates, and the global block has to say so in a way that cannot be contradicted
+// by a hand-written site block in conf.d.
+func TestRenderCaddyfileNoOriginTls(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := ingressConfig()
+	cfg.Ingress.Email = ""
+	cfg.Ingress.OriginTls = lo.ToPtr(false)
+
+	got, err := RenderCaddyfile(cfg)
+	Expect(err).ToNot(HaveOccurred())
+
+	// The whole point: no automatic HTTPS anywhere on this machine. Without it one
+	// bare domain in one conf.d file sends the machine off to a CA for a certificate
+	// whose challenge it cannot answer, and the fleet quietly earns a rate-limit.
+	Expect(got).To(ContainSubstring("auto_https off"))
+	// Nothing ACME-shaped is rendered, because nothing requests a certificate.
+	Expect(got).ToNot(ContainSubstring("email "))
+	Expect(got).ToNot(ContainSubstring("acme_ca"))
+	Expect(got).ToNot(ContainSubstring("acme_eab"))
+	Expect(got).ToNot(ContainSubstring("storage s3"))
+	// The hop the operator is now responsible for, named in the file they will read.
+	Expect(got).To(ContainSubstring("CLEARTEXT"))
+	// The snippet library and the conf.d import are NOT a casualty of the early
+	// return — a `siteExtraHelpers` that resolves on an HTTPS machine and not on this
+	// one would be a 500 on a fraction of a fleet's requests.
+	for _, snippet := range []string{"(gzip)", "(hsts)", "(handle_static)", "(handle_server_error)"} {
+		Expect(got).To(ContainSubstring(snippet), "snippet %s must be inlined here too", snippet)
+	}
+	Expect(got).To(ContainSubstring("import " + CaddyContainerConfigDir + "/conf.d/*.caddy"))
+}
+
+// The site file's scheme. Both halves are asserted against the SAME stack input, so a
+// regression that renders one scheme unconditionally fails one of them.
+func TestRenderCaddySiteSchemeFollowsOriginTls(t *testing.T) {
+	RegisterTestingT(t)
+
+	in := renderTestInput(t)
+	domain := in.Deployment.StackConfig.Domain
+	Expect(domain).ToNot(BeEmpty())
+
+	https, err := RenderCaddySite(in, caddySiteOpts())
+	Expect(err).ToNot(HaveOccurred())
+	Expect(https).To(ContainSubstring(domain + " {"))
+	Expect(https).ToNot(ContainSubstring("http://" + domain))
+
+	opts := caddySiteOpts()
+	opts.NoOriginTls = true
+	plain, err := RenderCaddySite(in, opts)
+	Expect(err).ToNot(HaveOccurred())
+	// The scheme is not decoration: it is what suppresses automatic HTTPS for this
+	// site and puts the listener on :80.
+	Expect(plain).To(ContainSubstring("http://" + domain + " {"))
+	// HSTS stays. It reaches the browser over the EDGE's TLS, where it is honoured;
+	// with no edge at all a browser ignores HSTS received over cleartext, so it is
+	// inert rather than harmful. There is no case where dropping it is better.
+	Expect(plain).To(ContainSubstring("import hsts"))
+	// And the upstream is untouched — the proxy hop was always plain HTTP over the
+	// docker network.
+	Expect(plain).To(ContainSubstring("reverse_proxy http://"))
+}

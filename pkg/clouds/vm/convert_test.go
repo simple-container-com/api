@@ -110,21 +110,13 @@ func TestToVmComposeConfigRefusals(t *testing.T) {
 		stackCfg *api.StackConfigCompose
 		msg      string
 	}{
-		{
-			name: "domainProxied breaks ACME",
-			stackCfg: &api.StackConfigCompose{
-				Runs: []string{"backend"}, DomainProxied: lo.ToPtr(true),
-			},
-			msg: "`domainProxied` is not supported",
-		},
-		{
-			// Even `false` is refused: accepting it would imply SC understood the field.
-			name: "domainProxied false is still refused",
-			stackCfg: &api.StackConfigCompose{
-				Runs: []string{"backend"}, DomainProxied: lo.ToPtr(false),
-			},
-			msg: "`domainProxied` is not supported",
-		},
+		// `domainProxied` was refused here in both senses until `ingress.originTls`
+		// existed. It is now decided at deploy time against the parent resource —
+		// TestVmCompose_DomainProxiedNeedsNoOriginTls in clouds/pulumi/vm covers both
+		// outcomes — because this tier cannot see the parent. The two cases that used
+		// to live here are deliberately gone rather than relaxed to a warning: a
+		// warning on `domainProxied: true` would fire on the arrangement that is now
+		// correct.
 		{
 			name: "clusterIPAddress has no cluster",
 			stackCfg: &api.StackConfigCompose{

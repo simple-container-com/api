@@ -195,14 +195,19 @@ func toComposeTemplate(tpl any) (*ComposeTemplateConfig, error) {
 func (i *VmComposeInput) validateStackConfig() error {
 	cfg := i.Deployment.StackConfig
 
-	if cfg.DomainProxied != nil {
-		return errors.Errorf(
-			"`domainProxied` is not supported by the `%s` template: it proxies the domain through "+
-				"Cloudflare, and a VM serves TLS itself (Caddy obtains the certificate via ACME, which a "+
-				"proxied domain breaks). Remove the field, or put the machine behind Cloudflare outside SC",
-			TemplateTypeVmCompose,
-		)
-	}
+	// `domainProxied` is NOT checked here, and the absence is deliberate. It used to be
+	// refused outright with "a VM serves TLS itself, and a proxied domain breaks the
+	// ACME challenge" — true of every vm resource up to `ingress.originTls`, and now
+	// true of only some of them. Whether it holds is a property of the PARENT stack's
+	// resource, and this function runs in the convert tier with no parent reference at
+	// all, so the check moved to where the answer exists: VmComposeStack, after
+	// hostsFromParent has read the resource's exports (clouds/pulumi/vm/compose_stack.go).
+	//
+	// The cost of moving it is that an operator sees the refusal at `sc deploy` rather
+	// than at config load. The alternative — keeping a blanket refusal here — makes the
+	// one front-door arrangement that needs no shared certificate store unreachable,
+	// which is the opposite trade.
+
 	if cfg.ClusterIPAddress != nil {
 		return errors.Errorf(
 			"`clusterIPAddress` is not applicable to the `%s` template: there is no cluster. The stack is "+

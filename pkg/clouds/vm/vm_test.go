@@ -950,3 +950,100 @@ func TestValidateRefusesUnverifiedProvider(t *testing.T) {
 	Expect(err.Error()).To(ContainSubstring("`allowUnverifiedProvider` is not valid"))
 	Expect(err.Error()).To(ContainSubstring("live-verified"))
 }
+
+// `ingress.originTls: false` and the ACME settings are alternatives, not a pair. Each
+// refusal below replaces a belief an operator would otherwise keep: that the fleet
+// still holds a certificate, or that a CA override still applies. Neither is visible
+// until the thing in front of the machine goes away.
+func TestValidateOriginTls(t *testing.T) {
+	RegisterTestingT(t)
+
+	noTls := func(mutate func(*VmIngress)) *VmConfig {
+		cfg := byoConfig()
+		cfg.Ingress = &VmIngress{Enable: true, OriginTls: lo.ToPtr(false)}
+		mutate(cfg.Ingress)
+		return cfg
+	}
+
+	// The whole point of the field: `email` stops being required, because there is no
+	// ACME account to name.
+	Expect(noTls(func(*VmIngress) {}).Validate()).ToNot(HaveOccurred())
+	Expect(noTls(func(*VmIngress) {}).OriginTlsEnabled()).To(BeFalse())
+
+	for _, tc := range []struct {
+		name     string
+		mutate   func(*VmIngress)
+		errMatch string
+	}{
+		{
+			name:     "email",
+			mutate:   func(i *VmIngress) { i.Email = "ops@example.com" },
+			errMatch: "`ingress.email` is set together with `ingress.originTls: false`",
+		},
+		{
+			name:     "acmeCa",
+			mutate:   func(i *VmIngress) { i.AcmeCa = "https://acme.example.com/directory" },
+			errMatch: "`ingress.acmeCa` is set together with `ingress.originTls: false`",
+		},
+		{
+			name: "acmeEab",
+			mutate: func(i *VmIngress) {
+				i.AcmeEabKeyID = "kid"
+				i.AcmeEabMacKey = "mac"
+			},
+			errMatch: "`ingress.acmeEabKeyId` is set together with `ingress.originTls: false`",
+		},
+		{
+			name: "acmeStorage",
+			mutate: func(i *VmIngress) {
+				i.AcmeStorage = &VmAcmeStorage{Bucket: "sc-acme", Region: "eu-central-1"}
+			},
+			// Spelled out at length in the message because these are the two
+			// alternative front doors for a fleet and the operator has asked for both.
+			errMatch: "These are the two alternative front doors for a fleet, not a pair",
+		},
+		{
+			// imageDelivery is checked BEFORE the origin-TLS branch, so a resource
+			// that is wrong in two ways still hears about the one that is wrong on
+			// every path.
+			name:     "imageDelivery is still validated",
+			mutate:   func(i *VmIngress) { i.ImageDelivery = "carrier-pigeon" },
+			errMatch: "unknown `ingress.imageDelivery`",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			err := noTls(tc.mutate).Validate()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(tc.errMatch))
+		})
+	}
+}
+
+// Backwards compatibility, asserted rather than assumed: the operator's standing
+// requirement is that nothing already deployed changes behaviour. Every way of NOT
+// saying `originTls: false` has to read as "this machine terminates TLS", because that
+// is what every vm resource written before the field did.
+func TestOriginTlsDefaultsToOn(t *testing.T) {
+	RegisterTestingT(t)
+
+	unset := byoConfig()
+	unset.Ingress = &VmIngress{Enable: true, Email: "ops@example.com"}
+	Expect(unset.OriginTlsEnabled()).To(BeTrue())
+
+	explicit := byoConfig()
+	explicit.Ingress = &VmIngress{Enable: true, Email: "ops@example.com", OriginTls: lo.ToPtr(true)}
+	Expect(explicit.OriginTlsEnabled()).To(BeTrue())
+	Expect(explicit.Validate()).ToNot(HaveOccurred())
+
+	// No ingress at all: there is no Caddy to ask, and a caller that reads this must
+	// not take "false" for "an edge terminates" — it would render an http:// site for
+	// a machine that serves no sites.
+	none := byoConfig()
+	none.Ingress = nil
+	Expect(none.OriginTlsEnabled()).To(BeTrue())
+
+	disabled := byoConfig()
+	disabled.Ingress = &VmIngress{Enable: false, OriginTls: lo.ToPtr(false)}
+	Expect(disabled.OriginTlsEnabled()).To(BeTrue())
+}

@@ -142,6 +142,33 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	// run at once, and what the stack's URL is.
 	servesDomain := vm.ServesDomain(in, parentVm.IngressEnabled)
 
+	// The scheme the machine answers on. Caddy either terminates TLS or serves plain
+	// HTTP for an edge that does (`ingress.originTls: false` on the vm resource) — and
+	// every log line and export below has to say which, because "http" in a URL an
+	// operator pastes into a browser is the only visible difference between a working
+	// no-origin-TLS fleet and a broken HTTPS one.
+	originScheme := lo.If(parentVm.NoOriginTls, "http").Else("https")
+
+	// `domainProxied: true` asks for a Cloudflare-proxied record, and the proxy
+	// terminates TLS at the edge. That breaks the HTTP-01 challenge Caddy runs for
+	// itself — so it is legal only on a machine that runs no ACME.
+	//
+	// Refused here and not in validateStackConfig (clouds/vm/convert.go, which still
+	// carries the note) because the answer lives in the PARENT stack's resource and the
+	// convert tier holds no parent reference. The cost is a later refusal; the benefit
+	// is that the arrangement is reachable at all.
+	if lo.FromPtr(stackConfig.DomainProxied) && !parentVm.NoOriginTls {
+		return nil, errors.Errorf(
+			"stack %q sets `domainProxied: true`, but vm %q terminates TLS itself: Caddy obtains the "+
+				"certificate over HTTP-01, and a proxied domain answers that challenge at Cloudflare's edge "+
+				"instead of on the machine, so no certificate ever issues. Either set `ingress.originTls: "+
+				"false` on the `type: %s` resource in the parent stack and re-provision it — the machine then "+
+				"serves plain HTTP for Cloudflare to terminate in front — or drop `domainProxied` and let the "+
+				"machine serve HTTPS directly",
+			stackName, in.VmResource, vm.ResourceTypeVm,
+		)
+	}
+
 	// The ingress host port is published only when Caddy is NOT in front. That is not
 	// a tidiness choice: a published port is a singleton, and it is the one thing that
 	// prevents both slots from running at once (see stopOtherFirst below). Setting it
@@ -153,9 +180,9 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 			"stack %q declares no ingress service, so nothing is reachable from outside the machine", stackName)
 	case servesDomain:
 		params.Log.Info(ctx.Context(),
-			"vm %q serves %q of stack %q on https://%s — no host port is published, and the deploy flips slots "+
+			"vm %q serves %q of stack %q on %s://%s — no host port is published, and the deploy flips slots "+
 				"with a Caddy reload",
-			in.VmResource, in.Deployment.IngressContainer.Name, stackName, stackConfig.Domain)
+			in.VmResource, in.Deployment.IngressContainer.Name, stackName, originScheme, stackConfig.Domain)
 	default:
 		hostPort = vm.IngressHostPort(stackName, env)
 		params.Log.Info(ctx.Context(), "publishing ingress service %q of stack %q on host port %d",
@@ -284,8 +311,9 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 		ctx: ctx, stack: stack, input: input, params: params, in: in,
 		stackName: stackName, env: env, version: version, stackConfig: stackConfig,
 		plan: plan, hostPort: hostPort, servesDomain: servesDomain,
-		recreate: in.EffectiveStrategy() == vm.StrategyRecreate,
-		envHash:  envHash, envContent: envContent,
+		noOriginTls: parentVm.NoOriginTls,
+		recreate:    in.EffectiveStrategy() == vm.StrategyRecreate,
+		envHash:     envHash, envContent: envContent,
 	}
 
 	// Rolling, not fanned out. The machines are independent and Pulumi would happily
@@ -364,9 +392,13 @@ type composeDeploy struct {
 	plan         *imagePlan
 	hostPort     int
 	servesDomain bool
-	recreate     bool
-	envHash      string
-	envContent   string
+	// noOriginTls is parentVmFacts.NoOriginTls, carried down because the site file and
+	// the exported URL are both written per host and both have to name the scheme the
+	// RESOURCE decided.
+	noOriginTls bool
+	recreate    bool
+	envHash     string
+	envContent  string
 }
 
 // deployComposeToHost runs the whole deploy against ONE machine of the fleet.
@@ -622,10 +654,11 @@ func deployComposeToHost(
 	if servesDomain {
 		routeOut := slotOut.ApplyT(func(slot string) (string, error) {
 			site, err := vm.RenderCaddySite(in, vm.RenderOptions{
-				Stack:   stackName,
-				Env:     env,
-				Slot:    slot,
-				Version: version,
+				Stack:       stackName,
+				Env:         env,
+				Slot:        slot,
+				Version:     version,
+				NoOriginTls: d.noOriginTls,
 			})
 			if err != nil {
 				return "", errors.Wrapf(err, "failed to render the Caddy site of stack %q slot %q", stackName, slot)
@@ -720,9 +753,15 @@ func deployComposeToHost(
 	// whether a domain is configured but from whether it is actually SERVED — a stack
 	// whose domain was ignored for one of the reasons warned about above must not
 	// export an https:// URL that answers nothing.
+	//
+	// The scheme follows the resource, not the hope: on `ingress.originTls: false` the
+	// machine answers on :80 and only the edge in front speaks HTTPS, so exporting
+	// `https://` here would hand an operator a URL that fails against the origin and
+	// works only once Cloudflare is actually in place.
 	url := sdk.Sprintf("http://%s:%d", host.Address, hostPort)
 	if servesDomain {
-		url = sdk.String("https://" + stackConfig.Domain).ToStringOutput()
+		scheme := lo.If(d.noOriginTls, "http").Else("https")
+		url = sdk.String(scheme + "://" + stackConfig.Domain).ToStringOutput()
 	}
 	// Exported by the caller, which is the only place that knows this host's index
 	// in the fleet.
@@ -771,6 +810,11 @@ type parentVmFacts struct {
 	// filtering SC does not manage, or a parent stack provisioned before the
 	// export existed.
 	OpenPorts []vm.PortRange
+	// NoOriginTls is `ingress.originTls: false` on the resource: Caddy serves plain
+	// HTTP and runs no ACME. False on a parent stack that has never heard of the
+	// setting, which is the old behaviour and the reason the export carries this sense
+	// rather than its opposite.
+	NoOriginTls bool
 	// Addresses is every machine's address, in host order — the same strings the
 	// HostFacts carry, kept as literals because a DNS record's value has to be one.
 	// HostFacts lifts the address into an Output for the driver side, where a cloud
@@ -900,7 +944,21 @@ func (r parentReader) vmFacts() (parentVmFacts, error) {
 		return parentVmFacts{}, errors.Wrapf(err, "failed to read the open ports of vm %q", r.vmResource)
 	}
 
-	return parentVmFacts{IngressEnabled: ingressEnabled, OpenPorts: vm.ParsePortSpec(openPortsSpec)}, nil
+	// Same read-through-toBool treatment, same tolerance: an unreadable or absent
+	// value means "the machine terminates TLS", which is what every parent stack
+	// provisioned before this export did.
+	noOriginTlsRaw, err := pApi.GetValueFromStack[any](r.ctx, r.refName(0, "no-origin-tls"), r.parentRef,
+		ToIngressNoOriginTlsExport(r.vmResource), false)
+	if err != nil {
+		return parentVmFacts{}, errors.Wrapf(err, "failed to read the origin-TLS setting of vm %q", r.vmResource)
+	}
+	noOriginTls, _ := toBool(noOriginTlsRaw)
+
+	return parentVmFacts{
+		IngressEnabled: ingressEnabled,
+		NoOriginTls:    noOriginTls,
+		OpenPorts:      vm.ParsePortSpec(openPortsSpec),
+	}, nil
 }
 
 // host reads one machine of the fleet, returning its facts and — separately — its

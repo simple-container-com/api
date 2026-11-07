@@ -117,8 +117,31 @@ type VmNetwork struct {
 // stacks share one machine and therefore one port 443 (compose-on-vm.md §3, D15).
 type VmIngress struct {
 	Enable bool `json:"enable" yaml:"enable"`
-	// Email is the ACME account address. Required when Enable is set, because a
-	// certificate authority will not issue without one.
+	// OriginTls is whether THIS machine terminates TLS. Unset means true, which is
+	// every vm resource that existed before this field.
+	//
+	// Set it to false when something in front already terminates — Cloudflare's
+	// proxy, a cloud load balancer, an existing reverse proxy — and Caddy then serves
+	// plain HTTP on port 80 and runs no ACME at all. That is the ONE front-door
+	// arrangement a fleet can have without a shared certificate store (see
+	// AcmeStorage, which explains why per-machine ACME behind N A records cannot
+	// work), so on a cloud with no bucket resource and no appetite for running minio
+	// it is not a downgrade, it is the option.
+	//
+	// It is also what makes `domainProxied: true` legal on a stack: that refusal
+	// exists because a proxied domain breaks the HTTP-01 challenge Caddy runs itself,
+	// and here Caddy runs none. The refusal therefore moved out of the convert tier
+	// (which cannot see this field — it belongs to the parent stack) and into the
+	// deploy, where the parent's exports are readable.
+	//
+	// What it does NOT do is secure the hop. Edge-to-origin is cleartext over the
+	// public internet unless the machine's firewall admits only the edge's addresses
+	// — Cloudflare publishes theirs, and `ingressPorts` on this resource is where
+	// they go. Said plainly because "my site is HTTPS" is true for the visitor and
+	// false for the leg SC is responsible for.
+	OriginTls *bool `json:"originTls,omitempty" yaml:"originTls,omitempty"`
+	// Email is the ACME account address. Required when Enable is set and this machine
+	// terminates TLS, because a certificate authority will not issue without one.
 	Email string `json:"email,omitempty" yaml:"email,omitempty"`
 	// Image is the Caddy image to run. Defaults to the same `simplecontainer/caddy`
 	// tag the Kubernetes edge uses, which is what makes `lbConfig.siteExtraHelpers`
@@ -245,6 +268,20 @@ type VmAcmeStorage struct {
 // AcmeStorageEnabled reports whether this resource has a shared certificate store.
 func (r *VmConfig) AcmeStorageEnabled() bool {
 	return r.IngressEnabled() && r.Ingress.AcmeStorage != nil && r.Ingress.AcmeStorage.Bucket != ""
+}
+
+// OriginTlsEnabled reports whether this machine's Caddy terminates TLS.
+//
+// Defaults to true on an unset field and on no ingress at all, so that every caller
+// reads "yes" for every resource that predates `ingress.originTls` — the flag only ever
+// turns behaviour off, never on. The parent stack exports the NEGATION of this for the
+// same reason (ToIngressNoOriginTlsExport): a child reading a parent that has never
+// heard of the field gets a zero bool, and the zero has to mean the old behaviour.
+func (r *VmConfig) OriginTlsEnabled() bool {
+	if !r.IngressEnabled() {
+		return true
+	}
+	return lo.FromPtrOr(r.Ingress.OriginTls, true)
 }
 
 // UsePathStyle resolves PathStyle's default: on whenever there is an endpoint.
@@ -562,12 +599,47 @@ func (r *VmConfig) validateIngress() error {
 	if !r.IngressEnabled() {
 		return nil
 	}
-	if r.Ingress.Email == "" {
-		return errors.Errorf("`ingress.enable: true` requires `ingress.email` (the ACME account address)")
-	}
 	if d := r.EffectiveIngressImageDelivery(); d != ImageDeliveryRegistry && d != ImageDeliverySshTar {
 		return errors.Errorf("unknown `ingress.imageDelivery` %q; one of: %s, %s",
 			d, ImageDeliveryRegistry, ImageDeliverySshTar)
+	}
+	if !r.OriginTlsEnabled() {
+		// Every ACME setting is refused rather than ignored, which is this file's
+		// standing rule and earns its keep here: an operator who sets `originTls:
+		// false` and leaves `acmeStorage` behind believes the fleet still holds a
+		// certificate, and would not find out otherwise until something in front of
+		// the machine went away. The remedy is one deleted line and the message names
+		// it.
+		//
+		// `email` is in the list because it has no other purpose on this path — it is
+		// the ACME account address and there is no ACME account.
+		for _, f := range []struct{ name, value string }{
+			{"email", r.Ingress.Email},
+			{"acmeCa", r.Ingress.AcmeCa},
+			{"acmeEabKeyId", r.Ingress.AcmeEabKeyID},
+			{"acmeEabMacKey", r.Ingress.AcmeEabMacKey},
+		} {
+			if f.value != "" {
+				return errors.Errorf(
+					"`ingress.%s` is set together with `ingress.originTls: false`: this machine serves plain "+
+						"HTTP and requests no certificate, so nothing would read it. Remove `ingress.%s`, or "+
+						"remove `originTls: false` and let Caddy terminate TLS itself", f.name, f.name,
+				)
+			}
+		}
+		if r.Ingress.AcmeStorage != nil {
+			return errors.Errorf(
+				"`ingress.acmeStorage` is set together with `ingress.originTls: false`: the shared store holds " +
+					"certificates and ACME challenge state, and this machine requests neither. These are the two " +
+					"alternative front doors for a fleet, not a pair — keep the store and drop `originTls: false` " +
+					"to serve HTTPS from the machines, or keep `originTls: false` and drop the store to serve " +
+					"plain HTTP behind an edge that terminates",
+			)
+		}
+		return nil
+	}
+	if r.Ingress.Email == "" {
+		return errors.Errorf("`ingress.enable: true` requires `ingress.email` (the ACME account address)")
 	}
 	if (r.Ingress.AcmeEabKeyID == "") != (r.Ingress.AcmeEabMacKey == "") {
 		return errors.Errorf(
