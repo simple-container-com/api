@@ -8,12 +8,12 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	gcpApi "github.com/simple-container-com/sc-plugin-gcp/api"
 
 	"github.com/simple-container-com/api/pkg/api"
 	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
 	tests "github.com/simple-container-com/api/pkg/api/tests"
 	testutils "github.com/simple-container-com/api/pkg/api/tests/testutil"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/github"
 	"github.com/simple-container-com/api/pkg/clouds/pulumi"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
@@ -38,8 +38,8 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				// auth
 				Expect(stacks["common"].Secrets.Auth["gcloud"]).NotTo(BeNil())
 				authConfigGeneric := stacks["common"].Secrets.Auth["gcloud"].Config.Config
-				Expect(authConfigGeneric).To(BeAssignableToTypeOf(&gcloud.Credentials{}))
-				authConfig := authConfigGeneric.(*gcloud.Credentials)
+				Expect(authConfigGeneric).To(BeAssignableToTypeOf(&gcpApi.Credentials{}))
+				authConfig := authConfigGeneric.(*gcpApi.Credentials)
 				Expect(authConfig.ProjectId).To(Equal("test-gcp-project"))
 				Expect(authConfig.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
 
@@ -49,10 +49,10 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 				pConfig := srvConfig.(*pulumi.ProvisionerConfig)
 
 				// state storage
-				Expect(pConfig.StateStorage.Config.Config).To(BeAssignableToTypeOf(&gcloud.StateStorageConfig{}))
-				stateStorageCfg := pConfig.StateStorage.Config.Config.(*gcloud.StateStorageConfig)
-				Expect(pConfig.SecretsProvider.Config.Config).To(BeAssignableToTypeOf(&gcloud.SecretsProviderConfig{}))
-				secretsProviderCfg := pConfig.SecretsProvider.Config.Config.(*gcloud.SecretsProviderConfig)
+				Expect(pConfig.StateStorage.Config.Config).To(BeAssignableToTypeOf(&gcpApi.StateStorageConfig{}))
+				stateStorageCfg := pConfig.StateStorage.Config.Config.(*gcpApi.StateStorageConfig)
+				Expect(pConfig.SecretsProvider.Config.Config).To(BeAssignableToTypeOf(&gcpApi.SecretsProviderConfig{}))
+				secretsProviderCfg := pConfig.SecretsProvider.Config.Config.(*gcpApi.SecretsProviderConfig)
 				Expect(stateStorageCfg.ProjectId).To(Equal("test-gcp-project"))
 				Expect(stateStorageCfg.Credentials.Credentials.Credentials).To(Equal("<gcloud-service-account-email>"))
 				Expect(secretsProviderCfg.ProjectId).To(Equal("test-gcp-project"))
@@ -83,8 +83,8 @@ func Test_placeholders_ProcessStacks(t *testing.T) {
 			check: func(t *testing.T, stacks api.StacksMap) {
 				Expect(stacks["refapp"]).NotTo(BeNil())
 				resPgCfg := stacks["refapp"].Server.Resources.Resources["staging"].Resources["postgres"].Config.Config
-				Expect(resPgCfg).To(BeAssignableToTypeOf(&gcloud.PostgresGcpCloudsqlConfig{}))
-				pgConfig := resPgCfg.(*gcloud.PostgresGcpCloudsqlConfig)
+				Expect(resPgCfg).To(BeAssignableToTypeOf(&gcpApi.PostgresGcpCloudsqlConfig{}))
+				pgConfig := resPgCfg.(*gcpApi.PostgresGcpCloudsqlConfig)
 				Expect(pgConfig.CredentialsValue()).To(Equal("<gcloud-service-account-email>"))
 				Expect(pgConfig.Project).To(Equal("refapp"))
 

@@ -16,6 +16,12 @@ import (
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
+	// Import cloud provider packages directly to access their CloudExtras types
+	"github.com/simple-container-com/sc-plugin-aws/api"
+	_ "github.com/simple-container-com/sc-plugin-gcp/api"
+	_ "github.com/simple-container-com/sc-plugin-mongodb/api"
+	"github.com/simple-container-com/sc-plugin-yandex/api"
+
 	// Core API package for registration maps and configuration structs
 	"github.com/simple-container-com/api/pkg/api"
 	// Import all cloud provider packages to trigger init() functions
@@ -23,17 +29,15 @@ import (
 	_ "github.com/simple-container-com/api/pkg/clouds/discord"
 	_ "github.com/simple-container-com/api/pkg/clouds/docker"
 	_ "github.com/simple-container-com/api/pkg/clouds/fs"
-	_ "github.com/simple-container-com/api/pkg/clouds/gcloud"
+	// pkg/clouds/gcloud blank-import replaced in phase 5 of the GCP
+	// plugin extraction with sc-plugin-gcp/api below (same shape as
+	// sc-plugin-{aws,mongodb,yandex}/api imports a few lines down).
 	_ "github.com/simple-container-com/api/pkg/clouds/github"
 	_ "github.com/simple-container-com/api/pkg/clouds/k3s"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	_ "github.com/simple-container-com/api/pkg/clouds/slack"
 	_ "github.com/simple-container-com/api/pkg/clouds/telegram"
 	_ "github.com/simple-container-com/api/pkg/clouds/vm"
-	// Import cloud provider packages directly to access their CloudExtras types
-	"github.com/simple-container-com/sc-plugin-aws/api"
-	_ "github.com/simple-container-com/sc-plugin-mongodb/api"
-	"github.com/simple-container-com/sc-plugin-yandex/api"
 )
 
 // ResourceDefinition holds metadata about a resource struct

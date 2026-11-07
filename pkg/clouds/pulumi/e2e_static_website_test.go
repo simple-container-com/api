@@ -10,12 +10,12 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-
-	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
-	"github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 	"github.com/simple-container-com/sc-plugin-aws/api"
 	"github.com/simple-container-com/sc-plugin-cloudflare/api"
+	gcpApi "github.com/simple-container-com/sc-plugin-gcp/api"
+
+	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 )
 
 const (
@@ -39,8 +39,8 @@ func Test_CreateStaticStackGCP(t *testing.T) {
 			kmsKeyName: tmpResName(e2eStaticKmsTestKeyName),
 			templates: map[string]api.StackDescriptor{
 				"static-website": {
-					Type: gcloud.TemplateTypeStaticWebsite,
-					Config: api.Config{Config: &gcloud.TemplateConfig{
+					Type: gcpApi.TemplateTypeStaticWebsite,
+					Config: api.Config{Config: &gcpApi.TemplateConfig{
 						Credentials: *cfg.GcpCredentials,
 					}},
 				},

@@ -12,12 +12,12 @@ import (
 	"path/filepath"
 
 	. "github.com/onsi/gomega"
+	"github.com/simple-container-com/sc-plugin-aws/api"
+	gcpApi "github.com/simple-container-com/sc-plugin-gcp/api"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/fs"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
-	"github.com/simple-container-com/sc-plugin-aws/api"
 )
 
 const (
@@ -29,7 +29,7 @@ type e2eConfig struct {
 	templates   map[string]api.StackDescriptor
 	resources   map[string]api.PerEnvResourcesDescriptor
 	registrar   api.RegistrarDescriptor
-	gcpCreds    gcloud.Credentials
+	gcpCreds    gcpApi.Credentials
 	awsCreds    aws.AccountConfig
 	pulumiCreds TokenAuthDescriptor
 }
@@ -102,7 +102,7 @@ func e2eServerDescriptorForGcp(config e2eConfig) api.ServerDescriptor {
 					Organization: "organization",
 					StateStorage: StateStorageConfig{
 						Type: StateStorageTypeGcpBucket,
-						Config: api.Config{Config: &gcloud.StateStorageConfig{
+						Config: api.Config{Config: &gcpApi.StateStorageConfig{
 							Provision:   false,
 							BucketName:  e2eBucketName,
 							Credentials: config.gcpCreds,
@@ -110,7 +110,7 @@ func e2eServerDescriptorForGcp(config e2eConfig) api.ServerDescriptor {
 					},
 					SecretsProvider: SecretsProviderConfig{
 						Type: SecretsProviderTypeGcpKms,
-						Config: api.Config{Config: &gcloud.SecretsProviderConfig{
+						Config: api.Config{Config: &gcpApi.SecretsProviderConfig{
 							KeyName:     config.kmsKeyName,
 							KeyLocation: "global",
 							Provision:   true,

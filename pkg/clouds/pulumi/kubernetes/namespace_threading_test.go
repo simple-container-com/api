@@ -69,14 +69,11 @@ func TestDownstreamCallSitesDoNotRecomputeNamespace(t *testing.T) {
 		reason    string
 	}
 
+	// GCP's CSQL sidecar/init proxy consumer invariant (createCloudsqlProxy,
+	// createUserForDatabase) moved to sc-plugin-gcp in phase 5 of the GCP
+	// plugin extraction. The equivalent regression guard belongs on
+	// sc-plugin-gcp's test suite now; this test no longer covers that path.
 	sites := []site{
-		{
-			file:      filepath.Join("..", "gcp", "compute_proc.go"),
-			forbidden: []string{"createCloudsqlProxy", "createUserForDatabase"},
-			reason: "GCP CSQL sidecar/init proxy consumers must consume the namespace Output threaded " +
-				"via kubernetes.SimpleContainerArgs.NamespaceNameOutput (preprocessor path) or " +
-				"SimpleContainer.Namespace (postprocessor path), not recompute it.",
-		},
 		{
 			file:      "compute_proc_postgres.go",
 			forbidden: []string{"createPostgresUserForDatabase"},

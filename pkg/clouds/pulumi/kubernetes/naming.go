@@ -10,9 +10,27 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 )
+
+// resourceTypeGkeAutopilot is the type-token for sc-plugin-gcp's GKE Autopilot
+// cluster resource. Hardcoded here to break the previous import on
+// `pkg/clouds/gcloud` (phase 5 of the GCP plugin extraction). Must match the
+// value sc-plugin-gcp/api/gke_autopilot.go exports; the plugin owns the token
+// authoritatively.
+const resourceTypeGkeAutopilot = "gcp-gke-autopilot-cluster"
+
+// gkeAutopilotProbe mirrors just the two fields `envCaddyObjectsName` reads
+// off sc-plugin-gcp's GkeAutopilotResource — `Caddy != nil && !Adopt`.
+// Carried here as a local struct to keep `pkg/clouds/pulumi/kubernetes/`
+// (a shared helper) from depending on the plugin's /api package. If
+// sc-plugin-gcp ever grows a different cue for embedded Caddy deployment,
+// update the fields alongside the plugin-side change — the token + these
+// two fields are the full contract.
+type gkeAutopilotProbe struct {
+	Caddy any  `json:"caddy,omitempty" yaml:"caddy,omitempty"`
+	Adopt bool `json:"adopt,omitempty" yaml:"adopt,omitempty"`
+}
 
 // generateResourceName creates resource names with environment-specific suffixes for custom stacks
 // When parentEnv differs from stackEnv, it adds the stackEnv as a suffix to ensure uniqueness
@@ -231,7 +249,7 @@ func envCaddyObjectsName(resName, env string, res api.ResourceDescriptor) (strin
 			}
 		}
 		return caddyObjectsName(resName, env, cfg.UseResourceName), true
-	case gcloud.ResourceTypeGkeAutopilot:
+	case resourceTypeGkeAutopilot:
 		if deploysEmbeddedCaddy(res) {
 			return GenerateCaddyDeploymentName(env), true
 		}
@@ -241,15 +259,14 @@ func envCaddyObjectsName(resName, env string, res api.ResourceDescriptor) (strin
 
 // deploysEmbeddedCaddy mirrors the condition under which GkeAutopilot calls
 // DeployCaddyService: an adopted cluster creates no Caddy objects of its own.
+// Lifts the typed-struct-cast to an opaque probe struct (see gkeAutopilotProbe)
+// so this shared helper has no dependency on sc-plugin-gcp's /api package.
 func deploysEmbeddedCaddy(res api.ResourceDescriptor) bool {
-	cfg, ok := res.Config.Config.(*gcloud.GkeAutopilotResource)
-	if !ok {
-		var err error
-		if cfg, err = api.ConvertDescriptor(res.Config.Config, &gcloud.GkeAutopilotResource{}); err != nil {
-			return false
-		}
+	probe := &gkeAutopilotProbe{}
+	if _, err := api.ConvertDescriptor(res.Config.Config, probe); err != nil {
+		return false
 	}
-	return cfg.Caddy != nil && !cfg.Adopt
+	return probe.Caddy != nil && !probe.Adopt
 }
 
 // ChildCaddyTarget returns the Caddy deployment and namespace a child stack patches,

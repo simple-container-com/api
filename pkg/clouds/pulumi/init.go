@@ -13,8 +13,12 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger"
 	"github.com/simple-container-com/api/pkg/clouds/fs"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
-	// Register all the providers
-	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/gcp"
+	// Register all the providers. Blank imports only; registration
+	// happens in each package's init().
+	// The GCP in-tree package was deleted in phase 5 of the GCP plugin
+	// extraction — sc-plugin-gcp now owns every GCP type-token.
+	// plugin_bootstrap.go's canonical table carries the auto-inject row
+	// for operators who paste an unknown-but-canonical token.
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/k3s"
 	_ "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
 )

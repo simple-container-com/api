@@ -11,16 +11,24 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
+
+// testGkeAutopilotResource mirrors sc-plugin-gcp/api's GkeAutopilotResource
+// for the two fields `deploysEmbeddedCaddy` actually probes
+// (`Caddy != nil && !Adopt`). Kept local to this test file to keep the
+// shared `kubernetes` package from depending on sc-plugin-gcp's /api.
+// Must stay compatible with `gkeAutopilotProbe` in `naming.go`.
+type testGkeAutopilotResource struct {
+	Caddy *k8s.CaddyConfig `json:"caddy,omitempty" yaml:"caddy,omitempty"`
+	Adopt bool             `json:"adopt,omitempty" yaml:"adopt,omitempty"`
+}
 
 type namingMocks struct {
 	*simpleContainerMocks
@@ -45,8 +53,8 @@ func (m *namingMocks) NewResource(args sdk.MockResourceArgs) (string, resource.P
 
 func autopilotWithCaddy(adopt bool) api.ResourceDescriptor {
 	return api.ResourceDescriptor{
-		Type: gcloud.ResourceTypeGkeAutopilot,
-		Config: api.Config{Config: &gcloud.GkeAutopilotResource{
+		Type: resourceTypeGkeAutopilot,
+		Config: api.Config{Config: &testGkeAutopilotResource{
 			Caddy: &k8s.CaddyConfig{Namespace: strPtr("caddy"), DeploymentName: strPtr("caddy")},
 			Adopt: adopt,
 		}},
@@ -222,7 +230,7 @@ func TestKubernetesCaddyDeploymentName(t *testing.T) {
 
 	// Config maps the reader did not type yet are read the same way.
 	name, err = KubernetesCaddyDeploymentName("caddy-std", "likeclaw-us", true, oneEnv("likeclaw-us", map[string]api.ResourceDescriptor{
-		"gke": {Type: gcloud.ResourceTypeGkeAutopilot, Config: api.Config{Config: map[string]any{
+		"gke": {Type: resourceTypeGkeAutopilot, Config: api.Config{Config: map[string]any{
 			"caddy": map[string]any{"enable": true},
 		}}},
 		"other": {Type: k8s.ResourceTypeCaddy, Config: api.Config{Config: map[string]any{

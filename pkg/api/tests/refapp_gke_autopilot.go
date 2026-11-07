@@ -4,15 +4,16 @@
 package tests
 
 import (
+	gcpApi "github.com/simple-container-com/sc-plugin-gcp/api"
+
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 )
 
 var RefappGkeAutopilotServerResources = map[string]api.ResourceDescriptor{
 	"gke-autopilot-res": {
 		Type: "gcp-gke-autopilot-cluster",
 		Config: api.Config{
-			Config: &gcloud.GkeAutopilotResource{
+			Config: &gcpApi.GkeAutopilotResource{
 				Credentials:   CommonGcpCredentials,
 				GkeMinVersion: "1.33.4-gke.1245000",
 				Location:      "europe-west3",
@@ -23,7 +24,7 @@ var RefappGkeAutopilotServerResources = map[string]api.ResourceDescriptor{
 	"artifact-registry-res": {
 		Type: "gcp-artifact-registry",
 		Config: api.Config{
-			Config: &gcloud.ArtifactRegistryConfig{
+			Config: &gcpApi.ArtifactRegistryConfig{
 				Credentials: CommonGcpCredentials,
 				Location:    "europe-west3",
 			},
@@ -47,7 +48,7 @@ var RefappGkeAutopilotServerDescriptor = &api.ServerDescriptor{
 		"stack-per-app-gke": {
 			Type: "gcp-gke-autopilot",
 			Config: api.Config{
-				Config: &gcloud.GkeAutopilotTemplate{
+				Config: &gcpApi.GkeAutopilotTemplate{
 					Credentials:              CommonGcpCredentials,
 					GkeClusterResource:       "gke-autopilot-res",
 					ArtifactRegistryResource: "artifact-registry-res",
@@ -77,7 +78,7 @@ var ResolvedRefappGkeAutopilotServerResources = map[string]api.ResourceDescripto
 	"gke-autopilot-res": {
 		Type: "gcp-gke-autopilot-cluster",
 		Config: api.Config{
-			Config: &gcloud.GkeAutopilotResource{
+			Config: &gcpApi.GkeAutopilotResource{
 				Credentials:   ResolvedCommonGcpCredentials,
 				GkeMinVersion: "1.33.4-gke.1245000",
 				Location:      "europe-west3",
@@ -88,7 +89,7 @@ var ResolvedRefappGkeAutopilotServerResources = map[string]api.ResourceDescripto
 	"artifact-registry-res": {
 		Type: "gcp-artifact-registry",
 		Config: api.Config{
-			Config: &gcloud.ArtifactRegistryConfig{
+			Config: &gcpApi.ArtifactRegistryConfig{
 				Credentials: ResolvedCommonGcpCredentials,
 				Location:    "europe-west3",
 			},
@@ -106,7 +107,7 @@ var ResolvedRefappGkeAutopilotServerDescriptor = &api.ServerDescriptor{
 		"stack-per-app-gke": {
 			Type: "gcp-gke-autopilot",
 			Config: api.Config{
-				Config: &gcloud.GkeAutopilotTemplate{
+				Config: &gcpApi.GkeAutopilotTemplate{
 					Credentials:              ResolvedCommonGcpCredentials,
 					ArtifactRegistryResource: "artifact-registry-res",
 					GkeClusterResource:       "gke-autopilot-res",
