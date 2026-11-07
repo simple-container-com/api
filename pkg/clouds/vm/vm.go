@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) Simple Container
 
-// Package vm is the cloud-independent description of a virtual machine (and, later,
-// of a pool of them). It is the config tier behind three delivery paths that all
+// Package vm is the cloud-independent description of a virtual machine, or of a
+// pool of them. It is the config tier behind three delivery paths that all
 // want the same thing from a machine and would otherwise each grow their own copy
 // of cloud-init, SSH readiness and key handling:
 //
@@ -188,6 +188,37 @@ type VmHost struct {
 	// Not a secret: it is the machine's PUBLIC key, and keeping it readable is what
 	// lets an operator compare it against the console by eye.
 	HostKey string `json:"hostKey,omitempty" yaml:"hostKey,omitempty"`
+
+	// Role is what this machine is prepared for: one of the HostRole values
+	// (`compose`, `k3s-server`, `k3s-agent`).
+	//
+	// It exists because SC cannot infer which of three machines should run etcd. On
+	// a cloud driver the machines are interchangeable — SC creates them, so it
+	// assigns the roles by index. On byo they are not: the operator knows which box
+	// has the disk, the memory and the stable address, and that knowledge has no
+	// other way into the config.
+	//
+	// Optional, and optional in a load-bearing way: when every host leaves it empty
+	// the role is inferred from what consumes the vm resource, which is exactly
+	// what every single-host stack written before this field did (see
+	// EffectiveRole). Either every host names a role or none does — a pool where
+	// host 0 says `k3s-server` and host 1 says nothing is a pool whose host 1 is a
+	// guess, and the guess decides whether it joins the cluster at all.
+	Role string `json:"role,omitempty" yaml:"role,omitempty"`
+}
+
+// EffectiveRole resolves the machine's role, falling back to RoleCompose — which
+// is what the provisioning tier hardcoded for every byo host before `role:`
+// existed, so a config that names no role behaves exactly as it did.
+//
+// A consumer that derives roles itself (the k3s cluster resource, which assigns by
+// index when the pool declares none) must ask DeclaresHostRoles first: this method
+// cannot distinguish "the operator said compose" from "the operator said nothing".
+func (h VmHost) EffectiveRole() HostRole {
+	if h.Role == "" {
+		return RoleCompose
+	}
+	return HostRole(h.Role)
 }
 
 // EffectiveUser resolves the login name: the host's own, else the resource-level
@@ -217,6 +248,18 @@ type VmConfig struct {
 
 	Region string   `json:"region,omitempty" yaml:"region,omitempty"`
 	Zones  []string `json:"zones,omitempty" yaml:"zones,omitempty"`
+	// Nodes is how many machines a cloud driver creates for this resource. Not
+	// valid with DriverByo, where the count is `len(hosts)`.
+	//
+	// Default (see NodeCount): `len(zones)` when zones are listed, else 1. So
+	// `zones: [a, b, c]` alone means three machines, one per zone, which is the
+	// common case and needs no second field — and `nodes: 3` with one zone means
+	// three machines in that zone, which is the other one.
+	//
+	// Machine i goes in zone i%len(zones) (ZoneForNode): deterministic and
+	// index-stable, so a later apply that raises the count never moves an existing
+	// machine to a different zone. Moving one would mean destroying it.
+	Nodes int `json:"nodes,omitempty" yaml:"nodes,omitempty"`
 	// Image is an SC alias (see DefaultImage), resolved per cloud by the driver.
 	Image    string     `json:"image,omitempty" yaml:"image,omitempty"`
 	Size     *VmSize    `json:"size,omitempty" yaml:"size,omitempty"`
@@ -461,6 +504,11 @@ func (r *VmConfig) validateByo() error {
 	if len(r.Zones) > 0 {
 		ignored = append(ignored, "zones")
 	}
+	// The pool's size is `len(hosts)` here: the machines already exist, so a second
+	// spelling of the count could only ever contradict the first.
+	if r.Nodes > 0 {
+		ignored = append(ignored, "nodes")
+	}
 	if r.Image != "" {
 		ignored = append(ignored, "image")
 	}
@@ -502,15 +550,6 @@ func (r *VmConfig) validateByo() error {
 	if len(r.Hosts) == 0 {
 		return errors.Errorf("`provider: %s` requires at least one entry under `hosts`", DriverByo)
 	}
-	// One machine is all P5 (compose on a single VM) can place a stack on, and a
-	// multi-host byo pool only becomes meaningful with k3s. Refusing now is cheaper
-	// than deploying to the first host and leaving the rest idle.
-	if len(r.Hosts) > 1 {
-		return errors.Errorf(
-			"`provider: %s` currently supports exactly one host, got %d; multi-host pools arrive with the "+
-				"k3s cluster resource (roadmap item sc-k3s-cluster-resource)", DriverByo, len(r.Hosts),
-		)
-	}
 	for i, h := range r.Hosts {
 		if h.Address == "" {
 			return errors.Errorf("hosts[%d] requires `address`", i)
@@ -525,7 +564,175 @@ func (r *VmConfig) validateByo() error {
 			return errors.Errorf("hosts[%d] (%s) has an invalid `port`: %d", i, h.Address, h.Port)
 		}
 	}
+	if err := r.validateHostRoles(); err != nil {
+		return err
+	}
+	if dup, ok := firstDuplicateAddress(r.Hosts); ok {
+		// Two entries for one machine is never what was meant, and it fails late and
+		// confusingly: both get the same cloud-init, the same ingress, and — for a k3s
+		// pool — the same node name, so the second node silently replaces the first in
+		// `kubectl get nodes` and the cluster reports N-1 members for an N-host pool.
+		return errors.Errorf("`hosts` lists %q more than once; one entry per machine", dup)
+	}
 	return r.validateIngress()
+}
+
+// DeclaresHostRoles reports whether the operator named `hosts[].role` at all.
+//
+// It is the question a consumer that derives roles itself has to ask before
+// trusting VmHost.EffectiveRole, which cannot distinguish "the operator said
+// compose" from "the operator said nothing" — RoleCompose is the answer to both.
+// Validation guarantees all-or-none (validateHostRoles), so one host naming a role
+// is enough to know the whole pool did.
+func (r *VmConfig) DeclaresHostRoles() bool {
+	return lo.SomeBy(r.Hosts, func(h VmHost) bool { return h.Role != "" })
+}
+
+// validateHostRoles checks the role set of a byo pool as a whole.
+//
+// Per-host spellings are checked here too, but the rules that matter are the ones
+// about the set — a pool is a single deployment target, and the shapes refused
+// below each produce a deploy that half-works rather than an error.
+func (r *VmConfig) validateHostRoles() error {
+	for i, h := range r.Hosts {
+		if h.Role == "" {
+			continue
+		}
+		if !lo.Contains(AllHostRoles, HostRole(h.Role)) {
+			return errors.Errorf(
+				"hosts[%d] (%s) has an unknown `role`: %q; expected one of %s",
+				i, h.Address, h.Role, strings.Join(quoteAll(lo.Map(AllHostRoles, func(role HostRole, _ int) string {
+					return string(role)
+				})), ", "),
+			)
+		}
+	}
+	if !r.DeclaresHostRoles() {
+		// No role anywhere: inferred, exactly as before this field existed. A
+		// single-host config written against P5 lands here and is unaffected.
+		return nil
+	}
+	// All or none. See VmHost.Role — a half-declared pool is a pool whose remaining
+	// hosts are a guess, and the guess decides whether a machine joins the cluster.
+	missing := lo.FilterMap(r.Hosts, func(h VmHost, i int) (string, bool) {
+		return fmt.Sprintf("hosts[%d] (%s)", i, h.Address), h.Role == ""
+	})
+	if len(missing) > 0 {
+		return errors.Errorf(
+			"either every entry under `hosts` names a `role` or none does; %s %s none",
+			strings.Join(missing, ", "), lo.If(len(missing) == 1, "names").Else("name"),
+		)
+	}
+	k3sHosts := lo.Filter(r.Hosts, func(h VmHost, _ int) bool { return h.EffectiveRole().IsK3s() })
+	if len(k3sHosts) == 0 {
+		// An all-compose fleet: every machine runs the full container set. Nothing
+		// further to check — the front door is the registrar's problem, not this
+		// validator's.
+		return nil
+	}
+	// A machine serves one thing on port 443. Mixing the two roles in one resource
+	// means the compose ingress and k3s both want :80 and :443 on the pool, and
+	// which one gets them depends on which host a request's DNS answer landed on —
+	// the single-node reasoning behind the servicelb/traefik disable logic in
+	// pkg/clouds/pulumi/k3s/cluster.go, now a cross-host rule.
+	if len(k3sHosts) != len(r.Hosts) {
+		return errors.Errorf(
+			"`hosts` mixes %q with k3s roles; one vm resource is one deployment target, so declare the "+
+				"compose fleet and the k3s pool as two resources", RoleCompose,
+		)
+	}
+	servers := lo.CountBy(r.Hosts, func(h VmHost) bool { return h.EffectiveRole() == RoleK3sServer })
+	if servers == 0 {
+		return errors.Errorf(
+			"`hosts` declares %d k3s agent(s) and no %q; a cluster needs at least one control-plane node",
+			len(r.Hosts), RoleK3sServer,
+		)
+	}
+	// etcd needs a quorum of its members. Two servers tolerate zero failures —
+	// strictly worse than one, because either machine going away takes the API
+	// server down — so an even count above one is always a mistake.
+	if servers > 1 && servers%2 == 0 {
+		return errors.Errorf(
+			"`hosts` declares %d %q; an embedded-etcd cluster needs an odd number (1, 3, 5) — %d members "+
+				"tolerate no failures at all, so they are strictly worse than 1",
+			servers, RoleK3sServer, servers,
+		)
+	}
+	return nil
+}
+
+// firstDuplicateAddress returns the first address that appears twice, in the order
+// the hosts are written.
+func firstDuplicateAddress(hosts []VmHost) (string, bool) {
+	seen := make(map[string]bool, len(hosts))
+	for _, h := range hosts {
+		if seen[h.Address] {
+			return h.Address, true
+		}
+		seen[h.Address] = true
+	}
+	return "", false
+}
+
+// NodeCount is how many machines this resource describes.
+//
+// It is the one place the default lives, so a driver never computes it from
+// `nodes` and `zones` itself — two drivers disagreeing about whether `zones: [a,
+// b]` means one machine or two would be a fleet that is one size in preview and
+// another after apply.
+func (r *VmConfig) NodeCount() int {
+	switch {
+	case r.Driver == DriverByo:
+		return len(r.Hosts)
+	case r.Nodes > 0:
+		return r.Nodes
+	case len(r.Zones) > 0:
+		return len(r.Zones)
+	default:
+		return 1
+	}
+}
+
+// ZoneForNode is where machine i goes: round-robin over `zones`, empty when the
+// operator listed none (the driver then picks, normally the cloud's default zone).
+//
+// Index-stable on purpose — see VmConfig.Nodes. Raising `nodes` from 3 to 5 must
+// leave machines 0..2 exactly where they are, because a machine cannot change zone
+// without being destroyed and recreated.
+func (r *VmConfig) ZoneForNode(i int) string {
+	if len(r.Zones) == 0 || i < 0 {
+		return ""
+	}
+	return r.Zones[i%len(r.Zones)]
+}
+
+// validateNodeCount checks the shape of a cloud-created pool: how many machines,
+// across which zones, and whether the cloud has that many zones to spread over.
+func (r *VmConfig) validateNodeCount(drv DriverInfo) error {
+	if r.Nodes < 0 {
+		return errors.Errorf("`nodes` must be positive, got %d", r.Nodes)
+	}
+	// Fewer machines than zones means a zone nobody is placed in — an ignored
+	// field, which this package treats as a future incident rather than a
+	// convenience. The operator either wanted more machines or fewer zones, and
+	// guessing which would silently pick one.
+	if r.Nodes > 0 && len(r.Zones) > r.Nodes {
+		return errors.Errorf(
+			"`nodes` is %d but `zones` lists %d; every zone listed must hold at least one machine, so either "+
+				"raise `nodes` or shorten `zones`", r.Nodes, len(r.Zones),
+		)
+	}
+	// Capabilities.MultiAZInRegion is zero for "not measured yet" and the field's
+	// own doc says not to validate against it until a driver fills it in — so an
+	// unmeasured cloud is not refused here, it is simply not checked.
+	if az := drv.Capabilities.MultiAZInRegion; az > 0 && len(r.Zones) > az {
+		return errors.Errorf(
+			"`zones` lists %d entries but `provider: %s` has %d usable zone(s) in a region; placing a machine "+
+				"in a zone the cloud does not have fails at create time, after the rest of the pool is billed",
+			len(r.Zones), r.Driver, az,
+		)
+	}
+	return nil
 }
 
 // validateCloud holds the invariants of every driver that creates a machine. They
@@ -591,14 +798,8 @@ func (r *VmConfig) validateCloud(drv DriverInfo) error {
 				"bastion or VPN path to a machine without a public address", r.Driver,
 		)
 	}
-	// One zone, because one machine. Several zones only mean something once a vm
-	// resource can describe a pool, which arrives with the k3s cluster resource.
-	if len(r.Zones) > 1 {
-		return errors.Errorf(
-			"`provider: %s` currently supports at most one entry under `zones`, got %d; multi-zone pools "+
-				"arrive with the k3s cluster resource (roadmap item sc-k3s-cluster-resource)",
-			r.Driver, len(r.Zones),
-		)
+	if err := r.validateNodeCount(drv); err != nil {
+		return err
 	}
 	// `network.id` without the matching subnet is the one shape of a BYO network that
 	// cannot be completed by guessing: a driver that picked "some subnet in the VPC"

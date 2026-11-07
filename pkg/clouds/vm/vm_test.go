@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -90,13 +91,25 @@ func TestValidate(t *testing.T) {
 			errMatch: "requires at least one entry under `hosts`",
 		},
 		{
-			// Refused rather than deployed-to-the-first-host: a silently idle second
-			// machine is exactly the kind of thing nobody notices for a month.
+			// Accepted since multi-node (roadmap item sc-vm-multi-node-clusters): a byo
+			// pool with no role declared anywhere is a compose fleet, which is what the
+			// provisioning tier has looped over all along. This case used to assert the
+			// opposite — "supports exactly one host, got 2" — and the role-set rules
+			// that replaced it are in TestValidateHostRoles.
 			name: "byo with two hosts",
 			mutate: func(c *VmConfig) {
 				c.Hosts = append(c.Hosts, VmHost{Address: "203.0.113.11", PrivateKey: "k"})
 			},
-			errMatch: "supports exactly one host, got 2",
+			errMatch: "",
+		},
+		{
+			// Two entries for one machine: the same cloud-init, the same ingress and —
+			// in a k3s pool — the same node name, so the cluster reports N-1 members.
+			name: "byo with a repeated address",
+			mutate: func(c *VmConfig) {
+				c.Hosts = append(c.Hosts, VmHost{Address: c.Hosts[0].Address, PrivateKey: "k"})
+			},
+			errMatch: `lists "203.0.113.10" more than once`,
 		},
 		{
 			name:     "host without address",
@@ -182,6 +195,207 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+// TestValidateHostRoles is the role set of a byo pool, which is what replaced the
+// old "exactly one host" refusal (roadmap item sc-vm-multi-node-clusters, phase 1a).
+//
+// Every refused shape here is one that otherwise deploys and half-works: a machine
+// left out of the cluster, two services fighting over :443, or an etcd membership
+// that tolerates no failures while reading as HA.
+func TestValidateHostRoles(t *testing.T) {
+	RegisterTestingT(t)
+
+	host := func(address, role string) VmHost {
+		return VmHost{Address: address, PrivateKey: "k", Role: role}
+	}
+
+	cases := []struct {
+		name     string
+		hosts    []VmHost
+		errMatch string
+	}{
+		{
+			// The pre-existing shape: one host, no role. Still valid, still inferred.
+			name:  "single host, no role",
+			hosts: []VmHost{host("203.0.113.10", "")},
+		},
+		{
+			name: "three hosts, no roles — an inferred compose fleet",
+			hosts: []VmHost{
+				host("203.0.113.10", ""), host("203.0.113.11", ""), host("203.0.113.12", ""),
+			},
+		},
+		{
+			name: "explicit compose fleet",
+			hosts: []VmHost{
+				host("203.0.113.10", string(RoleCompose)), host("203.0.113.11", string(RoleCompose)),
+			},
+		},
+		{
+			name: "one server, two agents — the default k3s topology",
+			hosts: []VmHost{
+				host("203.0.113.10", string(RoleK3sServer)),
+				host("203.0.113.11", string(RoleK3sAgent)),
+				host("203.0.113.12", string(RoleK3sAgent)),
+			},
+		},
+		{
+			name: "three servers — embedded-etcd HA",
+			hosts: []VmHost{
+				host("203.0.113.10", string(RoleK3sServer)),
+				host("203.0.113.11", string(RoleK3sServer)),
+				host("203.0.113.12", string(RoleK3sServer)),
+			},
+		},
+		{
+			name:     "unknown role",
+			hosts:    []VmHost{host("203.0.113.10", "k3s-master")},
+			errMatch: `unknown ` + "`role`" + `: "k3s-master"; expected one of "compose", "k3s-server", "k3s-agent"`,
+		},
+		{
+			// The shape the all-or-none rule exists for: host 1's role would have to be
+			// guessed, and the guess decides whether it joins the cluster at all.
+			name: "half-declared pool",
+			hosts: []VmHost{
+				host("203.0.113.10", string(RoleK3sServer)), host("203.0.113.11", ""),
+			},
+			errMatch: "either every entry under `hosts` names a `role` or none does; hosts[1] (203.0.113.11) names none",
+		},
+		{
+			name: "half-declared pool names every host that is missing one",
+			hosts: []VmHost{
+				host("203.0.113.10", string(RoleK3sServer)), host("203.0.113.11", ""), host("203.0.113.12", ""),
+			},
+			errMatch: "hosts[1] (203.0.113.11), hosts[2] (203.0.113.12) name none",
+		},
+		{
+			name: "compose mixed with k3s",
+			hosts: []VmHost{
+				host("203.0.113.10", string(RoleK3sServer)), host("203.0.113.11", string(RoleCompose)),
+			},
+			errMatch: `mixes "compose" with k3s roles`,
+		},
+		{
+			name: "agents with no server",
+			hosts: []VmHost{
+				host("203.0.113.10", string(RoleK3sAgent)), host("203.0.113.11", string(RoleK3sAgent)),
+			},
+			errMatch: `declares 2 k3s agent(s) and no "k3s-server"`,
+		},
+		{
+			// Two members tolerate zero failures, so they are strictly worse than one.
+			name: "two servers",
+			hosts: []VmHost{
+				host("203.0.113.10", string(RoleK3sServer)), host("203.0.113.11", string(RoleK3sServer)),
+			},
+			errMatch: "needs an odd number (1, 3, 5)",
+		},
+		{
+			name: "four servers",
+			hosts: []VmHost{
+				host("203.0.113.10", string(RoleK3sServer)), host("203.0.113.11", string(RoleK3sServer)),
+				host("203.0.113.12", string(RoleK3sServer)), host("203.0.113.13", string(RoleK3sServer)),
+			},
+			errMatch: "needs an odd number (1, 3, 5)",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
+			cfg := byoConfig()
+			cfg.Hosts = tc.hosts
+
+			err := cfg.Validate()
+			if tc.errMatch == "" {
+				Expect(err).ToNot(HaveOccurred())
+				return
+			}
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(tc.errMatch))
+		})
+	}
+}
+
+// EffectiveRole's fallback is what keeps every config written before `role:` existed
+// producing the same HostFacts — pkg/clouds/pulumi/vm/byo.go hardcoded RoleCompose.
+func TestEffectiveRole(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect(VmHost{}.EffectiveRole()).To(Equal(RoleCompose))
+	Expect(VmHost{Role: string(RoleK3sServer)}.EffectiveRole()).To(Equal(RoleK3sServer))
+	Expect(VmHost{Role: string(RoleK3sAgent)}.EffectiveRole()).To(Equal(RoleK3sAgent))
+
+	Expect(RoleK3sServer.IsK3s()).To(BeTrue())
+	Expect(RoleK3sAgent.IsK3s()).To(BeTrue())
+	Expect(RoleCompose.IsK3s()).To(BeFalse())
+	Expect(VmHost{}.EffectiveRole().IsK3s()).To(BeFalse())
+}
+
+// NodeCount is the single place the pool's size is decided, so that two drivers
+// can never disagree about whether `zones: [a, b]` means one machine or two.
+func TestNodeCount(t *testing.T) {
+	RegisterTestingT(t)
+
+	// byo: the machines exist, so the count is `len(hosts)` and `nodes` is refused.
+	Expect(byoConfig().NodeCount()).To(Equal(1))
+	threeHosts := byoConfig()
+	threeHosts.Hosts = append(threeHosts.Hosts,
+		VmHost{Address: "203.0.113.11", PrivateKey: "k"}, VmHost{Address: "203.0.113.12", PrivateKey: "k"})
+	Expect(threeHosts.NodeCount()).To(Equal(3))
+
+	// Cloud: zones alone are a count, `nodes` alone is a count, and neither is 1.
+	Expect(cloudConfig().NodeCount()).To(Equal(1))
+
+	zonesOnly := cloudConfig()
+	zonesOnly.Zones = []string{"ru-moscow-1a", "ru-moscow-1b", "ru-moscow-1c"}
+	Expect(zonesOnly.NodeCount()).To(Equal(3))
+
+	nodesOnly := cloudConfig()
+	nodesOnly.Nodes = 3
+	Expect(nodesOnly.NodeCount()).To(Equal(3))
+	Expect(nodesOnly.ZoneForNode(0)).To(BeEmpty(), "no zones listed: the driver picks")
+
+	// More machines than zones: round-robin, and `nodes` wins over `len(zones)`.
+	both := cloudConfig()
+	both.Nodes = 5
+	both.Zones = []string{"ru-moscow-1a", "ru-moscow-1b"}
+	Expect(both.NodeCount()).To(Equal(5))
+	Expect(lo.Map(lo.Range(both.NodeCount()), func(i int, _ int) string { return both.ZoneForNode(i) })).
+		To(Equal([]string{"ru-moscow-1a", "ru-moscow-1b", "ru-moscow-1a", "ru-moscow-1b", "ru-moscow-1a"}))
+
+	// Index stability is the whole reason the assignment is i%len(zones) rather
+	// than anything smarter: growing the pool must not move an existing machine,
+	// because a machine cannot change zone without being destroyed.
+	grown := cloudConfig()
+	grown.Nodes = 7
+	grown.Zones = both.Zones
+	for i := range both.NodeCount() {
+		Expect(grown.ZoneForNode(i)).To(Equal(both.ZoneForNode(i)), "machine %d moved zone when the pool grew", i)
+	}
+}
+
+// The zone count is checked against the cloud's own measured capability — and NOT
+// checked when that capability is still zero, which Capabilities.MultiAZInRegion
+// defines as "not measured yet" rather than "none".
+func TestValidateNodeCountAgainstZoneCapability(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := cloudConfig()
+	cfg.Zones = []string{"ru-moscow-1a", "ru-moscow-1b", "ru-moscow-1c"}
+
+	unmeasured := DriverInfo{Capabilities: Capabilities{MultiAZInRegion: 0}}
+	Expect(cfg.validateNodeCount(unmeasured)).ToNot(HaveOccurred())
+
+	roomy := DriverInfo{Capabilities: Capabilities{MultiAZInRegion: 3}}
+	Expect(cfg.validateNodeCount(roomy)).ToNot(HaveOccurred())
+
+	tight := DriverInfo{Capabilities: Capabilities{MultiAZInRegion: 2}}
+	err := cfg.validateNodeCount(tight)
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("`zones` lists 3 entries but `provider: cloudru-vm` has 2 usable zone(s)"))
+}
+
 // A cloud driver's own invariants are checked before the not-implemented refusal:
 // an operator whose config is also wrong in shape should hear about the shape, so
 // that the config is already right when the driver lands.
@@ -229,9 +443,27 @@ func TestValidateCloud(t *testing.T) {
 			errMatch: "",
 		},
 		{
+			// Accepted since multi-node (roadmap item sc-vm-multi-node-clusters): two
+			// zones means two machines, one each. This case asserted the refusal that
+			// used to stand here; the pool-shape rules are in TestValidateNodeCount.
 			name:     "two zones",
 			mutate:   func(c *VmConfig) { c.Zones = []string{"ru-moscow-1a", "ru-moscow-1b"} },
-			errMatch: "at most one entry under `zones`, got 2",
+			errMatch: "",
+		},
+		{
+			name:     "negative node count",
+			mutate:   func(c *VmConfig) { c.Nodes = -1 },
+			errMatch: "`nodes` must be positive, got -1",
+		},
+		{
+			// A zone nobody is placed in: the operator wanted either more machines or
+			// fewer zones, and guessing which silently picks one.
+			name: "fewer nodes than zones",
+			mutate: func(c *VmConfig) {
+				c.Nodes = 2
+				c.Zones = []string{"ru-moscow-1a", "ru-moscow-1b", "ru-moscow-1c"}
+			},
+			errMatch: "`nodes` is 2 but `zones` lists 3",
 		},
 		{
 			// Half a BYO network is the one shape that cannot be completed by

@@ -30,6 +30,17 @@ const (
 	RoleK3sAgent HostRole = "k3s-agent"
 )
 
+// AllHostRoles is every spelling `hosts[].role` accepts, in the order the
+// validation error lists them. Kept next to the constants so adding a role is one
+// edit rather than two places that drift.
+var AllHostRoles = []HostRole{RoleCompose, RoleK3sServer, RoleK3sAgent}
+
+// IsK3s reports whether the role makes the machine a node of a k3s cluster, as
+// opposed to a host running stacks under `docker compose`.
+func (r HostRole) IsK3s() bool {
+	return r == RoleK3sServer || r == RoleK3sAgent
+}
+
 // DefaultDockerInstallScript is the fallback way to get docker onto a fresh machine.
 //
 // It reaches out to get.docker.com, which is one of the four egress paths whose
