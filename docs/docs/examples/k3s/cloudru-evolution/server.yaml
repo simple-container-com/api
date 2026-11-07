@@ -79,6 +79,29 @@ resources:
             # Placement is the availability zone.
             zones: [ru.AZ-1]
 
+            # How many machines to create. Defaults to `len(zones)`, then 1 — so this
+            # file makes one. Listing three zones makes three machines, one per zone;
+            # `nodes: 3` with one zone makes three there; `nodes: 3` with two zones
+            # round-robins (0→a, 1→b, 2→a) and the assignment is index-stable, so a
+            # machine never changes zone on a later apply.
+            # nodes: 3
+            #
+            # ⚠ ACCEPTED HERE, NOT YET HONOURED BY THIS DRIVER. Creating N machines
+            # is per-plugin work and `sc-plugin-cloudru` has not had it. SC refuses
+            # the mismatch rather than quietly giving you one machine: a resource
+            # that asks for three and gets one fails the provision, naming the
+            # driver and both counts.
+            #
+            # ⚠ On **Evolution specifically**, spreading k3s nodes across zones does
+            # not work yet. An Evolution VM create takes no `subnet_id`, so each
+            # machine lands on its own zone's default subnet — and the node-to-node
+            # firewall rules SC writes (flannel, kubelet, etcd) are scoped to "the
+            # subnet this machine landed on", which does not cover its siblings in
+            # other zones. Keep a k3s pool in ONE zone here until the SC-managed
+            # WireGuard mesh lands, which makes the rules one mesh CIDR regardless of
+            # zone. A compose fleet is unaffected: those machines never talk to each
+            # other.
+
             # Required on every cloud driver. The kubeconfig SC exports points at this
             # address, and `sc deploy` connects to it from wherever it runs.
             publicIP: true

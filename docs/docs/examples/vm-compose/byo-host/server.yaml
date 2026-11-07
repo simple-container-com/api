@@ -98,6 +98,41 @@ resources:
                 # before you trust it — reading it off the network is what it protects
                 # you from.
                 hostKey: "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLE00"
+            # A FLEET is the same list with more entries. Add a second machine and every
+            # stack on this resource deploys a full container set onto each one, rolled
+            # one host at a time — the next host starts only after the previous host's
+            # new slot is live, so a bad image stops the roll instead of taking the
+            # fleet down. Each machine runs its own Caddy and its own blue-green pair;
+            # blue-green is WITHIN a host and is not, and will not be, across machines.
+            #
+            # hosts:
+            #   - address: 203.0.113.10
+            #     user: ubuntu
+            #     privateKey: ${secret:PORTAL_VM_DEPLOY_KEY}
+            #     hostKey: "…"
+            #   - address: 203.0.113.11
+            #     user: ubuntu
+            #     privateKey: ${secret:PORTAL_VM_DEPLOY_KEY}
+            #     hostKey: "…"
+            #
+            # No `role:` needed — a pool with no roles declared is a compose fleet, and
+            # no `privateAddress:` either, because these machines never talk to each
+            # other. That is the useful difference from a multi-node k3s pool (see
+            # ../../k3s/byo-host/server.yaml), and it is why a compose fleet works on
+            # cheap VPS hosting that offers no private network at all.
+            #
+            # Two things a fleet needs that a single machine does not:
+            #
+            #  * `ingress.acmeStorage` — otherwise each machine runs its own ACME
+            #    client against the same name and you get N certificates, N sets of
+            #    rate-limit consumption, and HTTP-01 challenges answered by whichever
+            #    node DNS happened to pick (which 404s a token another node minted).
+            #    One shared store makes it one certificate. See `ingress` below.
+            #  * More than one A record for the name, so requests reach more than one
+            #    machine. Note what this does and does not give you: a dead node means
+            #    roughly 1/N of requests fail and are retried by the client. It is
+            #    round-robin, not failover — a cloud load balancer with health checks
+            #    is strictly better where the cloud has one.
             # The front door: a Caddy container in its own compose project, terminating
             # TLS for every stack on this machine. It belongs to the resource and not to
             # a template because one machine has one port 443 — and because a stack's

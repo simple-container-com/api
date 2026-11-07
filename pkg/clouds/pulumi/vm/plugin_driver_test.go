@@ -6,6 +6,7 @@ package vm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"google.golang.org/grpc/codes"
@@ -285,6 +286,65 @@ func TestPluginDriver_NoHostsIsAnError(t *testing.T) {
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("returned no hosts"))
 	Expect(err.Error()).To(ContainSubstring("portal-vm"))
+}
+
+// The case this guard exists for: a plugin built before `nodes` existed. The field
+// rides the marshalled config, so an older plugin's unmarshal drops it and it
+// creates ONE machine for a three-machine resource — and a count mismatch is
+// invisible from the operator's side, because the provision is green and the pool
+// is simply a size nobody asked for.
+func TestPluginDriver_WrongHostCountIsRefused(t *testing.T) {
+	RegisterTestingT(t)
+
+	registerPluginVm(t, func(_ context.Context, _ *scpluginv1.VmHostsRequest) (*scpluginv1.VmHostsResponse, error) {
+		return &scpluginv1.VmHostsResponse{Hosts: []*scpluginv1.VmHostFacts{{
+			Name: "node-0", User: "ubuntu", Port: 22, Role: string(vm.RoleCompose),
+			Address: wireLiteral("203.0.113.9"),
+		}}}, nil
+	})
+
+	cfg := pluginVmConfig()
+	cfg.Nodes = 3
+
+	_, err := provisionVm(cfg, newVmMocks())
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("asked driver \"fake-cloud-vm\" for 3 machine(s) and got 1"))
+	// The likely cause, named — otherwise the operator reads this as their own
+	// config being wrong and goes looking in server.yaml.
+	Expect(err.Error()).To(ContainSubstring("older than the `nodes` field"))
+}
+
+// And the same path with the count honoured: the guard must not fire on a plugin
+// that does the right thing, which is the only way to know it is a guard and not a
+// cap on the fleet size.
+func TestPluginDriver_HonouredHostCountPasses(t *testing.T) {
+	RegisterTestingT(t)
+
+	registerPluginVm(t, func(_ context.Context, req *scpluginv1.VmHostsRequest) (*scpluginv1.VmHostsResponse, error) {
+		var cfg vm.VmConfig
+		if err := json.Unmarshal(req.ConfigJson, &cfg); err != nil {
+			return nil, err
+		}
+		// What an up-to-date plugin does: read the count off the config rather than
+		// assume one machine.
+		hosts := make([]*scpluginv1.VmHostFacts, 0, cfg.NodeCount())
+		for i := range cfg.NodeCount() {
+			hosts = append(hosts, &scpluginv1.VmHostFacts{
+				Name: fmt.Sprintf("node-%d", i), User: "ubuntu", Port: 22,
+				Role:    string(vm.RoleCompose),
+				Address: wireLiteral(fmt.Sprintf("203.0.113.%d", 10+i)),
+			})
+		}
+		return &scpluginv1.VmHostsResponse{Hosts: hosts}, nil
+	})
+
+	cfg := pluginVmConfig()
+	cfg.Nodes = 3
+
+	out, err := provisionVm(cfg, newVmMocks())
+	Expect(err).ToNot(HaveOccurred())
+	Expect(out.Hosts).To(HaveLen(3))
+	Expect(out.Ready).To(HaveLen(3), "every host of a fleet needs its own readiness gate")
 }
 
 // A host with no address: there is nothing for SSH to connect to, and the layers

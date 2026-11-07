@@ -194,10 +194,17 @@ Stated plainly, because `scale:` will happily let you believe otherwise:
 
 - **One failure domain.** Replicas on one node survive a pod crash, not a machine
   reboot. `scale: {min: 1, max: 1}` in `client.yaml` is honesty, not a technical limit.
-- **No multi-node yet.** `vmResource` resolves to exactly one host today; more than one
-  is refused rather than silently using the first.
+- **Multi-node needs a private network.** More than one `hosts:` entry is accepted — see
+  the commented block in `server.yaml` — but every entry then needs `privateAddress:`,
+  and that is refused rather than defaulted. k3s otherwise advertises whichever address
+  the machine's default route carries, which on a single-NIC VPS is the public one, and
+  etcd plus flannel's unencrypted VXLAN overlay would cross the internet on a host where
+  SC has no firewall to write a rule in. If your machines share no private network,
+  run a [compose fleet](../../vm-compose/byo-host/README.md) instead — it needs no
+  node-to-node traffic at all.
 - **`local-storage` is the default storage class.** A PersistentVolume is a directory
-  on that one machine. It does not survive the machine.
+  on that one machine. It does not survive the machine, and nothing replicates it
+  across a pool.
 - **The control plane is pinned**, not tracking a release channel — k3s's installer
   resolves a channel at install time, which would otherwise make the deployed version
   depend on the day the deploy ran. Move it deliberately with `version:`.

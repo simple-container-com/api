@@ -85,6 +85,24 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 	if len(hosts) == 0 {
 		return nil, errors.Errorf("driver %q produced no hosts for vm %q", drv.Name(), input.Descriptor.Name)
 	}
+	// The driver has to produce the pool SC asked for. `byo` satisfies this by
+	// definition (NodeCount is len(hosts) there), so this guards the cloud drivers —
+	// and every one of them is an out-of-tree plugin, built against whichever version
+	// of VmConfig existed when it was released. `nodes` reaches a plugin inside the
+	// marshalled config (plugin_driver.go), so a plugin that predates the field
+	// unmarshals it into nothing and creates ONE machine for a resource that asked
+	// for three: a green provision, one host, `<vm>-vm-host-count` of 1, and a k3s
+	// pool or compose fleet that is silently a single machine. Refused here rather
+	// than discovered later, for the same reason a multi-node pool with no
+	// `privateAddress` is refused (vm.VmHost.PrivateAddress).
+	if want := cfg.NodeCount(); len(hosts) != want {
+		return nil, errors.Errorf(
+			"vm %q asked driver %q for %d machine(s) and got %d. If that driver is a plugin, it is probably "+
+				"older than the `nodes` field and ignored the count — upgrade it, or declare the pool size the "+
+				"way that version understands",
+			input.Descriptor.Name, drv.Name(), want, len(hosts),
+		)
+	}
 
 	out := &VmOutput{Hosts: hosts, IngressEnabled: cfg.IngressEnabled()}
 	for i, h := range hosts {
