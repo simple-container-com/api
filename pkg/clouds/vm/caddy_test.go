@@ -92,6 +92,120 @@ func TestRenderCaddyfileKeepsTheEabMacKeyOutOfTheConfig(t *testing.T) {
 	Expect(env).To(ContainSubstring(EnvAcmeEabMacKey + "=s3cr3t-mac-key"))
 }
 
+// The shared certificate store, rendered per backend. On a fleet this block is what
+// makes origin HTTPS possible at all — see writeCaddyAcmeStorage.
+func TestRenderCaddyfileSharedAcmeStorage(t *testing.T) {
+	RegisterTestingT(t)
+
+	// Yandex Object Storage: a custom endpoint, so path-style addressing, and HMAC
+	// credentials that must not appear in the config.
+	cfg := ingressConfig()
+	cfg.Ingress.AcmeStorage = &VmAcmeStorage{
+		Bucket:    "sc-acme",
+		Endpoint:  "https://storage.yandexcloud.net",
+		AccessKey: "YCAJEaccesskey",
+		SecretKey: "YCNsecretkeyvalue",
+	}
+
+	got, err := RenderCaddyfile(cfg)
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(got).To(ContainSubstring("storage s3 {"))
+	Expect(got).To(ContainSubstring("bucket sc-acme"))
+	Expect(got).To(ContainSubstring("endpoint https://storage.yandexcloud.net"))
+	Expect(got).To(ContainSubstring("region " + DefaultAcmeStorageRegion))
+	Expect(got).To(ContainSubstring("prefix " + DefaultAcmeStoragePrefix))
+	Expect(got).To(ContainSubstring("access_key {$" + EnvAcmeS3AccessKey + "}"))
+	Expect(got).To(ContainSubstring("secret_key {$" + EnvAcmeS3SecretKey + "}"))
+	// Same discipline as the EAB mac key: the Caddyfile is 0640 on the machine and is
+	// echoed verbatim by `caddy adapt`.
+	Expect(got).ToNot(ContainSubstring("YCNsecretkeyvalue"))
+	Expect(got).ToNot(ContainSubstring("YCAJEaccesskey"))
+	// The block belongs to the GLOBAL options, not to a site. Caddy rejects `storage`
+	// at site level, so a misplaced block is a config-load failure on every machine.
+	Expect(strings.Index(got, "storage s3 {")).To(BeNumerically("<", strings.Index(got, "(gzip)")))
+
+	env := RenderCaddyEnvFile(cfg)
+	Expect(env).To(ContainSubstring(EnvAcmeS3AccessKey + "=YCAJEaccesskey"))
+	Expect(env).To(ContainSubstring(EnvAcmeS3SecretKey + "=YCNsecretkeyvalue"))
+	Expect(env).ToNot(ContainSubstring(EnvAcmeS3EncryptionKey))
+
+	// Real AWS S3: no endpoint, so virtual-host addressing and the operator's region.
+	aws := ingressConfig()
+	aws.Ingress.AcmeStorage = &VmAcmeStorage{Bucket: "sc-acme", Region: "eu-central-1", Prefix: "certs"}
+	got, err = RenderCaddyfile(aws)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(got).ToNot(ContainSubstring("endpoint "))
+	Expect(got).To(ContainSubstring("region eu-central-1"))
+	Expect(got).To(ContainSubstring("prefix certs"))
+	Expect(got).To(ContainSubstring("use_path_style false"))
+	// No credentials given: the AWS default chain is the module's own fallback, and on
+	// EC2 it is the right answer. The pair must then be absent from BOTH files rather
+	// than rendered as placeholders that expand to nothing.
+	Expect(got).ToNot(ContainSubstring("access_key"))
+	Expect(got).ToNot(ContainSubstring("secret_key"))
+	Expect(RenderCaddyEnvFile(aws)).ToNot(ContainSubstring(EnvAcmeS3AccessKey))
+
+	// minio on host 0, self-signed: the only shape in which `insecure` is rendered.
+	minio := ingressConfig()
+	minio.Ingress.AcmeStorage = &VmAcmeStorage{
+		Bucket:        "sc-acme",
+		Endpoint:      "https://10.0.0.5:9000",
+		AccessKey:     "minioadmin",
+		SecretKey:     "minioadmin",
+		Insecure:      true,
+		EncryptionKey: strings.Repeat("e", AcmeStorageEncryptionKeyLen),
+	}
+	got, err = RenderCaddyfile(minio)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(got).To(ContainSubstring("use_path_style true"))
+	Expect(got).To(ContainSubstring("insecure true"))
+	Expect(got).To(ContainSubstring("encryption_key {$" + EnvAcmeS3EncryptionKey + "}"))
+	Expect(got).ToNot(ContainSubstring(strings.Repeat("e", AcmeStorageEncryptionKeyLen)))
+	Expect(RenderCaddyEnvFile(minio)).To(ContainSubstring(
+		EnvAcmeS3EncryptionKey + "=" + strings.Repeat("e", AcmeStorageEncryptionKeyLen),
+	))
+
+	// And absent entirely on a single machine, which is the common case.
+	bare, err := RenderCaddyfile(ingressConfig())
+	Expect(err).ToNot(HaveOccurred())
+	Expect(bare).ToNot(ContainSubstring("storage"))
+}
+
+// certmagic-s3's UnmarshalCaddyfile reads every subdirective with
+// `if !d.Args(&value) { continue }`. A bare `use_path_style` is therefore NOT an error
+// and NOT true — it is silently skipped, and the only symptom is a fleet on minio whose
+// every storage request fails because it addressed the bucket virtual-host style.
+//
+// So: no boolean is ever rendered without a value. This test asserts the property
+// directly rather than trusting the three cases above to keep covering it.
+func TestRenderCaddyfileNeverRendersABareBoolean(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := ingressConfig()
+	cfg.Ingress.AcmeStorage = &VmAcmeStorage{
+		Bucket:    "sc-acme",
+		Endpoint:  "https://10.0.0.5:9000",
+		AccessKey: "minioadmin",
+		SecretKey: "minioadmin",
+		Insecure:  true,
+	}
+	got, err := RenderCaddyfile(cfg)
+	Expect(err).ToNot(HaveOccurred())
+
+	for _, line := range strings.Split(got, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || strings.HasPrefix(fields[0], "#") {
+			continue
+		}
+		if !lo.Contains([]string{"use_path_style", "insecure"}, fields[0]) {
+			continue
+		}
+		Expect(fields).To(HaveLen(2), "%q must carry an explicit value — certmagic-s3 silently skips a valueless subdirective", line)
+		Expect(fields[1]).To(BeElementOf("true", "false"))
+	}
+}
+
 // Written even when empty: compose refuses a project whose `env_file` is missing, so
 // an ingress with no EAB would otherwise stop starting the moment the file was not
 // created.
