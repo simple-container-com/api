@@ -305,6 +305,24 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 		deploys = append(deploys, *out)
 	}
 
+	// The name, pointed at every machine that now serves it.
+	//
+	// Only when Caddy fronts the stack: `servesDomain` false means the stack answers
+	// on a host port and an A record at `domain` would resolve to a machine with
+	// nothing listening on 443. The warnings above have already said why in that case.
+	//
+	// `DomainProxied` is nil on this path today — validateStackConfig refuses it
+	// (clouds/vm/convert.go) because a proxied domain breaks the ACME challenge Caddy
+	// runs itself — so this reads false. It is read rather than hardcoded because the
+	// refusal is due to become conditional on the fleet declaring no origin TLS, and a
+	// hardcoded false would then be a silently ignored setting.
+	if servesDomain && stackConfig.Domain != "" {
+		if err := fleetDnsRecords(ctx, params, stackName, stackConfig.Domain,
+			parentVm.Addresses, lo.FromPtr(stackConfig.DomainProxied)); err != nil {
+			return nil, err
+		}
+	}
+
 	// Host 0's exports keep the names they have always had (hostResSuffix is empty at
 	// index 0), so nothing reading a single-host stack's outputs breaks; the rest are
 	// indexed, and the count is exported so a consumer can enumerate them without
@@ -753,6 +771,13 @@ type parentVmFacts struct {
 	// filtering SC does not manage, or a parent stack provisioned before the
 	// export existed.
 	OpenPorts []vm.PortRange
+	// Addresses is every machine's address, in host order — the same strings the
+	// HostFacts carry, kept as literals because a DNS record's value has to be one.
+	// HostFacts lifts the address into an Output for the driver side, where a cloud
+	// VM's address genuinely is not known until the resource exists; on this side it
+	// came out of the parent stack's exports already resolved, and the record
+	// producer needs it that way (see fleetDnsRecords).
+	Addresses []string
 }
 
 // hostsFromParent reads the facts of every machine of a vm resource out of the
@@ -792,11 +817,12 @@ func hostsFromParent(
 
 	hosts := make([]HostFacts, 0, count)
 	for i := 0; i < count; i++ {
-		host, err := r.host(input, i)
+		host, address, err := r.host(input, i)
 		if err != nil {
 			return nil, parentVmFacts{}, err
 		}
 		hosts = append(hosts, host)
+		facts.Addresses = append(facts.Addresses, address)
 	}
 	return hosts, facts, nil
 }
@@ -877,19 +903,21 @@ func (r parentReader) vmFacts() (parentVmFacts, error) {
 	return parentVmFacts{IngressEnabled: ingressEnabled, OpenPorts: vm.ParsePortSpec(openPortsSpec)}, nil
 }
 
-// host reads one machine of the fleet.
-func (r parentReader) host(input api.ResourceInput, i int) (HostFacts, error) {
+// host reads one machine of the fleet, returning its facts and — separately — its
+// address as a literal, because HostFacts can only carry it as an Output and a DNS
+// record's value cannot be one.
+func (r parentReader) host(input api.ResourceInput, i int) (HostFacts, string, error) {
 	address, err := pApi.GetValueFromStack[string](r.ctx, r.refName(i, "address"), r.parentRef,
 		ToHostAddressExport(r.vmResource, i), false)
 	if err != nil {
-		return HostFacts{}, errors.Wrapf(err, "failed to read the address of host %d of vm %q from parent stack %q",
+		return HostFacts{}, "", errors.Wrapf(err, "failed to read the address of host %d of vm %q from parent stack %q",
 			i, r.vmResource, r.parentRef)
 	}
 	if address == "" {
 		// Reachable on a fleet in a way it was not on a single machine: the host count
 		// says N, so the parent provisioned N machines, and an empty address at index i
 		// means its exports are incomplete rather than absent.
-		return HostFacts{}, errors.Errorf(
+		return HostFacts{}, "", errors.Errorf(
 			"host %d of vm %q in parent stack %q has an empty address; re-run `sc provision` for the parent stack",
 			i, r.vmResource, r.parentRef,
 		)
@@ -897,11 +925,11 @@ func (r parentReader) host(input api.ResourceInput, i int) (HostFacts, error) {
 	privateKey, err := pApi.GetValueFromStack[string](r.ctx, r.refName(i, "key"), r.parentRef,
 		ToHostPrivateKeyExport(r.vmResource, i), true)
 	if err != nil {
-		return HostFacts{}, errors.Wrapf(err, "failed to read the deploy key of host %d of vm %q from parent stack %q",
+		return HostFacts{}, "", errors.Wrapf(err, "failed to read the deploy key of host %d of vm %q from parent stack %q",
 			i, r.vmResource, r.parentRef)
 	}
 	if privateKey == "" {
-		return HostFacts{}, errors.Errorf(
+		return HostFacts{}, "", errors.Errorf(
 			"host %d of vm %q in parent stack %q exported no deploy key; re-run `sc provision` for the parent stack",
 			i, r.vmResource, r.parentRef,
 		)
@@ -909,24 +937,24 @@ func (r parentReader) host(input api.ResourceInput, i int) (HostFacts, error) {
 	keyPassword, err := pApi.GetValueFromStack[string](r.ctx, r.refName(i, "key-password"), r.parentRef,
 		ToHostPrivateKeyPasswordExport(r.vmResource, i), true)
 	if err != nil {
-		return HostFacts{}, errors.Wrapf(err, "failed to read the deploy key passphrase of host %d of vm %q", i, r.vmResource)
+		return HostFacts{}, "", errors.Wrapf(err, "failed to read the deploy key passphrase of host %d of vm %q", i, r.vmResource)
 	}
 	// Not an error when empty, and not read back through a check: an unencrypted key
 	// is the normal case and has no passphrase.
 	user, err := pApi.GetValueFromStack[string](r.ctx, r.refName(i, "user"), r.parentRef,
 		ToHostUserExport(r.vmResource, i), false)
 	if err != nil {
-		return HostFacts{}, errors.Wrapf(err, "failed to read the ssh user of host %d of vm %q", i, r.vmResource)
+		return HostFacts{}, "", errors.Wrapf(err, "failed to read the ssh user of host %d of vm %q", i, r.vmResource)
 	}
 	portRaw, err := pApi.GetValueFromStack[any](r.ctx, r.refName(i, "port"), r.parentRef,
 		ToHostPortExport(r.vmResource, i), false)
 	if err != nil {
-		return HostFacts{}, errors.Wrapf(err, "failed to read the ssh port of host %d of vm %q", i, r.vmResource)
+		return HostFacts{}, "", errors.Wrapf(err, "failed to read the ssh port of host %d of vm %q", i, r.vmResource)
 	}
 	hostKey, err := pApi.GetValueFromStack[string](r.ctx, r.refName(i, "host-key"), r.parentRef,
 		ToHostKeyExport(r.vmResource, i), false)
 	if err != nil {
-		return HostFacts{}, errors.Wrapf(err, "failed to read the host key of host %d of vm %q", i, r.vmResource)
+		return HostFacts{}, "", errors.Wrapf(err, "failed to read the host key of host %d of vm %q", i, r.vmResource)
 	}
 
 	port, ok := toInt(portRaw)
@@ -957,7 +985,7 @@ func (r parentReader) host(input api.ResourceInput, i int) (HostFacts, error) {
 		HostKey:       sdk.String(hostKey).ToStringOutput(),
 		HostKeyPinned: hostKey != "",
 		Role:          vm.RoleCompose,
-	}, nil
+	}, address, nil
 }
 
 // hashOf is the stand-in for content in a Trigger.

@@ -73,9 +73,11 @@ func newComposeMocks() *composeMocks {
 		// reads it as `any` and coerces. GetValueFromStack[int] would panic here.
 		resource.PropertyKey(ToHostPortExport(testVmResource, 0)): resource.NewNumberProperty(22),
 		resource.PropertyKey(ToHostPrivateKeyExport(testVmResource, 0)): resource.MakeSecret(
-			resource.NewStringProperty(testPrivateKey)),
+			resource.NewStringProperty(testPrivateKey),
+		),
 		resource.PropertyKey(ToHostPrivateKeyPasswordExport(testVmResource, 0)): resource.MakeSecret(
-			resource.NewStringProperty("")),
+			resource.NewStringProperty(""),
+		),
 		resource.PropertyKey(ToHostKeyExport(testVmResource, 0)):     resource.NewStringProperty(testHostKeyValue),
 		resource.PropertyKey(ToIngressEnabledExport(testVmResource)): resource.NewBoolProperty(false),
 	}}
@@ -235,6 +237,9 @@ func (f *composeFixture) withIngress() *composeFixture {
 type composeFixture struct {
 	in    *vm.VmComposeInput
 	mocks *composeMocks
+	// Nil unless a test sets it, which is the production default too: a parent stack
+	// that declares no registrar gets no DNS record from SC.
+	registrar pApi.Registrar
 	// Resolved inside the Pulumi run, because an Output can only be awaited while
 	// the context that produced it is alive.
 	url  string
@@ -250,6 +255,7 @@ func (f *composeFixture) run() (*VmComposeOutput, error) {
 	err := pulumi.RunErr(func(ctx *pulumi.Context) error {
 		params := pApi.ProvisionParams{
 			Log:            logger.New(),
+			Registrar:      f.registrar,
 			ComputeContext: pApi.NewComputeContextCollector(context.Background(), logger.New(), testComposeStack, testEnv),
 			ParentStack:    &pApi.ParentInfo{StackName: "infra", FullReference: "organization/forge/infra--" + testEnv},
 			BaseEnvVariables: map[string]string{

@@ -4,15 +4,16 @@
 package pulumi
 
 import (
-	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-var NotConfiguredRegistrarError = errors.New("regisrar is not configured")
+// NotConfiguredRegistrarError is an alias; the sentinel moved to pApi so that
+// subpackages this package imports (pulumi/vm) can match on it without a cycle. Kept
+// here under its original name because it is exported and matched on by name.
+var NotConfiguredRegistrarError = pApi.NotConfiguredRegistrarError
 
 type notConfigured struct{}
 
