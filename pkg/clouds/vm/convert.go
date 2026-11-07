@@ -206,23 +206,31 @@ func (i *VmComposeInput) validateStackConfig() error {
 	if cfg.ClusterIPAddress != nil {
 		return errors.Errorf(
 			"`clusterIPAddress` is not applicable to the `%s` template: there is no cluster. The stack is "+
-				"reachable at the machine's address", TemplateTypeVmCompose,
+				"reachable at the address of each machine it was deployed onto", TemplateTypeVmCompose,
 		)
 	}
 	if s := cfg.Scale; s != nil {
 		if s.Max > 1 {
-			return errors.Errorf(
-				"`scale: {min: %d, max: %d}` is not supported by the `%s` template: one machine runs one "+
-					"replica of each service. Use `scale: {min: 1, max: 1}`, or move the stack to a k3s/Kubernetes "+
-					"parent, which is what horizontal scaling needs", s.Min, s.Max, TemplateTypeVmCompose,
-			)
+			// A warning and not a refusal, since a fleet made `scale.max > 1` an
+			// expressible thing to want: the stack gets one replica of each service
+			// per machine, so a three-machine vm resource genuinely serves three.
+			// What this tier cannot do is CHECK the number — the machines are declared
+			// in the PARENT stack, and a client stack's config is validated without
+			// it. So the number is compared against the real host count one tier
+			// down, in VmComposeStack, which is the first place both are in hand; here
+			// we only say where the replica count actually comes from.
+			i.warn("`scale: {min: %d, max: %d}`: this template runs one replica of each service per MACHINE, "+
+				"so the replica count is the number of hosts on the `%s` resource in the parent stack, not this "+
+				"field. Add hosts there to get %d, or move the stack to a k3s/Kubernetes parent, which is what "+
+				"scaling WITHIN a machine needs.", s.Min, s.Max, ResourceTypeVm, s.Max)
 		}
 		if s.Min == 0 {
 			i.warn("`scale.min: 0` has no effect on a VM: containers are started with `restart: always` " +
 				"and stay up. There is no scale-to-zero on this delivery path.")
 		}
 		if s.Policy != nil {
-			i.warn("`scale.policy` is ignored on a VM: autoscaling needs more than one node to scale onto.")
+			i.warn("`scale.policy` is ignored on a VM: a fleet's size is declared in the parent stack and " +
+				"fixed at provision time. Nothing here grows or shrinks it in response to load.")
 		}
 	}
 	if lo.FromPtr(cfg.StaticEgressIP) {
@@ -443,7 +451,8 @@ func (i *VmComposeInput) finalize() error {
 				// unhealthy`, then a rolled-back deploy, with the container answering
 				// on 127.0.0.1:8080 the whole time.
 				Test: []string{"CMD-SHELL", fmt.Sprintf(
-					"nc -z 127.0.0.1 %d || nc -z ::1 %d || exit 1", port, port)},
+					"nc -z 127.0.0.1 %d || nc -z ::1 %d || exit 1", port, port,
+				)},
 				Interval:    "10s",
 				Timeout:     "3s",
 				StartPeriod: "20s",

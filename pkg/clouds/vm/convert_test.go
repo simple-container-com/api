@@ -132,13 +132,6 @@ func TestToVmComposeConfigRefusals(t *testing.T) {
 			},
 			msg: "there is no cluster",
 		},
-		{
-			name: "scale.max > 1 needs more than one node",
-			stackCfg: &api.StackConfigCompose{
-				Runs: []string{"backend"}, Scale: &api.StackConfigComposeScale{Min: 1, Max: 3},
-			},
-			msg: "move the stack to a k3s/Kubernetes parent",
-		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := ToVmComposeConfig(testTemplate(), readTestCompose(t), tt.stackCfg)
@@ -169,6 +162,26 @@ func TestToVmComposeConfigWarnings(t *testing.T) {
 	Expect(warnings).To(ContainElement(ContainSubstring("`imagePullPolicy: Always` is ignored")))
 	Expect(warnings).To(ContainElement(ContainSubstring("`cloudExtras` is ignored")))
 	Expect(warnings).To(ContainElement(ContainSubstring("`alerts` is not wired")))
+}
+
+// `scale.max > 1` used to be refused outright, on the reasoning that one machine runs
+// one replica. A vm resource can now hold a fleet, so the ask is satisfiable — but the
+// machines are declared in the PARENT stack, which a client stack's config tier cannot
+// see. So this tier states where the replica count comes from and the provisioning tier
+// (VmComposeStack) compares it against the real host count, which is the first place
+// both numbers exist.
+func TestToVmComposeConfigScaleIsFleetGoverned(t *testing.T) {
+	RegisterTestingT(t)
+
+	got, err := ToVmComposeConfig(testTemplate(), readTestCompose(t), &api.StackConfigCompose{
+		Runs: []string{"backend"}, Scale: &api.StackConfigComposeScale{Min: 1, Max: 3},
+	})
+	Expect(err).ToNot(HaveOccurred())
+
+	warnings := toInput(got).Warnings
+	Expect(warnings).To(ContainElement(ContainSubstring("one replica of each service per MACHINE")))
+	// The remedy names the place the number actually lives, not just the problem.
+	Expect(warnings).To(ContainElement(ContainSubstring(string(ResourceTypeVm))))
 }
 
 func TestToVmComposeConfigMountRefusals(t *testing.T) {
@@ -358,13 +371,18 @@ func TestToVmComposeSingleImageConfigRefusalsAndWarnings(t *testing.T) {
 	_, err := ToVmComposeSingleImageConfig(testTemplate(), &api.StackConfigSingleImage{})
 	Expect(err).To(MatchError(ContainSubstring("`image` is required")))
 
-	// `min`/`max` project onto `scale`, so the one-replica-per-machine rule applies to
-	// a single-image stack through the same gate.
-	_, err = ToVmComposeSingleImageConfig(testTemplate(), &api.StackConfigSingleImage{
+	// `min`/`max` project onto `scale`, so the one-replica-per-machine rule reaches a
+	// single-image stack through the same gate — as a warning now that a vm resource
+	// can hold more than one machine, since the host count that decides whether the
+	// ask is met lives in the parent stack and is not visible from here.
+	gotScaled, err := ToVmComposeSingleImageConfig(testTemplate(), &api.StackConfigSingleImage{
 		Image: &api.ContainerImage{Name: "atrium:1"},
 		Min:   1, Max: 3,
 	})
-	Expect(err).To(MatchError(ContainSubstring("move the stack to a k3s/Kubernetes parent")))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(toInput(gotScaled).Warnings).To(ContainElement(
+		ContainSubstring("one replica of each service per MACHINE"),
+	))
 
 	got, err := ToVmComposeSingleImageConfig(testTemplate(), &api.StackConfigSingleImage{
 		Image:               &api.ContainerImage{Name: "atrium:1"},

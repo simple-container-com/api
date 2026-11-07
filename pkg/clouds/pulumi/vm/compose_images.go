@@ -72,6 +72,21 @@ type imagePlan struct {
 	// deploy can say which images it put there — under `externalImages: ship` the
 	// machine never pulls them, so they appear in no pull output.
 	ExternalRefs []string
+	// builds are the images SC built here under `ssh-tar` delivery, in declaration
+	// order. They are built ONCE per deploy and shipped once per HOST, which is the
+	// whole reason they are recorded rather than shipped where they are built: an
+	// image is a property of the code, a ship is a property of the machine, and a
+	// fleet shares the first and not the second. Empty under `registry` delivery,
+	// where the push IS the delivery and every machine pulls for itself.
+	builds []localBuild
+}
+
+// localBuild is an ssh-tar image after it has been built on the runner and before it
+// has been sent to any machine.
+type localBuild struct {
+	Service  string
+	LocalRef string
+	Image    *docker.Image
 }
 
 // triggerInputs is ContentIDs as Pulumi inputs, for appending to a Triggers array.
@@ -79,7 +94,7 @@ func (p *imagePlan) triggerInputs() []sdk.Input {
 	return lo.Map(p.ContentIDs, func(id sdk.StringOutput, _ int) sdk.Input { return id })
 }
 
-// buildImages builds every service's image and makes it reachable from the machine.
+// buildImages builds every service's image and makes it reachable from the machines.
 //
 // Two delivery modes, and the difference is one decision made once here rather than
 // threaded through the rest of the deploy: with `registry` the image is pushed and
@@ -89,13 +104,17 @@ func (p *imagePlan) triggerInputs() []sdk.Input {
 // situation of every operator who has a VM and a docker install and nothing else,
 // and of anyone inside Russia for whom reaching a registry is itself the open
 // question (compose-on-vm.md §5, D14).
+//
+// It takes no host: the build is the same whichever machines the stack lands on, and
+// registering it once per host would be N identical docker builds under N resource
+// names. The ssh-tar ships are left to shipImagesTo, which the caller runs once per
+// machine in the fleet.
 func buildImages(
 	ctx *sdk.Context,
 	stack api.Stack,
 	input api.ResourceInput,
 	params pApi.ProvisionParams,
 	in *vm.VmComposeInput,
-	host HostFacts,
 ) (*imagePlan, error) {
 	version := lo.If(input.StackParams.Version != "", input.StackParams.Version).Else("latest")
 	if !dockerTagRe.MatchString(version) {
@@ -226,13 +245,9 @@ func buildImages(
 			return nil, errors.Wrapf(err, "failed to build image for service %q of stack %q", container.Name, stack.Name)
 		}
 
-		ship, err := shipImage(ctx, input, params, stack, host, container.Name, localRef, version, built)
-		if err != nil {
-			return nil, err
-		}
-		// The ship, not the build, is what the compose up has to wait for: the image
-		// existing on the runner tells the machine nothing.
-		plan.Opts = append(plan.Opts, sdk.DependsOn([]sdk.Resource{ship}))
+		// Recorded, not shipped: which machines this image goes to is the caller's
+		// decision, taken once per host in shipImagesTo.
+		plan.builds = append(plan.builds, localBuild{Service: container.Name, LocalRef: localRef, Image: built})
 		plan.Refs[container.Name] = sdk.String(localRef).ToStringOutput()
 		// RepoDigest and not ImageName: under SkipPush there is no registry and no
 		// manifest digest, and pulumi-docker documents the field as carrying the
@@ -242,22 +257,50 @@ func buildImages(
 		repos[repo] = true
 	}
 
+	plan.ExternalRefs = lo.Uniq(plan.ExternalRefs)
+	sort.Strings(plan.ExternalRefs)
+	plan.PruneRepos = lo.Keys(repos)
+	sort.Strings(plan.PruneRepos)
+	return plan, nil
+}
+
+// shipImagesTo sends everything this deploy built to ONE machine of the fleet.
+//
+// Returns the resource options the commands that run containers on that machine must
+// carry. The ship, and not the build, is what a `docker compose up` has to wait for:
+// an image sitting on the runner tells the machine nothing.
+//
+// Nothing to do under `registry` delivery — plan.builds is empty there, the push
+// already happened, and plan.Opts (the scan/sign gates) covers every host at once.
+func shipImagesTo(
+	ctx *sdk.Context,
+	input api.ResourceInput,
+	params pApi.ProvisionParams,
+	stack api.Stack,
+	plan *imagePlan,
+	version string,
+	host HostFacts,
+	idx int,
+) ([]sdk.ResourceOption, error) {
+	var opts []sdk.ResourceOption
+	for _, b := range plan.builds {
+		ship, err := shipImage(ctx, input, params, stack, host, idx, b.Service, b.LocalRef, version, b.Image)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{ship}))
+	}
 	// One ship for every third-party image rather than one per service: `docker save`
 	// deduplicates the layers they share, and a compose project's mongo/redis/nginx
 	// usually share a base with each other.
 	if len(plan.ExternalRefs) > 0 {
-		plan.ExternalRefs = lo.Uniq(plan.ExternalRefs)
-		sort.Strings(plan.ExternalRefs)
-		ship, err := shipExternalImages(ctx, input, params, stack, host, plan.ExternalRefs)
+		ship, err := shipExternalImages(ctx, input, params, stack, host, idx, plan.ExternalRefs)
 		if err != nil {
 			return nil, err
 		}
-		plan.Opts = append(plan.Opts, sdk.DependsOn([]sdk.Resource{ship}))
+		opts = append(opts, sdk.DependsOn([]sdk.Resource{ship}))
 	}
-
-	plan.PruneRepos = lo.Keys(repos)
-	sort.Strings(plan.PruneRepos)
-	return plan, nil
+	return opts, nil
 }
 
 // shipExternalImages streams the images SC did not build to the machine.
@@ -276,6 +319,7 @@ func shipExternalImages(
 	params pApi.ProvisionParams,
 	stack api.Stack,
 	host HostFacts,
+	idx int,
 	refs []string,
 ) (*local.Command, error) {
 	for _, ref := range refs {
@@ -305,7 +349,8 @@ func shipExternalImages(
 		})
 	}).(sdk.StringOutput)
 
-	cmd, err := local.NewCommand(ctx, input.ToResName(fmt.Sprintf("%s-external-ship", stack.Name)), &local.CommandArgs{
+	resName := fmt.Sprintf("%s-external-ship%s", stack.Name, hostResSuffix(idx))
+	cmd, err := local.NewCommand(ctx, input.ToResName(resName), &local.CommandArgs{
 		Create: script,
 		Update: script,
 		Triggers: sdk.Array{
@@ -341,6 +386,7 @@ func shipImage(
 	params pApi.ProvisionParams,
 	stack api.Stack,
 	host HostFacts,
+	idx int,
 	service, localRef, version string,
 	built *docker.Image,
 ) (*local.Command, error) {
@@ -367,7 +413,8 @@ func shipImage(
 		})
 	}).(sdk.StringOutput)
 
-	cmd, err := local.NewCommand(ctx, input.ToResName(fmt.Sprintf("%s-%s-ship", stack.Name, service)), &local.CommandArgs{
+	resName := fmt.Sprintf("%s-%s-ship%s", stack.Name, service, hostResSuffix(idx))
+	cmd, err := local.NewCommand(ctx, input.ToResName(resName), &local.CommandArgs{
 		Create: script,
 		// Both set to the same script: without Update, pulumi-command treats an
 		// input change as a replacement and runs Create after Delete, and there is

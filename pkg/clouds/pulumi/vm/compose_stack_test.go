@@ -69,7 +69,7 @@ func newComposeMocks() *composeMocks {
 		resource.PropertyKey(ToHostAddressExport(testVmResource, 0)): resource.NewStringProperty(testHostAddress),
 		resource.PropertyKey(ToHostUserExport(testVmResource, 0)):    resource.NewStringProperty(vm.DefaultSshUser),
 		// A number, not an int — this is the shape a stack reference hands back after
-		// a round trip through the checkpoint's JSON, and the reason hostFromParent
+		// a round trip through the checkpoint's JSON, and the reason parentReader.host
 		// reads it as `any` and coerces. GetValueFromStack[int] would panic here.
 		resource.PropertyKey(ToHostPortExport(testVmResource, 0)): resource.NewNumberProperty(22),
 		resource.PropertyKey(ToHostPrivateKeyExport(testVmResource, 0)): resource.MakeSecret(
