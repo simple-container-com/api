@@ -2907,8 +2907,25 @@ type ProvisionRequest struct {
 	RegistrarPluginName string `protobuf:"bytes,8,opt,name=registrar_plugin_name,json=registrarPluginName,proto3" json:"registrar_plugin_name,omitempty"`  // e.g. "cloudflare"
 	RegistrarType       string `protobuf:"bytes,9,opt,name=registrar_type,json=registrarType,proto3" json:"registrar_type,omitempty"`                      // the registrar type token (e.g. "cloudflare")
 	RegistrarMainDomain string `protobuf:"bytes,10,opt,name=registrar_main_domain,json=registrarMainDomain,proto3" json:"registrar_main_domain,omitempty"` // MainDomain() value — pApi.Registrar's base zone
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// ParentInfo blob for a template Provision that reads outputs from a
+	// parent stack — kubeconfig/registry-url on `gcp-gke-autopilot`, zone
+	// creds on `aws-static-website`, ANY template whose provisioning
+	// body reaches into `params.ParentStack.FullReference`. Same shape as
+	// ComputeProcessRequest.parent_info_json (:391): JSON-marshalled
+	// `pApi.ParentInfo`, decoded by `runtime.ParentInfoFromProvisionRequest`
+	// on the plugin side and set on `ProvisionParams.ParentStack` before
+	// the plugin internal body runs.
+	//
+	// Older plugins ignore the field and get a nil ParentStack — same as
+	// today's silent-drop, but now DOCUMENTED as the fallback. Templates
+	// that nil-deref on `params.ParentStack.X` SIGSEGV loudly; every
+	// template body that reads the field must nil-check and error with a
+	// sentence. See
+	// forge/docs/roadmap/items/sc-plugin-provisionrequest-missing-parent-info.md
+	// for the two-guardrails-ship-together framing.
+	ParentInfoJson []byte `protobuf:"bytes,11,opt,name=parent_info_json,json=parentInfoJson,proto3" json:"parent_info_json,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *ProvisionRequest) Reset() {
@@ -3009,6 +3026,13 @@ func (x *ProvisionRequest) GetRegistrarMainDomain() string {
 		return x.RegistrarMainDomain
 	}
 	return ""
+}
+
+func (x *ProvisionRequest) GetParentInfoJson() []byte {
+	if x != nil {
+		return x.ParentInfoJson
+	}
+	return nil
 }
 
 type ProvisionResponse struct {
@@ -4390,7 +4414,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x11StackOutputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x14\n" +
-	"\x12PreDestroyResponse\"\xd0\x05\n" +
+	"\x12PreDestroyResponse\"\xfa\x05\n" +
 	"\x10ProvisionRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12#\n" +
@@ -4403,7 +4427,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x15registrar_plugin_name\x18\b \x01(\tR\x13registrarPluginName\x12%\n" +
 	"\x0eregistrar_type\x18\t \x01(\tR\rregistrarType\x122\n" +
 	"\x15registrar_main_domain\x18\n" +
-	" \x01(\tR\x13registrarMainDomain\x1aS\n" +
+	" \x01(\tR\x13registrarMainDomain\x12(\n" +
+	"\x10parent_info_json\x18\v \x01(\fR\x0eparentInfoJson\x1aS\n" +
 	"\vInputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\x1aD\n" +

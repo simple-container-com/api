@@ -153,6 +153,23 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 			req.RegistrarType = pr.typeToken
 			req.RegistrarMainDomain = pr.mainDomain
 		}
+		// ParentInfo for template Provision: a plugin template whose body
+		// reaches into `params.ParentStack.FullReference` (gke-autopilot
+		// reading kubeconfig + registry URL, static-website reading the
+		// zone's HMAC creds) needs the parent-stack ref across the bus.
+		// Same shape as the ComputeProcess sidecar below — json.Marshal
+		// when non-nil, plugin side decodes via
+		// `runtime.ParentInfoFromProvisionRequest`. Older plugins ignore
+		// the field; templates that nil-deref without a guard SIGSEGV
+		// loudly per the two-guardrails framing in
+		// forge/docs/roadmap/items/sc-plugin-provisionrequest-missing-parent-info.md.
+		if params.ParentStack != nil {
+			b, err := json.Marshal(params.ParentStack)
+			if err != nil {
+				return nil, errors.Wrapf(err, "plugin %q Provision(%q): marshal ParentStack", pluginName, typeToken)
+			}
+			req.ParentInfoJson = b
+		}
 		resp, err := cli.Provision(ctx.Context(), req)
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q Provision(%q, %q)", pluginName, typeToken, input.Descriptor.Name)

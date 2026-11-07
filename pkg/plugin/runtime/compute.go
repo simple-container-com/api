@@ -33,6 +33,34 @@ func ParentInfoFromRequest(req *scpluginv1.ComputeProcessRequest) (*pApi.ParentI
 	return parent, nil
 }
 
+// ParentInfoFromProvisionRequest decodes the ParentInfoJson field a plugin's
+// Provision RPC carries when the deploying stack has a parent. Returns a nil
+// ParentInfo when the field is empty — either no parent (a parent-stack
+// provision itself, not a child) or an older SC core that pre-dates the
+// field (`sc-plugin-provisionrequest-missing-parent-info` roadmap item).
+//
+// Plugin templates that reach into `params.ParentStack.*` MUST nil-check
+// the returned pointer AND the pointer they set on ProvisionParams. The
+// two guardrails ship together: the wire path is only half the fix; the
+// template body's nil check is the other half, because an older plugin
+// binary talking to a newer core, or a preview-only client with no
+// parent, both produce a nil ParentStack that nil-derefs in the
+// template's internal/* body otherwise.
+//
+// Same ParentInfo shape (serialised Go-field-named JSON) as the compute
+// process path.
+func ParentInfoFromProvisionRequest(req *scpluginv1.ProvisionRequest) (*pApi.ParentInfo, error) {
+	raw := req.GetParentInfoJson()
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	parent := &pApi.ParentInfo{}
+	if err := json.Unmarshal(raw, parent); err != nil {
+		return nil, errors.Wrap(err, "decode ParentInfo from provision request")
+	}
+	return parent, nil
+}
+
 // ResourceInputForComputeProcess builds the api.ResourceInput a plugin
 // compute-process handler hands to the driver. Critically, it swaps the
 // child environment for the parent's when ParentInfo.ParentEnv is non-empty:
