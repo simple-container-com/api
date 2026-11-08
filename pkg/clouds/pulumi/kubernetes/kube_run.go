@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
@@ -47,6 +48,44 @@ type KubeRunOpts struct {
 	// the bare parent stack name, and a parent may run several Caddies. Without
 	// caddyResource it keeps asking for the bare parent stack name.
 	IngressIPExport string
+
+	// IngressIPsExport names an OPTIONAL parent-stack output holding EVERY address of
+	// the cluster's front door, comma-separated (see ToIngressIpsExport). Set it only
+	// for a flavour whose cluster exports one — k3s does, because klipper-lb makes
+	// every node an edge; a managed cluster has a single load-balancer address and
+	// leaves this empty.
+	//
+	// Three ways it degrades, all of them to today's behaviour, because every one of
+	// them is reachable in a real deploy:
+	//
+	//   - empty here (every flavour but k3s) → the single record, unchanged;
+	//   - set here but ABSENT from the parent stack (a k3s parent provisioned before
+	//     this output existed, which is every k3s parent alive at the time of writing)
+	//     → the single record, because GetValueFromStack answers a missing output with
+	//     the zero value and no error;
+	//   - `clusterIPAddress:` set on the client stack → that address wins outright and
+	//     neither output is read at all. An operator naming one address means one
+	//     record.
+	//
+	// So this is additive: the fleet records appear on the first deploy after the
+	// PARENT has been re-provisioned, and nothing in between fails.
+	IngressIPsExport string
+}
+
+// fleetAddresses reads the cluster's ingress-ips output back into the addresses it
+// carries, and is the single point at which "the fleet" and "fall back to one record"
+// are decided: an empty result means the single-address path, so every way the output
+// can be useless has to land on empty here.
+//
+// Hence Compact. A missing output arrives as "" and strings.Split("", ",") is [""] —
+// one empty address, which is not a fleet of nothing, it is a DnsRecord with an empty
+// value, and a registrar is entitled to accept that. A trailing separator, or an
+// address the parent could not resolve, is the same failure in the middle of a real
+// list; dropping it costs one record out of N rather than pointing the name at nothing.
+func fleetAddresses(joined string) []string {
+	return lo.Compact(lo.Map(strings.Split(joined, ","), func(s string, _ int) string {
+		return strings.TrimSpace(s)
+	}))
 }
 
 func (o KubeRunOpts) ingressIPExport(parentStack, caddyCluster string) string {
@@ -251,16 +290,29 @@ func KubeRunWithProvider(
 			return nil, errors.Errorf("cannot provision domain %q for stack %q in %q: registrar is not configured", domain, stackName, input.StackParams.Environment)
 		}
 		var clusterIPAddress string
+		// The fleet, when the cluster has one. Empty everywhere else, and empty is the
+		// single-address path — see KubeRunOpts.IngressIPsExport for the three ways
+		// that happens.
+		var clusterIPAddresses []string
 
+		suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
 		if lo.FromPtr(stackCfg.ClusterIPAddress) != "" {
 			params.Log.Info(ctx.Context(), "Using specified cluster IP address for domain %q (%q)", domain, lo.FromPtr(stackCfg.ClusterIPAddress))
 			clusterIPAddress = lo.FromPtr(stackCfg.ClusterIPAddress)
 		} else {
 			params.Log.Info(ctx.Context(), "Using provisioned cluster IP address for domain %q", domain)
-			suffix := lo.If(params.ParentStack.DependsOnResource != nil, "--"+lo.FromPtr(params.ParentStack.DependsOnResource).Name).Else("")
-			clusterIPAddress, err = pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ip", stackName, input.StackParams.Environment, suffix), fullParentReference, opts.ingressIPExport(parentStack, caddyCluster), false)
-			if err != nil {
-				return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
+			if opts.IngressIPsExport != "" {
+				joined, err := pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ips", stackName, input.StackParams.Environment, suffix), fullParentReference, opts.IngressIPsExport, false)
+				if err != nil {
+					return nil, errors.Wrapf(err, "failed to get the cluster's ingress addresses from parent stack's resources")
+				}
+				clusterIPAddresses = fleetAddresses(joined)
+			}
+			if len(clusterIPAddresses) == 0 {
+				clusterIPAddress, err = pApi.GetValueFromStack[string](ctx, fmt.Sprintf("%s-%s%s-ip", stackName, input.StackParams.Environment, suffix), fullParentReference, opts.ingressIPExport(parentStack, caddyCluster), false)
+				if err != nil {
+					return nil, errors.Wrapf(err, "failed to get cluster IP address from parent stack's resources")
+				}
 			}
 		}
 		// Determine if domain should be proxied - defaults to true if not explicitly set to false
@@ -269,14 +321,24 @@ func KubeRunWithProvider(
 			domainProxied = *stackCfg.DomainProxied
 		}
 
-		_, err = params.Registrar.NewRecord(ctx, api.DnsRecord{
-			Name:    domain,
-			Type:    "A",
-			Value:   clusterIPAddress,
-			Proxied: domainProxied,
-		})
-		if err != nil {
-			return nil, errors.Wrapf(err, "failed to provision domain %q for stack %q in %q", domain, stackName, environment)
+		if len(clusterIPAddresses) > 0 {
+			// One A record per node, sharing the name, plus the guard that catches a
+			// registrar collapsing them into one — the same implementation the compose
+			// fleet uses, deliberately, because the failure it refuses (a green deploy
+			// whose name resolves to a single machine) is identical on both paths.
+			if err := pApi.FleetDnsRecords(ctx, params, stackName, domain, clusterIPAddresses, domainProxied); err != nil {
+				return nil, errors.Wrapf(err, "failed to provision domain %q for stack %q in %q", domain, stackName, environment)
+			}
+		} else {
+			_, err = params.Registrar.NewRecord(ctx, api.DnsRecord{
+				Name:    domain,
+				Type:    "A",
+				Value:   clusterIPAddress,
+				Proxied: domainProxied,
+			})
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to provision domain %q for stack %q in %q", domain, stackName, environment)
+			}
 		}
 	}
 

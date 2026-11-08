@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) Simple Container
 
-package vm
+package api
 
 import (
 	"github.com/pkg/errors"
@@ -10,18 +10,25 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 
 	"github.com/simple-container-com/api/pkg/api"
-	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
-// fleetDnsRecords points a stack's domain at every machine of the fleet serving it:
+// FleetDnsRecords points a stack's domain at every machine of the fleet serving it:
 // one A record per host, all sharing the name.
 //
 // Why here and not in the parent stack. A vm resource describes machines; it does not
 // know which stacks will be deployed onto them or what domains those stacks claim. The
 // record belongs to whoever named the domain, which is the stack — the same split every
-// other template already uses (kubernetes/kube_run.go:259 and
+// other template already uses (kubernetes/kube_run.go and
 // gcp/gke_autopilot_stack.go:206 both read the cluster's ingress address out of the
 // parent and create the A record from the child).
+//
+// Why in pulumi/api rather than beside its first caller. It began in pulumi/vm, for the
+// compose fleet; the k3s path needs exactly the same thing (klipper-lb binds :80/:443 on
+// every node, so a k3s cluster's front door is N addresses too) and pulumi/kubernetes
+// cannot import pulumi/vm. Both already import this package, which owns the Registrar
+// interface and NotConfiguredRegistrarError — the two things this function is written
+// against. One implementation, because the collision guard below is the part nobody
+// would think to write twice.
 //
 // Why N records rather than one with N values. api.DnsRecord is one name to one value
 // (pkg/api/dns.go), and the NewDnsRecord RPC carries one value per call, so N machines
@@ -42,9 +49,9 @@ import (
 // checks whether a machine is alive. A dead node means roughly 1/N of requests fail and
 // are retried client-side. It spreads load and survives nothing. A cloud load balancer
 // with health checks is strictly better where the cloud has one.
-func fleetDnsRecords(
+func FleetDnsRecords(
 	ctx *sdk.Context,
-	params pApi.ProvisionParams,
+	params ProvisionParams,
 	stackName, domain string,
 	addresses []string,
 	proxied bool,
@@ -61,7 +68,7 @@ func fleetDnsRecords(
 		params.Log.Warn(ctx.Context(),
 			"stack %q claims domain %q but the parent stack declares no registrar, so SC creates no DNS record. "+
 				"Point %q at %s yourself, %s",
-			stackName, domain, domain, addresses, manualRecordAdvice(proxied))
+			stackName, domain, domain, addresses, ManualRecordAdvice(proxied))
 		return nil
 	}
 
@@ -74,13 +81,13 @@ func fleetDnsRecords(
 			Proxied: proxied,
 		})
 		if err != nil {
-			if errors.Is(err, pApi.NotConfiguredRegistrarError) {
+			if errors.Is(err, NotConfiguredRegistrarError) {
 				// Same situation as a nil Registrar, reached the other way: the
 				// descriptor exists but is not configured.
 				params.Log.Warn(ctx.Context(),
 					"stack %q claims domain %q but the parent stack's registrar is not configured, so SC creates "+
 						"no DNS record. Point %q at %s yourself, %s",
-					stackName, domain, domain, addresses, manualRecordAdvice(proxied))
+					stackName, domain, domain, addresses, ManualRecordAdvice(proxied))
 				return nil
 			}
 			return errors.Wrapf(err, "failed to create the A record for %q at %s (host %d of the fleet)",
@@ -138,7 +145,7 @@ func fleetDnsRecords(
 	return nil
 }
 
-// manualRecordAdvice is what to tell an operator who has to create the records by hand
+// ManualRecordAdvice is what to tell an operator who has to create the records by hand
 // because the parent stack has no usable registrar.
 //
 // Which half is right depends on the fleet's front door, and the wrong half is not
@@ -151,7 +158,7 @@ func fleetDnsRecords(
 //
 // Both halves used to be one hardcoded "unproxied", correct until #566 made
 // `domainProxied: true` reachable.
-func manualRecordAdvice(proxied bool) string {
+func ManualRecordAdvice(proxied bool) string {
 	if proxied {
 		return "proxied — the fleet serves plain HTTP and the edge in front of it terminates TLS"
 	}

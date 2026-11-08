@@ -470,6 +470,28 @@ func ToIngressIpExport(clusterName string) string {
 	return fmt.Sprintf("%s-ingress-ip", clusterName)
 }
 
+// ToIngressIpsExport names the output of a cluster whose front door is MORE than one
+// address, so a domain-bearing workload on it gets one A record per address instead of
+// one record pointing at whichever node happens to be first.
+//
+// A managed cluster has a single load-balancer address and exports only
+// ToIngressIpExport. A k3s pool has no load balancer: klipper-lb binds :80/:443 on
+// every node, so every node is the edge, and pointing the name at one of them throws
+// away the other N-1 (and makes a node that is merely rebooting look like an outage).
+//
+// Deliberately a SEPARATE output rather than a change to ToIngressIpExport's value.
+// That output is read by a child stack that may be deployed from a checkout older than
+// the parent, and it must stay exactly one address: KubeRun writes it straight into an
+// A record's value, where a comma-joined list is not a resolvable address but IS a
+// successful deploy. A reader that does not know about this output keeps working; one
+// that does gets the whole fleet. Joined with commas and read back with strings.Split
+// for the same reason ToOpenPortsExport is a formatted string — a Pulumi stack output
+// crosses the boundary through JSON, where a []string comes back as []any and a typed
+// read of it fails.
+func ToIngressIpsExport(clusterName string) string {
+	return fmt.Sprintf("%s-ingress-ips", clusterName)
+}
+
 func ToClusterName(input api.ResourceInput, resName string) string {
 	return input.ToResName(resName)
 }

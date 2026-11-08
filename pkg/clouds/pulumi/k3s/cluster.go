@@ -298,11 +298,45 @@ func K3sCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	// deploy, a repo away from this line.
 	ctx.Export(pulumiKubernetes.ToIngressIpExport(clusterName), host.Address)
 
+	// And the whole fleet, which is what the front door of a k3s cluster actually is.
+	// klipper-lb runs a svclb DaemonSet, so a `type: LoadBalancer` Service binds its
+	// ports on EVERY node and any node serves any workload — the export above names one
+	// of them because that is all a single A record can hold, and a child stack that
+	// knows about this output points the name at all of them instead (kube_run.go).
+	//
+	// Every host, not only the servers: an agent serves ingress exactly as well as a
+	// server does, and on the default 1-server topology restricting this to servers
+	// would collapse it back to one address.
+	//
+	// Exported unconditionally, including for a single-node cluster, where it holds the
+	// one address and the reader produces the one record it always did. That keeps the
+	// two paths identical rather than conditional — a cluster that gains a second node
+	// does not also change which code path creates its DNS.
+	ctx.Export(pulumiKubernetes.ToIngressIpsExport(clusterName), ingressAddresses(vmOut.Hosts))
+
 	return &api.ResourceOutput{Ref: &K3sOutput{
 		Kubeconfig: kubeconfigValue,
 		Endpoint:   endpoint,
 		Ready:      ready,
 	}}, nil
+}
+
+// ingressAddresses renders every node's address as the one string the ingress-ips
+// export carries, in host order.
+//
+// A string and not an array because a stack output crosses into the child stack through
+// JSON: a []string comes back as []any, and pApi.GetValueFromStack[[]string] would fail
+// the deploy on a value that is sitting right there. The vm resource's open-ports export
+// is a formatted string for the same reason (vm.FormatPortSpec).
+//
+// Host order is preserved rather than sorted. Nothing depends on it — a resolver reorders
+// the answers anyway — but a stable order keeps the export, and therefore the child
+// stack's diff, empty when nothing has changed.
+func ingressAddresses(hosts []pulumiVm.HostFacts) sdk.StringOutput {
+	addresses := lo.Map(hosts, func(h pulumiVm.HostFacts, _ int) any { return h.Address })
+	return sdk.All(addresses...).ApplyT(func(args []any) string {
+		return strings.Join(lo.Map(args, func(a any, _ int) string { return a.(string) }), ",")
+	}).(sdk.StringOutput)
 }
 
 // rolesOf decides which host runs what, and is the one place that decision is made.

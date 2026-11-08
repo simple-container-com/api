@@ -10,6 +10,9 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/samber/lo"
 
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
+
 	"github.com/simple-container-com/api/pkg/api"
 	cfgK3s "github.com/simple-container-com/api/pkg/clouds/k3s"
 	pulumiVm "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
@@ -242,6 +245,42 @@ func TestValidateIngressPortsRefusesTheRace(t *testing.T) {
 			// explicitly did so for a reason, and "pick one of these two" is the
 			// only actionable thing to say.
 			Expect(err.Error()).To(ContainSubstring("`ingress.enable: false`"))
+		})
+	}
+}
+
+// The front door of a k3s cluster is every node, and this is the value that says so.
+//
+// Asserted on the rendered string rather than through a provision, because the single
+// thing that can go wrong here is silent: a list the child stack cannot split back
+// apart ends up in an A record's value, and a record whose value is not an address is
+// still a successful deploy.
+func TestIngressAddressesJoinsEveryNodeInOrder(t *testing.T) {
+	RegisterTestingT(t)
+
+	for name, tc := range map[string]struct {
+		addresses []string
+		want      string
+	}{
+		// The default topology, and the one that must keep behaving exactly as it did
+		// before this export existed: one node, one address, one record.
+		"single node": {[]string{"203.0.113.10"}, "203.0.113.10"},
+		"three nodes": {[]string{"203.0.113.10", "203.0.113.11", "203.0.113.12"}, "203.0.113.10,203.0.113.11,203.0.113.12"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			RegisterTestingT(t)
+
+			hosts := lo.Map(tc.addresses, func(a string, _ int) pulumiVm.HostFacts {
+				return pulumiVm.HostFacts{Address: sdk.String(a).ToStringOutput()}
+			})
+			Expect(sdk.RunErr(func(ctx *sdk.Context) error {
+				res, err := internals.UnsafeAwaitOutput(ctx.Context(), ingressAddresses(hosts))
+				if err != nil {
+					return err
+				}
+				Expect(res.Value).To(Equal(tc.want))
+				return nil
+			}, sdk.WithMocks("project", "stack", &clusterMocks{}))).To(BeNil())
 		})
 	}
 }

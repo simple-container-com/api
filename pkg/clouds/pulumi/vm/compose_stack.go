@@ -348,7 +348,7 @@ func VmComposeStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, 
 	// there — a proxied domain answers the HTTP-01 challenge at the edge instead of on
 	// the machine and no certificate ever issues.
 	if servesDomain && stackConfig.Domain != "" {
-		if err := fleetDnsRecords(ctx, params, stackName, stackConfig.Domain,
+		if err := pApi.FleetDnsRecords(ctx, params, stackName, stackConfig.Domain,
 			parentVm.Addresses, lo.FromPtr(stackConfig.DomainProxied)); err != nil {
 			return nil, err
 		}
@@ -823,7 +823,7 @@ type parentVmFacts struct {
 	// HostFacts lifts the address into an Output for the driver side, where a cloud
 	// VM's address genuinely is not known until the resource exists; on this side it
 	// came out of the parent stack's exports already resolved, and the record
-	// producer needs it that way (see fleetDnsRecords).
+	// producer needs it that way (see pApi.FleetDnsRecords).
 	Addresses []string
 }
 

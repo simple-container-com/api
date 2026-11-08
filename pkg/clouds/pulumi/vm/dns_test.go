@@ -19,6 +19,12 @@ import (
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 )
 
+// The function under test lives in pulumi/api (pApi.FleetDnsRecords) since the k3s path
+// needed it too, but these tests stay here: half of them assert the WIRING through
+// VmComposeStack, and they all run on this package's compose fixtures (newComposeMocks,
+// newComposeFixture, fleetHostAddress). Moving them would mean moving the fixtures into a
+// package that has no business owning a compose stack.
+//
 // Pointing one name at N machines is one A record per machine, and the thing that can
 // go wrong is invisible: the registrar plugin — not SC — decides what resource a record
 // becomes, and three of the four derive that from the record's name and type WITHOUT
@@ -79,7 +85,7 @@ func collapsedRefs(int) sdk.Output {
 	return sdk.String("urn:pulumi:example-com-A").ToStringOutput()
 }
 
-// runFleetDns calls fleetDnsRecords inside a Pulumi run, which it needs because the
+// runFleetDns calls pApi.FleetDnsRecords inside a Pulumi run, which it needs because the
 // guard awaits the references it is handed.
 func runFleetDns(reg pApi.Registrar, addresses []string) error {
 	return runFleetDnsWith(reg, addresses, false)
@@ -94,7 +100,7 @@ func runFleetDnsWith(reg pApi.Registrar, addresses []string, proxied bool) error
 		if reg != nil {
 			params.Registrar = reg
 		}
-		return fleetDnsRecords(ctx, params, testComposeStack, testDomain, addresses, proxied)
+		return pApi.FleetDnsRecords(ctx, params, testComposeStack, testDomain, addresses, proxied)
 	}, sdk.WithMocks("project", testComposeStack, newComposeMocks()))
 }
 
@@ -207,7 +213,7 @@ func TestFleetDns_NonStringRefsAreSkipped(t *testing.T) {
 }
 
 // The wiring, asserted end to end through VmComposeStack rather than on
-// fleetDnsRecords directly — because the bug this catches is not in the function, it is
+// pApi.FleetDnsRecords directly — because the bug this catches is not in the function, it is
 // in what the function is handed. The addresses have to come from the parent stack's
 // per-host exports, and `withHosts` gives each machine a distinct address precisely so
 // that a caller passing host 0's address N times cannot pass.
@@ -257,10 +263,10 @@ func TestFleetDns_NothingToDo(t *testing.T) {
 	reg := &fakeRegistrar{ref: distinctRefs}
 	Expect(sdk.RunErr(func(ctx *sdk.Context) error {
 		params := pApi.ProvisionParams{Log: logger.New(), Registrar: reg}
-		if err := fleetDnsRecords(ctx, params, testComposeStack, "", []string{"10.0.0.1"}, false); err != nil {
+		if err := pApi.FleetDnsRecords(ctx, params, testComposeStack, "", []string{"10.0.0.1"}, false); err != nil {
 			return err
 		}
-		return fleetDnsRecords(ctx, params, testComposeStack, testDomain, nil, false)
+		return pApi.FleetDnsRecords(ctx, params, testComposeStack, testDomain, nil, false)
 	}, sdk.WithMocks("project", testComposeStack, newComposeMocks()))).To(Succeed())
 	Expect(reg.records).To(BeEmpty())
 }
@@ -272,7 +278,7 @@ func TestFleetDns_NothingToDo(t *testing.T) {
 // this test checked that `domainProxied` reaches `api.DnsRecord`, and the failure would
 // have been silent in the worst way: a green deploy, a name that resolves, an edge that
 // is never in the path, and every client talking cleartext to the origin over the public
-// internet. Asserted through VmComposeStack rather than on fleetDnsRecords, because a
+// internet. Asserted through VmComposeStack rather than on pApi.FleetDnsRecords, because a
 // flag that is read correctly and then dropped on the way down is exactly the bug.
 func TestVmCompose_ProxiedReachesEveryRecordOfTheFleet(t *testing.T) {
 	RegisterTestingT(t)
@@ -319,14 +325,14 @@ func TestFleetDns_ProxiedIsPassedThrough(t *testing.T) {
 
 // The advice SC prints when it cannot create the records itself. Both halves are
 // asserted because both are reachable and the wrong one is harmful rather than merely
-// unhelpful — see manualRecordAdvice's own comment for which way each fails.
+// unhelpful — see pApi.ManualRecordAdvice's own comment for which way each fails.
 func TestManualRecordAdvice(t *testing.T) {
 	RegisterTestingT(t)
 
-	Expect(manualRecordAdvice(true)).To(HavePrefix("proxied"))
-	Expect(manualRecordAdvice(true)).To(ContainSubstring("terminates TLS"))
-	Expect(manualRecordAdvice(true)).ToNot(ContainSubstring("ACME"))
+	Expect(pApi.ManualRecordAdvice(true)).To(HavePrefix("proxied"))
+	Expect(pApi.ManualRecordAdvice(true)).To(ContainSubstring("terminates TLS"))
+	Expect(pApi.ManualRecordAdvice(true)).ToNot(ContainSubstring("ACME"))
 
-	Expect(manualRecordAdvice(false)).To(HavePrefix("unproxied"))
-	Expect(manualRecordAdvice(false)).To(ContainSubstring("ACME challenge"))
+	Expect(pApi.ManualRecordAdvice(false)).To(HavePrefix("unproxied"))
+	Expect(pApi.ManualRecordAdvice(false)).To(ContainSubstring("ACME challenge"))
 }
