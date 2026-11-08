@@ -15,6 +15,7 @@ import (
 	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/clouds/caddy"
 	"github.com/simple-container-com/api/pkg/clouds/compose"
 )
 
@@ -99,6 +100,31 @@ type CaddyConfig struct {
 	// short. GKE Autopilot adds the Spot toleration itself; there is no
 	// tolerations field, so a tainted Standard node pool will not schedule.
 	NodeSelector map[string]string `json:"nodeSelector,omitempty" yaml:"nodeSelector,omitempty"`
+	// AcmeStorage is an S3-compatible bucket holding this edge's certificates and ACME
+	// challenge state, shared by every replica.
+	//
+	// WITHOUT IT, `replicas` ABOVE 1 IS NOT AN HA EDGE. Each replica keeps its
+	// certificates on its own emptyDir, so N replicas are N independent ACME clients
+	// issuing N certificates for the same names — against Let's Encrypt's 5-per-week
+	// duplicate-certificate limit, which is reached by the third rolling update of a
+	// 2-replica edge and then locks the whole edge out of issuance for a week. The
+	// failure presents as a TLS handshake that never completes on a fraction of
+	// requests, from pods that are Ready by every signal k8s has.
+	//
+	// The one place this is already solved is GKE, whose cluster resource provisions a
+	// GCS bucket and renders its own `storage gcs` block into `caddyfilePrefix`. Setting
+	// both is refused rather than silently ignored: two `storage` directives in one
+	// global options block is a config-load failure, and whichever SC dropped would be
+	// the one the operator was looking at.
+	//
+	// The three credentials reach the pod as a Secret, never as part of the rendered
+	// Caddyfile — which is world-readable in the container and echoed by `caddy adapt`.
+	AcmeStorage *caddy.AcmeStorage `json:"acmeStorage,omitempty" yaml:"acmeStorage,omitempty"`
+}
+
+// AcmeStorageEnabled reports whether this edge has a shared certificate store.
+func (c *CaddyConfig) AcmeStorageEnabled() bool {
+	return c != nil && c.AcmeStorage.Enabled()
 }
 
 type DisruptionBudget struct {

@@ -4,8 +4,6 @@
 package gcp
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 
@@ -259,6 +257,7 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 		namespace := lo.If(caddyCfg.Namespace != nil, lo.FromPtr(caddyCfg.Namespace)).Else("caddy")
 
 		kubeConfigOutput := sdk.String(kubeConfig).ToStringOutput()
+		updateHash := kubernetes.CaddyUpdateHash(sc.Service, sc.CaddyfileEntry)
 		patchResult, patchErr := kubernetes.PatchDeployment(ctx, &kubernetes.DeploymentPatchArgs{
 			PatchName:    input.ToResName(stackName),
 			ServiceName:  deploymentName,
@@ -267,22 +266,19 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 			Kubeconfig:   &kubeConfigOutput,
 			// caddy-update-hash goes into spec.template.metadata so Caddy pods roll only when
 			// the Caddyfile actually changes. Content-hash, not wall-clock time, prevents
-			// spurious restarts (and Cloudflare 521s) on every pulumi up.
+			// spurious restarts (and Cloudflare 521s) on every pulumi up. Taken over the
+			// Service's APPLIED annotation, which is also what orders this patch after it —
+			// see kubernetes.CaddyUpdateHash.
 			Annotations: map[string]sdk.StringOutput{
-				"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
-					sum := md5.Sum([]byte(entry[0].(string)))
-					return hex.EncodeToString(sum[:])
-				}).(sdk.StringOutput),
+				kubernetes.AnnotationCaddyUpdateHash: updateHash,
 			},
 			// Informational annotations live on deployment metadata only — no pod restarts.
 			DeploymentAnnotations: map[string]sdk.StringOutput{
 				"simple-container.com/caddy-updated-by": sdk.String(stackName).ToStringOutput(),
-				"simple-container.com/caddy-updated-at": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
-					sum := md5.Sum([]byte(entry[0].(string)))
-					return hex.EncodeToString(sum[:])[:8]
+				"simple-container.com/caddy-updated-at": updateHash.ApplyT(func(hash string) string {
+					return hash[:8]
 				}).(sdk.StringOutput),
 			},
-			Opts: []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{sc.Service})},
 		})
 		if patchErr != nil {
 			// Log warning but continue - caddy annotation patch is not critical for deployment

@@ -25,6 +25,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/k3s"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	pulumiKubernetes "github.com/simple-container-com/api/pkg/clouds/pulumi/kubernetes"
 	pulumiVm "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
@@ -41,6 +42,36 @@ type K3sOutput struct {
 	// Ready is the gate: it succeeds only once the cluster's own API reports a Ready
 	// node. Anything that applies manifests must DependsOn it.
 	Ready *remote.Command
+}
+
+// OutputValue makes a k3s cluster referenceable from a sibling resource's config
+// as `${resource:<name>.kubeconfig}` — which is what lets the cluster and the
+// Caddy edge (or a kubernetes-postgres) sit in one server.yaml and provision in
+// one pass instead of two. See api.ResourceRef.
+//
+// The kubeconfig handed out here is ALREADY marked secret: it is the same
+// SecretKubeconfigOutput value that goes to the stack export, so a consumer
+// cannot accidentally un-mark it, and a consumer that marks it again is harmless.
+//
+// Ready is deliberately absent. It is a resource and not a string, so it cannot
+// cross a `${resource:...}` reference, and a consumer that needs the ordering gets
+// it from the dependency edge the reference itself creates.
+func (o *K3sOutput) OutputValue(key string) (sdk.StringOutput, bool) {
+	if o == nil {
+		return sdk.StringOutput{}, false
+	}
+	switch key {
+	case k8s.KubeconfigRefKey:
+		return o.Kubeconfig, true
+	case "endpoint":
+		return o.Endpoint, true
+	}
+	return sdk.StringOutput{}, false
+}
+
+// PublishedOutputKeys lists what a reference may name, for the error on a miss.
+func (o *K3sOutput) PublishedOutputKeys() []string {
+	return []string{"endpoint", k8s.KubeconfigRefKey}
 }
 
 // K3sCluster stands up the control plane on the hosts of the vm resource it names.

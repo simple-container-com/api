@@ -230,10 +230,16 @@ func GkeAutopilot(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, pa
 			return nil, errors.Wrapf(err, "invalid caddy trusted proxies for cluster %q", clusterName)
 		}
 
+		// Validate the operator's prefix early too, for the same reason: inside the apply
+		// below, a refusal reaches the operator wrapped in a Pulumi stack trace.
+		userPrefix := lo.FromPtrOr(gkeInput.Caddy.CaddyfilePrefix, "")
+		if _, err := pulumiKubernetes.SplitCaddyfilePrefix(userPrefix); err != nil {
+			return nil, errors.Wrapf(err, "invalid caddy caddyfilePrefix for cluster %q", clusterName)
+		}
+
 		// Build Caddyfile prefix with GCS storage configuration and trusted proxies
-		caddyfilePrefix := bucket.Name.ApplyT(func(bucketName string) string {
+		caddyfilePrefix := bucket.Name.ApplyT(func(bucketName string) (string, error) {
 			storageBlock := fmt.Sprintf("  storage gcs {\n    bucket-name %s\n  }", bucketName)
-			userPrefix := lo.FromPtrOr(gkeInput.Caddy.CaddyfilePrefix, "")
 			return pulumiKubernetes.BuildCaddyfileGlobalOptions(storageBlock, trustedProxiesBlock, userPrefix)
 		}).(sdk.StringOutput)
 
@@ -856,7 +862,8 @@ func kubeconfigEndpoint(
 	if dnsEndpoint == "" {
 		return "", errors.Errorf(
 			"cluster %q has ipEndpoint disabled but reported no DNS endpoint, so no kubeconfig can be generated",
-			clusterName)
+			clusterName,
+		)
 	}
 	return dnsEndpoint, nil
 }

@@ -154,39 +154,32 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 			p.logger.Info(ctx.Context(), "configure resources for stack %q in env %q...", stack.Name, env)
 			collector := pApi.NewComputeContextCollector(ctx.Context(), p.logger, stack.Name, env)
 
-			resourcesWithoutDeps := make(map[string]api.ResourceDescriptor)
-			resourcesWithDeps := make(map[string]api.ResourceDescriptor)
-
-			// figure out dependencies first
 			for resName, resource := range resources.Resources {
 				if withDeps, ok := resource.Config.Config.(api.WithParentDependencies); ok {
 					deps := lo.Map(withDeps.DependsOnResources(), func(d api.ParentResourceDependency, _ int) string {
 						return d.Name
 					})
-					p.logger.Info(ctx.Context(), "resource %q in stack %q in env %q has dependencies on %q", resName, stack.Name, env, deps)
-					resourcesWithDeps[resName] = resource
-				} else {
-					resourcesWithoutDeps[resName] = resource
+					if len(deps) > 0 {
+						p.logger.Info(ctx.Context(), "resource %q in stack %q in env %q has dependencies on %q", resName, stack.Name, env, deps)
+					}
 				}
 			}
 
-			// TODO: validate there are no cycles in dependencies
-
-			// provision resources without deps
+			// One ordered pass, accumulating every resource's output — including
+			// the outputs of resources that themselves had dependencies, which
+			// the previous two-bucket split discarded. See
+			// resourceProvisionOrder for what that cost.
+			order, err := resourceProvisionOrder(resources.Resources)
+			if err != nil {
+				return errors.Wrapf(err, "failed to order resources of env %q in stack %q", env, stack.Name)
+			}
 			outs := make(map[string]*api.ResourceOutput)
-			for resName, resource := range resourcesWithoutDeps {
-				if out, err := p.configureResource(ctx, stack, env, resName, resource, collector, outs); err != nil {
-					return errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
-				} else {
-					outs[resName] = out
-				}
-			}
-
-			// provision resources with deps
-			for resName, resource := range resourcesWithDeps {
-				if _, err := p.configureResource(ctx, stack, env, resName, resource, collector, outs); err != nil {
+			for _, resName := range order {
+				out, err := p.configureResource(ctx, stack, env, resName, resources.Resources[resName], collector, outs)
+				if err != nil {
 					return errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
 				}
+				outs[resName] = out
 			}
 		}
 		for templateName, stackDesc := range stack.Server.Templates {
@@ -257,7 +250,7 @@ func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string
 		}
 	}
 
-	provisionParams, err := p.getProvisionParams(ctx, stack, res, env, "")
+	provisionParams, err := p.getProvisionParams(ctx, stack, res, env, "", outs)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to init provision params for %q", res.Type)
 	}
@@ -335,7 +328,7 @@ func (p *pulumi) validateStateAndGetStack(ctx context.Context) (backend.Stack, e
 	}
 }
 
-func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor, environment string, suffix string) (pApi.ProvisionParams, error) {
+func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.ResourceDescriptor, environment string, suffix string, outs pApi.ResourcesOutputs) (pApi.ProvisionParams, error) {
 	envVariables := map[string]string{
 		api.ComputeEnv.StackName:               stack.Name,
 		api.ComputeEnv.StackEnv:                environment,
@@ -356,7 +349,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 		providerType = res.Type
 	} else {
 		var err error
-		providerType, provider, err = p.initProvider(ctx, stack, lo.If(suffix != "", fmt.Sprintf("%s--%s", res.Name, suffix)).Else(res.Name), res.Type, res.Config, environment)
+		providerType, provider, err = p.initProvider(ctx, stack, lo.If(suffix != "", fmt.Sprintf("%s--%s", res.Name, suffix)).Else(res.Name), res.Type, res.Config, environment, outs)
 		if err != nil {
 			return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init main provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
 		}
@@ -366,7 +359,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 
 	if depProviders, ok := res.Config.Config.(api.WithDependencyProviders); ok {
 		for name, pCfg := range depProviders.DependencyProviders() {
-			_, dProvider, err := p.initProvider(ctx, stack, res.Name+"-dep-"+name, res.Type, pCfg.Config, environment)
+			_, dProvider, err := p.initProvider(ctx, stack, res.Name+"-dep-"+name, res.Type, pCfg.Config, environment, outs)
 			if err != nil {
 				return pApi.ProvisionParams{}, errors.Wrapf(err, "failed to init dependency provider for resource %q of type %q in stack %q", res.Name, res.Type, stack.Name)
 			}
@@ -388,7 +381,7 @@ func (p *pulumi) getProvisionParams(ctx *sdk.Context, stack api.Stack, res api.R
 	}, nil
 }
 
-func (p *pulumi) initProvider(ctx *sdk.Context, stack api.Stack, resName string, resType string, pCfg api.Config, environment string) (string, sdk.ProviderResource, error) {
+func (p *pulumi) initProvider(ctx *sdk.Context, stack api.Stack, resName string, resType string, pCfg api.Config, environment string, outs pApi.ResourcesOutputs) (string, sdk.ProviderResource, error) {
 	var provider sdk.ProviderResource
 	var providerType string
 	if authCfg, ok := pCfg.Config.(api.AuthConfig); !ok {
@@ -411,6 +404,12 @@ func (p *pulumi) initProvider(ctx *sdk.Context, stack api.Stack, resName string,
 		}, pApi.ProvisionParams{
 			Log:       p.logger,
 			Registrar: p.registrar,
+			// The sibling outputs the provider may have to resolve a
+			// `${resource:...}` reference against — a kubeconfig that names the
+			// cluster resource provisioned a moment ago is the motivating case
+			// (pApi.ResolveResourceRef). Empty on every path but parent-stack
+			// resource provisioning, where there are no siblings to reference.
+			ResourceOutputs: outs,
 		}); err != nil {
 			return "", nil, errors.Wrapf(err, "failed to init provider of type %q for resource %q of type %q in stack %q", providerType, resName, resType, stack.Name)
 		} else if provider, ok = out.Ref.(sdk.ProviderResource); !ok {
@@ -447,7 +446,7 @@ func (p *pulumi) provisionSecretsProvider(ctx *sdk.Context, provisionerCfg *Prov
 		Name:   exportName,
 		Config: provisionerCfg.SecretsProvider.Config,
 	}
-	provisionParams, err := p.getProvisionParams(ctx, stack, resDescriptor, "", "")
+	provisionParams, err := p.getProvisionParams(ctx, stack, resDescriptor, "", "", nil)
 	if err != nil {
 		return errors.Wrapf(err, "failed to init provision params for %q in stack %q", provisionerCfg.SecretsProvider.Type, stack.Name)
 	}
