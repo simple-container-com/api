@@ -628,11 +628,20 @@ remember. Running `gci` with the wrong section list is a lint-only diff —
 
 `pulumi.StringOutput` is a struct with a single embedded pointer field —
 `struct { *OutputState }`. `ElementType()` is a *value* method that
-returns the constant `reflect.TypeOf("")`. It answers identically on a
-zero-value struct and a fully-resolved one, because the method can't
-see whether the embedded pointer was ever assigned. **Any value method
-on a struct-with-embedded-pointer has this property**, so the rule that
-catches the whole class is:
+returns a package-level `reflect.Type` constant — the full citation is
+`pulumi/sdk/v3@v3.245.0/go/pulumi/types_builtins.go:9471`:
+
+```go
+func (StringOutput) ElementType() reflect.Type { return stringType }
+```
+
+So `out.ElementType() != nil` is a constant true for every
+`StringOutput` in existence, including `var o sdk.StringOutput`. The
+method answers identically on a zero-value struct and a fully-
+resolved one, because the method can't see whether the embedded
+pointer was ever assigned. **Any value method on a struct-with-
+embedded-pointer has this property**, so the rule that catches the
+whole class is:
 
 > The only field that distinguishes a zero Output is the embedded
 > pointer. Test `out.OutputState != nil`, never a method.
@@ -680,6 +689,23 @@ were accepted, validated and **silently discarded** on every non-GKE
 cluster. The fleet-wide lesson is the first framing above — the second
 form (check the source) is the preferred shape at every call site
 where the source is in scope.
+
+**Why this is invisible in preview.** A zero-value `sdk.StringOutput`
+doesn't await as the empty string — it awaits as UNKNOWN. Probed live
+against the shipped SDK (pulumi/sdk/v3@v3.245.0):
+
+```
+value=<nil> known=false secret=false err=<nil>
+```
+
+So the downstream failure modes differ by who consumes the zero
+Output: a predicate-reader gets the wrong branch selected (the
+`caddyfilePrefix` discard above); an awaiter gets UNKNOWN forever,
+which lands on the wire as an unresolved placeholder — a Caddy pod
+handed `CADDYFILE_PREFIX=<unresolved>` never comes up. Previews don't
+distinguish "will resolve to known" from "will never resolve", so
+neither shape surfaces until apply-time, which is why these bugs can
+live for a year before anyone measures.
 
 ### 6.8 A helper that bypasses the framework gives up the resource graph
 
