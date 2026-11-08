@@ -42,11 +42,23 @@ type CaddyDeployment struct {
 	SecretVolumeOutputs []any                  // Pulumi outputs for secret volumes
 }
 
-// isPulumiOutputSet checks if a Pulumi StringOutput has been initialized with a value
-// This is safer than directly checking ElementType() on potentially uninitialized outputs
+// isPulumiOutputSet reports whether a StringOutput actually carries a value, i.e. whether
+// a caller assigned one. Only the GCP/GKE path sets CaddyfilePrefixOut; on every other
+// path the field is the zero value and the static `caddyfilePrefix`/`trustedProxies`
+// branch must win.
+//
+// It must NOT test ElementType(). `sdk.StringOutput` is `struct{ *OutputState }` and
+// ElementType() is a VALUE method returning the constant `reflect.TypeOf("")`, so it is
+// non-nil on the zero value too — the predicate was unconditionally true. The consequence
+// was not a visible error: the zero-value output resolves to the empty string, so the
+// CADDYFILE_PREFIX env var was always rendered and always empty, and `caddyfilePrefix` and
+// `trustedProxies` were silently dropped on every non-GKE cluster. Live-caught 2026-11-08
+// on the 3-VPS k3s smoke, where an ACME `storage s3` block set through `caddyfilePrefix`
+// never reached the Caddyfile and the only symptom was certificates failing to issue.
+//
+// The embedded pointer is the state: nil means nothing was ever assigned.
 func isPulumiOutputSet(output sdk.StringOutput) bool {
-	// Check if the output's element type is set (indicates it was initialized)
-	return output.ElementType() != nil
+	return output.OutputState != nil
 }
 
 // caddyHSTSEnv returns env-var additions overriding the `(hsts)` snippet's
