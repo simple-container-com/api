@@ -181,9 +181,19 @@ stack plus the Caddy ingress without the build cache pushing it into swap.
 names are not the same across projects, and a guess here would be a guess about your
 quota.
 
-`zones` takes at most one entry (`ru.AZ-1` … `ru.AZ-3`) — this is a single machine, and a
-list of zones would describe a cluster. Left out, SC takes the first zone
-`GET /availability-zones` reports.
+`zones` (`ru.AZ-1` … `ru.AZ-3`) is also the fleet's size: SC creates one machine per
+zone, and `nodes:` sets the count independently (`nodes: 3` with one zone puts three
+there; with two it round-robins, index-stably, so a machine never changes zone on a
+later apply). Left out, SC takes the first zone `GET /availability-zones` reports and
+creates one machine.
+
+**But no cloud driver creates more than one machine yet** — that is per-plugin work and
+`sc-plugin-cloudru` has not had it. SC refuses the mismatch rather than quietly giving
+you a one-machine fleet: asking for three and receiving one fails the provision, naming
+the driver and the count. So `nodes:`/multi-zone here is config you can write ahead of
+the driver, not a fleet you can stand up today. On machines that already exist,
+`provider: byo` with several `hosts:` entries works now — see
+[that example](../byo-host/README.md).
 
 ## Which ports are open
 
@@ -256,7 +266,7 @@ in which the operator is certain the setting applied.
 | `hosts` | SC creates the machine; a host list describes one you brought (`provider: byo`) |
 | `network` | the create call accepts no subnet or security group at all (measured), so the machine always joins the zone's defaults |
 | `extraSshKeys` | extra keys are authorised through user-data, which this cloud does not run; the create takes exactly one public key — the deploy key. Add one by hand, or keep console access for incidents |
-| `zones` with more than one entry | one machine is in one zone |
+| ~~`zones` with more than one entry~~ | no longer refused — it is the fleet's size, but see the driver caveat above |
 | `size.memory` that is not whole GiB | memory resolves a flavour by exact match; rounding would hand you a different machine |
 
 The `vm-compose` template's own refusals (`scale` other than 1, `domainProxied`,

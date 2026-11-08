@@ -110,5 +110,16 @@ func K3sCloudrun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, par
 		// default would miss the output and fail every workload that declares a
 		// `domain` — and only those, which is why it would have shipped green.
 		IngressIPExport: pulumiKubernetes.ToIngressIpExport(clusterName),
+		// And the reason a k3s cluster needs more than that one: there is no load
+		// balancer in front of it. klipper-lb binds the Service's ports on every node,
+		// so a name pointed at a single node sends every request to that node and
+		// loses the cluster the moment it reboots. One A record per node instead —
+		// which also means a `domain:` here behaves the way it already does on a
+		// compose fleet of the same machines.
+		//
+		// Harmless on a parent provisioned before that output existed: a missing output
+		// reads as empty and KubeRun falls back to the single record (see
+		// KubeRunOpts.IngressIPsExport).
+		IngressIPsExport: pulumiKubernetes.ToIngressIpsExport(clusterName),
 	})
 }

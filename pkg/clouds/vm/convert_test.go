@@ -110,34 +110,19 @@ func TestToVmComposeConfigRefusals(t *testing.T) {
 		stackCfg *api.StackConfigCompose
 		msg      string
 	}{
-		{
-			name: "domainProxied breaks ACME",
-			stackCfg: &api.StackConfigCompose{
-				Runs: []string{"backend"}, DomainProxied: lo.ToPtr(true),
-			},
-			msg: "`domainProxied` is not supported",
-		},
-		{
-			// Even `false` is refused: accepting it would imply SC understood the field.
-			name: "domainProxied false is still refused",
-			stackCfg: &api.StackConfigCompose{
-				Runs: []string{"backend"}, DomainProxied: lo.ToPtr(false),
-			},
-			msg: "`domainProxied` is not supported",
-		},
+		// `domainProxied` was refused here in both senses until `ingress.originTls`
+		// existed. It is now decided at deploy time against the parent resource —
+		// TestVmCompose_DomainProxiedNeedsNoOriginTls in clouds/pulumi/vm covers both
+		// outcomes — because this tier cannot see the parent. The two cases that used
+		// to live here are deliberately gone rather than relaxed to a warning: a
+		// warning on `domainProxied: true` would fire on the arrangement that is now
+		// correct.
 		{
 			name: "clusterIPAddress has no cluster",
 			stackCfg: &api.StackConfigCompose{
 				Runs: []string{"backend"}, ClusterIPAddress: lo.ToPtr("10.0.0.1"),
 			},
 			msg: "there is no cluster",
-		},
-		{
-			name: "scale.max > 1 needs more than one node",
-			stackCfg: &api.StackConfigCompose{
-				Runs: []string{"backend"}, Scale: &api.StackConfigComposeScale{Min: 1, Max: 3},
-			},
-			msg: "move the stack to a k3s/Kubernetes parent",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -169,6 +154,26 @@ func TestToVmComposeConfigWarnings(t *testing.T) {
 	Expect(warnings).To(ContainElement(ContainSubstring("`imagePullPolicy: Always` is ignored")))
 	Expect(warnings).To(ContainElement(ContainSubstring("`cloudExtras` is ignored")))
 	Expect(warnings).To(ContainElement(ContainSubstring("`alerts` is not wired")))
+}
+
+// `scale.max > 1` used to be refused outright, on the reasoning that one machine runs
+// one replica. A vm resource can now hold a fleet, so the ask is satisfiable — but the
+// machines are declared in the PARENT stack, which a client stack's config tier cannot
+// see. So this tier states where the replica count comes from and the provisioning tier
+// (VmComposeStack) compares it against the real host count, which is the first place
+// both numbers exist.
+func TestToVmComposeConfigScaleIsFleetGoverned(t *testing.T) {
+	RegisterTestingT(t)
+
+	got, err := ToVmComposeConfig(testTemplate(), readTestCompose(t), &api.StackConfigCompose{
+		Runs: []string{"backend"}, Scale: &api.StackConfigComposeScale{Min: 1, Max: 3},
+	})
+	Expect(err).ToNot(HaveOccurred())
+
+	warnings := toInput(got).Warnings
+	Expect(warnings).To(ContainElement(ContainSubstring("one replica of each service per MACHINE")))
+	// The remedy names the place the number actually lives, not just the problem.
+	Expect(warnings).To(ContainElement(ContainSubstring(string(ResourceTypeVm))))
 }
 
 func TestToVmComposeConfigMountRefusals(t *testing.T) {
@@ -352,19 +357,57 @@ func TestToVmComposeSingleImageConfig(t *testing.T) {
 	Expect(input.HealthChecks[SingleImageService].Synthesized).To(BeTrue())
 }
 
+// Every target reads `domainProxied` off the COMPOSE config, so a field that the
+// single-image conversion forgets to carry is a field the operator wrote and SC
+// ignored. That is not a cosmetic loss on a vm fleet: `domainProxied: true` with
+// `ingress.originTls: false` is the whole front door, and an unproxied record points
+// clients straight at an origin that only speaks plain HTTP.
+//
+// Live-caught 2026-11-08 on the 3-VPS compose smoke — `domainProxied: true` in the
+// client.yaml produced three `proxied=false` A records and no error anywhere.
+func TestToVmComposeSingleImageConfig_CarriesDomainProxied(t *testing.T) {
+	RegisterTestingT(t)
+
+	for _, tt := range []struct {
+		name string
+		in   *bool
+	}{
+		{name: "proxied", in: lo.ToPtr(true)},
+		{name: "explicitly not proxied", in: lo.ToPtr(false)},
+		// Unset must stay unset rather than becoming false: the readers all use
+		// lo.FromPtr, but a nil is what lets a future default change behave.
+		{name: "unset", in: nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ToVmComposeSingleImageConfig(testTemplate(), &api.StackConfigSingleImage{
+				Image:         &api.ContainerImage{Name: "simplecontainer/atrium:latest"},
+				Domain:        "smoke.simple-container.com",
+				DomainProxied: tt.in,
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(toInput(got).Deployment.StackConfig.DomainProxied).To(Equal(tt.in))
+		})
+	}
+}
+
 func TestToVmComposeSingleImageConfigRefusalsAndWarnings(t *testing.T) {
 	RegisterTestingT(t)
 
 	_, err := ToVmComposeSingleImageConfig(testTemplate(), &api.StackConfigSingleImage{})
 	Expect(err).To(MatchError(ContainSubstring("`image` is required")))
 
-	// `min`/`max` project onto `scale`, so the one-replica-per-machine rule applies to
-	// a single-image stack through the same gate.
-	_, err = ToVmComposeSingleImageConfig(testTemplate(), &api.StackConfigSingleImage{
+	// `min`/`max` project onto `scale`, so the one-replica-per-machine rule reaches a
+	// single-image stack through the same gate — as a warning now that a vm resource
+	// can hold more than one machine, since the host count that decides whether the
+	// ask is met lives in the parent stack and is not visible from here.
+	gotScaled, err := ToVmComposeSingleImageConfig(testTemplate(), &api.StackConfigSingleImage{
 		Image: &api.ContainerImage{Name: "atrium:1"},
 		Min:   1, Max: 3,
 	})
-	Expect(err).To(MatchError(ContainSubstring("move the stack to a k3s/Kubernetes parent")))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(toInput(gotScaled).Warnings).To(ContainElement(
+		ContainSubstring("one replica of each service per MACHINE"),
+	))
 
 	got, err := ToVmComposeSingleImageConfig(testTemplate(), &api.StackConfigSingleImage{
 		Image:               &api.ContainerImage{Name: "atrium:1"},

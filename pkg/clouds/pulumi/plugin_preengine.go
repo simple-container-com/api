@@ -87,8 +87,21 @@ type preEnginePluginBundle struct {
 	logCancel context.CancelFunc
 }
 
-func newPreEnginePluginBundle(log logger.Logger) *preEnginePluginBundle {
-	ctx, cancel := context.WithCancel(context.Background())
+// newPreEnginePluginBundle takes the CALLER's context, not Background, because
+// SC's log level travels in the context (logger.Silent stores it as a value).
+// logCtx is what every LogStream consumer logs against, so building it from
+// Background silently reset the level to the Info default and a plugin's
+// LOG_SEVERITY_INFO events printed even under `sc stack outputs`, which
+// silences its logger precisely so its stdout is a clean JSON document — and
+// SC's logger writes to stdout, so those lines landed in the middle of it and
+// broke `| jq`. Live-caught 2026-11-08 on forge infra, where the aws plugin's
+// `configuring s3-bucket backend` line showed up in the outputs payload.
+//
+// Cancellation is unchanged: Close still cancels logCtx, and the caller's
+// context always outlives the bundle (every entry point defers
+// closePreEnginePlugins), so deriving from it cannot end the consumers early.
+func newPreEnginePluginBundle(callerCtx context.Context, log logger.Logger) *preEnginePluginBundle {
+	ctx, cancel := context.WithCancel(callerCtx)
 	return &preEnginePluginBundle{
 		log:       log,
 		clients:   map[string]*scPlugin.Client{},

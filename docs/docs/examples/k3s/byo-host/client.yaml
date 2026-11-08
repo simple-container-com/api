@@ -34,11 +34,26 @@ stacks:
 
       # Reachability on a bare k3s stand.
       #
-      # `domain:` here behaves exactly as it does on GKE: SC creates an A record
-      # pointing at the cluster's ingress address, which for a single-node k3s cluster
-      # is the node's own address. It needs a registrar configured in the parent stack,
-      # and — because the node answers the ACME challenge itself — a record that is NOT
-      # proxied. Cloudflare's orange cloud breaks it.
+      # `domain:` here behaves as it does on GKE with one difference that matters on a
+      # pool: SC creates an A record per NODE, all sharing the name, because a k3s
+      # cluster has no load balancer in front of it. klipper-lb binds the Service's
+      # ports on every node, so every node is the edge; pointing the name at one of
+      # them would send every request to that node and lose the cluster the moment it
+      # reboots. On a single-node cluster that is one record, exactly as before.
+      #
+      # It needs a registrar configured in the parent stack, and — because the node
+      # answers the ACME challenge itself — a record that is NOT proxied. Cloudflare's
+      # orange cloud breaks it.
+      #
+      # What N records buy, stated plainly because DNS round-robin is routinely sold as
+      # high availability: load spreading, and nothing else. A resolver hands clients
+      # the addresses in some order and nothing checks whether a node is alive, so a
+      # dead node costs roughly 1/N of requests until it is replaced or removed from the
+      # record set. It is not failover.
+      #
+      # On a parent stack provisioned before the fleet export existed, this falls back
+      # to the single record on its own — re-run `sc provision` for the parent to get
+      # the whole pool into DNS.
       #
       # While smoking, leave this out and reach the Service directly instead. There is
       # no edge in the parent stack above (see its comments for why), so routing by host

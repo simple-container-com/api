@@ -8,6 +8,8 @@ import (
 	"os"
 	"sort"
 	"strings"
+
+	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
 )
 
 // The set of safe-to-replace types lives in `pkg/api` (see
@@ -20,6 +22,80 @@ import (
 // stateless/immutable-revision resources (ECS task definition, …)
 // are additive replaces. See
 // forge/docs/roadmap/items/sc-safe-to-replace-via-plugin-schema.md.
+
+// remoteCommandType is pulumi-command's SSH command resource — the
+// thing every vm / k3s provision is built out of.
+const remoteCommandType = "command:remote:Command"
+
+// commandDeleteInput is the pulumi-command input holding the script
+// run when the resource goes away. Its presence is the ONLY thing
+// that makes replacing a remote command destructive.
+const commandDeleteInput = "delete"
+
+// isStatelessRemoteCommand reports whether this replace is of a
+// remote command that will destroy nothing when it is replaced.
+//
+// Why this is not a `safeToReplaceTypes` entry. That allowlist is
+// per-TYPE, and `command:remote:Command` is not uniformly safe: a
+// command carrying a `delete` script runs that script against a live
+// machine when it is replaced (pulumi-command replaces as
+// create-then-delete), which is a real teardown and exactly what the
+// guard is for. SC's k3s uninstall
+// (pkg/clouds/pulumi/k3s/cluster.go's uninstallOnDestroy) and the vm
+// ingress teardown (pkg/clouds/pulumi/vm/caddy.go) are both that
+// shape. So the question is per-RESOURCE, not per-type, and the
+// answer is in the inputs.
+//
+// Why the exemption is needed at all. SC nonces its commands: every
+// install / readiness / read command gets the run timestamp in its
+// `triggers` via pulumiVm.TriggersForGuardedChange or
+// TriggersForRead, deliberately, so a host whose k3s was stopped out
+// of band is repaired rather than reported as "no changes" (the
+// scripts are idempotent and carry their own args-marker guard —
+// k3s's installer answers an unchanged config with "already running
+// as k3s with the requested configuration"). A replace on every run
+// is therefore the NORMAL shape of a vm or k3s provision, not a rare
+// event to wave through. Live-caught 2026-11-08 on a 3-node k3s
+// stand: the second `sc provision` refused outright, naming nine
+// resources — six k3s commands and three per-host readiness gates —
+// every one of them a nonce-only trigger diff with `keys=[]`, so the
+// guard's own explanation ("a changed REPLACE-forcing input") did not
+// even apply. Nothing in the fleet could re-provision a vm stack.
+//
+// The failure direction when inputs cannot be read. Engine step
+// events populate Inputs, but if that ever stops being true (or a
+// delete script arrives as a secret placeholder rather than a
+// string) a remote command becomes exempt rather than guarded. That
+// is the chosen direction: a remote command holds no cloud object at
+// the other end of its id — the id is a random suffix on the
+// resource name — so the guard was never protecting state here, only
+// the delete script. A non-string value is treated as present
+// precisely because it is not provably empty.
+func isStatelessRemoteCommand(meta apitype.StepEventMetadata) bool {
+	if meta.Type != remoteCommandType {
+		return false
+	}
+	// Both sides matter: the old state is what gets deleted, and the new
+	// state is what a subsequent destroy would run.
+	return !hasCommandDelete(meta.Old) && !hasCommandDelete(meta.New)
+}
+
+// hasCommandDelete reports whether a step's resource state declares a
+// non-empty `delete` script.
+func hasCommandDelete(state *apitype.StepEventStateMetadata) bool {
+	if state == nil {
+		return false
+	}
+	value, ok := state.Inputs[commandDeleteInput]
+	if !ok {
+		return false
+	}
+	script, ok := value.(string)
+	if !ok {
+		return true
+	}
+	return strings.TrimSpace(script) != ""
+}
 
 // envAllowDestructiveReplace is the operator-level escape hatch for
 // S4 of `cloudflare-plugin-wrong-zone`. Setting it to a truthy value
@@ -74,6 +150,18 @@ func (e *destructiveReplaceError) Error() string {
 			"Review each resource below; if the replace is intentional, set %s=1 and re-run.\n",
 		len(replaces), envAllowDestructiveReplace)
 	for _, r := range replaces {
+		// An empty key list used to render as `keys=[]`, which reads as
+		// "no inputs changed" directly under a sentence blaming a changed
+		// input — and that combination cost an hour on 2026-11-08. The
+		// engine leaves Keys (and DetailedDiff) empty for a provider that
+		// forces replacement without naming a property, pulumi-command's
+		// `triggers` among them, so say that instead of printing a hole.
+		// The message PREFIX above is the stable part for CI grepping; this
+		// line is diagnostics.
+		if len(r.Keys) == 0 {
+			fmt.Fprintf(&b, "  - %s (%s): the provider named no replace-forcing key — check the resource's `triggers`\n", r.URN, r.Type)
+			continue
+		}
 		fmt.Fprintf(&b, "  - %s (%s): keys=[%s]\n", r.URN, r.Type, strings.Join(r.Keys, ", "))
 	}
 	return strings.TrimRight(b.String(), "\n")

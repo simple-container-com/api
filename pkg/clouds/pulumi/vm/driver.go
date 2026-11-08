@@ -59,9 +59,52 @@ type HostFacts struct {
 	HostKeyPinned bool
 	// Role is what the machine is being prepared for.
 	Role vm.HostRole
+	// PrivateAddress is what the machine's SIBLINGS dial it on, where Address is
+	// what SC dials from outside. Equal to Address unless the driver knows better.
+	//
+	// It exists because k3s does not: SC sets `--node-ip` nowhere, so k3s advertises
+	// whichever address the default-route interface carries — correct on a cloud VM
+	// behind a floating/NAT IP, the PUBLIC address on a single-NIC VPS, which puts
+	// etcd peer traffic and flannel's unencrypted VXLAN overlay on the public
+	// internet. A multi-node k3s pool is refused unless this is known (see
+	// vm.VmHost.PrivateAddress); a compose fleet never needs it, because those
+	// machines do not talk to each other.
+	//
+	// An Output for the same reason Address is: a cloud driver learns the instance's
+	// internal IP only after creating it. Not secret — a private address is not a
+	// credential, and redacting it would hide the one value a reader needs to tell a
+	// correctly-addressed cluster from an exposed one.
+	//
+	// Read it through EffectivePrivateAddress, never directly: a driver written
+	// before this field existed — every out-of-tree plugin, today — leaves it as the
+	// zero Output, which has no OutputState and panics inside pulumi's own
+	// gatherJoinSet the moment it reaches sdk.All.
+	PrivateAddress sdk.StringOutput
 	// DependsOn are the resources that must exist before anything connects. Empty
 	// for byo: the machine predates the stack.
 	DependsOn []sdk.Resource
+}
+
+// EffectivePrivateAddress is the address this machine's siblings should dial, with
+// Address as the fallback.
+//
+// The fallback is a compatibility guarantee, not a convenience. Every cloud VM
+// driver is an out-of-tree plugin built against an older HostFacts, so
+// PrivateAddress arrives as the ZERO Output — and a zero Output carries no
+// OutputState, so passing it to sdk.All does not resolve to "" but panics with a nil
+// dereference inside pulumi's gatherJoinSet. An accessor is the only place that can
+// be fixed once for every consumer; comparing against sdk.StringOutput{} works
+// because the type is a comparable struct wrapping that state pointer.
+//
+// Reading Address when a plugin supplied nothing is the pre-existing behaviour, and
+// it is safe where it is reached: the config tier refuses a multi-node k3s pool
+// whose private addresses are unknown (vm.VmHost.PrivateAddress), so a fleet that
+// needs the distinction cannot get here by this path.
+func (h HostFacts) EffectivePrivateAddress() sdk.StringOutput {
+	if h.PrivateAddress == (sdk.StringOutput{}) {
+		return h.Address
+	}
+	return h.PrivateAddress
 }
 
 // Driver is the per-cloud half of the VM path.

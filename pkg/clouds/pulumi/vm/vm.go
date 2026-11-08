@@ -85,6 +85,24 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 	if len(hosts) == 0 {
 		return nil, errors.Errorf("driver %q produced no hosts for vm %q", drv.Name(), input.Descriptor.Name)
 	}
+	// The driver has to produce the pool SC asked for. `byo` satisfies this by
+	// definition (NodeCount is len(hosts) there), so this guards the cloud drivers —
+	// and every one of them is an out-of-tree plugin, built against whichever version
+	// of VmConfig existed when it was released. `nodes` reaches a plugin inside the
+	// marshalled config (plugin_driver.go), so a plugin that predates the field
+	// unmarshals it into nothing and creates ONE machine for a resource that asked
+	// for three: a green provision, one host, `<vm>-vm-host-count` of 1, and a k3s
+	// pool or compose fleet that is silently a single machine. Refused here rather
+	// than discovered later, for the same reason a multi-node pool with no
+	// `privateAddress` is refused (vm.VmHost.PrivateAddress).
+	if want := cfg.NodeCount(); len(hosts) != want {
+		return nil, errors.Errorf(
+			"vm %q asked driver %q for %d machine(s) and got %d. If that driver is a plugin, it is probably "+
+				"older than the `nodes` field and ignored the count — upgrade it, or declare the pool size the "+
+				"way that version understands",
+			input.Descriptor.Name, drv.Name(), want, len(hosts),
+		)
+	}
 
 	out := &VmOutput{Hosts: hosts, IngressEnabled: cfg.IngressEnabled()}
 	for i, h := range hosts {
@@ -144,6 +162,12 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 	}
 	ctx.Export(ToHostCountExport(input.Descriptor.Name), sdk.Int(len(hosts)))
 	ctx.Export(ToIngressEnabledExport(input.Descriptor.Name), sdk.Bool(cfg.IngressEnabled()))
+	// The NEGATION of cfg.OriginTlsEnabled(), and that is deliberate. A child stack
+	// deployed against a parent provisioned before this export existed reads a missing
+	// output as the zero value, so the zero has to be the old behaviour — and the old
+	// behaviour is that the machine terminates TLS. Exporting the positive sense would
+	// make every not-yet-re-provisioned fleet silently switch to plain HTTP.
+	ctx.Export(ToIngressNoOriginTlsExport(input.Descriptor.Name), sdk.Bool(!cfg.OriginTlsEnabled()))
 	// What SC actually opened, so a child stack can tell its operator that the host
 	// port it is about to publish is not reachable. Empty when SC does not manage
 	// this machine's firewall — the child must then say nothing rather than guess,
@@ -187,6 +211,10 @@ func ToHostKeyExport(vmName string, idx int) string {
 
 func ToIngressEnabledExport(vmName string) string {
 	return fmt.Sprintf("%s-vm-ingress-enabled", vmName)
+}
+
+func ToIngressNoOriginTlsExport(vmName string) string {
+	return fmt.Sprintf("%s-vm-ingress-no-origin-tls", vmName)
 }
 
 func ToOpenPortsExport(vmName string) string {

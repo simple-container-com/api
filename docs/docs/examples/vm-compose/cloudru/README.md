@@ -179,9 +179,16 @@ because rounding would hand you a different machine than the one you asked for.
 `disk` is **not** defaulted: left out, the image keeps its own root-disk size, which is a
 better answer than one SC invents.
 
-`zones` takes at most one entry — this is a single machine, and a list of zones would
-describe a cluster. Left out, SC takes the first zone the availability-zones datasource
-reports (documented as alphanumeric, so stable).
+`zones` is also the fleet's size: one machine per zone, with `nodes:` setting the count
+independently (round-robin over the zones, index-stable). Left out, SC takes the first
+zone the availability-zones datasource reports (documented as alphanumeric, so stable)
+and creates one machine.
+
+**No cloud driver creates more than one machine yet.** SC refuses the mismatch rather
+than silently handing you a one-machine fleet — asking for three and receiving one fails
+the provision and names the driver. Several machines work today only on machines that
+already exist: `provider: byo` with several `hosts:` entries
+([that example](../byo-host/README.md)).
 
 ## Reachability from inside Russia
 
@@ -213,7 +220,7 @@ in which the operator is certain the setting applied.
 |---|---|
 | `publicIP: false` | every delivery step is an outbound connection *from* wherever `sc deploy` runs, so a machine with no public address is created, billed and unreachable — and cloud-init has no egress either |
 | `hosts` | SC creates the machine; a host list describes one you brought (`provider: byo`) |
-| `zones` with more than one entry | one machine is in one zone |
+| ~~`zones` with more than one entry~~ | no longer refused — it is the fleet's size, but see the driver caveat above |
 | `network` with only `id` or only `subnets` | picking "some subnet in the VPC" places the machine in a zone, or behind a route table, you did not choose |
 | `size.memory` that is not whole GiB | the flavours datasource matches memory exactly; rounding would hand you a different machine |
 | `region` absent | stated on the resource, not inherited silently: it selects the IAM endpoint and the project as well as the placement, so a resource that did not say where it lives could be created somewhere the credential's default moved to |
