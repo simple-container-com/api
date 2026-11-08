@@ -4,6 +4,7 @@
 package vm
 
 import (
+	"bytes"
 	"encoding/base64"
 	"os"
 	"os/exec"
@@ -432,4 +433,137 @@ func TestShellHelpers_WaitGatesOnRunningAndHealthy(t *testing.T) {
 	// Removal is by compose label, not by `docker compose down -f <file>`: the file
 	// for a slot being retired may predate a rename or a restored snapshot.
 	Expect(h).To(ContainSubstring(`--filter "label=com.docker.compose.project=$p"`))
+}
+
+// runEnsureNetwork executes the generated fragment against a stub `docker` on an
+// otherwise empty PATH, and returns what the operator would see on stderr plus every
+// argument list the stub was invoked with.
+//
+// Executed rather than inspected, for the reason TestShellQuote_RoundTripsThroughARealShell
+// gives: these are three branches of a shell program, and only a shell can say which
+// one a given machine state takes.
+func runEnsureNetwork(t *testing.T, stub string) (string, []string, error) {
+	t.Helper()
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no POSIX sh on this box")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	Expect(os.MkdirAll(bin, 0o700)).To(Succeed())
+	if stub != "" {
+		Expect(os.WriteFile(filepath.Join(bin, "docker"), []byte(stub), 0o700)).To(Succeed())
+	}
+	log := filepath.Join(dir, "invocations")
+	script := filepath.Join(dir, "net.sh")
+	Expect(os.WriteFile(script, []byte("set -eu\n"+ensureNetwork(vm.IngressNetwork)+"\n"), 0o600)).To(Succeed())
+
+	cmd := exec.Command(sh, script)
+	// PATH holds the stub and nothing else: a test that let the real docker through
+	// would pass on this box and mean nothing. Everything the fragment uses besides
+	// docker (`command -v`, `echo`) is a shell builtin — which is also why the stubs
+	// below take their state through the environment rather than calling `dirname`.
+	cmd.Env = []string{"PATH=" + bin, "SC_TEST_LOG=" + log, "SC_TEST_MARKER=" + filepath.Join(dir, "created")}
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
+
+	var calls []string
+	if b, err := os.ReadFile(log); err == nil {
+		for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+			if l != "" {
+				calls = append(calls, l)
+			}
+		}
+	}
+	return stderr.String(), calls, runErr
+}
+
+// The stub logs what it was asked to do and then fails everything except `version`.
+const dockerStubRefusingNetworks = `#!/bin/sh
+printf '%s\n' "$*" >> "$SC_TEST_LOG"
+[ "$1" = version ] && exit 0
+exit 1
+`
+
+// Three machine states that used to produce one message. The message IS the fix:
+// both creates are silenced, so this is all an operator gets — and on all three
+// hosts of the first 3-VPS fleet provision it said "failed to create docker network
+// sc-ingress" when the true answer was "this host has no docker" (2026-11-08).
+func TestEnsureNetwork_NamesWhichThingIsWrong(t *testing.T) {
+	RegisterTestingT(t)
+
+	t.Run("docker is not installed", func(t *testing.T) {
+		RegisterTestingT(t)
+		stderr, calls, err := runEnsureNetwork(t, "")
+		Expect(err).To(HaveOccurred())
+		Expect(stderr).To(ContainSubstring("docker is not installed on this host"))
+		Expect(stderr).NotTo(ContainSubstring("docker itself is healthy"))
+		Expect(calls).To(BeEmpty())
+	})
+
+	t.Run("the daemon does not answer", func(t *testing.T) {
+		RegisterTestingT(t)
+		stderr, _, err := runEnsureNetwork(t, "#!/bin/sh\nexit 1\n")
+		Expect(err).To(HaveOccurred())
+		Expect(stderr).To(ContainSubstring("its daemon did not answer as this user"))
+		Expect(stderr).To(ContainSubstring("docker group"), "the likeliest cause is named")
+		Expect(stderr).NotTo(ContainSubstring("not installed"))
+	})
+
+	t.Run("docker is healthy and the create genuinely failed", func(t *testing.T) {
+		RegisterTestingT(t)
+		stderr, calls, err := runEnsureNetwork(t, dockerStubRefusingNetworks)
+		Expect(err).To(HaveOccurred())
+		Expect(stderr).To(ContainSubstring("docker itself is healthy"))
+		Expect(stderr).To(ContainSubstring("run 'docker network create sc-ingress' on the host"),
+			"the command to run by hand is quoted, not executed")
+
+		// The regression this subtest exists for. The first draft wrote that hint
+		// with backticks — which, inside a double-quoted sh string, is command
+		// substitution: printing the suggestion would have RUN `docker network
+		// create sc-ingress`, from inside the error path that exists because it
+		// failed. Exactly one create attempt, no more.
+		var creates int
+		for _, c := range calls {
+			if strings.HasPrefix(c, "network create") {
+				creates++
+			}
+		}
+		Expect(creates).To(Equal(1), "the error message executed the command it was quoting: %v", calls)
+	})
+}
+
+// The happy path still passes silently: a network that already exists is not touched,
+// and one that does not is created exactly once.
+func TestEnsureNetwork_HappyPaths(t *testing.T) {
+	RegisterTestingT(t)
+
+	t.Run("already exists", func(t *testing.T) {
+		RegisterTestingT(t)
+		stderr, calls, err := runEnsureNetwork(t, "#!/bin/sh\nprintf '%s\\n' \"$*\" >> \"$SC_TEST_LOG\"\nexit 0\n")
+		Expect(err).ToNot(HaveOccurred())
+		Expect(stderr).To(BeEmpty())
+		// Two inspects, no create: the fragment is create-if-absent THEN assert, and
+		// the assert is the point (see ensureNetwork's doc comment).
+		Expect(calls).To(ConsistOf("network inspect sc-ingress", "network inspect sc-ingress"))
+	})
+
+	t.Run("created", func(t *testing.T) {
+		RegisterTestingT(t)
+		// Absent until something creates it; the stub records state in a marker file.
+		stub := `#!/bin/sh
+printf '%s\n' "$*" >> "$SC_TEST_LOG"
+marker="$SC_TEST_MARKER"
+case "$1 $2" in
+  "network inspect") [ -f "$marker" ] && exit 0; exit 1;;
+  "network create")  : > "$marker"; exit 0;;
+esac
+exit 0
+`
+		stderr, calls, err := runEnsureNetwork(t, stub)
+		Expect(err).ToNot(HaveOccurred())
+		Expect(stderr).To(BeEmpty())
+		Expect(calls).To(HaveLen(3), "inspect, create, inspect: %v", calls)
+	})
 }

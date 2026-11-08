@@ -61,6 +61,52 @@ func ParentInfoFromProvisionRequest(req *scpluginv1.ProvisionRequest) (*pApi.Par
 	return parent, nil
 }
 
+// DependencyOutputsFromProvisionRequest unmarshals the
+// DependencyOutputsJson field a provision request carries into the shape a
+// plugin's Provision body reads via ProvisionParams.ResourceOutputs.
+// Returns a nil map when the request carries no dependencies (every
+// resource whose config does NOT implement api.WithParentDependencies, or
+// an older SC core that pre-dates the field).
+//
+// Shape contract (api PR adding this helper): SC core's
+// plugin_sidecars.go packs the map[resourceName]*api.PluginResourceOutput
+// from params.ResourceOutputs via json.Marshal. Plugin side decodes into
+// the same shape and lifts each entry onto a `*api.ResourceOutput` with
+// `Ref: *api.PluginResourceOutput`, which is exactly what sibling
+// resources' Provision bodies already type-assert on post-#569. An
+// in-tree dep whose Ref was a typed Go struct is NOT packed on the
+// sidecar side (the receiving plugin can't unmarshal unknown struct
+// shapes); the plugin body reads that as absent and errors normally.
+//
+// Live-caught 2026-11-08 on sc-plugin-gcp tier-2 smoke: `gcp-docker-image-push`
+// read `params.ResourceOutputs[registryResource].Ref.(*ArtifactRegistryOut)`
+// and failed with `expected registry resource %q to be present in outputs`
+// because this field was declared on the proto (`dependency_outputs = 5`)
+// but never populated by any sidecar. The flat string map was too narrow
+// to carry PluginResourceOutput; a JSON bytes field matches the shape #569
+// introduced.
+//
+// See forge/docs/roadmap/items/sc-plugin-dependency-outputs-not-populated.md.
+func DependencyOutputsFromProvisionRequest(req *scpluginv1.ProvisionRequest) (map[string]*api.ResourceOutput, error) {
+	raw := req.GetDependencyOutputsJson()
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var decoded map[string]*api.PluginResourceOutput
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, errors.Wrap(err, "decode DependencyOutputs from provision request")
+	}
+	result := make(map[string]*api.ResourceOutput, len(decoded))
+	for name, plOut := range decoded {
+		if plOut == nil {
+			continue
+		}
+		plOutCopy := *plOut
+		result[name] = &api.ResourceOutput{Ref: &plOutCopy}
+	}
+	return result, nil
+}
+
 // ResourceInputForComputeProcess builds the api.ResourceInput a plugin
 // compute-process handler hands to the driver. Critically, it swaps the
 // child environment for the parent's when ParentInfo.ParentEnv is non-empty:

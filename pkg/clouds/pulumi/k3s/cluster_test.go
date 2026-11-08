@@ -15,6 +15,7 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	cfgK3s "github.com/simple-container-com/api/pkg/clouds/k3s"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 	pulumiVm "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
 	"github.com/simple-container-com/api/pkg/clouds/vm"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
@@ -283,4 +284,47 @@ func TestIngressAddressesJoinsEveryNodeInOrder(t *testing.T) {
 			}, sdk.WithMocks("project", "stack", &clusterMocks{}))).To(BeNil())
 		})
 	}
+}
+
+// The producer half of the `${resource:<cluster>.kubeconfig}` chain. Pinned
+// because the key is a string shared across three packages — k8s declares it,
+// k3s publishes it, pApi looks it up — and a rename on any one side fails at
+// provision time as "publishes no output", pointing at the operator's server.yaml
+// rather than at the rename.
+func TestK3sOutput_OutputValue(t *testing.T) {
+	RegisterTestingT(t)
+
+	out := &K3sOutput{
+		Kubeconfig: sdk.String("apiVersion: v1\n").ToStringOutput(),
+		Endpoint:   sdk.String("203.0.113.10").ToStringOutput(),
+	}
+
+	Expect(out.PublishedOutputKeys()).To(ConsistOf("endpoint", k8s.KubeconfigRefKey))
+
+	Expect(sdk.RunErr(func(ctx *sdk.Context) error {
+		for key, want := range map[string]string{
+			k8s.KubeconfigRefKey: "apiVersion: v1\n",
+			"endpoint":           "203.0.113.10",
+		} {
+			value, ok := out.OutputValue(key)
+			Expect(ok).To(BeTrue(), "k3s publishes no %q", key)
+			res, err := internals.UnsafeAwaitOutput(ctx.Context(), value)
+			if err != nil {
+				return err
+			}
+			Expect(res.Value).To(Equal(want))
+		}
+		return nil
+	}, sdk.WithMocks("project", "stack", &clusterMocks{}))).To(BeNil())
+
+	// Ready is a resource, not a string: it cannot cross a reference, and
+	// answering with a zero output would hand a consumer an UNKNOWN that never
+	// resolves.
+	_, ok := out.OutputValue("ready")
+	Expect(ok).To(BeFalse())
+
+	// Reached through the provisioner's ordering pass before the cluster exists.
+	var absent *K3sOutput
+	_, ok = absent.OutputValue(k8s.KubeconfigRefKey)
+	Expect(ok).To(BeFalse())
 }

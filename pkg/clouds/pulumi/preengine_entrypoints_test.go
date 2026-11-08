@@ -13,6 +13,8 @@ import (
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
+	scPlugin "github.com/simple-container-com/api/pkg/plugin"
+	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
 )
 
 // Every api.Provisioner entry point that reaches the Pulumi backend has to run
@@ -187,4 +189,69 @@ func TestLoadPreEnginePluginsNoOpsWithoutPlugins(t *testing.T) {
 	Expect(p.loadPreEnginePlugins(context.Background(), api.Stack{Name: "infra"})).To(Succeed())
 	Expect(p.preEnginePlugins).To(BeNil(),
 		"a bundle was created for a stack with no plugins; closePreEnginePlugins would then tear down nothing")
+}
+
+// TestLoadForBackend_CacheSkipsPluginWithoutBackendTypes — the whole point of
+// the cache-aware variant: a plugin whose cached schema advertises NEITHER
+// state-store types NOR secrets-provider types doesn't contribute to
+// `sc stack outputs` / `sc cancel` opening the backend, so we skip the spawn.
+//
+// Fixture: seed the per-version cache with a schema that lists only
+// resource/compute-processor types; call LoadForBackend; verify the bundle
+// stays empty (no client was spawned, no sidecar registered). Correctness
+// invariant on top: a plugin whose cached schema DOES advertise state-store
+// or secrets-provider types IS spawned on the same code path — covered by
+// the fallback case in TestBackendEntryPointsLoadPreEnginePlugins above
+// (that uses a path: spec, which bypasses the cache entirely and takes the
+// full spawn path — proving the fallback works for any cache-miss shape,
+// including the "cache absent" shape the first-ever run hits).
+func TestLoadForBackend_CacheSkipsPluginWithoutBackendTypes(t *testing.T) {
+	RegisterTestingT(t)
+
+	tmp := t.TempDir()
+
+	// Seed the cache for a plugin spec with a schema that advertises only
+	// a resource type — no state-store, no secrets-provider.
+	spec := api.PluginSpec{Source: &api.PluginSource{
+		Type:       "github-release",
+		Repository: "example/resource-only-plugin",
+		Version:    "v1.0.0",
+	}}
+	schema := &scpluginv1.SchemaResponse{
+		PluginVersion: "1.0.0",
+		ResourceTypes: []string{"example-widget"},
+	}
+	Expect(scPlugin.WriteCachedSchema(spec, tmp, schema)).To(Succeed())
+
+	// loadForBackendWithCache is LoadForBackend's testable seam — same path,
+	// cacheRoot injected. The schema has no backend-contributing types → skip
+	// entirely. No spawn attempt is made (crucially — the plugin binary does
+	// not exist at the resolved path).
+	b := newPreEnginePluginBundle(context.Background(), logger.New())
+	defer b.Close()
+	Expect(b.loadForBackendWithCache(context.Background(), map[string]api.PluginSpec{
+		"resource-only": spec,
+	}, tmp)).To(Succeed())
+	Expect(b.clients).To(BeEmpty(), "a plugin without state-store or secrets-provider must not be spawned on the backend-only load")
+	Expect(b.schemas).To(BeEmpty(), "schemas map must stay empty too — no sidecar registration happened")
+}
+
+// TestLoadForBackend_CacheMissFallsBackToFullSpawn — the correctness
+// guarantee. If the cache has no entry (fresh install / path: spec / corrupt
+// cache), we fall through to full spawn. A nonexistent plugin binary makes
+// that spawn fail, which is the only way to prove this test's assertion
+// (a stub would make the test vacuous).
+func TestLoadForBackend_CacheMissFallsBackToFullSpawn(t *testing.T) {
+	RegisterTestingT(t)
+
+	// A path: spec — schemaCachePath returns (_, false), so CachedSchema
+	// always misses, triggering the full-spawn fallback.
+	spec := api.PluginSpec{Path: filepath.Join(t.TempDir(), "sc-plugin-missing")}
+
+	b := newPreEnginePluginBundle(context.Background(), logger.New())
+	defer b.Close()
+	err := b.LoadForBackend(context.Background(), map[string]api.PluginSpec{
+		"missing": spec,
+	})
+	Expect(err).To(HaveOccurred(), "cache miss must fall back to full spawn, which fails here because the binary does not exist")
 }

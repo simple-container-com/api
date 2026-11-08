@@ -181,13 +181,34 @@ func prepareScript(stack, env string, volumes []string) string {
 // "network with name sc-ingress already exists" and must not fail — but a create
 // that failed for a real reason (out of address space, a conflicting subnet) must
 // not pass either. Swallowing the error and then checking distinguishes them.
+//
+// The assert then has to say which of three very different things went wrong, because
+// both creates are silenced and this message is all the operator gets. It used to say
+// `failed to create docker network sc-ingress` for a missing docker binary, a stopped
+// daemon and a real network conflict alike — and the first of those is what it
+// actually said on all three hosts of the first 3-VPS fleet provision (2026-11-08),
+// where the honest answer was "this host has no docker". SC now installs it on a byo
+// host that needs it (ensureDocker), so a missing binary here means that install was
+// skipped or undone; either way the operator needs to be told which question to ask.
 func ensureNetwork(name string) string {
 	q := shellQuote(name)
-	return fmt.Sprintf(
-		"docker network inspect %s >/dev/null 2>&1 || docker network create %s >/dev/null 2>&1 || true\n"+
-			"docker network inspect %s >/dev/null 2>&1 || { echo \"failed to create docker network %s\" >&2; exit 1; }",
-		q, q, q, name,
-	)
+	return strings.Join([]string{
+		fmt.Sprintf("docker network inspect %s >/dev/null 2>&1 || docker network create %s >/dev/null 2>&1 || true", q, q),
+		fmt.Sprintf("docker network inspect %s >/dev/null 2>&1 || {", q),
+		fmt.Sprintf(`  command -v docker >/dev/null 2>&1 || { echo "failed to create docker network %s: docker `+
+			`is not installed on this host" >&2; exit 1; }`, name),
+		fmt.Sprintf(`  docker version >/dev/null 2>&1 || { echo "failed to create docker network %s: docker is `+
+			`installed but its daemon did not answer as this user — is it running (systemctl status docker), `+
+			`and is the user in the docker group?" >&2; exit 1; }`, name),
+		// No backticks in any of these messages: they are inside a double-quoted sh
+		// string, where a backtick is command substitution, not quoting. The first
+		// draft of this hint read "run `docker network create <name>`" — which would
+		// have RUN it, from inside the error path that exists because it failed.
+		fmt.Sprintf(`  echo "failed to create docker network %s; docker itself is healthy, so run `+
+			`'docker network create %s' on the host to see why" >&2`, name, name),
+		`  exit 1`,
+		`}`,
+	}, "\n")
 }
 
 // registryLoginScript authenticates the machine against the image registry. The
