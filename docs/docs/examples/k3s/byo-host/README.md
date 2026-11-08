@@ -183,10 +183,14 @@ with it installed, klipper-lb cannot bind 80/443, and the symptom is not an erro
 `Pending` `svclb-<service>` pod and a Service reporting `EXTERNAL-IP <pending>`
 indefinitely.
 
-The in-cluster Caddy edge is a third option and is **not wireable yet** — the
-`kubernetes-caddy` resource takes its kubeconfig as a literal string, so it cannot be
-pointed at a cluster provisioned in the same stack. `server.yaml` says so where you
-would reach for it.
+The in-cluster Caddy edge is a third option, and it **is** wireable in one pass: a
+`kubernetes-caddy` resource reads the cluster's kubeconfig from its sibling with
+`kubeconfig: ${resource:ru-cluster.kubeconfig}`. That used to be impossible — the field
+took a literal string, so the only route was provision the cluster, read the kubeconfig
+out of the stack outputs by hand, paste it into a secret and provision again, with a
+cluster-admin credential going through a human in between. `server.yaml` shows the block
+and what else the reference changes (it is what creates the ordering edge, so the
+cluster is provisioned first).
 
 ## Known limits of a single node
 

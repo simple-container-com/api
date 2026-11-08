@@ -182,21 +182,60 @@ resources:
             # extraServerArgs:
             #   - --kube-apiserver-arg=v=2
 
-        # Not here, and worth knowing why before you plan around it.
-        #
         # The in-cluster Caddy edge — the `kubernetes-caddy` resource the
-        # managed-Kubernetes clouds run — takes its kubeconfig as a LITERAL string in
-        # its own config (k8s.CaddyResource embeds k8s.KubernetesConfig). A cluster SC
-        # provisioned in this same stack has no kubeconfig until it has been
-        # provisioned, so there is currently no way to point that resource at
-        # `ru-cluster`: the same limitation that `k3s-cloudrun` exists to work around
-        # for the deploy path, still open for the edge.
+        # managed-Kubernetes clouds run — on the cluster above. A client stack points
+        # at it through the template's `caddyResource`.
         #
-        # So on a k3s stand today the front door is the node itself. Leave `ingress`
-        # off the vm resource (as above), let k3s keep 80/443, and expose a workload
-        # with `cloudExtras.serviceType: LoadBalancer` — klipper-lb binds the node's
-        # ports — or reach it on a node port while smoking. A compose-side Caddy on the
-        # same machine is the other option, and is what the vm-compose example does.
+        # `kubeconfig` is where this used to be impossible. The field takes a literal
+        # kubeconfig, and a cluster SC provisions in this same stack has none until it
+        # has been provisioned — so the only route was: provision, read the kubeconfig
+        # out of the stack outputs by hand, paste it into a secret, provision again.
+        # Two runs with a cluster-admin credential going through a human in between.
         #
-        # Once the edge is wired, a client stack points at it through the template's
-        # `caddyResource` and nothing else changes.
+        # `${resource:<sibling>.<output>}` resolves it in one pass. The value is a
+        # Pulumi Output, not a string substitution — it does not exist until the
+        # sibling has been provisioned in this very update — and the reference is what
+        # creates the dependency edge, so `ru-cluster` is provisioned first. The
+        # spelling is the same one a CLIENT stack uses to read a parent resource's
+        # output; `k3s-cluster` publishes `kubeconfig` and `endpoint`, and a reference
+        # to anything else is refused by name with the list of what it does publish.
+        # A malformed reference is refused by the config reader, where you can still
+        # see your own file; an unresolvable one at provision time. Neither is ever
+        # treated as a literal kubeconfig.
+        #
+        # The kubeconfig stays marked secret through the whole hop — it is a
+        # cluster-admin credential, and an unmarked one is cleartext in the Pulumi
+        # checkpoint.
+        # ru-edge:
+        #   type: kubernetes-caddy
+        #   config:
+        #     kubeconfig: ${resource:ru-cluster.kubeconfig}
+        #     replicas: 3
+        #     # CIDRs whose X-Forwarded-For this edge trusts. Cloudflare publishes
+        #     # theirs; without this the edge reports the load balancer as every
+        #     # client. Only takes effect from the release that fixed the dead
+        #     # branch which discarded it on every non-GKE cluster.
+        #     trustedProxies:
+        #       - 173.245.48.0/20
+        #     # One shared certificate store for every replica, so the edge issues
+        #     # ONE certificate instead of one per pod, and any replica can answer
+        #     # any replica's ACME challenge. The same block as the vm resource's
+        #     # `ingress.acmeStorage`, rendered by the same code; the three
+        #     # credentials arrive as secret env vars and the Caddyfile holds only
+        #     # `{$SC_ACME_S3_*}` placeholders.
+        #     acmeStorage:
+        #       bucket: mycompany-acme
+        #       endpoint: https://storage.yandexcloud.net
+        #       region: ru-central1
+        #       accessKey: ${secret:ACME_S3_ACCESS_KEY}
+        #       secretKey: ${secret:ACME_S3_SECRET_KEY}
+        #       # Exactly 32 bytes. Encrypts certificates and the ACME account key
+        #       # at rest in the bucket.
+        #       encryptionKey: ${secret:ACME_S3_ENCRYPTION_KEY}
+        #
+        # The alternative front door, and what this example leaves in place: the node
+        # itself. Leave `ingress` off the vm resource (as above), let k3s keep 80/443,
+        # and expose a workload with `cloudExtras.serviceType: LoadBalancer` —
+        # klipper-lb binds the node's ports — or reach it on a node port while
+        # smoking. A compose-side Caddy on the same machine is the third option, and
+        # is what the vm-compose example does.

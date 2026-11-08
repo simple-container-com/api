@@ -27,11 +27,22 @@ stacks:
       # publishes NO host port — 443 is the only way in — and `<stack>-vm-compose-url`
       # becomes `https://portal.example.com`.
       #
-      # You create the DNS record yourself: an A record at the elastic IP the driver
-      # created (`sc stack outputs -s mycompany | jq -r '."portal-vm-vm-host-0-address"'`),
-      # **not** proxied. Cloudflare's orange cloud breaks the ACME challenge the machine
-      # has to answer itself, which is why `domainProxied` is refused outright here
-      # rather than accepted and ignored.
+      # SC writes the DNS record itself when the parent stack declares a registrar: one
+      # A record per machine on the `vm` resource. This cloud has no SC registrar yet,
+      # so in practice you create it — an A record at the elastic IP the driver created
+      # (`sc stack outputs -s mycompany | jq -r '."portal-vm-vm-host-0-address"'`, and
+      # one per host index on a fleet). The provision WARNS and prints the addresses
+      # rather than failing, because "the certificate never appeared" is otherwise a
+      # silent failure with its cause two stacks away.
+      #
+      # Whether that record may be proxied follows the MACHINE, not this stack.
+      # `domainProxied: true` is refused while the machine terminates TLS — Cloudflare's
+      # orange cloud breaks the HTTP-01 challenge Caddy has to answer itself — and is
+      # correct, not merely tolerated, on a fleet that sets `ingress.originTls: false`,
+      # where Cloudflare terminates and the machines serve plain HTTP. An UNproxied
+      # record there would hand clients a cleartext origin. The refusal is raised at
+      # deploy time rather than here: the answer lives on the parent stack's `vm`
+      # resource, which this tier cannot see.
       #
       # On a `.ru` domain opened from inside Russia, read `ingress.acmeCa` in
       # server.yaml before relying on Let's Encrypt: whether the certificate the browser

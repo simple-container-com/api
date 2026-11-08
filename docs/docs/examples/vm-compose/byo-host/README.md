@@ -120,9 +120,14 @@ sc stack outputs -s portal -e staging | jq -r '."portal-vm-compose-url"'
 curl -sS https://portal.example.com   # valid certificate, issued on the first deploy
 ```
 
-The DNS A record has to point at the machine and must **not** be proxied: Cloudflare's
-orange cloud breaks the ACME challenge the machine answers itself, which is also why
-`domainProxied` is refused outright. Caddy runs as a container in its own compose project
+The DNS A record is SC's to write when the parent stack declares a registrar — one
+record per machine on the `vm` resource — and the provision warns, naming the addresses,
+when it declares none. Whether that record may be **proxied** follows the machine: while
+the machine terminates TLS it must not be, because Cloudflare's orange cloud breaks the
+ACME challenge the machine answers itself, and `domainProxied: true` is refused on that
+arrangement. On a fleet that sets `ingress.originTls: false` the proxy *is* the front
+door and `domainProxied: true` is the correct setting — see
+[Front door](#front-door-who-terminates-tls). Caddy runs as a container in its own compose project
 (`sc-caddy`) owned by the **`vm` resource**, not by any stack — one machine has one port
 443, and a Caddy living inside a stack's project would be destroyed by the very deploy
 that is flipping traffic away from it. Its ACME account key and issued certificates live
@@ -155,6 +160,55 @@ exists because "my certificate never appeared" otherwise leaves no local evidenc
 bare `prefix:` without a `domain:` cannot be served on a VM at all — on Kubernetes a
 prefix is grafted onto an aggregator site that already owns a host name, and one machine
 has no such site.
+
+## Front door: who terminates TLS
+
+`ingress.originTls` on the `vm` resource decides it, and the rest of the front door
+follows from that one answer. Unset means `true` — every resource that predates the
+field.
+
+| | `originTls: true` (default) | `originTls: false` |
+|---|---|---|
+| who presents the certificate | the machine's Caddy, via ACME | whatever is in front (Cloudflare's proxy, a cloud LB) |
+| `ingress.email` | required — no CA issues without one | not used; no ACME runs at all |
+| the origin speaks | HTTPS on 443 | plain HTTP on 80 |
+| `domainProxied: true` on a stack | refused — the orange cloud breaks HTTP-01 | correct; an *unproxied* record would expose a cleartext origin |
+| a fleet of N machines | needs `ingress.acmeStorage` | needs nothing shared |
+
+**Why a fleet needs the store.** Behind N A records, Let's Encrypt's validator reaches an
+arbitrary machine, which 404s a challenge token another machine minted. certmagic shares
+that state — and the issued certificate — through storage, so `ingress.acmeStorage`
+points every machine of the resource at one S3-compatible bucket:
+
+```yaml
+ingress:
+  enable: true
+  email: ops@example.com
+  acmeStorage:
+    bucket: mycompany-acme
+    endpoint: https://storage.yandexcloud.net   # omit for AWS S3
+    region: ru-central1
+    accessKey: ${secret:ACME_S3_ACCESS_KEY}
+    secretKey: ${secret:ACME_S3_SECRET_KEY}
+    # Encrypts the certificates and the account key at rest in the bucket. Exactly
+    # 32 bytes. Lose it and the store is unreadable — the fleet re-issues, against
+    # Let's Encrypt's 50-per-domain-per-week limit.
+    encryptionKey: ${secret:ACME_S3_ENCRYPTION_KEY}
+```
+
+The three credentials never reach the Caddyfile: it renders `{$SC_ACME_S3_*}`
+placeholders and the values arrive in a 0600 env file. SC also renders
+`admin { config { persist false } }` alongside the store, because Caddy substitutes
+those placeholders at adapt time and would otherwise autosave the resolved JSON —
+credentials included — to `/config/caddy/autosave.json` on every start.
+
+The same block exists on the Kubernetes edge as `kubernetes-caddy`'s `acmeStorage`,
+rendered by the same code, with the credentials delivered as secret env vars.
+
+`lbConfig` on the client stack is the other half of the edge and is unchanged by any of
+this: `siteExtraHelpers` injects Caddy directives into *this stack's* site file (rate
+limits, headers, a redirect), and it means the same thing on the Kubernetes path because
+both run the same `simplecontainer/caddy` image.
 
 ## A machine with no route to a registry
 
@@ -192,14 +246,26 @@ incident in which the operator is certain the setting applied.
 
 | Field | Why |
 |---|---|
-| `scale` with `min`/`max` other than 1 | one machine, one replica; a load balancer in front of several machines is the k3s path |
-| `domainProxied` | a Cloudflare-proxied domain breaks the ACME challenge the machine answers itself |
-| `clusterIPAddress` | there is no cluster — the stack is reachable at the machine's address |
+| `clusterIPAddress` | there is no cluster — the stack is reachable at the address of each machine the stack was deployed onto |
 | a `bind` mount in a compose file | its source is a path on the developer's machine, which does not exist on the VM |
 | `region`, `size`, `image`, `publicIP`, `network`, `extraSshKeys` on a `byo` resource | SC did not create the machine and cannot apply them; configure them in the console |
 
 `timeout` and `maxEphemeralStorage` are accepted and warned about rather than refused:
 they describe a function runtime that is not present here.
+
+Two fields that **used** to be on this list and are not any more:
+
+- **`scale`** with `max` other than 1 is now a warning. A fleet made it an expressible
+  thing to want — the stack gets one replica of each service *per machine*, so a
+  three-host `vm` resource genuinely serves three. The number is not this field's to set,
+  though: it is the host count on the parent stack's `vm` resource, and the warning says
+  so. The count is also checked against the real one a tier down, at deploy, which is the
+  first place both are in hand. Scaling *within* a machine still needs a k3s/Kubernetes
+  parent.
+- **`domainProxied`** is refused only while the machine terminates TLS. See
+  [Front door](#front-door-who-terminates-tls) — and note that refusal now lands at
+  deploy rather than at config load, because the field it depends on is on the parent
+  stack's resource.
 
 ## Two stacks, one machine
 
