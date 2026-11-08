@@ -83,22 +83,57 @@ func resolveGithubRelease(spec api.PluginSpec, cacheRoot string) (string, error)
 		return "", errors.Wrap(err, "mkdir plugin cache")
 	}
 
+	// Download to a unique temp path, verify SHA, chmod, then os.Rename to
+	// the final cached path. Reasons:
+	//
+	//   - **Concurrent downloads race on the final path.** Parallel test
+	//     binaries (`go test ./...` runs packages in parallel by -p) both
+	//     see a cache-miss and both write to the same `cached` filename.
+	//     The second write truncates the first in-flight bytes; a third
+	//     goroutine trying to `fork/exec` the half-written file gets
+	//     ETXTBSY ("text file busy") on Linux. Live-caught on #568's CI
+	//     (2026-11-08): sc-plugin-gcp's 230MB binary hit this reliably
+	//     under parallel Test_Provision + TestScopeRegression_*.
+	//
+	//   - **os.Rename within one filesystem is atomic.** Two concurrent
+	//     downloaders each land on their own `.tmp-<random>` path, finish
+	//     writing + checksum + chmod there, then rename. The final file
+	//     is complete at the instant it appears; any other goroutine
+	//     either sees the old (or absent) file or the complete new one,
+	//     never a torn write. Last-renamer wins, which is fine — both
+	//     downloaders fetched the same release artifact by content hash.
+	//
+	//   - Keeping the SHA check + chmod on the temp path means no state
+	//     ever leaks to the final path if something fails mid-flight.
+	//     (The deferred `os.Remove(tmp)` cleans up the temp either way —
+	//     after a successful rename it's a no-op; after an error it
+	//     removes the partial download.)
+	tmp, err := os.CreateTemp(filepath.Dir(cached), binName+".tmp-*")
+	if err != nil {
+		return "", errors.Wrap(err, "create temp plugin binary")
+	}
+	tmp.Close()
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
 	url := fmt.Sprintf("https://github.com/%s/releases/download/%s/%s", src.Repository, src.Version, binName)
-	if err := downloadFile(url, cached); err != nil {
+	if err := downloadFile(url, tmpPath); err != nil {
 		return "", errors.Wrapf(err, "download %q", url)
 	}
 
-	got, err := fileSHA256(cached)
+	got, err := fileSHA256(tmpPath)
 	if err != nil {
 		return "", err
 	}
 	if expectedSHA != "" && !strings.EqualFold(got, expectedSHA) {
-		_ = os.Remove(cached)
 		return "", errors.Errorf("plugin SHA256 mismatch for %s@%s/%s: want %s, got %s",
 			src.Repository, src.Version, binName, expectedSHA, got)
 	}
-	if err := os.Chmod(cached, 0o755); err != nil {
+	if err := os.Chmod(tmpPath, 0o755); err != nil {
 		return "", errors.Wrap(err, "chmod plugin binary")
+	}
+	if err := os.Rename(tmpPath, cached); err != nil {
+		return "", errors.Wrap(err, "rename plugin binary into cache")
 	}
 	return cached, nil
 }
