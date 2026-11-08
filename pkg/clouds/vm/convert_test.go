@@ -357,6 +357,39 @@ func TestToVmComposeSingleImageConfig(t *testing.T) {
 	Expect(input.HealthChecks[SingleImageService].Synthesized).To(BeTrue())
 }
 
+// Every target reads `domainProxied` off the COMPOSE config, so a field that the
+// single-image conversion forgets to carry is a field the operator wrote and SC
+// ignored. That is not a cosmetic loss on a vm fleet: `domainProxied: true` with
+// `ingress.originTls: false` is the whole front door, and an unproxied record points
+// clients straight at an origin that only speaks plain HTTP.
+//
+// Live-caught 2026-11-08 on the 3-VPS compose smoke — `domainProxied: true` in the
+// client.yaml produced three `proxied=false` A records and no error anywhere.
+func TestToVmComposeSingleImageConfig_CarriesDomainProxied(t *testing.T) {
+	RegisterTestingT(t)
+
+	for _, tt := range []struct {
+		name string
+		in   *bool
+	}{
+		{name: "proxied", in: lo.ToPtr(true)},
+		{name: "explicitly not proxied", in: lo.ToPtr(false)},
+		// Unset must stay unset rather than becoming false: the readers all use
+		// lo.FromPtr, but a nil is what lets a future default change behave.
+		{name: "unset", in: nil},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ToVmComposeSingleImageConfig(testTemplate(), &api.StackConfigSingleImage{
+				Image:         &api.ContainerImage{Name: "simplecontainer/atrium:latest"},
+				Domain:        "smoke.simple-container.com",
+				DomainProxied: tt.in,
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(toInput(got).Deployment.StackConfig.DomainProxied).To(Equal(tt.in))
+		})
+	}
+}
+
 func TestToVmComposeSingleImageConfigRefusalsAndWarnings(t *testing.T) {
 	RegisterTestingT(t)
 

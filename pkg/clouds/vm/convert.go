@@ -99,13 +99,16 @@ func ToVmComposeSingleImageConfig(tpl any, stackCfg *api.StackConfigSingleImage)
 	}
 
 	composeCfg := &api.StackConfigCompose{
-		Domain:      stackCfg.Domain,
-		BaseDnsZone: stackCfg.BaseDnsZone,
-		Uses:        stackCfg.Uses,
-		Runs:        []string{SingleImageService},
-		Env:         stackCfg.Env,
-		Secrets:     stackCfg.Secrets,
-		Version:     stackCfg.Version,
+		Domain: stackCfg.Domain,
+		// Carried, not defaulted: every reader of this flag reads the compose config,
+		// so dropping it here is the same as the operator never having written it.
+		DomainProxied: stackCfg.DomainProxied,
+		BaseDnsZone:   stackCfg.BaseDnsZone,
+		Uses:          stackCfg.Uses,
+		Runs:          []string{SingleImageService},
+		Env:           stackCfg.Env,
+		Secrets:       stackCfg.Secrets,
+		Version:       stackCfg.Version,
 		// basePath is the path the application itself serves under, so the prefix has
 		// to survive the proxy hop — which is exactly `proxyKeepPrefix: true`.
 		Prefix:          strings.TrimSuffix(stackCfg.BasePath, "/"),
