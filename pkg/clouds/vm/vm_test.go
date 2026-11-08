@@ -196,6 +196,10 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+// The shared ACME store's refusals. Every one of them fails LATE and quietly if it is
+// not caught here: a wrong store is not a config error Caddy can report, it is a fleet
+// whose certificates never issue, and the only evidence is in `docker logs sc-caddy` on
+// whichever machine the CA happened to dial.
 func TestValidateAcmeStorage(t *testing.T) {
 	RegisterTestingT(t)
 
@@ -333,10 +337,6 @@ func TestAcmeStorageDefaults(t *testing.T) {
 	plain.Ingress.AcmeStorage = &VmAcmeStorage{}
 	Expect(plain.AcmeStorageEnabled()).To(BeFalse())
 }
-
-// A cloud driver's own invariants are checked before the not-implemented refusal:
-// an operator whose config is also wrong in shape should hear about the shape, so
-// that the config is already right when the driver lands.
 
 // TestValidateHostRoles is the role set of a byo pool, which is what replaced the
 // old "exactly one host" refusal (roadmap item sc-vm-multi-node-clusters, phase 1a).
