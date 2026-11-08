@@ -189,8 +189,11 @@ resources:
             # extraServerArgs:
             #   - --kube-apiserver-arg=v=2
 
-        # No `kubernetes-caddy` resource here, and it is not an omission: that resource
-        # takes its kubeconfig as a LITERAL string, so it cannot be pointed at a cluster
-        # provisioned in the same stack. The front door on a k3s stand today is the node
-        # itself — `cloudExtras.serviceType: LoadBalancer` with klipper-lb binding the
-        # node's 80/443, or a node port while you smoke. See ../byo-host/README.md.
+        # No `kubernetes-caddy` resource here, and that is now a choice rather than a
+        # limitation: `kubeconfig: ${resource:<cluster>.kubeconfig}` points that resource
+        # at a cluster provisioned in this same stack, in one pass, with the reference
+        # creating the ordering edge. ../byo-host/server.yaml has the annotated block.
+        #
+        # The front door left in place here is the node itself —
+        # `cloudExtras.serviceType: LoadBalancer` with klipper-lb binding the node's
+        # 80/443, or a node port while you smoke. See ../byo-host/README.md.
