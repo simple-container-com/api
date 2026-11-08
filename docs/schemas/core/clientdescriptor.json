@@ -348,24 +348,15 @@
         "additionalProperties": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "properties": {
-            "": {
-              "$schema": "https://json-schema.org/draft/2020-12/schema",
-              "properties": {
-                "config": {
-                  "type": [
-                    "string",
-                    "number",
-                    "boolean",
-                    "object",
-                    "array",
-                    "null"
-                  ]
-                }
-              },
-              "required": [
-                "config"
-              ],
-              "type": "object"
+            "config": {
+              "type": [
+                "string",
+                "number",
+                "boolean",
+                "object",
+                "array",
+                "null"
+              ]
             },
             "parent": {
               "type": "string"
@@ -381,7 +372,7 @@
             }
           },
           "required": [
-            "",
+            "config",
             "parent",
             "parentEnv",
             "template",

@@ -55,6 +55,9 @@
       "domain": {
         "type": "string"
       },
+      "domainProxied": {
+        "type": "boolean"
+      },
       "env": {
         "additionalProperties": {
           "type": "string"
@@ -449,6 +452,7 @@
       "basePath",
       "cloudExtras",
       "domain",
+      "domainProxied",
       "env",
       "image",
       "max",

@@ -9,45 +9,14 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "credentials": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "credentials"
-            ],
-            "type": "object"
-          },
-          "accessKey": {
-            "type": "string"
-          },
-          "account": {
-            "type": "string"
-          },
-          "permissionsBoundary": {
-            "type": "string"
-          },
-          "region": {
-            "type": "string"
-          },
-          "secretAccessKey": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "",
-          "accessKey",
-          "account",
-          "region",
-          "secretAccessKey"
-        ],
-        "type": "object"
+      "accessKey": {
+        "type": "string"
+      },
+      "account": {
+        "type": "string"
+      },
+      "credentials": {
+        "type": "string"
       },
       "lifecyclePolicy": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -128,11 +97,24 @@
       },
       "name": {
         "type": "string"
+      },
+      "permissionsBoundary": {
+        "type": "string"
+      },
+      "region": {
+        "type": "string"
+      },
+      "secretAccessKey": {
+        "type": "string"
       }
     },
     "required": [
-      "",
-      "lifecyclePolicy"
+      "accessKey",
+      "account",
+      "credentials",
+      "lifecyclePolicy",
+      "region",
+      "secretAccessKey"
     ],
     "type": "object"
   }

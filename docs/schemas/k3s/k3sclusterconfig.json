@@ -9,17 +9,8 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "credentials": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "credentials"
-        ],
-        "type": "object"
+      "credentials": {
+        "type": "string"
       },
       "disable": {
         "items": {
@@ -39,6 +30,9 @@
       "installScriptUrl": {
         "type": "string"
       },
+      "servers": {
+        "type": "integer"
+      },
       "tlsSans": {
         "items": {
           "type": "string"
@@ -53,7 +47,7 @@
       }
     },
     "required": [
-      "",
+      "credentials",
       "vmResource"
     ],
     "type": "object"

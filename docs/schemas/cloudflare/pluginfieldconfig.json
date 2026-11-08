@@ -1,0 +1,37 @@
+{
+  "name": "PluginFieldConfig",
+  "type": "template",
+  "provider": "cloudflare",
+  "description": "Cloudflare deployment template configuration",
+  "goPackage": "pkg/clouds/cloudflare/",
+  "goStruct": "PluginFieldConfig",
+  "resourceType": "cloudflare-static-website",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "credentials": {
+        "type": "string"
+      },
+      "projectId": {
+        "type": "string"
+      },
+      "provision": {
+        "type": "boolean"
+      },
+      "type": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "credentials",
+      "projectId",
+      "provision",
+      "type",
+      "url"
+    ],
+    "type": "object"
+  }
+}

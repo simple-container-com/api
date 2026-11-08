@@ -9,31 +9,6 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              },
-              "serviceAccount": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "",
-          ""
-        ],
-        "type": "object"
-      },
       "adopt": {
         "type": "boolean"
       },
@@ -47,6 +22,9 @@
         "type": "string"
       },
       "connectionName": {
+        "type": "string"
+      },
+      "credentials": {
         "type": "string"
       },
       "databaseFlags": {
@@ -76,6 +54,9 @@
       "project": {
         "type": "string"
       },
+      "projectId": {
+        "type": "string"
+      },
       "proxyPrivateIp": {
         "type": "boolean"
       },
@@ -98,6 +79,9 @@
         "type": "integer"
       },
       "rootPassword": {
+        "type": "string"
+      },
+      "serviceAccount": {
         "type": "string"
       },
       "tier": {
@@ -127,10 +111,11 @@
       }
     },
     "required": [
-      "",
+      "credentials",
       "deletionProtection",
       "maxConnections",
       "project",
+      "projectId",
       "queryInsightsEnabled",
       "queryStringLength",
       "region",

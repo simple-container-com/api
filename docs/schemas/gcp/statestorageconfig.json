@@ -9,32 +9,10 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              },
-              "serviceAccount": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "",
-          ""
-        ],
-        "type": "object"
-      },
       "bucketName": {
+        "type": "string"
+      },
+      "credentials": {
         "type": "string"
       },
       "location": {
@@ -46,14 +24,21 @@
       "noncurrentVersionRetentionDays": {
         "type": "integer"
       },
+      "projectId": {
+        "type": "string"
+      },
       "provision": {
         "type": "boolean"
+      },
+      "serviceAccount": {
+        "type": "string"
       }
     },
     "required": [
-      "",
       "bucketName",
+      "credentials",
       "location",
+      "projectId",
       "provision"
     ],
     "type": "object"

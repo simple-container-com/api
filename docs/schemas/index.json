@@ -2,11 +2,11 @@
   "description": "JSON Schema definitions for all Simple Container resources and templates",
   "providers": {
     "aws": {
-      "count": 13,
+      "count": 16,
       "description": "Aws cloud provider resources and templates"
     },
     "cloudflare": {
-      "count": 1,
+      "count": 2,
       "description": "Cloudflare cloud provider resources and templates"
     },
     "cloudru": {
@@ -42,11 +42,11 @@
       "description": "Mongodb cloud provider resources and templates"
     },
     "vm": {
-      "count": 2,
+      "count": 4,
       "description": "Vm cloud provider resources and templates"
     },
     "yandex": {
-      "count": 8,
+      "count": 13,
       "description": "Yandex cloud provider resources and templates"
     }
   },

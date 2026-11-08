@@ -9,22 +9,322 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
+      "caddyfile": {
+        "type": "string"
+      },
+      "caddyfilePrefix": {
+        "type": "string"
+      },
+      "clientTls": {
+        "type": "boolean"
+      },
+      "deploymentName": {
+        "type": "string"
+      },
+      "enable": {
+        "type": "boolean"
+      },
+      "externalTrafficPolicy": {
+        "type": "string"
+      },
+      "hstsValue": {
+        "type": "string"
+      },
+      "image": {
+        "type": "string"
+      },
+      "kubeconfig": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      },
+      "nodeSelector": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "originTls": {
+        "type": "boolean"
+      },
+      "podAnnotations": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "preStopSleepSeconds": {
+        "type": "integer"
+      },
+      "provisionIngress": {
+        "type": "boolean"
+      },
+      "replicas": {
+        "type": "integer"
+      },
+      "resources": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
-          "kubeconfig": {
+          "ephemeral": {
+            "type": "string"
+          },
+          "limits": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "requests": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          }
+        },
+        "required": [
+          "ephemeral",
+          "limits",
+          "requests"
+        ],
+        "type": "object"
+      },
+      "serviceType": {
+        "type": "string"
+      },
+      "terminationGracePeriodSeconds": {
+        "type": "integer"
+      },
+      "topologySpreadConstraints": {
+        "items": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "properties": {
+            "labelSelector": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "matchExpressions": {
+                  "items": {
+                    "$schema": "https://json-schema.org/draft/2020-12/schema",
+                    "properties": {
+                      "key": {
+                        "type": "string"
+                      },
+                      "operator": {
+                        "type": "string"
+                      },
+                      "values": {
+                        "items": {
+                          "type": "string"
+                        },
+                        "type": "array"
+                      }
+                    },
+                    "required": [
+                      "key",
+                      "operator",
+                      "values"
+                    ],
+                    "type": "object"
+                  },
+                  "type": "array"
+                },
+                "matchLabels": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                }
+              },
+              "required": [
+                "matchExpressions",
+                "matchLabels"
+              ],
+              "type": "object"
+            },
+            "maxSkew": {
+              "type": "integer"
+            },
+            "minDomains": {
+              "type": "integer"
+            },
+            "topologyKey": {
+              "type": "string"
+            },
+            "whenUnsatisfiable": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "labelSelector",
+            "maxSkew",
+            "minDomains",
+            "topologyKey",
+            "whenUnsatisfiable"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "trustedProxies": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "usePrefixes": {
+        "type": "boolean"
+      },
+      "useResourceName": {
+        "type": "boolean"
+      },
+      "useSSL": {
+        "type": "boolean"
+      },
+      "vpa": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "containerPolicies": {
+            "items": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "properties": {
+                "containerName": {
+                  "type": "string"
+                },
+                "controlledResources": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "controlledValues": {
+                  "type": "string"
+                },
+                "maxAllowed": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "cpu": {
+                      "type": "string"
+                    },
+                    "ephemeral-storage": {
+                      "type": "string"
+                    },
+                    "memory": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "cpu",
+                    "ephemeral-storage",
+                    "memory"
+                  ],
+                  "type": "object"
+                },
+                "minAllowed": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {
+                    "cpu": {
+                      "type": "string"
+                    },
+                    "ephemeral-storage": {
+                      "type": "string"
+                    },
+                    "memory": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "cpu",
+                    "ephemeral-storage",
+                    "memory"
+                  ],
+                  "type": "object"
+                },
+                "mode": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "containerName",
+                "controlledResources",
+                "controlledValues",
+                "maxAllowed",
+                "minAllowed",
+                "mode"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "controlledResources": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "controlledValues": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "maxAllowed": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "cpu": {
+                "type": "string"
+              },
+              "ephemeral-storage": {
+                "type": "string"
+              },
+              "memory": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "cpu",
+              "ephemeral-storage",
+              "memory"
+            ],
+            "type": "object"
+          },
+          "minAllowed": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "cpu": {
+                "type": "string"
+              },
+              "ephemeral-storage": {
+                "type": "string"
+              },
+              "memory": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "cpu",
+              "ephemeral-storage",
+              "memory"
+            ],
+            "type": "object"
+          },
+          "updateMode": {
             "type": "string"
           }
         },
         "required": [
-          "kubeconfig"
+          "containerPolicies",
+          "controlledResources",
+          "controlledValues",
+          "enabled",
+          "maxAllowed",
+          "minAllowed",
+          "updateMode"
         ],
         "type": "object"
       }
     },
     "required": [
-      "",
-      ""
+      "kubeconfig"
     ],
     "type": "object"
   }

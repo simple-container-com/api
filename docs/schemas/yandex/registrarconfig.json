@@ -9,51 +9,16 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "credentials": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "credentials"
-            ],
-            "type": "object"
-          },
-          "accessKey": {
-            "type": "string"
-          },
-          "cloudId": {
-            "type": "string"
-          },
-          "folderId": {
-            "type": "string"
-          },
-          "region": {
-            "type": "string"
-          },
-          "secretAccessKey": {
-            "type": "string"
-          },
-          "serviceAccountKey": {
-            "type": "string"
-          },
-          "zone": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "",
-          "cloudId",
-          "folderId"
-        ],
-        "type": "object"
+      "accessKey": {
+        "type": "string"
       },
       "certificateId": {
+        "type": "string"
+      },
+      "cloudId": {
+        "type": "string"
+      },
+      "credentials": {
         "type": "string"
       },
       "dnsRecords": {
@@ -63,6 +28,9 @@
             "name": {
               "type": "string"
             },
+            "priority": {
+              "type": "integer"
+            },
             "proxied": {
               "type": "boolean"
             },
@@ -71,36 +39,35 @@
             },
             "value": {
               "type": "string"
-            },
-            "valueOut": {
-              "$schema": "https://json-schema.org/draft/2020-12/schema",
-              "properties": {
-                "OutputState": {
-                  "$schema": "https://json-schema.org/draft/2020-12/schema",
-                  "properties": {},
-                  "required": [],
-                  "type": "object"
-                }
-              },
-              "required": [
-                "OutputState"
-              ],
-              "type": "object"
             }
           },
           "required": [
             "name",
             "proxied",
             "type",
-            "value",
-            "valueOut"
+            "value"
           ],
           "type": "object"
         },
         "type": "array"
       },
+      "folderId": {
+        "type": "string"
+      },
       "recordTtl": {
         "type": "integer"
+      },
+      "region": {
+        "type": "string"
+      },
+      "secretAccessKey": {
+        "type": "string"
+      },
+      "serviceAccountKey": {
+        "type": "string"
+      },
+      "zone": {
+        "type": "string"
       },
       "zoneId": {
         "type": "string"
@@ -113,7 +80,9 @@
       }
     },
     "required": [
-      "",
+      "cloudId",
+      "credentials",
+      "folderId",
       "zoneName"
     ],
     "type": "object"

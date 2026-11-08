@@ -10,35 +10,36 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "dockerRegistryPassword": {
-            "type": "string"
-          },
-          "dockerRegistryURL": {
-            "type": "string"
-          },
-          "dockerRegistryUsername": {
-            "type": "string"
-          }
-        },
-        "required": [],
-        "type": "object"
-      },
       "caddyResource": {
+        "type": "string"
+      },
+      "clientTls": {
+        "type": "boolean"
+      },
+      "credentials": {
+        "type": "string"
+      },
+      "dockerRegistryPassword": {
+        "type": "string"
+      },
+      "dockerRegistryURL": {
+        "type": "string"
+      },
+      "dockerRegistryUsername": {
         "type": "string"
       },
       "k3sClusterResource": {
         "type": "string"
+      },
+      "originTls": {
+        "type": "boolean"
       },
       "useSSL": {
         "type": "boolean"
       }
     },
     "required": [
-      "",
-      "",
+      "credentials",
       "k3sClusterResource"
     ],
     "type": "object"
