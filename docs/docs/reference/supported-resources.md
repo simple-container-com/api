@@ -2041,7 +2041,8 @@ templates:
       dockerRegistryURL: registry.example.ru/mycompany
       dockerRegistryUsername: "${secret:RU_REGISTRY_USERNAME}"
       dockerRegistryPassword: "${secret:RU_REGISTRY_PASSWORD}"
-      useSSL: true                     # default; `false` while still on a host port
+      clientTls: true                  # default; `false` while still on a host port
+      # originTls: true                # only if this edge terminates TLS itself
       # caddyResource: my-caddy        # once an in-cluster Caddy edge exists
 ```
 
@@ -2049,7 +2050,9 @@ templates:
 |---|---|---|
 | `k3sClusterResource` | — (**required**) | name of the `k3s-cluster` resource to deploy through |
 | `dockerRegistryURL` + username/password | — (**required**) | unlike `vm-compose`, there is no `ssh-tar` escape: Kubernetes can only pull. A k3s stand with no reachable registry cannot deploy, which is surfaced at config time rather than at image-pull time |
-| `useSSL` | `true` | `false` is the honest setting while you are still reaching the cluster on a host port with no certificate |
+| `clientTls` | `true` | clients reach us over HTTPS, whoever terminated it: adds `import hsts` and hands Caddy the HTTP→HTTPS redirect. `false` is the honest setting while you are still reaching the cluster on a host port with no certificate. **Does not make anything serve TLS** |
+| `originTls` | *unset* → each stack's `lbConfig` decides, and a stack that says nothing gets plain HTTP | edge-wide default for whether this edge **terminates** TLS: `https://<domain>` site addresses, automatic HTTPS, ACME. Off by default because Cloudflare or a cloud LB normally terminates in front. Overridable per stack with `lbConfig.originTls` |
+| `useSSL` | `true` | **deprecated** spelling of `clientTls`, still honoured. Setting both to different values is refused |
 | `caddyResource` | — | name of a Caddy resource in the parent stack |
 
 Client stacks use this exactly as they use `kubernetes-cloudrun` — including
@@ -2107,8 +2110,57 @@ templates:
       
       # CloudrunTemplate specific properties
       caddyResource: "my-caddy-resource"       # Name of the caddy resource in base stack (optional)
-      useSSL: true                             # Whether to assume connection must be over HTTPS only (optional, default: true)
+      clientTls: true                          # Clients reach us over HTTPS, whoever terminated it: send HSTS
+                                               # and let Caddy own the HTTP→HTTPS redirect (optional, default: true).
+                                               # Was `useSSL`, which still works and means the same thing.
+                                               # Does NOT make the edge serve TLS — `originTls` is that switch.
+      # originTls: true                        # Edge-wide default for whether THIS edge terminates TLS:
+                                               # `https://<domain>` site addresses, so automatic HTTPS and ACME
+                                               # are armed (optional). Unset leaves it to each stack's
+                                               # `lbConfig.originTls`, and a stack that says nothing gets plain
+                                               # HTTP — correct when Cloudflare or a cloud LB terminates in front.
 ```
+
+**Per-stack edge overrides — `lbConfig` in `client.yaml`**
+
+The template above states the edge's defaults. A single stack overrides them in its own
+`client.yaml`, which is where origin TLS was spelled before the template could state it:
+
+```yaml
+# client.yaml
+stacks:
+  staging:
+    type: cloud-compose
+    template: k8s-cloudrun-template
+    parent: mycompany/mycompany
+    config:
+      dockerComposeFile: ./docker-compose.yaml
+      domain: portal.example.com
+      runs: [portal]
+      # Optional, and most stacks have no `lbConfig` at all.
+      lbConfig:
+        # Whether the edge terminates TLS for THIS site. `true` renders the Caddy site
+        # address as `https://portal.example.com`, which is what arms automatic HTTPS
+        # and ACME; `false` renders `http://…` and no certificate is requested. Unset
+        # inherits the template's `originTls`, and failing that is `false` — the right
+        # answer when Cloudflare or a cloud LB terminates in front.
+        originTls: true
+        # `https: true` is the DEPRECATED spelling of `originTls: true` and still
+        # works. `https: true` together with `originTls: false` is refused.
+```
+
+| `lbConfig` key | Default | Notes |
+|---|---|---|
+| `originTls` | inherits the template's `originTls`, else `false` | this site's edge terminates TLS: `https://<domain>` site address, automatic HTTPS, ACME |
+| `https` | `false` | **deprecated** spelling of `originTls`. Still honoured; contradicting `originTls: false` is refused |
+| `extraHelpers` | — | directives rendered INSIDE the per-stack `reverse_proxy { … }` block (`header_down`, `lb_retries`, `transport`, `header_up`) |
+| `siteExtraHelpers` | — | directives rendered at SITE level, after the `reverse_proxy` block closes (`rate_limit`, `redir`, `route`). Caddy's grammar gates which scope accepts what, so misplacing one is a Caddyfile parse error at reload |
+| `requestBufferSize` | `1MiB` | `request_buffers` on the generated `reverse_proxy`; bodies up to this size reach the upstream with `Content-Length` instead of chunked. Max `16MiB`; `0` omits the directive |
+
+`lbConfig.originTls` is **refused** on the `vm-compose` path rather than ignored: a
+machine has one Caddy and it is the front door, so origin TLS is a property of the
+machine and lives on the `vm` resource as `ingress.originTls` (which, unlike this one,
+defaults **on**).
 
 **See Also:**
 
@@ -2141,7 +2193,15 @@ resources:
             image: "caddy:2.7-alpine"               # Caddy Docker image (optional)
             replicas: 2                             # Number of replicas (optional)
             serviceType: "LoadBalancer"             # Service type (optional, default: LoadBalancer)
-            useSSL: true                            # Use SSL by default (optional, default: true)
+            clientTls: true                         # Clients are on HTTPS, whoever terminated it: send HSTS and
+                                                    # let Caddy own the HTTP→HTTPS redirect (optional, default: true).
+                                                    # Deprecated spelling: `useSSL`, still honoured.
+            # originTls: true                       # Edge-wide default for whether this Caddy TERMINATES TLS —
+                                                    # `https://<domain>` site addresses, automatic HTTPS, ACME
+                                                    # (optional). Unset leaves it to each stack's
+                                                    # `lbConfig.originTls`; a stack that says nothing gets plain
+                                                    # HTTP, which is right behind Cloudflare or a cloud LB.
+                                                    # This resource's value wins over the template's.
             usePrefixes: false                      # Use prefixes instead of domains (optional, default: false)
             provisionIngress: false                 # Provision ingress for Caddy (optional, default: false)
             useResourceName: false                  # Name every object <resource>-<env> instead of caddy-<env>,

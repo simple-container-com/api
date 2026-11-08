@@ -137,19 +137,24 @@ type SimpleContainerArgs struct {
 
 	Log logger.Logger
 	// ...
-	RollingUpdate                 *v1.RollingUpdateDeploymentArgs
-	InitContainers                []corev1.ContainerArgs
-	Containers                    []corev1.ContainerArgs
-	SecurityContext               *corev1.PodSecurityContextArgs
-	ServiceAccountName            *sdk.StringOutput
-	Sidecars                      []corev1.ContainerArgs
-	SidecarOutputs                []corev1.ContainerOutput
-	InitContainerOutputs          []corev1.ContainerOutput
-	VolumeOutputs                 []corev1.VolumeOutput
-	SecretVolumeOutputs           []any
-	ComputeContext                pApi.ComputeContext
-	ImagePullSecret               *docker.RegistryCredentials
-	UseSSL                        bool
+	RollingUpdate        *v1.RollingUpdateDeploymentArgs
+	InitContainers       []corev1.ContainerArgs
+	Containers           []corev1.ContainerArgs
+	SecurityContext      *corev1.PodSecurityContextArgs
+	ServiceAccountName   *sdk.StringOutput
+	Sidecars             []corev1.ContainerArgs
+	SidecarOutputs       []corev1.ContainerOutput
+	InitContainerOutputs []corev1.ContainerOutput
+	VolumeOutputs        []corev1.VolumeOutput
+	SecretVolumeOutputs  []any
+	ComputeContext       pApi.ComputeContext
+	ImagePullSecret      *docker.RegistryCredentials
+	// UseSSL is the resolved `clientTls`: HSTS + Caddy-owned redirect. See the
+	// field doc on kubernetes.Args.UseSSL — it is not the origin-TLS decision.
+	UseSSL bool
+	// OriginTls is the edge-wide origin-TLS default, consulted by
+	// LbConfig.OriginTlsEnabled when the stack's own lbConfig says nothing.
+	OriginTls                     *bool
 	EphemeralSize                 string
 	TerminationGracePeriodSeconds *int
 
@@ -790,7 +795,12 @@ ${proto}://${domain} {
 			}
 		}
 		placeholdersMap := placeholders.MapData{
-			"proto":            lo.If(lbc.Https, "https").Else("http"),
+			// `https://` here is what arms Caddy's automatic HTTPS, and therefore
+			// ACME, for this site; `http://` puts the listener on :80 and asks for
+			// no certificate. Resolved from the stack's `lbConfig.originTls` (or
+			// its deprecated `lbConfig.https`) and, failing both, the edge-wide
+			// default — see api.SimpleContainerLBConfig.OriginTlsEnabled.
+			"proto":            lo.If(args.LbConfig.OriginTlsEnabled(args.OriginTls), "https").Else("http"),
 			"domain":           args.Domain,
 			"prefix":           args.Prefix,
 			"service":          sanitizedService,

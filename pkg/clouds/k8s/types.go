@@ -61,7 +61,10 @@ type CaddyConfig struct {
 	UsePrefixes      bool       `json:"usePrefixes,omitempty" yaml:"usePrefixes,omitempty"`           // whether to use prefixes instead of domains (default: false)
 	ServiceType      *string    `json:"serviceType,omitempty" yaml:"serviceType,omitempty"`           // whether to use custom service type instead of LoadBalancer (default: LoadBalancer)
 	ProvisionIngress bool       `json:"provisionIngress,omitempty" yaml:"provisionIngress,omitempty"` // whether to provision ingress for caddy (default: false)
-	UseSSL           *bool      `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`                     // whether to use ssl by default (default: true)
+	// TlsConfig carries `clientTls` / `originTls` and the deprecated `useSSL`.
+	// Inline, so the resource's yaml shape is unchanged and `cfg.UseSSL` keeps
+	// compiling through field promotion.
+	TlsConfig `json:",inline" yaml:",inline"`
 	// Deployment name override for existing Caddy deployments (used when adopting clusters)
 	DeploymentName *string `json:"deploymentName,omitempty" yaml:"deploymentName,omitempty"` // override deployment name when adopting existing Caddy
 	// TerminationGracePeriodSeconds overrides the pod-level terminationGracePeriodSeconds for Caddy.

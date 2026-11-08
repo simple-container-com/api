@@ -49,7 +49,11 @@ type K3sCloudrunTemplate struct {
 	docker.RegistryCredentials `json:",inline" yaml:",inline"`
 
 	CaddyResource *string `json:"caddyResource,omitempty" yaml:"caddyResource,omitempty"` // name of the caddy resource in the parent stack
-	UseSSL        *bool   `json:"useSSL,omitempty" yaml:"useSSL,omitempty"`               // whether to assume connections are https-only (default: true)
+
+	// TlsConfig carries `clientTls` / `originTls` and the deprecated `useSSL`,
+	// inline — the same vocabulary as the kubernetes-cloudrun template, because
+	// this template builds one.
+	k8s.TlsConfig `json:",inline" yaml:",inline"`
 }
 
 // ProviderType reports k3s for the same reason K3sClusterConfig does, and with a
@@ -89,6 +93,9 @@ func (t *K3sCloudrunTemplate) Validate() error {
 	}
 	if url := t.DockerRegistryURL; url == nil || *url == "" {
 		return errors.Errorf("`dockerRegistryURL` must be specified: a kubelet can only pull images, so a k3s deploy has no equivalent of vm-compose's ssh-tar delivery")
+	}
+	if err := t.ValidateTls(); err != nil {
+		return err
 	}
 	return nil
 }
@@ -151,7 +158,9 @@ func ToK3sCloudrunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Stack
 	kubeTpl := &k8s.CloudrunTemplate{
 		RegistryCredentials: templateCfg.RegistryCredentials,
 		CaddyResource:       templateCfg.CaddyResource,
-		UseSSL:              templateCfg.UseSSL,
+		// One assignment carries all three TLS switches, which is the point of
+		// the shared struct: a new one cannot be forgotten here.
+		TlsConfig: templateCfg.TlsConfig,
 	}
 
 	converted, err := k8s.ToKubernetesRunConfig(kubeTpl, composeCfg, stackCfg)

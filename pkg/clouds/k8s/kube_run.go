@@ -236,6 +236,12 @@ func ToKubernetesRunConfig(tpl any, composeCfg compose.Config, stackCfg *api.Sta
 	if templateCfg == nil {
 		return nil, errors.Errorf("template config is nil")
 	}
+	if err := templateCfg.ValidateTls(); err != nil {
+		return nil, err
+	}
+	if err := stackCfg.LBConfig.ValidateTls(); err != nil {
+		return nil, err
+	}
 
 	deployCfg := DeploymentConfig{
 		StackConfig: stackCfg,

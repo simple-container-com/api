@@ -192,7 +192,16 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	// Still computed because it's threaded into per-stack Caddyfile entries
 	// elsewhere in this function; intentionally NOT applied to the catch-all
 	// default block above (see comment on `import hsts` omission).
-	useSSL := caddy.UseSSL == nil || *caddy.UseSSL
+	//
+	// Read through a local value rather than off the promoted embedded pointer:
+	// `caddy.ClientTlsEnabled()` would dereference a nil CaddyConfig, and this
+	// function is already careful about that elsewhere (BuildTrustedProxiesBlock
+	// below takes the same lo.FromPtrOr shape).
+	caddyTls := lo.FromPtrOr(caddy.CaddyConfig, k8s.CaddyConfig{}).TlsConfig
+	if err := caddyTls.ValidateTls(); err != nil {
+		return nil, err
+	}
+	useSSL := caddyTls.ClientTlsEnabled()
 
 	serviceAccountName := input.ToResName(fmt.Sprintf("%s-caddy-sa", input.Descriptor.Name))
 	serviceAccount, err := NewSimpleServiceAccount(ctx, serviceAccountName, &SimpleServiceAccountArgs{

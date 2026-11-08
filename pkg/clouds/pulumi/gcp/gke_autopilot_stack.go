@@ -150,21 +150,27 @@ func GkeAutopilotStack(ctx *sdk.Context, stack api.Stack, input api.ResourceInpu
 	//   2. The `ingress.kubernetes.io/ssl-redirect: false` annotation on
 	//      the Ingress (Caddy owns the redirect, so the ingress shouldn't).
 	//
-	// We derive it from `lbConfig.https` (a per-stack yaml field that the
-	// consumer already sets when their stack is HTTPS-fronted) rather than
+	// We derive it from the stack's origin-TLS decision (a per-stack yaml field
+	// the consumer already sets when their stack is HTTPS-fronted) rather than
 	// introducing a new template-level knob — same signal, fewer concepts.
-	// Net behaviour: stacks declaring `lbConfig.https: true` opt into the
-	// HSTS snippet; everything else stays plain HTTP and the snippet stays
-	// inert (its `redir @httpReq` would otherwise loop on origins without
-	// a TLS cert).
+	// Net behaviour: stacks declaring `lbConfig.originTls: true` (or its
+	// deprecated spelling `lbConfig.https: true`) opt into the HSTS snippet;
+	// everything else stays plain HTTP and the snippet stays inert (its
+	// `redir @httpReq` would otherwise loop on origins without a TLS cert).
 	//
 	// Pre-this-fix, the field was unset on the kubernetes.Args struct, so
 	// it landed at the bool zero value and `import hsts` was never added —
 	// silently dropping HSTS on every GKE Autopilot deploy regardless of
-	// the consumer's lbConfig.https setting.
+	// the consumer's lbConfig setting.
 	var useSSL bool
 	if sc := gkeAutopilotInput.Deployment.StackConfig; sc != nil {
-		useSSL = lo.FromPtr(sc.LBConfig).Https
+		if err := sc.LBConfig.ValidateTls(); err != nil {
+			return nil, err
+		}
+		// No edge-wide default on this path: GKE Autopilot's front door is the
+		// cloud load balancer, and the gke-autopilot resource has no `originTls`
+		// to inherit from.
+		useSSL = sc.LBConfig.OriginTlsEnabled(nil)
 	}
 
 	kubeArgs := kubernetes.Args{
