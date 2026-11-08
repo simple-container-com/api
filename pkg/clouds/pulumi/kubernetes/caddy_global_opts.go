@@ -20,13 +20,20 @@ import (
 // Reads the config through one nil-safe copy: CaddyDeployment embeds *k8s.CaddyConfig,
 // so the promoted `caddy.CaddyfilePrefix` dereferences a pointer that several callers
 // leave nil.
-func staticCaddyfilePrefix(caddy CaddyDeployment) (string, error) {
+//
+// `namespace` and `deploymentName` reach the certificate store's block, where they name
+// the log to read if certificates never issue.
+func staticCaddyfilePrefix(caddy CaddyDeployment, namespace, deploymentName string) (string, error) {
 	cfg := lo.FromPtrOr(caddy.CaddyConfig, k8s.CaddyConfig{})
+	storageBlock, err := caddyAcmeStorageBlock(caddy, namespace, deploymentName)
+	if err != nil {
+		return "", err
+	}
 	trustedBlock, err := BuildTrustedProxiesBlock(cfg)
 	if err != nil {
 		return "", err
 	}
-	return BuildCaddyfileGlobalOptions("", trustedBlock, lo.FromPtrOr(cfg.CaddyfilePrefix, ""))
+	return BuildCaddyfileGlobalOptions(storageBlock, trustedBlock, lo.FromPtrOr(cfg.CaddyfilePrefix, ""))
 }
 
 // BuildTrustedProxiesBlock builds the Caddy servers { trusted_proxies ... } block

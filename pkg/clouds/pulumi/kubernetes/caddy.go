@@ -325,8 +325,10 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	// Assembled here and not inside the container's Env closure below, which cannot
 	// return an error: before this, BuildTrustedProxiesBlock's error was discarded with
 	// `_` and an invalid CIDR silently dropped the whole block, leaving an edge that
-	// trusts no proxy and reports every client as the load balancer.
-	staticPrefix, err := staticCaddyfilePrefix(caddy)
+	// trusts no proxy and reports every client as the load balancer. The certificate
+	// store is validated on the way through, so a bad store is a refusal here rather
+	// than an error from inside a Pulumi apply — see caddyAcmeStorageBlock.
+	staticPrefix, err := staticCaddyfilePrefix(caddy, namespace, deploymentName)
 	if err != nil {
 		return nil, errors.Wrapf(err, "invalid caddy global options for cluster %q", input.Descriptor.Name)
 	}
@@ -506,6 +508,15 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 
 	// Prepare secret environment variables (e.g., GOOGLE_APPLICATION_CREDENTIALS for GCP)
 	secretEnvs := make(map[string]string)
+	// The shared store's credentials. They go in as SECRET envs, not into the
+	// Caddyfile the init container renders: `storage s3` holds them as `{$NAME}`
+	// placeholders that Caddy's parser resolves in this container at config load, so
+	// the file on disk — world-readable, and echoed verbatim by `caddy adapt` — never
+	// carries the value. Delivered under the names CredentialEnv chooses, which is the
+	// same map the placeholders were rendered from.
+	for k, v := range lo.FromPtr(caddy.CaddyConfig).AcmeStorage.CredentialEnv() {
+		secretEnvs[k] = v
+	}
 	if len(caddy.SecretEnvs) > 0 {
 		// Log secret environment variable names (not values for security)
 		secretEnvNames := make([]string, 0, len(caddy.SecretEnvs))
@@ -581,12 +592,27 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 
 // exportedCaddyConfig is the caddy config children read. A Caddy with a derived name
 // carries that name, or its children would patch caddy-<env>, the other Caddy of the
-// environment. A Caddy named caddy-<env> exports its config unchanged.
+// environment. A Caddy named caddy-<env> exports its config unchanged, except for the
+// certificate store's credentials.
 //
 // Note this overwrites the adoption override CaddyConfig.DeploymentName: a Caddy that
 // sets both deploymentName: and useResourceName: true exports the derived name, since
 // that is the deployment its children actually have to patch.
 func exportedCaddyConfig(caddy CaddyDeployment) *k8s.CaddyConfig {
+	// This config is marshalled to JSON and exported as a PLAIN stack output — every
+	// child stack reads it, and so does anyone who can read the state or run
+	// `sc outputs`. `caddy.acmeStorage` is the first field of it to carry credentials,
+	// so they are stripped here rather than marked secret: a child needs the deployment
+	// name to patch, and has no use at all for the store's keys.
+	if caddy.CaddyConfig != nil && caddy.AcmeStorage != nil {
+		cfg := *caddy.CaddyConfig
+		store := *caddy.AcmeStorage // copy: the pointer is shared with the live config
+		store.AccessKey = ""
+		store.SecretKey = ""
+		store.EncryptionKey = ""
+		cfg.AcmeStorage = &store
+		caddy.CaddyConfig = &cfg
+	}
 	if caddy.ObjectsName == "" {
 		return caddy.CaddyConfig
 	}

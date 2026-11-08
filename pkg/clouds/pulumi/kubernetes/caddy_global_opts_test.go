@@ -220,7 +220,7 @@ func TestStaticCaddyfilePrefix(t *testing.T) {
 	g := NewGomegaWithT(t)
 
 	t.Run("nil config", func(t *testing.T) {
-		prefix, err := staticCaddyfilePrefix(CaddyDeployment{})
+		prefix, err := staticCaddyfilePrefix(CaddyDeployment{}, "caddy", "caddy-staging")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(prefix).To(BeEmpty())
 	})
@@ -229,11 +229,41 @@ func TestStaticCaddyfilePrefix(t *testing.T) {
 		prefix, err := staticCaddyfilePrefix(CaddyDeployment{CaddyConfig: &k8s.CaddyConfig{
 			TrustedProxies:  []string{"10.0.0.0/8"},
 			CaddyfilePrefix: lo.ToPtr("{\n  email ops@example.com\n}"),
-		}})
+		}}, "caddy", "caddy-staging")
 		g.Expect(err).ToNot(HaveOccurred())
 		g.Expect(prefix).To(ContainSubstring("trusted_proxies static 10.0.0.0/8"))
 		g.Expect(prefix).To(ContainSubstring("email ops@example.com"))
 		g.Expect(strings.Count(prefix, "{\n")).To(Equal(2))
+	})
+
+	t.Run("the certificate store joins the same global block", func(t *testing.T) {
+		// One function owns everything above the first site block, so a store, a
+		// trusted-proxies block and the operator's own globals have to come out as ONE
+		// keyless block or the edge fails to load its config.
+		prefix, err := staticCaddyfilePrefix(CaddyDeployment{CaddyConfig: &k8s.CaddyConfig{
+			AcmeStorage:     testAcmeStore(),
+			TrustedProxies:  []string{"10.0.0.0/8"},
+			CaddyfilePrefix: lo.ToPtr("{\n  email ops@example.com\n}"),
+		}}, "caddy", "caddy-staging")
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(prefix).To(HavePrefix("{\n"))
+		g.Expect(prefix).To(HaveSuffix("\n}"))
+		g.Expect(prefix).To(ContainSubstring("storage s3 {"))
+		g.Expect(prefix).To(ContainSubstring("trusted_proxies static 10.0.0.0/8"))
+		g.Expect(prefix).To(ContainSubstring("email ops@example.com"))
+		// `storage s3 {`, `servers {` and the outer block — the user's globals are
+		// merged in as bare directives, not as a block of their own.
+		g.Expect(strings.Count(prefix, "{\n")).To(Equal(3))
+	})
+
+	t.Run("an invalid store is refused here, not inside a Pulumi apply", func(t *testing.T) {
+		store := testAcmeStore()
+		store.EncryptionKey = "too-short"
+		_, err := staticCaddyfilePrefix(CaddyDeployment{CaddyConfig: &k8s.CaddyConfig{
+			AcmeStorage: store,
+		}}, "caddy", "caddy-staging")
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("`caddy.acmeStorage.encryptionKey`"))
 	})
 
 	t.Run("an invalid CIDR is refused instead of silently dropping the block", func(t *testing.T) {
@@ -242,7 +272,7 @@ func TestStaticCaddyfilePrefix(t *testing.T) {
 		// load balancer's address as every client's.
 		_, err := staticCaddyfilePrefix(CaddyDeployment{CaddyConfig: &k8s.CaddyConfig{
 			TrustedProxies: []string{"10.0.0.0/8", "no-a-cidr"},
-		}})
+		}}, "caddy", "caddy-staging")
 		g.Expect(err).To(HaveOccurred())
 		g.Expect(err.Error()).To(ContainSubstring("invalid trusted proxy entry"))
 	})
