@@ -152,7 +152,7 @@ func (s *AcmeStorage) StorageRegion() string {
 // CredentialEnv is the name→value map of everything that must NOT be rendered into the
 // Caddyfile: the two static-credential halves and the encryption key. The caller's job
 // is to deliver these out of band (a 0600 env file on a machine, a Secret in a cluster)
-// under exactly these names, because WriteStorageBlock renders `{$NAME}` placeholders
+// under exactly these names, because WriteAcmeStorageGlobals renders `{$NAME}` placeholders
 // for them.
 //
 // AccessKey and SecretKey come as a pair or not at all. The block renders the two
@@ -241,8 +241,13 @@ func (s *AcmeStorage) Validate(field string) error {
 	return nil
 }
 
-// WriteStorageBlock renders the global `storage s3` block — the thing that makes origin
-// HTTPS possible on a fleet at all, rather than a tuning knob.
+// WriteAcmeStorageGlobals renders the two global directives a shared certificate store
+// needs: `storage s3` — the thing that makes origin HTTPS possible on a fleet at all,
+// rather than a tuning knob — and the `admin` block that keeps its credentials out of
+// Caddy's config autosave.
+//
+// Both, from one function, because rendering the store without the guard is a credential
+// exposure and there is no reason to ever want it (see writeAdminConfigPersistOff).
 //
 // `indent` prefixes every line and is doubled for the subdirectives inside the block,
 // because the two edges nest their global options differently (a tab on the vm path, two
@@ -271,7 +276,7 @@ func (s *AcmeStorage) Validate(field string) error {
 //     whatever the caller of CredentialEnv delivered. The Caddyfile is world-readable
 //     inside the container and is echoed by `caddy adapt`. They do not go through Token,
 //     which would quote the braces into a literal.
-func WriteStorageBlock(b *strings.Builder, s *AcmeStorage, indent, logHint string) {
+func WriteAcmeStorageGlobals(b *strings.Builder, s *AcmeStorage, indent, logHint string) {
 	p := func(format string, args ...any) {
 		b.WriteString(indent)
 		fmt.Fprintf(b, format, args...)
@@ -283,6 +288,8 @@ func WriteStorageBlock(b *strings.Builder, s *AcmeStorage, indent, logHint strin
 		b.WriteString(indent)
 		p(format, args...)
 	}
+
+	writeAdminConfigPersistOff(b, indent)
 
 	p("# Shared certificate store — every front door of this fleet points at this one\n")
 	p("# bucket. That is what lets HTTP-01 work behind N A records: certmagic keeps\n")
@@ -323,6 +330,51 @@ func WriteStorageBlock(b *strings.Builder, s *AcmeStorage, indent, logHint strin
 		pp("# on every start. Set `acmeStorage.encryptionKey` (exactly %d bytes)\n", AcmeStorageEncryptionKeyLen)
 		pp("# to encrypt them at rest.\n")
 	}
+	p("}\n")
+}
+
+// writeAdminConfigPersistOff renders `admin { config { persist false } }`.
+//
+// It is not a hardening nicety; it is the only thing standing between the store's
+// credentials and a cleartext file on every node. `{$VAR}` is substituted by the
+// Caddyfile parser at ADAPT time, so the real access key, secret key and encryption key
+// are in the JSON config Caddy builds — and Caddy writes that JSON to
+// /config/caddy/autosave.json on every start. Measured on simplecontainer/caddy against
+// a probe store, all three values appeared there in the clear, rewritten on each start
+// (the file is 0600 and root-owned, which is why a grep from the host user first
+// reported it clean). `{env.VAR}` would have stayed a placeholder in the config, but
+// certmagic-s3 v1.5.0 runs no Replacer — it hands the string straight to
+// NewStaticCredentialsProvider, so a runtime placeholder becomes the access key.
+//
+// Safe on both paths because SC NEVER USES `--resume`, which is the only thing the
+// autosave exists for: the Kubernetes edge runs `caddy run --config /tmp/Caddyfile` and
+// the vm container re-reads its Caddyfile on restart. Turning persistence off therefore
+// changes no behaviour an operator can observe.
+//
+// This is NOT `admin off`, which would break `docker exec sc-caddy caddy reload` — a
+// client of the admin API — and turn every subsequent deploy into a full container
+// restart. The API stays up on localhost:2019 inside the container; only the
+// write-to-storage of the config stops. The credential does remain in Caddy's in-memory
+// config and `GET /config/` still returns it, which is accepted knowingly: reaching that
+// endpoint needs shell or `docker exec` on the node, the same privilege that reads the
+// 0600 env file the credential came from.
+func writeAdminConfigPersistOff(b *strings.Builder, indent string) {
+	p := func(format string, args ...any) {
+		b.WriteString(indent)
+		fmt.Fprintf(b, format, args...)
+	}
+	// No env-placeholder syntax in these comment lines, deliberately: Caddy substitutes
+	// placeholders over the raw file before it strips comments, and the test that counts
+	// placeholders against the credentials actually delivered is worth more than the
+	// extra precision in a comment.
+	p("# The store's credentials reach the JSON config in the clear (the Caddyfile\n")
+	p("# parser resolves env placeholders at adapt time), and Caddy autosaves that JSON\n")
+	p("# to /config/caddy/autosave.json on every start. Nothing here resumes from it, so\n")
+	p("# persistence is off. The admin API itself stays up — `caddy reload` needs it.\n")
+	p("admin {\n")
+	p("%sconfig {\n", indent)
+	p("%s%spersist false\n", indent, indent)
+	p("%s}\n", indent)
 	p("}\n")
 }
 

@@ -20,7 +20,8 @@ import (
 // mistrusts in a generated file.
 const caddyGlobalOptsIndent = "  "
 
-// caddyAcmeStorageBlock renders this edge's `storage s3` block, or "" when it has no
+// caddyAcmeStorageBlock renders this edge's `storage s3` block and the `admin` block
+// that keeps its credentials out of Caddy's config autosave, or "" when the edge has no
 // shared store. It also validates the store, so that a refusal happens here rather than
 // inside a Pulumi apply where the message reaches the operator wrapped in a stack trace.
 //
@@ -60,7 +61,7 @@ func caddyAcmeStorageBlock(caddy CaddyDeployment, namespace, deploymentName stri
 	}
 
 	b := &strings.Builder{}
-	caddyassets.WriteStorageBlock(b, cfg.AcmeStorage, caddyGlobalOptsIndent,
+	caddyassets.WriteAcmeStorageGlobals(b, cfg.AcmeStorage, caddyGlobalOptsIndent,
 		fmt.Sprintf("`kubectl logs -n %s deploy/%s`", namespace, deploymentName))
 	return strings.TrimRight(b.String(), "\n"), nil
 }

@@ -251,9 +251,10 @@ func TestStaticCaddyfilePrefix(t *testing.T) {
 		g.Expect(prefix).To(ContainSubstring("storage s3 {"))
 		g.Expect(prefix).To(ContainSubstring("trusted_proxies static 10.0.0.0/8"))
 		g.Expect(prefix).To(ContainSubstring("email ops@example.com"))
-		// `storage s3 {`, `servers {` and the outer block — the user's globals are
-		// merged in as bare directives, not as a block of their own.
-		g.Expect(strings.Count(prefix, "{\n")).To(Equal(3))
+		// `admin {`, its `config {`, `storage s3 {`, `servers {` and the outer block —
+		// the user's globals are merged in as bare directives, not as a block of their
+		// own.
+		g.Expect(strings.Count(prefix, "{\n")).To(Equal(5))
 	})
 
 	t.Run("an invalid store is refused here, not inside a Pulumi apply", func(t *testing.T) {

@@ -51,6 +51,11 @@ import (
 // admin endpoint is localhost:2019 INSIDE the container and the compose project
 // publishes no port for it, so it is reachable exactly through `docker exec` and from
 // nowhere else. Amendment dated 2026-10-17 in the design doc.
+//
+// A machine with a shared certificate store does get `admin { config { persist false } }`
+// — which is a different directive with a different reason (keeping the store's
+// credentials out of the config autosave) and leaves the API, and therefore reload,
+// working. See writeAdminConfigPersistOff.
 func RenderCaddyfile(cfg *VmConfig) (string, error) {
 	if cfg == nil || !cfg.IngressEnabled() {
 		return "", errors.Errorf("ingress is not enabled on this vm resource")
@@ -126,19 +131,20 @@ func writeCaddySnippets(b *strings.Builder, snippets []byte) {
 	fmt.Fprintf(b, "import %s/*.caddy\n", CaddyContainerConfigDir+"/conf.d")
 }
 
-// writeCaddyAcmeStorage renders the global `storage s3` block on this machine.
+// writeCaddyAcmeStorage renders the global `storage s3` block on this machine, plus the
+// `admin` block that keeps the store's credentials out of Caddy's config autosave.
 //
 // Delegated to pkg/clouds/caddy: the Kubernetes edge renders the identical block from a
 // different struct, and the two parser traps the module forces on its caller (explicit
 // boolean values, unquoted `{$VAR}` credentials) are documented there once —
-// WriteStorageBlock's doc comment is the thing to read before changing any of it.
+// WriteAcmeStorageGlobals's doc comment is the thing to read before changing any of it.
 //
 // What stays here is the two path-specific parameters: this edge's global options block
 // is tab-indented, and the log an operator must read when certificates never issue is
 // `docker logs sc-caddy` ON EVERY MACHINE. The credential placeholders the block renders
 // are satisfied by RenderCaddyEnvFile.
 func writeCaddyAcmeStorage(b *strings.Builder, s *VmAcmeStorage) {
-	caddyassets.WriteStorageBlock(b, s, "\t", fmt.Sprintf("`docker logs %s`", CaddyContainer))
+	caddyassets.WriteAcmeStorageGlobals(b, s, "\t", fmt.Sprintf("`docker logs %s`", CaddyContainer))
 }
 
 // RenderCaddyDefaultSite is the catch-all site, written once with the ingress.

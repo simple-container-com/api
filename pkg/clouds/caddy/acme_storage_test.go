@@ -24,7 +24,7 @@ func fullStore() *AcmeStorage {
 
 func renderStore(s *AcmeStorage, indent string) string {
 	b := &strings.Builder{}
-	WriteStorageBlock(b, s, indent, "`docker logs sc-caddy`")
+	WriteAcmeStorageGlobals(b, s, indent, "`docker logs sc-caddy`")
 	return b.String()
 }
 
@@ -81,7 +81,7 @@ func TestCredentialEnvMatchesTheRenderedPlaceholders(t *testing.T) {
 // The module's parser reads each subdirective with `if !d.Args(&value) { continue }`, so
 // a bare boolean is not an error and is not true — it is silently skipped, and the only
 // symptom is every request to the store failing.
-func TestWriteStorageBlockNeverRendersABareBoolean(t *testing.T) {
+func TestWriteAcmeStorageGlobalsNeverRendersABareBoolean(t *testing.T) {
 	g := NewGomegaWithT(t)
 
 	for _, store := range []*AcmeStorage{
@@ -108,7 +108,7 @@ func TestWriteStorageBlockNeverRendersABareBoolean(t *testing.T) {
 // caller's own indent unit — a tab on the vm path, two spaces next to the Kubernetes
 // edge's `servers { trusted_proxies ... }`. Hardcoding either produces a file that parses
 // and that a reviewer mistrusts.
-func TestWriteStorageBlockIndentsInTheCallersUnit(t *testing.T) {
+func TestWriteAcmeStorageGlobalsIndentsInTheCallersUnit(t *testing.T) {
 	g := NewGomegaWithT(t)
 
 	for _, indent := range []string{"\t", "  ", ""} {
@@ -120,6 +120,33 @@ func TestWriteStorageBlockIndentsInTheCallersUnit(t *testing.T) {
 		// straight after this block, and the Kubernetes path trims it precisely because
 		// it is there.
 		g.Expect(block).To(HaveSuffix(indent + "}\n"))
+	}
+}
+
+// The autosave guard rides with the store because a store without it writes all three
+// credentials in the clear to /config/caddy/autosave.json on every node, on every start.
+// Nothing else in the tree would notice if it stopped being rendered.
+func TestWriteAcmeStorageGlobalsDisablesConfigPersistence(t *testing.T) {
+	g := NewGomegaWithT(t)
+
+	for _, indent := range []string{"\t", "  "} {
+		block := renderStore(fullStore(), indent)
+
+		g.Expect(block).To(ContainSubstring(indent + "admin {\n"))
+		g.Expect(block).To(ContainSubstring(strings.Repeat(indent, 2) + "config {\n"))
+		g.Expect(block).To(ContainSubstring(strings.Repeat(indent, 3) + "persist false\n"))
+
+		// NOT `admin off`. That would take the admin API down with the autosave, and
+		// `docker exec sc-caddy caddy reload` is a client of it — every deploy would
+		// become a container restart, dropping connections and hiding config errors
+		// until after the old config was gone.
+		for _, line := range strings.Split(block, "\n") {
+			g.Expect(strings.Fields(line)).ToNot(Equal([]string{"admin", "off"}))
+		}
+
+		// The two blocks are siblings in one global options block, not nested.
+		g.Expect(strings.Index(block, "admin {")).To(BeNumerically("<", strings.Index(block, "storage s3 {")))
+		g.Expect(block).To(ContainSubstring(indent + "}\n" + indent + "# Shared certificate store"))
 	}
 }
 
