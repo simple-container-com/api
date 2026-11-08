@@ -1067,6 +1067,45 @@ jobs:
           # cache. Measured cost of re-running `runtime` alone: ~34 s.
           no-cache-filters: runtime
           provenance: false
+      # Install cosign + syft through `install-attest-tools` rather than letting
+      # `sign-and-attest` do it, because only this action consults the guest's
+      # preinstalled copies.
+      #
+      # The fleet's buildvm rootfs already ships cosign v2.4.1 and syft v1.16.0
+      # at exactly the versions pinned below, and `install-attest-tools` skips
+      # each download when the binary on PATH reports the wanted version (an
+      # exact match; a mismatch falls through and installs, so a wrong
+      # preinstall costs one download, never a wrong tool). `sign-and-attest`
+      # has no such guard — it calls `sigstore/cosign-installer` and
+      # `anchore/sbom-action/download-syft` unconditionally. Measured in release
+      # run 41086127339, both on `pcbuild` guests that already had both tools:
+      #
+      #   build-platforms  (install-attest-tools) → "preinstalled: true"   0.45 s
+      #   docker-build     (sign-and-attest)      → downloads anyway      83.7 s
+      #
+      # 83.7 s of which 74 s was a stall with no output, on the fake-IP egress
+      # that the fleet design doc §5.1 records as intermittently hanging. Same
+      # path cost 7 min 11 s in run 39402578614 and hard-failed run 40007865716
+      # attempt 2 (`failed to install syft`), discarding a whole release —
+      # nothing surfaces it, because the consuming steps are continue-on-error.
+      #
+      # On the hosted legs (caddy, kubectl) neither binary is present, both
+      # guards miss, and this downloads exactly as before at ~4 s. So this is a
+      # strict improvement on all four legs, not a fleet-only trade.
+      #
+      # Keep the version defaults in lockstep with the action's (currently
+      # cosign v2.4.1 / syft v1.16.0) and with the guest bake in
+      # forge/provisioning/firecracker-buildvm/bake-attest-tools-into-rootfs.sh.
+      # A drift is safe but silently gives the saving back.
+      - name: Install attestation tools
+        id: install_attest_tools
+        if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true   # Same posture as build-platforms: a flaky
+                                  # installer must not fail the leg on its own.
+                                  # The sign/SBOM/SLSA steps soft-skip via their
+                                  # own outcome guards and the gate below
+                                  # reports every one of them at once.
+        uses: simple-container-com/actions/install-attest-tools@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       # Attestation: keyless cosign sign + CycloneDX SBOM + SLSA L3 provenance.
       # The sub-steps stay soft so that one failure does not hide the others;
       # the trailing gate turns an incomplete chain into a failed release.
@@ -1089,6 +1128,14 @@ jobs:
           image-name: ${{ matrix.image }}
           subject-name: index.docker.io/${{ matrix.image_repo }}
           subject-digest: ${{ steps.build_and_push.outputs.digest }}
+          # The `Install attestation tools` step above already did this, via the
+          # path that honours the guest's preinstalled copies. Calling the
+          # installers again here is idempotent but re-downloads — see the
+          # measurements in that step's comment. If that step flaked
+          # (continue-on-error), the sub-steps below fail their own version
+          # checks and the gate reports it; falling back to an unguarded
+          # download would hide the flake behind another minute of egress.
+          install-tools: 'false'
           # Kept soft so every sub-step reports its own outcome. The gate
           # step below is what fails the release on an incomplete chain.
           soft-fail: 'true'
