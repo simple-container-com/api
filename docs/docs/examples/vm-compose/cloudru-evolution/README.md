@@ -269,9 +269,12 @@ in which the operator is certain the setting applied.
 | ~~`zones` with more than one entry~~ | no longer refused — it is the fleet's size, but see the driver caveat above |
 | `size.memory` that is not whole GiB | memory resolves a flavour by exact match; rounding would hand you a different machine |
 
-The `vm-compose` template's own refusals (`scale` other than 1, `domainProxied`,
-`clusterIPAddress`) are unchanged from the `byo` path and are documented
-[there](../byo-host/README.md#what-this-template-refuses).
+The `vm-compose` template's own refusals (`clusterIPAddress`, `bind` mounts) are
+unchanged from the `byo` path and are documented
+[there](../byo-host/README.md#what-this-template-refuses) — including the two that are
+no longer refusals: `scale.max > 1` now warns and points at the fleet's host count, and
+`domainProxied` is refused only while the machine terminates TLS (see
+[Front door](../byo-host/README.md#front-door-who-terminates-tls)).
 
 ## Where the stack is reachable
 

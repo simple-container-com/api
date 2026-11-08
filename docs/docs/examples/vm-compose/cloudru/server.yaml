@@ -183,3 +183,20 @@ resources:
               # acmeCa: https://acme.example-ca.ru/directory
               # acmeEabKeyId: "kid-from-your-ca"
               # acmeEabMacKey: ${secret:PORTAL_VM_ACME_EAB_MAC_KEY}
+              #
+              # Two more fields, annotated in full in
+              # ../byo-host/server.yaml — they decide the FRONT DOOR, which is the one
+              # choice a fleet cannot defer:
+              #
+              #   originTls: false   this machine serves plain HTTP and runs no ACME,
+              #                      because something in front already terminates.
+              #                      The one arrangement a fleet needs nothing shared
+              #                      for, and what makes `domainProxied: true` legal.
+              #   acmeStorage:       one S3-compatible store every machine shares, so
+              #                      the fleet issues ONE certificate and any machine
+              #                      can answer any machine's ACME challenge. The
+              #                      prerequisite for N A records WITH origin TLS.
+              #
+              # This cloud has no SC bucket resource, so a store here means an
+              # S3-compatible endpoint you point at yourself (a minio on one of the
+              # machines, or a bucket in another cloud the fleet can reach).

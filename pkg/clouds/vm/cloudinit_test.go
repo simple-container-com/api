@@ -5,6 +5,9 @@ package vm
 
 import (
 	"encoding/json"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -324,4 +327,169 @@ func TestDockerDaemonJSONSurvivesHostileMirror(t *testing.T) {
 	var daemon map[string]any
 	Expect(json.Unmarshal([]byte(content), &daemon)).To(Succeed())
 	Expect(daemon["registry-mirrors"]).To(Equal([]any{`https://x.example.ru"}`}))
+}
+
+// The byo install script is a shell program SC runs as root-by-sudo on a machine it
+// does not own, so each assertion below is about a way it could do damage or lie
+// rather than about its wording.
+func TestByoDockerInstallScript(t *testing.T) {
+	RegisterTestingT(t)
+
+	script := ByoDockerInstallScript("deploy")
+
+	// Guarded, in both directions: it must ask the machine before downloading
+	// anything (this is what makes the command a TriggersForGuardedChange, whose
+	// whole premise is that a second run changes nothing), and it must assert
+	// afterwards rather than trust the installer's exit code.
+	Expect(script).To(HavePrefix("set -eu\n"))
+	Expect(script).To(ContainSubstring("if command -v docker >/dev/null 2>&1; then"))
+	Expect(script).To(ContainSubstring("curl -fsSL " + DockerInstallURL + " | sudo sh"))
+	Expect(strings.Count(script, DockerInstallURL)).To(BeNumerically(">=", 2),
+		"the install URL has to appear in the failure message too — it is the host an operator "+
+			"has to be told they cannot reach")
+	Expect(script).To(HaveSuffix("echo docker-ready\n"))
+
+	// compose v2 is checked separately from docker: an engine with no plugin is the
+	// common shape on a hand-built host, and it fails much later and far less
+	// legibly (`docker compose` is not a command) if nothing checks here.
+	Expect(script).To(ContainSubstring("sudo docker compose version"))
+	Expect(script).To(ContainSubstring("docker-compose-plugin"))
+
+	// The daemon, not just the binary. An installed-but-dead docker is what a
+	// half-finished hand install leaves behind.
+	Expect(script).To(ContainSubstring("sudo systemctl enable --now docker"))
+	Expect(script).To(ContainSubstring("sudo docker version >/dev/null 2>&1 ||"))
+
+	// NOT a backtick anywhere. Every message here is inside a double-quoted sh
+	// string, where a backtick is command substitution — so quoting a command in
+	// prose makes the error path RUN it. Live-caught while writing this script: a
+	// hint that read "`docker-compose` v1 is not supported" executed docker-compose.
+	Expect(script).ToNot(ContainSubstring("`"))
+}
+
+// The login name reaches a sudo command line, so it is quoted. EffectiveUser already
+// constrains it, but that constraint lives in another file and this is the line that
+// would carry the surprise.
+func TestByoDockerInstallScriptQuotesTheUser(t *testing.T) {
+	RegisterTestingT(t)
+
+	script := ByoDockerInstallScript("deploy; rm -rf /")
+
+	Expect(script).To(ContainSubstring(`sudo usermod -aG docker 'deploy; rm -rf /'`))
+	Expect(script).ToNot(ContainSubstring("docker deploy; rm -rf /"))
+	Expect(ByoDockerInstallScript(`o'brien`)).To(ContainSubstring(`sudo usermod -aG docker 'o'\''brien'`))
+}
+
+// The unprivileged check runs ONLY on the branch where the user was already in the
+// group. `usermod -aG` does not apply to the session that ran it, so asserting
+// `docker version` as that user immediately after adding them fails on a host that
+// is in fact correctly set up — and pulumi-command opens a fresh login per command,
+// so the next thing SC runs picks the group up anyway.
+func TestByoDockerInstallScriptChecksTheUserOnlyWhenAlreadyInTheGroup(t *testing.T) {
+	RegisterTestingT(t)
+
+	lines := strings.Split(ByoDockerInstallScript("deploy"), "\n")
+	var branch, unprivileged, usermod int
+	for i, l := range lines {
+		switch {
+		case strings.HasPrefix(l, "if id -nG "):
+			branch = i
+		case strings.HasPrefix(l, "  docker version >/dev/null"):
+			unprivileged = i
+		case strings.Contains(l, "usermod -aG docker"):
+			usermod = i
+		}
+	}
+	Expect(branch).To(BeNumerically(">", 0), "the group-membership branch is gone: %v", lines)
+	Expect(unprivileged).To(BeNumerically(">", branch),
+		"the unprivileged `docker version` must be inside the already-in-the-group branch")
+	Expect(usermod).To(BeNumerically(">", unprivileged),
+		"the usermod belongs in the else branch, after the unprivileged check")
+}
+
+// The script is executed, with the privileged binaries stubbed, because that is the
+// only way to assert the thing that matters about a hostile login name: not that the
+// text looks escaped, but that a real sh never evaluates it. Inspection cannot tell
+// the two apart (see TestShellQuote_RoundTripsThroughARealShell in the provisioning
+// tier for the same argument).
+func runByoDockerInstall(t *testing.T, user string) (string, []string) {
+	t.Helper()
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no POSIX sh on this box")
+	}
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "bin")
+	Expect(os.MkdirAll(bin, 0o700)).To(Succeed())
+	log := filepath.Join(dir, "invocations")
+
+	// docker present, so nothing is downloaded; sudo transparent; the rest record
+	// what they were asked to do. systemctl is deliberately absent — the script has
+	// to treat a host without it as fine.
+	for name, body := range map[string]string{
+		"docker":   "#!/bin/sh\nexit 0\n",
+		"sudo":     "#!/bin/sh\nexec \"$@\"\n",
+		"groupadd": "#!/bin/sh\nprintf 'groupadd %s\\n' \"$*\" >> \"$SC_TEST_LOG\"\n",
+		"usermod":  "#!/bin/sh\nfor a in \"$@\"; do printf 'usermod-arg %s\\n' \"$a\" >> \"$SC_TEST_LOG\"; done\n",
+	} {
+		Expect(os.WriteFile(filepath.Join(bin, name), []byte(body), 0o700)).To(Succeed())
+	}
+
+	script := filepath.Join(dir, "docker.sh")
+	Expect(os.WriteFile(script, []byte(ByoDockerInstallScript(user)), 0o600)).To(Succeed())
+
+	cmd := exec.Command(sh, script)
+	// The stubs shadow anything real; the system paths follow because the script
+	// legitimately uses id, tr and grep.
+	cmd.Env = []string{"PATH=" + bin + ":/usr/bin:/bin", "SC_TEST_LOG=" + log}
+	out, runErr := cmd.CombinedOutput()
+	Expect(runErr).ToNot(HaveOccurred(), "script failed: %s", out)
+
+	var calls []string
+	if b, err := os.ReadFile(log); err == nil {
+		for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+			if l != "" {
+				calls = append(calls, l)
+			}
+		}
+	}
+	return string(out), calls
+}
+
+func TestByoDockerInstallScript_RunsNothingWhenDockerIsPresent(t *testing.T) {
+	RegisterTestingT(t)
+
+	out, calls := runByoDockerInstall(t, "deploy")
+
+	Expect(out).To(ContainSubstring("docker is already installed"))
+	Expect(out).To(ContainSubstring("docker-ready"))
+	Expect(out).ToNot(ContainSubstring("installing docker engine"))
+	// `groupadd -f` is the one unconditional mutation, and it is a no-op on a host
+	// that already has the group — which is every host that has docker.
+	Expect(calls).To(ContainElement("groupadd -f docker"))
+}
+
+// A login name is operator-supplied config. It reaches a sudo command line and two
+// printf arguments, and in none of the three may a shell evaluate it.
+func TestByoDockerInstallScript_NeverEvaluatesTheUserName(t *testing.T) {
+	RegisterTestingT(t)
+
+	for _, user := range []string{
+		`x'; touch /tmp/sc-docker-pwned; echo '`,
+		`$(touch /tmp/sc-docker-pwned)`,
+		"`touch /tmp/sc-docker-pwned`",
+		`a b	c`,
+	} {
+		out, calls := runByoDockerInstall(t, user)
+
+		// The real `id` rejects these names, so the script takes the else branch and
+		// hands the name to usermod — as exactly one argument, unchanged.
+		Expect(calls).To(ContainElement("usermod-arg "+user),
+			"%q did not survive as a single argument; stub saw %v", user, calls)
+		Expect(out).To(ContainSubstring("docker-ready"))
+
+		_, err := os.Stat("/tmp/sc-docker-pwned")
+		Expect(os.IsNotExist(err)).To(BeTrue(),
+			"the script evaluated %q: /tmp/sc-docker-pwned exists", user)
+	}
 }

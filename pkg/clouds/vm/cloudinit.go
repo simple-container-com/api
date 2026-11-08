@@ -41,21 +41,121 @@ func (r HostRole) IsK3s() bool {
 	return r == RoleK3sServer || r == RoleK3sAgent
 }
 
-// DefaultDockerInstallScript is the fallback way to get docker onto a fresh machine.
+// DockerInstallURL is Docker's own convenience installer.
 //
-// It reaches out to get.docker.com, which is one of the four egress paths whose
-// reachability from inside Russia is being measured before anything is promised
-// about it (roadmap item sc-ru-market-readiness, B0).
+// It is one of the four egress paths whose reachability from inside Russia is being
+// measured before anything is promised about it (roadmap item
+// sc-ru-market-readiness, B0).
 //
 // PackageMirror does NOT cover this: it rewrites apt's sources, and this is a curl to
 // a host of Docker's own. The script then adds Docker's apt repository and installs
 // from THERE, not from the distribution — so a machine that cannot reach
 // download.docker.com cannot be fixed by an apt mirror either. The two answers for
 // such a machine are an image that already ships docker (the install is skipped —
-// see InstallDocker below) or a private mirror of Docker's repository; neither is
-// expressible as a one-line field, which is why there is no flag pretending to be
-// one.
-const DefaultDockerInstallScript = "curl -fsSL https://get.docker.com | sh"
+// see InstallDocker below, and ByoDockerInstallScript) or a private mirror of
+// Docker's repository; neither is expressible as a one-line field, which is why
+// there is no flag pretending to be one.
+const DockerInstallURL = "https://get.docker.com"
+
+// DefaultDockerInstallScript is the fallback way to get docker onto a fresh machine
+// SC created. It runs from cloud-init, which is already root — see
+// ByoDockerInstallScript for the same install over SSH as an unprivileged user.
+const DefaultDockerInstallScript = "curl -fsSL " + DockerInstallURL + " | sh"
+
+// ByoDockerInstallScript gets docker + the compose v2 plugin onto a machine SC did
+// NOT create, over SSH, as `user`.
+//
+// Why this exists at all, given that the byo readiness gate deliberately installs
+// nothing (`ensureReady`): the vm resource's Caddy ingress is a docker container, and
+// it is brought up during `sc provision`, inside the same per-host loop. So an
+// ingressed byo host needs docker strictly EARLIER than the compose path's preflight
+// can ask for it, and the operator who has not installed it by hand gets
+// `failed to create docker network sc-ingress` — a message that names neither docker
+// nor what to do. Live-caught on all three hosts of the first 3-VPS fleet provision,
+// 2026-11-08; the operator's answer was "ideally Docker & Compose must be installed
+// on the VPSs on provision".
+//
+// The cloud drivers have always done exactly this from cloud-init
+// (DefaultDockerInstallScript, guarded by `command -v docker`). Running the same
+// guarded install over SSH is the same action through a different transport, so what
+// changes here is not the policy but which hosts it reaches.
+//
+// Four things that are easy to get wrong and are each one failed provision:
+//
+//   - The install needs root; the ingress commands that follow run as `user`. So the
+//     install goes through sudo and the user is added to the docker group — and a
+//     group added here does NOT apply to the session that added it. The next command
+//     SC runs is a fresh SSH login and picks it up, so the unprivileged check is
+//     performed only when the user was ALREADY in the group; otherwise this script
+//     would fail on the machine it just fixed.
+//   - `curl` can be absent on a minimal image, and the failure of a piped curl is
+//     swallowed by the pipe. Checked up front by name.
+//   - compose v2 is a plugin, not a binary: `docker-compose` v1 can be present while
+//     `docker compose` is not. The installer ships the plugin, so a miss here means
+//     docker came from somewhere else, and the message has to say which half is
+//     missing.
+//   - the daemon can be installed and not running (a stopped unit on a rebooted box,
+//     an image that ships docker masked). `systemctl enable --now` is attempted and
+//     its failure is NOT fatal — a container-ish or non-systemd host can still have a
+//     working daemon — but an unreachable daemon afterwards is.
+func ByoDockerInstallScript(user string) string {
+	q := shellQuoteArg(user)
+	return strings.Join([]string{
+		`set -eu`,
+		// Already there: the common case on every provision after the first, and on
+		// an image that ships docker. Nothing is downloaded or restarted.
+		`if command -v docker >/dev/null 2>&1; then`,
+		`  echo "docker is already installed"`,
+		`else`,
+		`  command -v curl >/dev/null 2>&1 || { echo "cannot install docker: this host has no curl. ` +
+			`Install curl, or install Docker Engine with the compose v2 plugin by hand" >&2; exit 1; }`,
+		`  echo "installing docker engine from ` + DockerInstallURL + `..."`,
+		`  curl -fsSL ` + DockerInstallURL + ` | sudo sh`,
+		`fi`,
+		`command -v docker >/dev/null 2>&1 || { echo "docker is still absent after the install from ` +
+			DockerInstallURL + `. Install Docker Engine with the compose v2 plugin by hand, or let SC create ` +
+			`the machine with a cloud vm provider" >&2; exit 1; }`,
+		// Best effort on purpose: see the doc comment.
+		`if command -v systemctl >/dev/null 2>&1; then sudo systemctl enable --now docker >/dev/null 2>&1 || true; fi`,
+		`sudo docker version >/dev/null 2>&1 || { echo "docker is installed but its daemon is not responding; ` +
+			`start it (systemctl start docker) and look at its logs" >&2; exit 1; }`,
+		`sudo docker compose version >/dev/null 2>&1 || { echo "the docker compose v2 plugin is missing ` +
+			// No backticks: this is inside a double-quoted sh string, where a backtick
+			// is command substitution. Quoting the v1 binary that way would have made
+			// the error message try to RUN it.
+			`(docker itself is installed); add it with the docker-compose-plugin package. ` +
+			`docker-compose v1 is not supported" >&2; exit 1; }`,
+		`sudo groupadd -f docker`,
+		fmt.Sprintf(`if id -nG %s 2>/dev/null | tr ' ' '\n' | grep -qx docker; then`, q),
+		// Already a member, so this session has the group and the check is meaningful.
+		//
+		// printf with the name as an ARGUMENT, not echo with it interpolated: these
+		// are the only two places the login name appears inside a double-quoted sh
+		// string, where `$` and a backtick are still live. The name is quoted for
+		// the sudo lines either way; this keeps the prose that mentions it from
+		// being the one place a hostile value gets evaluated.
+		`  docker version >/dev/null 2>&1 || { printf 'user %s is in the docker group but still cannot reach ` +
+			`the daemon; check the permissions of /var/run/docker.sock\n' ` + q + ` >&2; exit 1; }`,
+		`else`,
+		`  sudo usermod -aG docker ` + q,
+		`  printf 'added %s to the docker group; it applies from the next login, which is the next command ` +
+			`SC runs on this host\n' ` + q,
+		`fi`,
+		`echo docker-ready`,
+	}, "\n") + "\n"
+}
+
+// shellQuoteArg renders a value as a single POSIX sh word.
+//
+// The same three lines as the provisioning tier's shellQuote (and the docker
+// package's), duplicated for the reason that one gives: the alternative is a utility
+// package every provider imports for one function. An ssh login name reaching a sudo
+// command line is worth quoting even though `EffectiveUser` has already constrained
+// it — the constraint is somewhere else, and this is the line that would carry a
+// surprise.
+func shellQuoteArg(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
 
 // dockerLogOpts caps the json-file driver.
 //
