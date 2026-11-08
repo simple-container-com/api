@@ -624,6 +624,63 @@ list. **Copy the one from the repo you're linting**, not the one you
 remember. Running `gci` with the wrong section list is a lint-only diff —
 `gofmt` doesn't catch it — and it fails CI from an operator-invisible place.
 
+### 6.7 Never test an Output's zero-ness via its value methods
+
+`pulumi.StringOutput` is a struct with a single embedded pointer field —
+`struct { *OutputState }`. `ElementType()` is a *value* method that
+returns the constant `reflect.TypeOf("")`. It answers identically on a
+zero-value struct and a fully-resolved one, because the method can't
+see whether the embedded pointer was ever assigned. **Any value method
+on a struct-with-embedded-pointer has this property**, so the rule that
+catches the whole class is:
+
+> The only field that distinguishes a zero Output is the embedded
+> pointer. Test `out.OutputState != nil`, never a method.
+
+The anti-pattern — don't:
+
+```go
+// isPulumiOutputSet tests a value method that returns a constant for ALL instances of
+// the type — zero-value or populated. The predicate reads correctly but is
+// unconditionally true, and the "set" branch always wins.
+func isPulumiOutputSet(out pulumi.StringOutput) bool {
+    return out.ElementType() != nil
+}
+```
+
+The correct shape — test the embedded pointer:
+
+```go
+// out.OutputState is the only field that distinguishes a zero Output
+// from a populated one. The zero value is `pulumi.StringOutput{}` with
+// *OutputState == nil.
+func isOutputSet(out pulumi.StringOutput) bool {
+    return out.OutputState != nil
+}
+```
+
+The sharper framing: **check the source, not the output.** When the
+value comes from a plain string you already hold in scope, the
+predicate on the source is always clearer and never has this failure
+mode:
+
+```go
+// Preferred: predicate on the source string, not on an Output derived from it.
+// Use this when the source value is in scope at the call site.
+var valueOut pulumi.StringOutput = record.ValueOut
+if record.Value != "" {
+    valueOut = pulumi.String(record.Value).ToStringOutput()
+}
+```
+
+Live-caught (api `ee4afc84`, 2026-11-08): a `kubernetes-caddy` driver's
+`isXSet`-over-output predicate was unconditionally true, so the
+GKE-only branch always won and `caddyfilePrefix` + `trustedProxies`
+were accepted, validated and **silently discarded** on every non-GKE
+cluster. The fleet-wide lesson is the first framing above — the second
+form (check the source) is the preferred shape at every call site
+where the source is in scope.
+
 ---
 
 ## 7. Prior art
