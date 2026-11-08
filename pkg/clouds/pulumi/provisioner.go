@@ -119,13 +119,35 @@ func (p *pulumi) ProvisionStack(ctx context.Context, cfg *api.ConfigFile, stack 
 
 // loadPreEnginePlugins is a no-op when stack has no plugins declared.
 func (p *pulumi) loadPreEnginePlugins(ctx context.Context, stack api.Stack) error {
+	return p.loadPreEnginePluginsVariant(ctx, stack, false)
+}
+
+// loadPreEnginePluginsForBackend is the cache-aware variant used by
+// OutputsStack + CancelStack. See preEnginePluginBundle.LoadForBackend for
+// the full contract — short version: plugins whose cached schema advertises
+// neither state-store nor secrets-provider types are skipped (their sidecars
+// don't contribute to backend open), and cache misses fall back to the full
+// spawn (preserves the f306d4c2 correctness fix).
+//
+// Roadmap: forge/docs/roadmap/items/sc-plugin-stack-outputs-latency-full-schema-load.md.
+func (p *pulumi) loadPreEnginePluginsForBackend(ctx context.Context, stack api.Stack) error {
+	return p.loadPreEnginePluginsVariant(ctx, stack, true)
+}
+
+func (p *pulumi) loadPreEnginePluginsVariant(ctx context.Context, stack api.Stack, backendOnly bool) error {
 	if len(stack.Server.Plugins) == 0 {
 		return nil
 	}
 	b := newPreEnginePluginBundle(ctx, p.logger)
-	if err := b.Load(ctx, stack.Server.Plugins); err != nil {
+	var loadErr error
+	if backendOnly {
+		loadErr = b.LoadForBackend(ctx, stack.Server.Plugins)
+	} else {
+		loadErr = b.Load(ctx, stack.Server.Plugins)
+	}
+	if loadErr != nil {
 		b.Close()
-		return err
+		return loadErr
 	}
 	if err := b.RegisterSidecars(); err != nil {
 		b.Close()
