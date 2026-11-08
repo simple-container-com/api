@@ -148,6 +148,52 @@ func TestIsDestructiveReplace_OpCoverage(t *testing.T) {
 			},
 			want: true,
 		},
+		{
+			// 2026-11-08, same stand: adding the shared ACME store's
+			// credentials to the Caddy deployment. pulumi-kubernetes treats
+			// `stringData` as replace-forcing, so this is EVERY credential
+			// rotation and every added secret env var on every SC Kubernetes
+			// stack — the guard refused all of them from the day it merged.
+			// Exempt under rule 2, not rule 1: the object really is briefly
+			// absent, and that is acceptable only because its whole content
+			// comes from the client's config on each apply.
+			name: "Secret content change → safe (content is regenerated from config)",
+			meta: apitype.StepEventMetadata{
+				Op:   apitype.OpReplace,
+				URN:  "urn:pulumi:fleet::sck3s::kubernetes:core/v1:Secret::caddy-staging-secrets",
+				Type: "kubernetes:core/v1:Secret",
+				Old:  &apitype.StepEventStateMetadata{ID: "caddy/caddy-staging-secrets"},
+				New:  &apitype.StepEventStateMetadata{},
+				Keys: []string{"stringData"},
+			},
+			want: false,
+		},
+		{
+			name: "ConfigMap content change → safe (same rule)",
+			meta: apitype.StepEventMetadata{
+				Op:   apitype.OpReplace,
+				URN:  "urn:pulumi:fleet::sck3s::kubernetes:core/v1:ConfigMap::caddy-staging-caddyfile",
+				Type: "kubernetes:core/v1:ConfigMap",
+				Old:  &apitype.StepEventStateMetadata{ID: "caddy/caddy-staging-caddyfile"},
+				New:  &apitype.StepEventStateMetadata{},
+				Keys: []string{"data"},
+			},
+			want: false,
+		},
+		{
+			// The exemption is per TYPE and must not generalise to "anything
+			// Kubernetes". A PVC replace loses the volume.
+			name: "PVC replace → destructive (a Kubernetes type is not automatically safe)",
+			meta: apitype.StepEventMetadata{
+				Op:   apitype.OpReplace,
+				URN:  "urn:pulumi:fleet::sck3s::kubernetes:core/v1:PersistentVolumeClaim::caddy-staging-data",
+				Type: "kubernetes:core/v1:PersistentVolumeClaim",
+				Old:  &apitype.StepEventStateMetadata{ID: "caddy/caddy-staging-data"},
+				New:  &apitype.StepEventStateMetadata{},
+				Keys: []string{"spec"},
+			},
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -179,6 +225,38 @@ func TestDestructiveReplaceErrorFrom_NotifierOutage(t *testing.T) {
 		"notifier.simple-forge.com-record",
 		"cloudflare:index/record:Record",
 		"zoneId",
+		envAllowDestructiveReplace,
+	} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error message does not contain %q; got:\n%s", want, msg)
+		}
+	}
+}
+
+// An operator reading this message has one decision to make and the
+// message has to give them the question, not just the override. Setting
+// the variable was the only actionable sentence in it until 2026-11-08,
+// which is how an escape hatch becomes a routine step and stops being
+// read at all.
+func TestDestructiveReplaceError_TellsTheOperatorHowToDecide(t *testing.T) {
+	t.Setenv(envAllowDestructiveReplace, "")
+	err := destructiveReplaceErrorFrom([]destructiveReplace{{
+		URN:  "urn:pulumi:staging::proj::aws:rds/instance:Instance::db",
+		Type: "aws:rds/instance:Instance",
+		Keys: []string{"engineVersion"},
+	}})
+	if err == nil {
+		t.Fatal("expected a destructive-replace error, got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{
+		// The question that decides it.
+		"what the replace actually loses",
+		// Where a false positive is fixed for every stack, instead of
+		// per-deploy with the override.
+		"pkg/api/safe_to_replace.go",
+		"safe_to_replace_types",
+		// And the override still named, scoped to a reviewed intent.
 		envAllowDestructiveReplace,
 	} {
 		if !strings.Contains(msg, want) {
@@ -276,8 +354,16 @@ func TestRecordDestructiveReplace_IgnoresNonDestructiveEvents(t *testing.T) {
 // plugin schema in the same process, or it will see plugin-added
 // entries too. Today no other test in this package does so.
 func TestSafeToReplaceTypes_BuiltinBaseline(t *testing.T) {
+	// The guard's own package pins what the guard depends on being exempt.
+	// `pkg/api`'s test pins exact membership and the rule each entry sits
+	// under; this one is "at least", and names the entries whose absence
+	// would make a specific deploy start refusing again — the ECS task
+	// definition (forge-baas run 42077847984) and the two Kubernetes types
+	// whose content change IS a replace (every credential rotation).
 	want := map[string]bool{
 		"aws:ecs/taskDefinition:TaskDefinition": true,
+		"kubernetes:core/v1:Secret":             true,
+		"kubernetes:core/v1:ConfigMap":          true,
 	}
 	got := api.SafeToReplaceTypes()
 	if len(got) < len(want) {

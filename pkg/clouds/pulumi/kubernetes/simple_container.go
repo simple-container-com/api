@@ -36,11 +36,17 @@ const (
 	AppTypeSimpleContainer = "simple-container"
 
 	AnnotationCaddyfileEntry = "simple-container.com/caddyfile-entry"
-	AnnotationParentStack    = "simple-container.com/parent-stack"
-	AnnotationDomain         = "simple-container.com/domain"
-	AnnotationPrefix         = "simple-container.com/prefix"
-	AnnotationPort           = "simple-container.com/port"
-	AnnotationEnv            = "simple-container.com/env"
+	// AnnotationCaddyUpdateHash is md5 of the AnnotationCaddyfileEntry body that
+	// triggered a Caddy rollout. It lives on the Caddy deployment's POD template, so
+	// changing it rolls the pods; the Caddy init container reads its own copy back
+	// through the downward API to tell whether the cluster state it just rendered from
+	// already contains the change it was rolled for.
+	AnnotationCaddyUpdateHash = "simple-container.com/caddy-update-hash"
+	AnnotationParentStack     = "simple-container.com/parent-stack"
+	AnnotationDomain          = "simple-container.com/domain"
+	AnnotationPrefix          = "simple-container.com/prefix"
+	AnnotationPort            = "simple-container.com/port"
+	AnnotationEnv             = "simple-container.com/env"
 	// AnnotationGCPL4RBS opts a Service into GKE's RBS/NEG-based external NetLB,
 	// which (unlike the default target-pool NetLB) supports mixed TCP+UDP ports.
 	AnnotationGCPL4RBS = "cloud.google.com/l4-rbs"

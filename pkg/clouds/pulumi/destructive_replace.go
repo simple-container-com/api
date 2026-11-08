@@ -146,9 +146,22 @@ func (e *destructiveReplaceError) Error() string {
 	fmt.Fprintf(&b,
 		"input-driven destructive replace: preview would destroy %d live resource(s) by re-pointing them at new objects. "+
 			"This is the no-destroy invariant failing — a changed REPLACE-forcing input (zone id, region, immutable name, …) "+
-			"would drop the existing resource and create a new one at the same URN but pointing elsewhere. "+
-			"Review each resource below; if the replace is intentional, set %s=1 and re-run.\n",
-		len(replaces), envAllowDestructiveReplace)
+			"would drop the existing resource and create a new one at the same URN but pointing elsewhere.\n",
+		len(replaces))
+	// The message used to stop at "if the replace is intentional, set the
+	// variable". An operator reading that has no way to tell a genuine catch
+	// from a resource type whose replace never loses anything, so the honest
+	// answer in both cases was to set the variable — which is how an escape
+	// hatch stops being read. Give them the question to ask instead, and the
+	// file where a false positive gets fixed for everyone.
+	fmt.Fprintf(&b,
+		"For each resource below, ask what the replace actually loses. If the answer is nothing — the whole "+
+			"content comes from your config on every apply, or the provider keeps the old revision — then the "+
+			"TYPE belongs on the allowlist in pkg/api/safe_to_replace.go (or its plugin's "+
+			"`safe_to_replace_types`), and fixing it there fixes it for every stack. If the answer is data you "+
+			"cannot regenerate, this is the catch the guard exists for: do not proceed. %s=1 is for a replace "+
+			"you have reviewed and genuinely intend, one deploy at a time.\n",
+		envAllowDestructiveReplace)
 	for _, r := range replaces {
 		// An empty key list used to render as `keys=[]`, which reads as
 		// "no inputs changed" directly under a sentence blaming a changed

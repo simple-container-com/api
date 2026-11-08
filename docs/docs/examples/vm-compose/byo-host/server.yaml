@@ -197,3 +197,60 @@ resources:
               # rendered Caddyfile, reaching the machine in the ingress env file.
               # acmeEabKeyId: "kid-from-your-ca"
               # acmeEabMacKey: ${secret:PORTAL_VM_ACME_EAB_MAC_KEY}
+              #
+              # Whether THIS machine terminates TLS. Unset means true — every vm
+              # resource that existed before the field. Set it to false when something
+              # in front already terminates (Cloudflare's proxy, a cloud load
+              # balancer, an existing reverse proxy): Caddy then serves plain HTTP on
+              # port 80, runs no ACME at all, and `email` above is unused.
+              #
+              # It is also what makes `domainProxied: true` legal on a client stack.
+              # That refusal exists because a proxied domain breaks the HTTP-01
+              # challenge Caddy runs itself — and here Caddy runs none, so on a fleet
+              # an *unproxied* record would be the mistake, handing clients a
+              # cleartext origin. The refusal therefore lives at DEPLOY time, not at
+              # config load: the client tier cannot see this field.
+              #
+              # What it does NOT do is secure the hop. Edge-to-origin is cleartext
+              # over the public internet unless the machine's firewall admits only the
+              # edge's addresses — Cloudflare publishes theirs, and `ingressPorts` on
+              # this resource is where they go. Said plainly, because "my site is
+              # HTTPS" is true for the visitor and false for the leg SC owns.
+              # originTls: false
+              #
+              # ONE shared certificate store for every machine of this resource. On a
+              # single machine it is optional; on a fleet behind N A records it is the
+              # prerequisite, and `originTls: false` is the only alternative. The
+              # reason: Let's Encrypt's validator reaches an arbitrary machine, which
+              # 404s a challenge token another machine minted. certmagic shares that
+              # state — and the issued certificate — through storage, so with a store
+              # the fleet issues ONE certificate and any machine can answer any
+              # machine's challenge.
+              #
+              # The three credentials never reach the rendered Caddyfile: it holds
+              # `{$SC_ACME_S3_*}` placeholders and the values arrive in a 0600 env
+              # file. SC also renders `admin { config { persist false } }` alongside
+              # the store, because Caddy substitutes those placeholders at adapt time
+              # and would otherwise autosave the resolved JSON — credentials included
+              # — to /config/caddy/autosave.json on every start.
+              #
+              # The same block exists on the Kubernetes edge as `kubernetes-caddy`'s
+              # `acmeStorage`, rendered by the same code.
+              # acmeStorage:
+              #   bucket: mycompany-acme
+              #   # Omit for AWS S3. Any S3-compatible endpoint works — yc-bucket,
+              #   # GCS interop, or a minio on one of the machines where the cloud
+              #   # has no bucket resource at all.
+              #   endpoint: https://storage.yandexcloud.net
+              #   region: ru-central1                      # default: us-east-1
+              #   accessKey: ${secret:ACME_S3_ACCESS_KEY}
+              #   secretKey: ${secret:ACME_S3_SECRET_KEY}
+              #   # Exactly 32 bytes. Encrypts the certificates and the ACME account
+              #   # key at rest in the bucket. Lose it and the store is unreadable:
+              #   # the fleet re-issues, against Let's Encrypt's 50-per-domain-per-
+              #   # week limit.
+              #   encryptionKey: ${secret:ACME_S3_ENCRYPTION_KEY}
+              #   prefix: acme                             # default: acme
+              #   # Defaults to true when `endpoint` is set and false otherwise,
+              #   # which is right for minio and for AWS respectively.
+              #   # pathStyle: true

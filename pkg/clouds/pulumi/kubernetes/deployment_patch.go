@@ -31,7 +31,6 @@ type DeploymentPatchArgs struct {
 	DeploymentAnnotations map[string]sdk.StringOutput
 	KubeProvider          *sdkK8s.Provider  // Main Kubernetes provider (for dependencies)
 	Kubeconfig            *sdk.StringOutput // Optional: Kubeconfig for creating patch-specific provider
-	Opts                  []sdk.ResourceOption
 }
 
 type deploymentPatchInputs struct {
@@ -125,10 +124,20 @@ func patchDeploymentWithK8sClient(ctx context.Context, inputs deploymentPatchInp
 	return nil
 }
 
+// PatchDeployment patches a deployment's annotations with the native Kubernetes client,
+// bypassing Pulumi's DeploymentPatch validation entirely.
+//
+// It therefore REGISTERS NO RESOURCE — the patch happens as a side effect inside the apply
+// below. Which means sdk.DependsOn cannot order it: there is no resource for a dependency
+// to attach to. (DeploymentPatchArgs carried an `Opts []sdk.ResourceOption` field until
+// 2026-11-08 that was never read; both call sites passed DependsOn on the app's Service
+// through it and it was silently discarded, which is how a Caddy pod came to be rolled
+// 9 seconds before the Service annotation it was rolled for became visible.)
+//
+// **To order this patch after something, make that something an input to one of its
+// Outputs** — sdk.ToStringMapOutput preserves the dependencies of the annotation values,
+// so the apply cannot run until they resolve. CaddyUpdateHash is the worked example.
 func PatchDeployment(ctx *sdk.Context, args *DeploymentPatchArgs) (*sdk.StringOutput, error) {
-	// Use Pulumi's Apply to execute the native Kubernetes client patch
-	// This bypasses Pulumi's DeploymentPatch validation entirely
-
 	// Convert map[string]StringOutput to StringMapOutput for proper resolution
 	annotationsOutput := sdk.ToStringMapOutput(args.Annotations)
 	deploymentAnnotationsOutput := sdk.ToStringMapOutput(args.DeploymentAnnotations)
