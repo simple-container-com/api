@@ -6,6 +6,8 @@ package pulumi
 import (
 	"context"
 
+	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -13,6 +15,18 @@ import (
 )
 
 func (p *pulumi) CancelStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.StackParams) error {
+	// Same pre-engine load as OutputsStack and for the same reason — cancel
+	// has to reach the backend to clear the lock, and a plugin-owned
+	// state storage only has a URL once its sidecar has run InitStateStore.
+	// Fixed alongside outputs rather than after its own incident: cancel is
+	// what an operator reaches for when a deploy is already wedged, so it
+	// failing with `diy URL  has an illegal prefix` lands at the worst
+	// possible moment.
+	if err := p.loadPreEnginePlugins(ctx, stack); err != nil {
+		return errors.Wrap(err, "pre-engine plugin load")
+	}
+	defer p.closePreEnginePlugins()
+
 	if params.Environment != "" && params.StackName != "" {
 		stack = toChildStack(stack, params)
 	}

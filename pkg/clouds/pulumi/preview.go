@@ -69,6 +69,36 @@ func (p *pulumi) previewChildStack(ctx context.Context, cfg *api.ConfigFile, sta
 }
 
 func (p *pulumi) OutputsStack(ctx context.Context, cfg *api.ConfigFile, stack api.Stack, params api.StackParams) (*api.OutputsResult, error) {
+	// Reading outputs needs the backend, and when the state storage is
+	// plugin-owned only the sidecar knows its URL: an `s3-bucket`
+	// state-storage declares `bucketName:` and the plugin assembles
+	// `s3://<bucket>` at InitStateStore time, publishing it through
+	// PULUMI_BACKEND_URL for login() to pick up (see the default branch of
+	// the switch there). With no pre-engine load the sidecar never runs, so
+	// StorageUrl() is the empty string *api.PluginFieldConfig returns and
+	// diy.Login rejects it with `diy URL  has an illegal prefix` — which
+	// names no stack, no plugin and no field, so it reads like a malformed
+	// config rather than a missing plugin load. Live-caught on
+	// `sc stack outputs -s infra` against forge's s3-bucket backend.
+	//
+	// Loaded from the PARENT descriptor, before the toChildStack rewrite
+	// below: `plugins:` is declared on the parent server.yaml, same as
+	// DestroyChildStack does it.
+	//
+	// This is the full load, which spawns every declared plugin and asks each
+	// for its Schema — forge's infra declares six, so an `outputs` call that
+	// was ~200ms becomes a couple of seconds. Deliberate for now: correct and
+	// slow beats fast and broken, and the alternative needs a cache. A
+	// state-store-only variant can't help by itself, because which plugin owns
+	// the state store is itself advertised in a Schema that only exists after
+	// the spawn; the way out is to trust the on-disk schema cache the
+	// pre-engine already writes and let read-only paths like this one and
+	// CancelStack load cache-only, falling back to a spawn on a miss.
+	if err := p.loadPreEnginePlugins(ctx, stack); err != nil {
+		return nil, errors.Wrap(err, "pre-engine plugin load")
+	}
+	defer p.closePreEnginePlugins()
+
 	if params.Environment != "" && params.StackName != "" {
 		stack = toChildStack(stack, params)
 	}
