@@ -383,7 +383,15 @@ jobs:
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: test
         run: |
-          go test ./...
+          # -timeout 30m: default is 10m per test binary. The e2e package
+          # pkg/e2e/scopedstore spawns the pinned sc-plugin-gcp binary
+          # (230MB+) on cold-cache first-fetch, which eats several minutes
+          # of the 10m budget by itself and leaves Test_Provision no room
+          # to finish. Live-caught on PR #568 (2026-11-08): two consecutive
+          # reruns timed out mid-download, not in the test logic. 30m
+          # matches the already-bumped budget in test-registry-integration
+          # below.
+          go test -timeout 30m ./...
 
   test-registry-integration:
     name: Run integration tests
