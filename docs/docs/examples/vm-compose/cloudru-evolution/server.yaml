@@ -76,8 +76,28 @@ resources:
             # request. Placement is the availability zone. A `region:` SC silently
             # dropped would read as placement you controlled.
             #
-            # One entry at most: this is a single machine. Left out, SC takes the first
-            # zone `GET /availability-zones` reports.
+            # One entry here, because this file deploys one machine. Left out, SC takes
+            # the first zone `GET /availability-zones` reports.
+            #
+            # Several entries make several machines — a compose fleet, one zone each.
+            # `nodes:` sets the count independently: it defaults to `len(zones)`, then
+            # 1, so `nodes: 3` with one zone puts three machines there and `nodes: 3`
+            # with two zones round-robins (0→a, 1→b, 2→a). The assignment is
+            # index-stable, so a machine never moves zone on a later apply.
+            #
+            # A compose fleet spreads across zones safely: each machine runs a full
+            # container set and its own Caddy, and they never talk to each other. Give
+            # them `ingress.acmeStorage` so they share one certificate instead of
+            # racing for N, and point more than one A record at the name. (A multi-node
+            # k3s pool is NOT safe across zones on this cloud yet — see
+            # ../../k3s/cloudru-evolution/server.yaml for why.)
+            #
+            # ⚠ ACCEPTED HERE, NOT YET HONOURED BY THIS DRIVER. Creating N machines is
+            # per-plugin work and `sc-plugin-cloudru` has not had it. SC refuses the
+            # mismatch rather than quietly giving you one machine: a resource that asks
+            # for three and gets one fails the provision, naming the driver and both
+            # counts. Several machines work today on `provider: byo`, where they
+            # already exist.
             zones: [ru.AZ-1]
 
             # Required on every cloud driver, and refused if false: every delivery step

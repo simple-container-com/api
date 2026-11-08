@@ -42,8 +42,10 @@ type pulumi struct {
 	configFile        *api.ConfigFile
 	project           *workspace.Project
 
-	// preEnginePlugins is populated at the start of a ProvisionStack call
-	// (or Destroy*/Preview*) when stack.Server.Plugins is non-empty. The
+	// preEnginePlugins is populated at the start of every api.Provisioner
+	// entry point that reaches the backend — Provision/Deploy/Preview*/
+	// Destroy* and, since the `diy URL  has an illegal prefix` fix,
+	// Outputs/Cancel too — when stack.Server.Plugins is non-empty. The
 	// pre-engine phase registers InitStateStore sidecars from these plugins'
 	// Schemas, so SC's login flow picks them up transparently. The in-engine
 	// phase (pluginSession, created inside provisionProgram) RE-USES these
@@ -120,7 +122,7 @@ func (p *pulumi) loadPreEnginePlugins(ctx context.Context, stack api.Stack) erro
 	if len(stack.Server.Plugins) == 0 {
 		return nil
 	}
-	b := newPreEnginePluginBundle(p.logger)
+	b := newPreEnginePluginBundle(ctx, p.logger)
 	if err := b.Load(ctx, stack.Server.Plugins); err != nil {
 		b.Close()
 		return err

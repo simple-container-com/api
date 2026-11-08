@@ -324,7 +324,11 @@ jobs:
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: test
         run: |
-          go test ./...
+          # -timeout 30m — see the matching comment on branch.yaml's
+          # `test` step. Default 10m / test-binary leaves no room when
+          # pkg/e2e/scopedstore has to cold-fetch the ~230MB
+          # sc-plugin-gcp binary mid-test.
+          go test -timeout 30m ./...
 
   docker-build:
     name: Docker build and push preview ${{ matrix.image }} image
@@ -570,6 +574,23 @@ jobs:
           # cache. Measured cost of re-running `runtime` alone: ~34 s.
           no-cache-filters: runtime
           provenance: false
+      # Install cosign + syft through `install-attest-tools`, not through
+      # `sign-and-attest`'s own installers — only this action skips the download
+      # when the pinned version is already on PATH, and the fleet's buildvm
+      # rootfs ships cosign v2.4.1 + syft v1.16.0. Both legs here are
+      # `heavy_go: true`, so both land on a `pcbuild` guest that already has
+      # them, and every preview build was paying the download twice: measured
+      # 83.7 s per leg on an identical step in push.yaml (release run
+      # 41086127339), 74 s of it a silent stall on the fake-IP egress. Full
+      # reasoning, measurements and the version-lockstep rule are in the
+      # equivalent step in push.yaml.
+      - name: Install attestation tools
+        id: install_attest_tools
+        if: steps.build_and_push.outcome == 'success'
+        continue-on-error: true   # A flaky installer must not fail the leg; the
+                                  # sub-steps below report their own outcomes to
+                                  # the warn-only aggregator.
+        uses: simple-container-com/actions/install-attest-tools@bfa04ded2bf29f6e84754838f4684ab9df292b42 # main
       # Attestation for preview images. Preview builds run the same sign + SBOM
       # + SLSA steps as production releases, so consumers pin-testing a
       # preview version (per project_sc_preview memory: PAY-SPACE pins workflows
@@ -586,6 +607,10 @@ jobs:
           image-name: ${{ matrix.image }}
           subject-name: index.docker.io/${{ matrix.image_repo }}
           subject-digest: ${{ steps.build_and_push.outputs.digest }}
+          # Already installed above, through the path that honours the guest's
+          # preinstalled copies. Letting this action install them again is
+          # idempotent but re-downloads.
+          install-tools: 'false'
           # Soft-fail. push.yaml sets this too, but follows it with a gate
           # that fails the release; a preview has no such gate.
           soft-fail: 'true'

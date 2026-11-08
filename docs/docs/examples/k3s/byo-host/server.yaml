@@ -61,6 +61,46 @@ resources:
                 port: 22
                 privateKey: ${secret:CLUSTER_VM_DEPLOY_KEY}
                 hostKey: "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLE00"
+            # One machine, so no `role:` and no `privateAddress:` — both are inferred,
+            # and a single-node cluster has no node-to-node traffic to address. For
+            # more than one machine, both become required. The multi-node shape:
+            #
+            # hosts:
+            #   - address: 203.0.113.10        # what YOU and SC reach it on
+            #     privateAddress: 10.0.0.10    # what its SIBLINGS reach it on
+            #     role: k3s-server
+            #     user: ubuntu
+            #     privateKey: ${secret:CLUSTER_VM_DEPLOY_KEY}
+            #   - address: 203.0.113.11
+            #     privateAddress: 10.0.0.11
+            #     role: k3s-agent
+            #     user: ubuntu
+            #     privateKey: ${secret:CLUSTER_VM_DEPLOY_KEY}
+            #   - address: 203.0.113.12
+            #     privateAddress: 10.0.0.12
+            #     role: k3s-agent
+            #     user: ubuntu
+            #     privateKey: ${secret:CLUSTER_VM_DEPLOY_KEY}
+            #
+            # `role:` is all-or-none across the pool — SC will not guess which of
+            # several machines runs etcd, and the guess decides whether a machine
+            # joins the cluster at all. Mixing `compose` with a `k3s-*` role in one vm
+            # resource is refused: one machine has one port 443.
+            #
+            # `privateAddress:` is REQUIRED on every host of a multi-node pool, and
+            # the refusal is deliberate rather than a convenience. SC passes it to
+            # k3s as `--node-ip`; without it k3s advertises whichever address the
+            # machine's default route carries, which on a single-NIC VPS is the PUBLIC
+            # one — and then etcd peer traffic (the cluster's whole state, every
+            # Secret) and flannel's unencrypted VXLAN overlay cross the public
+            # internet, on a `byo` host where SC has no firewall to write a rule in.
+            # That deploy SUCCEEDS: three nodes `Ready`, nothing in the output saying
+            # the overlay is exposed. Hence a refusal and not a warning.
+            #
+            # If your machines share no private network at all — a lot of cheap VPS
+            # hosting has none — there is nothing honest to put here yet. Run a
+            # compose fleet instead (../../vm-compose/byo-host/), which needs no
+            # node-to-node traffic; SC-managed WireGuard is the planned answer.
             # Deliberately absent here: `ingress`.
             #
             # On the vm-compose path, `ingress.enable: true` runs a Caddy container that
@@ -87,6 +127,21 @@ resources:
             # split every other SC cluster resource uses. The resource is provisioned
             # after the vm resource it names, and reads the host facts from its output.
             vmResource: cluster-vm
+
+            # How many of the pool's machines run the control plane. Default 1.
+            #
+            # `servers: 1` + N agents uses **sqlite** and has no etcd at all, which is
+            # why it is the default: it is the simplest thing that works, and losing
+            # the server loses the control plane but not the running workloads.
+            #
+            # `servers: 3` opts into embedded etcd and real HA. It must be ODD and no
+            # larger than the host count — two members tolerate zero failures, so they
+            # are strictly worse than one, and four tolerate the same one as three
+            # while costing a machine. etcd is also latency-sensitive: across
+            # availability zones in one region (~1ms) is the intended topology;
+            # across regions or hosters (10-80ms) flaps raft heartbeats and triggers
+            # repeated leader elections.
+            # servers: 3
 
             # Pinned on purpose. k3s's installer resolves a RELEASE CHANNEL at install
             # time, so leaving this to the default would mean the control-plane version

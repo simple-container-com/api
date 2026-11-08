@@ -138,6 +138,27 @@ type K3sClusterConfig struct {
 	// why this field and the SAN list are the same field by default.
 	Endpoint string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
 
+	// Servers is how many of the vm resource's hosts run the control plane. The rest
+	// are agents.
+	//
+	// Default 1 (see EffectiveServers): one server and N-1 agents, which is the
+	// topology worth reaching for first — it schedules pods across the whole fleet
+	// and survives the loss of any agent, and it is the only shape a 2-machine pool
+	// can have. Its control plane is a single point of failure: while host 0 is down
+	// the API server is unreachable and nothing can be deployed, though pods already
+	// running on the agents keep serving.
+	//
+	// Set it to 3 (or 5) to run embedded etcd instead, which survives the loss of a
+	// control-plane node. It must be ODD: etcd needs a majority of its members to
+	// elect a leader, so 2 servers tolerate zero failures — strictly worse than 1,
+	// because either machine going away takes the API server down with it. Refused
+	// rather than rounded.
+	//
+	// Ignored on a byo pool that names its own `hosts[].role`, where the operator
+	// chose which machine runs what; a value disagreeing with that choice is refused
+	// rather than silently losing (pkg/clouds/pulumi/k3s/cluster.go).
+	Servers int `json:"servers,omitempty" yaml:"servers,omitempty"`
+
 	// TlsSans are additional names to put on the API server certificate, beyond
 	// Endpoint and the node address. Spend them freely: adding a SAN later means
 	// re-issuing the certificate and restarting the API server, while an unused SAN
@@ -197,6 +218,16 @@ func (r *K3sClusterConfig) EffectiveVersion() string {
 	return lo.If(r.Version == "", DefaultVersion).Else(r.Version)
 }
 
+// EffectiveServers is the control-plane node count, defaulting to 1.
+//
+// The one place the default lives, so the provisioning tier never re-derives it:
+// a resource that disagreed with itself about which hosts are servers would join
+// a machine to a cluster as an agent on one apply and as an etcd member on the
+// next, and the second of those is not reversible by changing the number back.
+func (r *K3sClusterConfig) EffectiveServers() int {
+	return lo.If(r.Servers == 0, 1).Else(r.Servers)
+}
+
 func (r *K3sClusterConfig) EffectiveInstallScriptURL() string {
 	return lo.If(r.InstallScriptURL == "", DefaultInstallScriptURL).Else(r.InstallScriptURL)
 }
@@ -210,7 +241,8 @@ func (r *K3sClusterConfig) Validate() error {
 	if r.VmResource == "" {
 		return errors.Errorf(
 			"`%s` resource requires `vmResource`: the name of the `type: vm` resource in this parent stack "+
-				"whose hosts become the cluster's nodes", ResourceTypeK3sCluster)
+				"whose hosts become the cluster's nodes", ResourceTypeK3sCluster,
+		)
 	}
 
 	if r.Version != "" && !versionPattern.MatchString(r.Version) {
@@ -224,12 +256,27 @@ func (r *K3sClusterConfig) Validate() error {
 			r.Version, DefaultVersion, hint)
 	}
 
+	// The upper bound — servers must not exceed the pool — is NOT checked here: this
+	// config does not know how many hosts the vm resource it names has. The
+	// provisioning tier refuses that combination, where both numbers are in hand.
+	if r.Servers < 0 {
+		return errors.Errorf("`servers` must be positive, got %d", r.Servers)
+	}
+	if r.Servers > 1 && r.Servers%2 == 0 {
+		return errors.Errorf(
+			"`servers` is %d; an embedded-etcd control plane needs an odd number (1, 3, 5) because etcd elects "+
+				"a leader by majority — %d members tolerate no failures at all, so they are strictly worse "+
+				"than 1", r.Servers, r.Servers,
+		)
+	}
+
 	if r.Endpoint != "" {
 		if !endpointPattern.MatchString(r.Endpoint) {
 			return errors.Errorf(
 				"`endpoint` %q must be a bare host name or IP address — no scheme and no port. SC builds the "+
 					"kubeconfig URL (https://<endpoint>:%d) and the `--tls-san` entry from it, and both take a "+
-					"host alone", r.Endpoint, APIPort)
+					"host alone", r.Endpoint, APIPort,
+			)
 		}
 	}
 
@@ -243,7 +290,8 @@ func (r *K3sClusterConfig) Validate() error {
 		if c == "coredns" {
 			return errors.Errorf(
 				"`disable` must not contain %q: without cluster DNS no workload can resolve a Service, and "+
-					"every deploy onto this cluster fails in a way that looks unrelated to this setting", c)
+					"every deploy onto this cluster fails in a way that looks unrelated to this setting", c,
+			)
 		}
 		if !lo.Contains(DisableableComponents, c) {
 			return errors.Errorf("`disable[%d]` %q is not a k3s packaged component; one of: %s",
@@ -257,7 +305,8 @@ func (r *K3sClusterConfig) Validate() error {
 			return errors.Errorf(
 				"`extraServerArgs[%d]` sets %s, which SC sets itself: k3s takes the LAST occurrence of a "+
 					"repeated flag, so this would silently override SC's value. Use the dedicated field "+
-					"instead (%s)", i, flag, fieldFor(flag))
+					"instead (%s)", i, flag, fieldFor(flag),
+			)
 		}
 	}
 

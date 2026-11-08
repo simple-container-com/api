@@ -50,6 +50,10 @@ func TestClusterExportNamesAndCloudrunReadNamesAgree(t *testing.T) {
 			Expect(readSide).To(Equal(exportSide))
 			Expect(pulumiKubernetes.ToKubeconfigExport(readSide)).To(Equal(pulumiKubernetes.ToKubeconfigExport(exportSide)))
 			Expect(pulumiKubernetes.ToIngressIpExport(readSide)).To(Equal(pulumiKubernetes.ToIngressIpExport(exportSide)))
+			// The third output of the seam, and the one whose absence is silent in a
+			// new way: a reader that misses it does not fail, it falls back to a
+			// single A record and the other nodes of the cluster receive nothing.
+			Expect(pulumiKubernetes.ToIngressIpsExport(readSide)).To(Equal(pulumiKubernetes.ToIngressIpsExport(exportSide)))
 		})
 	}
 }

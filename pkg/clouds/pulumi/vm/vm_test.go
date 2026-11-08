@@ -494,6 +494,7 @@ func TestVm_ExportsHostFacts(t *testing.T) {
 	Expect(ToHostAddressExport("portal-vm", 0)).To(Equal("portal-vm-vm-host-0-address"))
 	Expect(ToHostPrivateKeyExport("portal-vm", 0)).To(Equal("portal-vm-vm-host-0-private-key"))
 	Expect(ToIngressEnabledExport("portal-vm")).To(Equal("portal-vm-vm-ingress-enabled"))
+	Expect(ToIngressNoOriginTlsExport("portal-vm")).To(Equal("portal-vm-vm-ingress-no-origin-tls"))
 }
 
 // Vm is reachable on its own, so it re-checks what Provider checked: a nil provider

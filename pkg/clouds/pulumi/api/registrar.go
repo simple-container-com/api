@@ -4,10 +4,26 @@
 package api
 
 import (
+	"github.com/pkg/errors"
+
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
+
+// NotConfiguredRegistrarError is what every method of the no-op registrar returns.
+//
+// A parent stack that declares no registrar still gets a Registrar — the empty type is
+// registered to NotConfiguredRegistrar (pulumi/init.go), which hands back a non-nil
+// value whose methods all fail with this. So a `params.Registrar == nil` check does NOT
+// tell a caller "nobody will create DNS for me"; this error is the only thing that
+// does, and a caller for whom hand-made DNS is a supported arrangement has to match on
+// it rather than on nil.
+//
+// It lives beside the Registrar interface, not beside that no-op implementation, because
+// the subpackages that have to match on it (pulumi/vm) are imported BY the pulumi
+// package and cannot import it back.
+var NotConfiguredRegistrarError = errors.New("registrar is not configured")
 
 type Registrar interface {
 	MainDomain() string

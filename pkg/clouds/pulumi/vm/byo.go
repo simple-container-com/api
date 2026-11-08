@@ -40,8 +40,8 @@ func (byoDriver) Hosts(
 ) ([]HostFacts, error) {
 	hosts := make([]HostFacts, 0, len(cfg.Hosts))
 	for i, h := range cfg.Hosts {
-		params.Log.Info(ctx.Context(), "vm %q uses byo host %q (user %q)",
-			input.Descriptor.Name, h.Address, h.EffectiveUser(cfg.SshUser))
+		params.Log.Info(ctx.Context(), "vm %q uses byo host %q (user %q, role %q)",
+			input.Descriptor.Name, h.Address, h.EffectiveUser(cfg.SshUser), h.EffectiveRole())
 
 		hosts = append(hosts, HostFacts{
 			Name: fmt.Sprintf("%s-host-%d", input.Descriptor.Name, i),
@@ -49,8 +49,13 @@ func (byoDriver) Hosts(
 			// to wait on — but still an Output, so a cloud driver that genuinely
 			// has to resolve an address later is not a signature change here.
 			Address: sdk.String(h.Address).ToStringOutput(),
-			User:    h.EffectiveUser(cfg.SshUser),
-			Port:    h.EffectivePort(),
+			// Falls back to Address, which is only reached on shapes that have no
+			// node-to-node traffic to misdirect — a compose fleet or a single host.
+			// A multi-host k3s pool naming no `privateAddress` never gets here;
+			// validateHostRoles refuses it.
+			PrivateAddress: sdk.String(h.EffectivePrivateAddress()).ToStringOutput(),
+			User:           h.EffectiveUser(cfg.SshUser),
+			Port:           h.EffectivePort(),
 			// Both halves marked secret here, at the single point where they enter
 			// Pulumi. See the HostFacts.PrivateKey comment for why that is not
 			// optional.
@@ -64,10 +69,13 @@ func (byoDriver) Hosts(
 			// consequence of "did not" is theirs to accept — unlike a cloud driver,
 			// where SC creates the machine and can therefore create its identity too.
 			HostKeyPinned: h.HostKey != "",
-			// A byo host is always a compose host for now; k3s on a byo host is the
-			// next slice (roadmap item sc-k3s-cluster-resource, K.0) and will pass
-			// its own role in.
-			Role: vm.RoleCompose,
+			// The operator's own `hosts[].role`, or RoleCompose when they wrote none
+			// — which is what this driver hardcoded before the field existed, so a
+			// config written against P5 produces an identical HostFacts. SC cannot
+			// infer which of several machines should run etcd; on a cloud driver the
+			// machines are interchangeable and the role is derived by index, but a
+			// byo pool is heterogeneous by definition (see vm.VmHost.Role).
+			Role: h.EffectiveRole(),
 		})
 	}
 	return hosts, nil
