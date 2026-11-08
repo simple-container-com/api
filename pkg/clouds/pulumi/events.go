@@ -148,6 +148,13 @@ func isDestructiveReplace(meta apitype.StepEventMetadata) bool {
 	if api.IsSafeToReplace(meta.Type) {
 		return false
 	}
+	// A remote command that carries no delete script destroys nothing when
+	// it is replaced, and SC replaces those on EVERY provision by design.
+	// See isStatelessRemoteCommand for why the type cannot simply go on the
+	// safe-to-replace allowlist.
+	if isStatelessRemoteCommand(meta) {
+		return false
+	}
 	// A resource SC itself marked for retention is still physically
 	// present post-delete, but the state entry still gets rewritten and
 	// a replace still re-points the state at a NEW object — which is
