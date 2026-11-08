@@ -112,6 +112,20 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 		}
 		out.Ready = append(out.Ready, ready)
 
+		// Docker, on a byo host that is going to need it. Not folded into readiness
+		// (see both doc comments for why) and not left to the deploy path's
+		// preflight: the ingress below is a docker container brought up by `sc
+		// provision`, which is strictly earlier than any preflight a later `sc
+		// deploy` could run. nil means this host needs no install.
+		//
+		// `ready` stays the gate exported in out.Ready. The docker gate orders the
+		// ingress and nothing else — a k3s install on the same host has no reason to
+		// wait behind a docker download.
+		dockerReady, err := ensureDocker(ctx, input, cfg, h, drv, params, ready)
+		if err != nil {
+			return nil, err
+		}
+
 		// The ingress, if the machine runs one. Installed by the RESOURCE rather than
 		// by any stack's template, and that is the decision the whole TLS path rests
 		// on: one machine has one port 443, so a Caddy inside a stack's compose
@@ -119,7 +133,11 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 		// same host — and would be destroyed and recreated by every blue-green flip
 		// it is supposed to be performing (compose-on-vm.md §3, D15).
 		if cfg.IngressEnabled() {
-			if err := ensureIngress(ctx, input, cfg, h, params, ready); err != nil {
+			gate := ready
+			if dockerReady != nil {
+				gate = dockerReady
+			}
+			if err := ensureIngress(ctx, input, cfg, h, params, gate); err != nil {
 				return nil, err
 			}
 		} else if h.Role == vm.RoleCompose {

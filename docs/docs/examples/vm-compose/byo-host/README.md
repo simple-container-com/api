@@ -31,15 +31,7 @@ Nothing in SC creates it. In your cloud's console:
    # add portal_vm_deploy_key.pub to ~/.ssh/authorized_keys on the machine
    ```
 
-3. Install Docker and the compose plugin, and give the deploy user access to the
-   socket. (With a cloud driver this is cloud-init's job; with `byo` it is yours.)
-
-   ```bash
-   curl -fsSL https://get.docker.com | sh
-   sudo usermod -aG docker "$(whoami)"
-   ```
-
-4. Read the machine's host key and pin it in `server.yaml`:
+3. Read the machine's host key and pin it in `server.yaml`:
 
    ```bash
    ssh-keyscan -t ed25519 203.0.113.10
@@ -51,6 +43,22 @@ Nothing in SC creates it. In your cloud's console:
    the deploy key and every secret in the stack's env file go to whoever answers on that
    address. A CI runner has no `known_hosts` to fall back on, which is why there is no
    implicit default.
+
+You do **not** need to install Docker. `sc provision` installs Docker Engine and the
+compose v2 plugin on a `byo` host that will need them, and adds the deploy user to the
+`docker` group — the same guarded install cloud-init performs on a machine SC creates,
+so a host that already has Docker is left alone and nothing is downloaded on later
+runs. Two cases where it is still yours to do:
+
+- the machine cannot reach `https://get.docker.com` (the install says so by name, and
+  an apt mirror does not help — the installer adds Docker's own apt repository);
+- `docker-compose` v1 is present but the v2 plugin is not. Add the
+  `docker-compose-plugin` package; SC refuses to guess which of the two you meant.
+
+A host declared only as a k3s node (`role: k3s-server` / `k3s-agent`) gets no Docker:
+k3s brings its own containerd, and Docker's `iptables -P FORWARD DROP` next to flannel
+is a hazard, not a convenience. Such a host does get Docker if the same vm resource
+also runs the Caddy ingress, which is itself a container.
 
 ## Deploy
 
