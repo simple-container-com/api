@@ -105,6 +105,49 @@ func TestIsDestructiveReplace_OpCoverage(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			// 2026-11-08, a 3-node k3s stand: the SECOND `sc provision`
+			// refused, naming all nine of the stack's remote commands. SC
+			// nonces them on purpose (TriggersForGuardedChange /
+			// TriggersForRead) so a host that drifted out of band is
+			// repaired, so this shape is every vm / k3s provision, and the
+			// engine reports it with Keys empty.
+			name: "nonce-triggered remote command with no delete → safe (replacing it runs nothing)",
+			meta: apitype.StepEventMetadata{
+				Op:   apitype.OpReplace,
+				URN:  "urn:pulumi:fleet::sck3s::command:remote:Command::smoke-cluster-install--staging",
+				Type: "command:remote:Command",
+				Old: &apitype.StepEventStateMetadata{
+					ID:     "smoke-cluster-install--staging1a697627",
+					Inputs: map[string]any{"create": "curl -sfL https://get.k3s.io | sh -", "triggers": []any{"2026-11-08T13:14:27Z"}},
+				},
+				New: &apitype.StepEventStateMetadata{
+					Inputs: map[string]any{"create": "curl -sfL https://get.k3s.io | sh -", "triggers": []any{"2026-11-08T13:43:39Z"}},
+				},
+			},
+			want: false,
+		},
+		{
+			// The k3s uninstall and the vm ingress teardown are this shape.
+			// Both are registered WITHOUT triggers precisely so nothing but
+			// a destroy runs them — so a replace here means a real input
+			// moved (a connection address, the script itself), and
+			// pulumi-command would run that delete against a live machine.
+			name: "remote command carrying a delete script → destructive (the delete runs on replace)",
+			meta: apitype.StepEventMetadata{
+				Op:   apitype.OpReplace,
+				URN:  "urn:pulumi:fleet::sck3s::command:remote:Command::smoke-vm-host-0-k3s-uninstall--staging",
+				Type: "command:remote:Command",
+				Old: &apitype.StepEventStateMetadata{
+					ID:     "smoke-vm-host-0-k3s-uninstall--staging0c1d2e3f",
+					Inputs: map[string]any{"create": "true", "delete": "/usr/local/bin/k3s-uninstall.sh"},
+				},
+				New: &apitype.StepEventStateMetadata{
+					Inputs: map[string]any{"create": "true", "delete": "/usr/local/bin/k3s-uninstall.sh"},
+				},
+			},
+			want: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -267,5 +310,103 @@ func TestRecordDestructiveReplace_AppendsOnMatch(t *testing.T) {
 	// drain clears the tracker
 	if got2 := p.drainDestructiveReplaces(); len(got2) != 0 {
 		t.Fatalf("expected tracker to be cleared after drain, got %d", len(got2))
+	}
+}
+
+// isStatelessRemoteCommand asks a per-RESOURCE question (does this
+// command have a delete script?) rather than the per-TYPE one the
+// safe-to-replace allowlist can express, so its edge cases are worth
+// pinning directly: the whole fix rests on reading an input.
+func TestIsStatelessRemoteCommand(t *testing.T) {
+	tests := []struct {
+		name string
+		meta apitype.StepEventMetadata
+		want bool
+	}{
+		{
+			name: "not a remote command → never exempt, whatever its inputs say",
+			meta: apitype.StepEventMetadata{
+				Type: "cloudflare:index/record:Record",
+				Old:  &apitype.StepEventStateMetadata{Inputs: map[string]any{}},
+			},
+			want: false,
+		},
+		{
+			name: "no delete input at all → exempt",
+			meta: apitype.StepEventMetadata{
+				Type: remoteCommandType,
+				Old:  &apitype.StepEventStateMetadata{Inputs: map[string]any{"create": "true"}},
+				New:  &apitype.StepEventStateMetadata{Inputs: map[string]any{"create": "true"}},
+			},
+			want: true,
+		},
+		{
+			name: "delete present but empty → exempt (pulumi-command skips the step either way)",
+			meta: apitype.StepEventMetadata{
+				Type: remoteCommandType,
+				Old:  &apitype.StepEventStateMetadata{Inputs: map[string]any{"delete": "   "}},
+				New:  &apitype.StepEventStateMetadata{Inputs: map[string]any{"delete": ""}},
+			},
+			want: true,
+		},
+		{
+			// A delete that arrives only on the NEW side still means a
+			// subsequent destroy would run a script, and the replace is the
+			// moment to look at it.
+			name: "delete on the new side only → guarded",
+			meta: apitype.StepEventMetadata{
+				Type: remoteCommandType,
+				Old:  &apitype.StepEventStateMetadata{Inputs: map[string]any{"create": "true"}},
+				New:  &apitype.StepEventStateMetadata{Inputs: map[string]any{"delete": "rm -rf /srv/app"}},
+			},
+			want: false,
+		},
+		{
+			// Not provably empty, so not waved through — a secret
+			// placeholder or an unresolved output lands here.
+			name: "non-string delete value → treated as present, guarded",
+			meta: apitype.StepEventMetadata{
+				Type: remoteCommandType,
+				Old:  &apitype.StepEventStateMetadata{Inputs: map[string]any{"delete": map[string]any{"4dabf18193072939515e22adb298388d": "secret"}}},
+			},
+			want: false,
+		},
+		{
+			// The documented failure direction: unreadable inputs exempt a
+			// remote command rather than wedging every provision, because
+			// its id names no cloud object.
+			name: "nil states → exempt",
+			meta: apitype.StepEventMetadata{Type: remoteCommandType},
+			want: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isStatelessRemoteCommand(tt.meta); got != tt.want {
+				t.Fatalf("isStatelessRemoteCommand() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// The engine leaves Keys empty when a provider forces replacement
+// without naming a property. `keys=[]` under a sentence blaming a
+// changed input reads as a contradiction; the message must point at
+// `triggers` instead.
+func TestDestructiveReplaceError_NamesTriggersWhenNoKeys(t *testing.T) {
+	err := &destructiveReplaceError{Replaces: []destructiveReplace{{
+		URN:  "urn:pulumi:fleet::sck3s::command:remote:Command::smoke-cluster-install--staging",
+		Type: remoteCommandType,
+	}}}
+	msg := err.Error()
+	if strings.Contains(msg, "keys=[]") {
+		t.Fatalf("message still renders an empty key list:\n%s", msg)
+	}
+	if !strings.Contains(msg, "`triggers`") {
+		t.Fatalf("message does not point at triggers:\n%s", msg)
+	}
+	// The grep-stable prefix must survive.
+	if !strings.HasPrefix(msg, "input-driven destructive replace:") {
+		t.Fatalf("message prefix changed:\n%s", msg)
 	}
 }
