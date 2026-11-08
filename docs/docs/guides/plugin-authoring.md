@@ -922,7 +922,27 @@ gh pr view NNN --repo <owner>/<repo> --json state,mergeCommit
 - `state: CLOSED` without a mergeCommit → the PR was closed without
   merging. Any commits on that branch are unreachable from main.
 
-Run this before writing "merged" or a SHA into:
+**If you only have a SHA, not a PR number**, don't reach for
+`gh pr list --search <sha>` — that command searches PR **text**
+(title, description, comments), so it matches whichever PR
+*mentioned* the SHA in a comment, not necessarily the one that
+*contained* it. Verified empirically 2026-11-08: searching three
+different SHAs returned the same PR number for all three because
+that PR's description happened to reference them.
+
+The correct lookup is:
+
+```sh
+gh api repos/<owner>/<repo>/commits/<sha>/pulls
+```
+
+It returns the PR that actually contained the commit even after the
+squash. One alarming-looking detail that isn't a bug: this endpoint
+reports a *merged* PR as `state: closed`. The GitHub API doesn't have
+a `merged` state; it's `state: closed` + `merged: true` + a non-null
+`merged_at`. Read those together.
+
+Run the check before writing "merged" or a SHA into:
 
 - a roadmap item's `## Status` or `## History` section,
 - a commit message that references another commit as shipped,
