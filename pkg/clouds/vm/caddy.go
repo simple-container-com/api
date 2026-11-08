@@ -80,6 +80,9 @@ func RenderCaddyfile(cfg *VmConfig) (string, error) {
 		// substituted by Caddy's own parser at load time.
 		fmt.Fprintf(b, "\tacme_eab {\n\t\tkey_id {$%s}\n\t\tmac_key {$%s}\n\t}\n", EnvAcmeEabKeyID, EnvAcmeEabMacKey)
 	}
+	if cfg.AcmeStorageEnabled() {
+		writeCaddyAcmeStorage(b, cfg.Ingress.AcmeStorage)
+	}
 	b.WriteString("}\n\n")
 
 	fmt.Fprintf(b, "# Shared snippet library, inlined from %s in the SC binary.\n",
@@ -92,6 +95,67 @@ func RenderCaddyfile(cfg *VmConfig) (string, error) {
 	fmt.Fprintf(b, "# One file per stack-env, each written by that stack's own deploy.\n")
 	fmt.Fprintf(b, "import %s/*.caddy\n", CaddyContainerConfigDir+"/conf.d")
 	return b.String(), nil
+}
+
+// writeCaddyAcmeStorage renders the global `storage s3` block — the thing that makes
+// origin HTTPS possible on a fleet at all, rather than a tuning knob.
+//
+// Module: github.com/techknowlogick/certmagic-s3, baked into simplecontainer/caddy and
+// gated by the image build's `caddy list-modules | grep -qE '^caddy\.storage\.s3$'`.
+// An SC binary newer than the image it names will render a block the image's Caddy
+// cannot parse, and Caddy answers that with a config-load failure at container start —
+// which is loud, and the correct way for that skew to present.
+//
+// Two rendering rules, both forced by the module's own parser (s3.go, UnmarshalCaddyfile):
+//
+//   - EVERY BOOLEAN CARRIES AN EXPLICIT VALUE. The parser reads each subdirective with
+//     `if !d.Args(&value) { continue }`, so a bare `use_path_style` is not an error and
+//     is not true — it is SILENTLY SKIPPED. A fleet on minio with a bare `use_path_style`
+//     would therefore address buckets virtual-host style, fail every request, and say
+//     nothing about why.
+//   - CREDENTIALS ARE `{$VAR}` PLACEHOLDERS, resolved by Caddy's parser at load time from
+//     the 0600 env file (RenderCaddyEnvFile). Same reasoning as `acme_eab` above: the
+//     Caddyfile is world-readable inside the container and is echoed by `caddy adapt`.
+//     They do not go through caddyToken, which would quote the braces into a literal.
+func writeCaddyAcmeStorage(b *strings.Builder, s *VmAcmeStorage) {
+	fmt.Fprintf(b, "\t# Shared certificate store — every machine of this fleet points at this one\n")
+	fmt.Fprintf(b, "\t# bucket. That is what lets HTTP-01 work behind N A records: certmagic keeps\n")
+	fmt.Fprintf(b, "\t# the challenge state in storage, so whichever machine the CA happens to dial\n")
+	fmt.Fprintf(b, "\t# can answer a token a sibling minted, and the fleet holds ONE certificate.\n")
+	fmt.Fprintf(b, "\t# If certificates never issue, read `docker logs %s` on every machine, not one.\n", CaddyContainer)
+	b.WriteString("\tstorage s3 {\n")
+	fmt.Fprintf(b, "\t\tbucket %s\n", caddyToken(s.Bucket))
+	if s.Endpoint != "" {
+		fmt.Fprintf(b, "\t\tendpoint %s\n", caddyToken(s.Endpoint))
+	}
+	fmt.Fprintf(b, "\t\tregion %s\n", caddyToken(s.StorageRegion()))
+	fmt.Fprintf(b, "\t\tprefix %s\n", caddyToken(s.StoragePrefix()))
+	// Always rendered, never bare: the effective default is SC's (true whenever a custom
+	// endpoint is set), not the module's, so writing it out is also the only way a reader
+	// of the generated file can tell which addressing style is in force.
+	fmt.Fprintf(b, "\t\tuse_path_style %t\n", s.UsePathStyle())
+	if s.Insecure {
+		fmt.Fprintf(b, "\t\t# TLS verification disabled on the vm resource (`ingress.acmeStorage.insecure`).\n")
+		b.WriteString("\t\tinsecure true\n")
+	}
+	if s.AccessKey != "" {
+		// Both or neither — validateAcmeStorage refuses one without the other, because
+		// the module only uses static credentials when both are set and otherwise falls
+		// through to the AWS default chain, which on a VPS finds nothing.
+		fmt.Fprintf(b, "\t\taccess_key {$%s}\n", EnvAcmeS3AccessKey)
+		fmt.Fprintf(b, "\t\tsecret_key {$%s}\n", EnvAcmeS3SecretKey)
+	}
+	if s.EncryptionKey != "" {
+		fmt.Fprintf(b, "\t\tencryption_key {$%s}\n", EnvAcmeS3EncryptionKey)
+	} else {
+		// The module logs `Clear text certificate storage active` on every start when
+		// this is absent. That is expected here and not a misconfiguration: the bucket
+		// is the operator's own and its contents are the fleet's own certificates.
+		fmt.Fprintf(b, "\t\t# No encryption_key: certificates are stored in clear text. Caddy says so\n")
+		fmt.Fprintf(b, "\t\t# on every start. Set `ingress.acmeStorage.encryptionKey` (exactly %d bytes)\n", AcmeStorageEncryptionKeyLen)
+		fmt.Fprintf(b, "\t\t# to encrypt them at rest.\n")
+	}
+	b.WriteString("\t}\n")
 }
 
 // RenderCaddyDefaultSite is the catch-all site, written once with the ingress.
@@ -176,6 +240,20 @@ func RenderCaddyEnvFile(cfg *VmConfig) string {
 	if cfg != nil && cfg.IngressEnabled() && cfg.Ingress.AcmeEabKeyID != "" {
 		fmt.Fprintf(b, "%s=%s\n", EnvAcmeEabKeyID, cfg.Ingress.AcmeEabKeyID)
 		fmt.Fprintf(b, "%s=%s\n", EnvAcmeEabMacKey, cfg.Ingress.AcmeEabMacKey)
+	}
+	if cfg != nil && cfg.AcmeStorageEnabled() {
+		s := cfg.Ingress.AcmeStorage
+		// Only when both are set: the `storage s3` block renders the two placeholders as
+		// a pair, and a placeholder with no value in this file expands to the empty
+		// string rather than failing — which would read as "the credential is wrong"
+		// instead of "the credential is missing".
+		if s.AccessKey != "" {
+			fmt.Fprintf(b, "%s=%s\n", EnvAcmeS3AccessKey, s.AccessKey)
+			fmt.Fprintf(b, "%s=%s\n", EnvAcmeS3SecretKey, s.SecretKey)
+		}
+		if s.EncryptionKey != "" {
+			fmt.Fprintf(b, "%s=%s\n", EnvAcmeS3EncryptionKey, s.EncryptionKey)
+		}
 	}
 	return b.String()
 }
