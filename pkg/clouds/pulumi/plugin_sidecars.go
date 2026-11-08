@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -223,11 +224,14 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 		// Older plugins that don't populate Outputs just send an empty
 		// map; this loop is a no-op for them. New plugins pick up the
 		// convention incrementally.
-		for k, v := range resp.GetOutputs() {
-			plain, ok := scPlugin.InputValueToPlain(v)
-			if !ok {
-				continue
-			}
+		//
+		// The same harvest feeds the in-memory sibling path: a resource
+		// provisioned after this one, having declared it in
+		// DependsOnResources(), reads these values off .Ref below instead
+		// of going through a StackReference — which, into the stack being
+		// provisioned right now, would be a cycle rather than a slow path.
+		pluginOuts := harvestPluginOutputs(resp.GetOutputs())
+		for k, v := range pluginOuts {
 			// Preserve the Secret flag the plugin set on this InputValue.
 			// Without wrapping with sdk.ToSecret, a plaintext access key
 			// / password / token that the plugin's own
@@ -239,16 +243,39 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 			// hit this on the first harvest. See InputValue.secret in
 			// plugin.proto (field 10) — plugins set it when wrapping a
 			// secret output; SC core honours it here.
-			out := sdk.Any(plain)
-			if v.GetSecret() {
+			out := sdk.Any(v.Value)
+			if v.Secret {
 				ctx.Export(k, sdk.ToSecret(out))
 			} else {
 				ctx.Export(k, out)
 			}
 		}
 
-		return &api.ResourceOutput{Ref: fmt.Sprintf("plugin:%s:%s", pluginName, resp.GetUrn())}, nil
+		return &api.ResourceOutput{Ref: &api.PluginResourceOutput{
+			PluginName: pluginName,
+			Urn:        resp.GetUrn(),
+			Outputs:    pluginOuts,
+		}}, nil
 	}
+}
+
+// harvestPluginOutputs converts a plugin's ProvisionResponse.Outputs into plain Go
+// values, keeping the per-value `secret` flag with each one.
+//
+// A value in a shape core cannot represent as a plain Go value is dropped rather
+// than recorded as a zero: a consumer that asks for it gets "published no output
+// X", which is true and actionable, instead of an empty string that reads like the
+// plugin published one.
+func harvestPluginOutputs(outs map[string]*scpluginv1.InputValue) map[string]api.PluginOutputValue {
+	harvested := make(map[string]api.PluginOutputValue, len(outs))
+	for k, v := range outs {
+		plain, ok := scPlugin.InputValueToPlain(v)
+		if !ok {
+			continue
+		}
+		harvested[k] = api.PluginOutputValue{Value: plain, Secret: v.GetSecret()}
+	}
+	return harvested
 }
 
 // provisionDrainBuffer is how long the sidecar waits after cli.Provision
