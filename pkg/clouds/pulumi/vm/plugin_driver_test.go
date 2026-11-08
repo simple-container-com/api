@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	. "github.com/onsi/gomega"
-
+	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi/internals"
 
@@ -366,4 +366,55 @@ func hostsErr(t *testing.T, cfg *vm.VmConfig) error {
 		_, err = driver.Hosts(ctx, resourceInput(cfg), cfg, nil, pApi.ProvisionParams{Log: logger.New()})
 		return err
 	}, sdk.WithMocks("project", "stack", newVmMocks()))
+}
+
+// The header carries the dry-run flag, so a plugin's own `pctx.DryRun()` answers
+// truthfully. Asserted in BOTH directions because the bug this guards was an
+// omission, and a zero-valued bool passes a one-sided test for free.
+//
+// Why a plugin cannot live without it: on a preview the resources it declares do
+// not exist, so a provider output it reads back can be a known nil rather than an
+// unknown — and a driver that validates such a field has to skip the check during
+// preview or the preview dies before creating anything. Live-caught on
+// sc-plugin-mws's first preview, 2026-11-07; see plugin_driver.go's note.
+func TestPluginDriver_HeaderCarriesDryRun(t *testing.T) {
+	RegisterTestingT(t)
+
+	for _, tc := range []struct {
+		name   string
+		env    string
+		expect bool
+	}{
+		{name: "preview", env: "true", expect: true},
+		{name: "apply", env: "false", expect: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
+			// PULUMI_DRY_RUN is what pulumi.RunInfo reads to populate ctx.DryRun()
+			// (sdk/go/pulumi/run.go, EnvDryRun) — there is no RunOption for it.
+			t.Setenv(sdk.EnvDryRun, tc.env)
+
+			var captured *scpluginv1.VmHostsRequest
+			registerPluginVm(t, func(_ context.Context, req *scpluginv1.VmHostsRequest) (*scpluginv1.VmHostsResponse, error) {
+				captured = req
+				return nil, errors.New("hosts not needed for this assertion")
+			})
+
+			cfg := pluginVmConfig()
+			err := sdk.RunErr(func(ctx *sdk.Context) error {
+				Expect(ctx.DryRun()).To(Equal(tc.expect), "test harness did not honour PULUMI_DRY_RUN")
+				driver, err := driverFor(cfg)
+				if err != nil {
+					return err
+				}
+				_, _ = driver.Hosts(ctx, resourceInput(cfg), cfg, nil, pApi.ProvisionParams{Log: logger.New()})
+				return nil
+			}, sdk.WithMocks("project", "stack", newVmMocks()))
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect(captured).ToNot(BeNil())
+			Expect(captured.GetHeader().GetDryRun()).To(Equal(tc.expect))
+		})
+	}
 }
