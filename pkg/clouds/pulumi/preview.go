@@ -87,14 +87,13 @@ func (p *pulumi) OutputsStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	//
 	// This is the full load, which spawns every declared plugin and asks each
 	// for its Schema — forge's infra declares six, so an `outputs` call that
-	// was ~200ms becomes a couple of seconds. Deliberate for now: correct and
-	// slow beats fast and broken, and the alternative needs a cache. A
-	// state-store-only variant can't help by itself, because which plugin owns
-	// the state store is itself advertised in a Schema that only exists after
-	// the spawn; the way out is to trust the on-disk schema cache the
-	// pre-engine already writes and let read-only paths like this one and
-	// CancelStack load cache-only, falling back to a spawn on a miss.
-	if err := p.loadPreEnginePlugins(ctx, stack); err != nil {
+	// was ~200ms becomes a couple of seconds. The cache-aware variant below
+	// trims the plugin set to the ones whose sidecars actually contribute to
+	// backend open (state-store, secrets-provider) using the on-disk schema
+	// cache the pre-parse already writes; a plugin whose cached schema has
+	// neither is skipped. Cache miss falls back to full spawn (preserves the
+	// f306d4c2 correctness fix for empty-URL on Outputs/Cancel).
+	if err := p.loadPreEnginePluginsForBackend(ctx, stack); err != nil {
 		return nil, errors.Wrap(err, "pre-engine plugin load")
 	}
 	defer p.closePreEnginePlugins()

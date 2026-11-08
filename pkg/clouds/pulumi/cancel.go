@@ -7,7 +7,6 @@ import (
 	"context"
 
 	"github.com/pkg/errors"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -22,7 +21,11 @@ func (p *pulumi) CancelStack(ctx context.Context, cfg *api.ConfigFile, stack api
 	// what an operator reaches for when a deploy is already wedged, so it
 	// failing with `diy URL  has an illegal prefix` lands at the worst
 	// possible moment.
-	if err := p.loadPreEnginePlugins(ctx, stack); err != nil {
+	// Cache-aware: only plugins whose cached schema advertises state-store or
+	// secrets-provider types contribute to backend open. See the same comment
+	// on OutputsStack (preview.go) and
+	// forge/docs/roadmap/items/sc-plugin-stack-outputs-latency-full-schema-load.md.
+	if err := p.loadPreEnginePluginsForBackend(ctx, stack); err != nil {
 		return errors.Wrap(err, "pre-engine plugin load")
 	}
 	defer p.closePreEnginePlugins()

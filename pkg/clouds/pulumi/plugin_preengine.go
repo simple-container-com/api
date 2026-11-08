@@ -125,6 +125,85 @@ func (b *preEnginePluginBundle) Load(ctx context.Context, specs map[string]api.P
 	return nil
 }
 
+// LoadForBackend is the cache-aware variant for read-only / teardown entry
+// points (OutputsStack, CancelStack). These two paths only need the
+// state-store + secrets-provider sidecars to resolve the backend URL + open
+// the Pulumi secrets manager; they do NOT call Provision / Deploy / Preview /
+// Destroy and therefore don't need a live client for resource / registrar /
+// compute-processor / vm-driver plugins.
+//
+// For each declared plugin:
+//
+//   - Try the per-version schema cache (pkg/plugin/discover.go — populated by
+//     stackread.loadSchema's first fetch, shared across every `sc` invocation
+//     for that machine+version). If a cached schema advertises NEITHER
+//     state_store_types NOR secrets_provider_types, skip the plugin entirely
+//     — Outputs/Cancel don't need its sidecars.
+//   - If the cached schema DOES advertise either, spawn the plugin so the
+//     sidecars have a live client. Same shape as full `Load` for those plugins.
+//   - On cache miss (fresh install, path: spec in dev-mode, or a corrupt
+//     cache file), fall back to the full spawn — correctness wins. A follow-up
+//     warm run writes the cache and subsequent Outputs/Cancel invocations
+//     take the fast path.
+//
+// Correctness invariant preserved by the fallback: any plugin whose
+// state-store or secrets-provider sidecar OutputsStack / CancelStack actually
+// needs will be loaded, either via cache-hit-and-spawn or via cache-miss-full-
+// spawn. The `f306d4c2` fix that made these entries load pre-engine plugins
+// stays correct; this variant just trims the subset that doesn't contribute
+// to backend init.
+//
+// A stale cache that WRONGLY says "no state-store types" would skip a
+// plugin that does provide one, reproducing the exact pre-f306d4c2 bug
+// (empty backend URL on Outputs/Cancel). The cache is version-keyed —
+// `<repo>/<version>/.schema-cache.json` — so a plugin version bump
+// invalidates it automatically, which bounds the window to the plugin
+// version's own lifetime. A plugin author who adds a state-store type
+// mid-version without bumping SHOULD ship a new version; if they don't,
+// `sc stack outputs` fails loudly with "unsupported state-store type %q"
+// from login.go (not silently — the full load's correctness still gates
+// the Provision path).
+//
+// See forge/docs/roadmap/items/sc-plugin-stack-outputs-latency-full-schema-load.md.
+func (b *preEnginePluginBundle) LoadForBackend(ctx context.Context, specs map[string]api.PluginSpec) error {
+	return b.loadForBackendWithCache(ctx, specs, scPlugin.DefaultCacheRoot)
+}
+
+// loadForBackendWithCache is the testable seam. Prod code calls
+// LoadForBackend; tests inject a tmpdir cache root so they can seed
+// known schemas without touching ~/.sc/plugins.
+func (b *preEnginePluginBundle) loadForBackendWithCache(ctx context.Context, specs map[string]api.PluginSpec, cacheRoot string) error {
+	if len(specs) == 0 {
+		return nil
+	}
+	for name, spec := range specs {
+		cached, ok := scPlugin.CachedSchema(spec, cacheRoot)
+		if ok && !schemaContributesToBackend(cached) {
+			b.log.Debug(ctx, "pre-engine skipping plugin %q v%s: cache says no state-store or secrets-provider types (backend-only load)",
+				name, cached.GetPluginVersion())
+			continue
+		}
+		if err := b.loadOne(ctx, name, spec); err != nil {
+			return errors.Wrapf(err, "pre-engine load %q", name)
+		}
+	}
+	return nil
+}
+
+// schemaContributesToBackend reports whether a plugin's schema includes any
+// type SC core's backend-open path consults. Those are the state-store sidecar
+// (resolves PULUMI_BACKEND_URL via InitStateStore) and the secrets-provider
+// sidecar (resolves the Pulumi secrets manager URL + passphrase via
+// InitSecretsProvider). A plugin that advertises neither contributes nothing
+// to `sc stack outputs` / `sc cancel` and can be skipped on the cache-aware
+// load.
+func schemaContributesToBackend(schema *scpluginv1.SchemaResponse) bool {
+	if schema == nil {
+		return false
+	}
+	return len(schema.GetStateStoreTypes()) > 0 || len(schema.GetSecretsProviderTypes()) > 0
+}
+
 func (b *preEnginePluginBundle) loadOne(ctx context.Context, name string, spec api.PluginSpec) error {
 	// Wire the composite-plugin broker. Each spawned plugin gets its
 	// own SCCore endpoint; a PeerInvoke call on it dispatches by
