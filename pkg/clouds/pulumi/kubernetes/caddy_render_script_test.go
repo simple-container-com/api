@@ -4,8 +4,6 @@
 package kubernetes
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,11 +23,6 @@ const (
 	staleEntry = "\nhttp://smoke.example.com {\n  reverse_proxy http://app.ns.svc.cluster.local:8080\n}\n"
 	freshEntry = "\nhttps://smoke.example.com {\n  reverse_proxy http://app.ns.svc.cluster.local:8080\n}\n"
 )
-
-func md5Hex(s string) string {
-	sum := md5.Sum([]byte(s))
-	return hex.EncodeToString(sum[:])
-}
 
 // renderHarness writes a fake kubectl that serves one Service (ns/app) whose
 // caddyfile-entry annotation is whatever `bodies` says for that call number: call i uses
