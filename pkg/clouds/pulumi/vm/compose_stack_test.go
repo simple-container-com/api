@@ -5,6 +5,7 @@ package vm
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"sync"
@@ -720,4 +721,100 @@ func TestVmCompose_TheShipKeepsTheDeployKeyOffTheCommandLine(t *testing.T) {
 	logging, _ := unwrapSecret(ship["logging"])
 	Expect(logging.StringValue()).To(Equal("none"),
 		"the ship streams a customer image over a connection authenticated by the key on stdin")
+}
+
+// withNoOriginTls models a machine the operator provisioned with
+// `ingress.originTls: false`: Caddy fronts the stacks but terminates no TLS, because
+// something in front of it does.
+func (f *composeFixture) withNoOriginTls() *composeFixture {
+	f.mocks.outputs[resource.PropertyKey(ToIngressNoOriginTlsExport(testVmResource))] = resource.NewBoolProperty(true)
+	return f
+}
+
+// `domainProxied: true` used to be refused in the convert tier for every vm resource.
+// It is now decided here, against the parent — and both outcomes matter, because the
+// refusal is the thing standing between an operator and a fleet whose certificates
+// never issue, while the allow is the only front door available on a cloud with no
+// bucket.
+func TestVmCompose_DomainProxiedNeedsNoOriginTls(t *testing.T) {
+	RegisterTestingT(t)
+
+	// The machine terminates TLS: a proxied domain sends the HTTP-01 challenge to
+	// Cloudflare's edge, so no certificate ever issues. Refused, with the remedy named.
+	refused := newComposeFixture().withIngress()
+	refused.in.Deployment.StackConfig.DomainProxied = lo.ToPtr(true)
+	_, err := refused.run()
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("terminates TLS itself"))
+	Expect(err.Error()).To(ContainSubstring("ingress.originTls"))
+
+	// The same stack onto a machine that declares no origin TLS: allowed, and the URL
+	// it hands back says http, because that is what the origin answers on.
+	allowed := newComposeFixture().withIngress().withNoOriginTls()
+	allowed.in.Deployment.StackConfig.DomainProxied = lo.ToPtr(true)
+	_, err = allowed.run()
+	Expect(err).To(BeNil())
+	Expect(allowed.url).To(Equal("http://" + testDomain))
+
+	// `domainProxied: false` is a no-op and must not be refused on either machine —
+	// it says "do not proxy", which is already what SC does.
+	unproxied := newComposeFixture().withIngress()
+	unproxied.in.Deployment.StackConfig.DomainProxied = lo.ToPtr(false)
+	_, err = unproxied.run()
+	Expect(err).To(BeNil())
+}
+
+// The scheme has to reach the site file too, not just the exported URL: the site
+// address is what suppresses automatic HTTPS for that site and puts the listener on
+// :80. A deploy that exported `http://` and wrote an HTTPS site block would answer
+// nothing at all.
+func TestVmCompose_NoOriginTlsRendersAnHttpSite(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComposeFixture().withIngress().withNoOriginTls()
+	_, err := f.run()
+	Expect(err).To(BeNil())
+	Expect(f.url).To(Equal("http://" + testDomain))
+
+	route := f.mocks.commands()["route"]
+	Expect(route).ToNot(BeNil(), "a stack whose domain is served must write a site file")
+	create, _ := unwrapSecret(route["create"])
+	// The site file travels inside the script base64-encoded (it is written with
+	// `printf | base64 -d`, which is what keeps a multi-line config out of the shell's
+	// quoting rules), so the assertion has to decode it rather than grep the script.
+	Expect(siteFromRouteScript(create.StringValue())).To(ContainSubstring("http://" + testDomain + " {"))
+}
+
+// Backwards compatibility at the seam that actually carries the risk: a parent stack
+// provisioned before `ingress.originTls` existed exports nothing for it, and
+// GetValueFromStack returns the zero value for an output that is not there. The zero
+// has to mean "the machine terminates TLS" — the behaviour that fleet already had.
+// Exporting the positive sense instead would have flipped every un-re-provisioned
+// fleet to plain HTTP on its next deploy.
+func TestVmCompose_OldParentStackStillServesHttps(t *testing.T) {
+	RegisterTestingT(t)
+
+	f := newComposeFixture().withIngress()
+	// withIngress sets the ingress export and nothing else, so the origin-TLS output
+	// is genuinely absent here — the same state an old parent stack presents.
+	Expect(f.mocks.outputs).ToNot(HaveKey(
+		resource.PropertyKey(ToIngressNoOriginTlsExport(testVmResource)),
+	))
+
+	_, err := f.run()
+	Expect(err).To(BeNil())
+	Expect(f.url).To(Equal("https://" + testDomain))
+}
+
+// siteFromRouteScript pulls the rendered Caddy site back out of a route command.
+func siteFromRouteScript(script string) string {
+	const marker = "printf %s '"
+	i := strings.Index(script, marker)
+	Expect(i).To(BeNumerically(">=", 0), "the route script must embed the site file")
+	rest := script[i+len(marker):]
+	j := strings.Index(rest, "'")
+	Expect(j).To(BeNumerically(">=", 0), "the embedded site file must be quoted")
+	decoded, err := base64.StdEncoding.DecodeString(rest[:j])
+	Expect(err).ToNot(HaveOccurred())
+	return string(decoded)
 }

@@ -4,6 +4,7 @@
 package vm
 
 import (
+	"strings"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -194,6 +195,148 @@ func TestValidate(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateAcmeStorage(t *testing.T) {
+	RegisterTestingT(t)
+
+	withStore := func(mutate func(*VmAcmeStorage)) *VmConfig {
+		cfg := byoConfig()
+		cfg.Ingress = &VmIngress{
+			Enable: true,
+			Email:  "ops@example.com",
+			AcmeStorage: &VmAcmeStorage{
+				Bucket:    "sc-acme",
+				Endpoint:  "https://storage.yandexcloud.net",
+				AccessKey: "YCAJE...",
+				SecretKey: "YCN...",
+			},
+		}
+		mutate(cfg.Ingress.AcmeStorage)
+		return cfg
+	}
+
+	cases := []struct {
+		name     string
+		mutate   func(*VmAcmeStorage)
+		errMatch string
+	}{
+		{
+			name:     "a complete store",
+			mutate:   func(*VmAcmeStorage) {},
+			errMatch: "",
+		},
+		{
+			name:     "no bucket",
+			mutate:   func(s *VmAcmeStorage) { s.Bucket = "" },
+			errMatch: "is set without `bucket`",
+		},
+		{
+			// One without the other is the worst shape of all: the module only uses
+			// static credentials when BOTH are set, so half a pair silently falls
+			// through to the AWS default chain.
+			name:     "access key without secret",
+			mutate:   func(s *VmAcmeStorage) { s.SecretKey = "" },
+			errMatch: "`.secretKey` must be set together",
+		},
+		{
+			name:     "secret without access key",
+			mutate:   func(s *VmAcmeStorage) { s.AccessKey = "" },
+			errMatch: "`.secretKey` must be set together",
+		},
+		{
+			name: "neither endpoint nor region",
+			mutate: func(s *VmAcmeStorage) {
+				s.Endpoint = ""
+				s.Region = ""
+			},
+			errMatch: "has neither `endpoint` nor `region`",
+		},
+		{
+			// No endpoint means real AWS S3, which is legitimate — but then the region
+			// is the only thing that routes the request.
+			name: "region alone is enough",
+			mutate: func(s *VmAcmeStorage) {
+				s.Endpoint = ""
+				s.Region = "eu-central-1"
+			},
+			errMatch: "",
+		},
+		{
+			// The module hands this straight to the SDK as BaseEndpoint, which needs a
+			// scheme. Without one the SDK fails per request, not at load.
+			name:     "endpoint without a scheme",
+			mutate:   func(s *VmAcmeStorage) { s.Endpoint = "storage.yandexcloud.net" },
+			errMatch: "has no scheme",
+		},
+		{
+			name:     "encryption key of the wrong length",
+			mutate:   func(s *VmAcmeStorage) { s.EncryptionKey = "too-short" },
+			errMatch: "secretbox needs exactly 32",
+		},
+		{
+			name:     "encryption key of exactly 32 bytes",
+			mutate:   func(s *VmAcmeStorage) { s.EncryptionKey = strings.Repeat("k", 32) },
+			errMatch: "",
+		},
+		{
+			name: "insecure against a plaintext endpoint",
+			mutate: func(s *VmAcmeStorage) {
+				s.Endpoint = "http://10.0.0.5:9000"
+				s.Insecure = true
+			},
+			errMatch: "there is no TLS to skip verifying",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+
+			err := withStore(tc.mutate).Validate()
+			if tc.errMatch == "" {
+				Expect(err).ToNot(HaveOccurred())
+				return
+			}
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(tc.errMatch))
+		})
+	}
+}
+
+// The three defaults SC computes rather than leaving to the module. `use_path_style` is
+// the one that matters: the module's own default is false, which is right for AWS and
+// wrong for every other S3 implementation — so SC derives it from whether a custom
+// endpoint was given, and an operator can still override either way.
+func TestAcmeStorageDefaults(t *testing.T) {
+	RegisterTestingT(t)
+
+	aws := &VmAcmeStorage{Bucket: "b", Region: "eu-central-1"}
+	Expect(aws.UsePathStyle()).To(BeFalse())
+	Expect(aws.StorageRegion()).To(Equal("eu-central-1"))
+	Expect(aws.StoragePrefix()).To(Equal(DefaultAcmeStoragePrefix))
+
+	minio := &VmAcmeStorage{Bucket: "b", Endpoint: "http://10.0.0.5:9000"}
+	Expect(minio.UsePathStyle()).To(BeTrue())
+	// us-east-1 and not empty: the SDK requires a region even where the store ignores
+	// it, and the module would otherwise default it itself, out of SC's sight.
+	Expect(minio.StorageRegion()).To(Equal(DefaultAcmeStorageRegion))
+
+	Expect((&VmAcmeStorage{Endpoint: "http://x", PathStyle: lo.ToPtr(false)}).UsePathStyle()).To(BeFalse())
+	Expect((&VmAcmeStorage{PathStyle: lo.ToPtr(true)}).UsePathStyle()).To(BeTrue())
+	Expect((&VmAcmeStorage{Prefix: "certs"}).StoragePrefix()).To(Equal("certs"))
+
+	// Absent on a single machine, which is the common case and must stay zero-config.
+	plain := ingressConfig()
+	Expect(plain.AcmeStorageEnabled()).To(BeFalse())
+	// Present but with no bucket is not "enabled": validation refuses it, and the
+	// renderer must not emit a half-written block in the meantime.
+	plain.Ingress.AcmeStorage = &VmAcmeStorage{}
+	Expect(plain.AcmeStorageEnabled()).To(BeFalse())
+}
+
+// A cloud driver's own invariants are checked before the not-implemented refusal:
+// an operator whose config is also wrong in shape should hear about the shape, so
+// that the config is already right when the driver lands.
 
 // TestValidateHostRoles is the role set of a byo pool, which is what replaced the
 // old "exactly one host" refusal (roadmap item sc-vm-multi-node-clusters, phase 1a).
@@ -806,4 +949,101 @@ func TestValidateRefusesUnverifiedProvider(t *testing.T) {
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("`allowUnverifiedProvider` is not valid"))
 	Expect(err.Error()).To(ContainSubstring("live-verified"))
+}
+
+// `ingress.originTls: false` and the ACME settings are alternatives, not a pair. Each
+// refusal below replaces a belief an operator would otherwise keep: that the fleet
+// still holds a certificate, or that a CA override still applies. Neither is visible
+// until the thing in front of the machine goes away.
+func TestValidateOriginTls(t *testing.T) {
+	RegisterTestingT(t)
+
+	noTls := func(mutate func(*VmIngress)) *VmConfig {
+		cfg := byoConfig()
+		cfg.Ingress = &VmIngress{Enable: true, OriginTls: lo.ToPtr(false)}
+		mutate(cfg.Ingress)
+		return cfg
+	}
+
+	// The whole point of the field: `email` stops being required, because there is no
+	// ACME account to name.
+	Expect(noTls(func(*VmIngress) {}).Validate()).ToNot(HaveOccurred())
+	Expect(noTls(func(*VmIngress) {}).OriginTlsEnabled()).To(BeFalse())
+
+	for _, tc := range []struct {
+		name     string
+		mutate   func(*VmIngress)
+		errMatch string
+	}{
+		{
+			name:     "email",
+			mutate:   func(i *VmIngress) { i.Email = "ops@example.com" },
+			errMatch: "`ingress.email` is set together with `ingress.originTls: false`",
+		},
+		{
+			name:     "acmeCa",
+			mutate:   func(i *VmIngress) { i.AcmeCa = "https://acme.example.com/directory" },
+			errMatch: "`ingress.acmeCa` is set together with `ingress.originTls: false`",
+		},
+		{
+			name: "acmeEab",
+			mutate: func(i *VmIngress) {
+				i.AcmeEabKeyID = "kid"
+				i.AcmeEabMacKey = "mac"
+			},
+			errMatch: "`ingress.acmeEabKeyId` is set together with `ingress.originTls: false`",
+		},
+		{
+			name: "acmeStorage",
+			mutate: func(i *VmIngress) {
+				i.AcmeStorage = &VmAcmeStorage{Bucket: "sc-acme", Region: "eu-central-1"}
+			},
+			// Spelled out at length in the message because these are the two
+			// alternative front doors for a fleet and the operator has asked for both.
+			errMatch: "These are the two alternative front doors for a fleet, not a pair",
+		},
+		{
+			// imageDelivery is checked BEFORE the origin-TLS branch, so a resource
+			// that is wrong in two ways still hears about the one that is wrong on
+			// every path.
+			name:     "imageDelivery is still validated",
+			mutate:   func(i *VmIngress) { i.ImageDelivery = "carrier-pigeon" },
+			errMatch: "unknown `ingress.imageDelivery`",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			err := noTls(tc.mutate).Validate()
+			Expect(err).To(HaveOccurred())
+			Expect(err.Error()).To(ContainSubstring(tc.errMatch))
+		})
+	}
+}
+
+// Backwards compatibility, asserted rather than assumed: the operator's standing
+// requirement is that nothing already deployed changes behaviour. Every way of NOT
+// saying `originTls: false` has to read as "this machine terminates TLS", because that
+// is what every vm resource written before the field did.
+func TestOriginTlsDefaultsToOn(t *testing.T) {
+	RegisterTestingT(t)
+
+	unset := byoConfig()
+	unset.Ingress = &VmIngress{Enable: true, Email: "ops@example.com"}
+	Expect(unset.OriginTlsEnabled()).To(BeTrue())
+
+	explicit := byoConfig()
+	explicit.Ingress = &VmIngress{Enable: true, Email: "ops@example.com", OriginTls: lo.ToPtr(true)}
+	Expect(explicit.OriginTlsEnabled()).To(BeTrue())
+	Expect(explicit.Validate()).ToNot(HaveOccurred())
+
+	// No ingress at all: there is no Caddy to ask, and a caller that reads this must
+	// not take "false" for "an edge terminates" — it would render an http:// site for
+	// a machine that serves no sites.
+	none := byoConfig()
+	none.Ingress = nil
+	Expect(none.OriginTlsEnabled()).To(BeTrue())
+
+	disabled := byoConfig()
+	disabled.Ingress = &VmIngress{Enable: false, OriginTls: lo.ToPtr(false)}
+	Expect(disabled.OriginTlsEnabled()).To(BeTrue())
 }

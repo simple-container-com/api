@@ -117,8 +117,31 @@ type VmNetwork struct {
 // stacks share one machine and therefore one port 443 (compose-on-vm.md §3, D15).
 type VmIngress struct {
 	Enable bool `json:"enable" yaml:"enable"`
-	// Email is the ACME account address. Required when Enable is set, because a
-	// certificate authority will not issue without one.
+	// OriginTls is whether THIS machine terminates TLS. Unset means true, which is
+	// every vm resource that existed before this field.
+	//
+	// Set it to false when something in front already terminates — Cloudflare's
+	// proxy, a cloud load balancer, an existing reverse proxy — and Caddy then serves
+	// plain HTTP on port 80 and runs no ACME at all. That is the ONE front-door
+	// arrangement a fleet can have without a shared certificate store (see
+	// AcmeStorage, which explains why per-machine ACME behind N A records cannot
+	// work), so on a cloud with no bucket resource and no appetite for running minio
+	// it is not a downgrade, it is the option.
+	//
+	// It is also what makes `domainProxied: true` legal on a stack: that refusal
+	// exists because a proxied domain breaks the HTTP-01 challenge Caddy runs itself,
+	// and here Caddy runs none. The refusal therefore moved out of the convert tier
+	// (which cannot see this field — it belongs to the parent stack) and into the
+	// deploy, where the parent's exports are readable.
+	//
+	// What it does NOT do is secure the hop. Edge-to-origin is cleartext over the
+	// public internet unless the machine's firewall admits only the edge's addresses
+	// — Cloudflare publishes theirs, and `ingressPorts` on this resource is where
+	// they go. Said plainly because "my site is HTTPS" is true for the visitor and
+	// false for the leg SC is responsible for.
+	OriginTls *bool `json:"originTls,omitempty" yaml:"originTls,omitempty"`
+	// Email is the ACME account address. Required when Enable is set and this machine
+	// terminates TLS, because a certificate authority will not issue without one.
 	Email string `json:"email,omitempty" yaml:"email,omitempty"`
 	// Image is the Caddy image to run. Defaults to the same `simplecontainer/caddy`
 	// tag the Kubernetes edge uses, which is what makes `lbConfig.siteExtraHelpers`
@@ -158,6 +181,133 @@ type VmIngress struct {
 	// the Pulumi checkpoint and out of a file an operator might paste into a ticket.
 	AcmeEabKeyID  string `json:"acmeEabKeyId,omitempty" yaml:"acmeEabKeyId,omitempty"`
 	AcmeEabMacKey string `json:"acmeEabMacKey,omitempty" yaml:"acmeEabMacKey,omitempty"`
+	// AcmeStorage points every machine of this resource at ONE shared certificate
+	// store. Leave it unset for a single machine; set it for a fleet.
+	//
+	// On a fleet it is not a tuning knob, it is the thing that makes HTTPS possible.
+	// SC's Caddy image carries no `dns.*` provider, so HTTP-01 is the only ACME
+	// challenge available, and a name with N A records sends the CA's validator to an
+	// arbitrary machine — which 404s a token a sibling minted. certmagic's distributed
+	// solver shares that challenge state through the storage module, so one store turns
+	// N machines into one ACME client holding one certificate instead of N. Without it
+	// a fleet either serves plain HTTP on the origin (see `domainProxied`) or walks
+	// into a rate-limit lockout.
+	AcmeStorage *VmAcmeStorage `json:"acmeStorage,omitempty" yaml:"acmeStorage,omitempty"`
+}
+
+// VmAcmeStorage is an S3-compatible bucket holding the fleet's certificates and ACME
+// challenge state, rendered as Caddy's `storage s3` global option.
+//
+// S3 and not one module per cloud. The image also carries `caddy.storage.gcs`, but GCS
+// serves an S3-compatible interop endpoint and `gcp-bucket` already exports HMAC
+// credentials for it, so one code path covers Yandex, AWS, GCP, minio and anything
+// else that speaks S3. The GCS module stays what the Kubernetes edge uses. There is
+// deliberately no `type:` field: one legal value is not a choice, and adding the field
+// later with a default of `s3` stays backwards compatible.
+//
+// Every field is a property of the RESOURCE, not of a machine — the whole point is
+// that all machines write to the same place.
+type VmAcmeStorage struct {
+	// Bucket is required. It must already exist: SC does not create it here, because
+	// the bucket for a fleet generally lives in the same parent stack (a `yc-bucket` /
+	// `gcp-bucket` resource) or on an operator-run minio, and inventing a second
+	// owner for it would make a `sc destroy` able to take the certificates with it.
+	Bucket string `json:"bucket" yaml:"bucket"`
+	// Endpoint is the store's base URL, scheme included
+	// (`https://storage.yandexcloud.net`, `http://10.0.0.4:9000`). Empty means real
+	// AWS S3.
+	//
+	// Setting it also switches the SDK to computing request checksums only when
+	// required, which is what makes most non-AWS implementations work at all.
+	Endpoint string `json:"endpoint,omitempty" yaml:"endpoint,omitempty"`
+	// Region is required when Endpoint is empty, since that is real AWS and the wrong
+	// region is a failed request rather than a redirect. With an Endpoint it defaults
+	// to `us-east-1`, which S3-compatible stores conventionally ignore.
+	Region string `json:"region,omitempty" yaml:"region,omitempty"`
+	// AccessKey / SecretKey are the static credential, both or neither.
+	//
+	// Neither means the AWS SDK's default chain — an EC2 instance role, in practice.
+	// That works on AWS and nowhere else: a VPS has no instance metadata, so on
+	// Cloud.ru, MWS or byo, omitting them is a silent fall-through to "no credentials"
+	// whose only symptom is certificates that never issue. SecretKey is a credential:
+	// write it as `${secret:...}`. Neither value reaches the rendered Caddyfile — both
+	// are delivered in the ingress env file (0600, over stdin) and referenced as
+	// `{$...}`, the same discipline as the EAB key above.
+	AccessKey string `json:"accessKey,omitempty" yaml:"accessKey,omitempty"`
+	SecretKey string `json:"secretKey,omitempty" yaml:"secretKey,omitempty"`
+	// Prefix is the key prefix inside the bucket. Defaults to `acme`.
+	//
+	// Worth setting when one bucket serves several fleets: two fleets sharing a prefix
+	// share locks and certificates, which is correct only if they also share every
+	// domain name.
+	Prefix string `json:"prefix,omitempty" yaml:"prefix,omitempty"`
+	// PathStyle selects path-style addressing (`<endpoint>/<bucket>/<key>`) over
+	// virtual-host style (`<bucket>.<endpoint>/<key>`). Defaults to TRUE whenever
+	// Endpoint is set and false otherwise.
+	//
+	// That default is the useful one: virtual-host addressing needs the bucket name to
+	// resolve as a DNS label under the endpoint, which minio does not serve at all and
+	// several S3-compatible clouds serve only for some bucket names. Real AWS prefers
+	// virtual-host. Set it explicitly to override.
+	PathStyle *bool `json:"pathStyle,omitempty" yaml:"pathStyle,omitempty"`
+	// Insecure disables TLS verification against the store. For a minio with a
+	// self-signed certificate, and nothing else — the credential and every private key
+	// the fleet owns travel over this connection. Prefer plain `http://` on a private
+	// network, which is at least honest about what it is.
+	Insecure bool `json:"insecure,omitempty" yaml:"insecure,omitempty"`
+	// EncryptionKey encrypts the stored objects with secretbox. Exactly 32 bytes when
+	// set; a credential, so write it as `${secret:...}`.
+	//
+	// Unset means the module logs `Clear text certificate storage active` and stores
+	// the fleet's private keys as they are. Acceptable when the bucket is private AND
+	// the cloud encrypts at rest; on a minio running on one of the fleet's own
+	// machines it is neither, so set it there.
+	EncryptionKey string `json:"encryptionKey,omitempty" yaml:"encryptionKey,omitempty"`
+}
+
+// AcmeStorageEnabled reports whether this resource has a shared certificate store.
+func (r *VmConfig) AcmeStorageEnabled() bool {
+	return r.IngressEnabled() && r.Ingress.AcmeStorage != nil && r.Ingress.AcmeStorage.Bucket != ""
+}
+
+// OriginTlsEnabled reports whether this machine's Caddy terminates TLS.
+//
+// Defaults to true on an unset field and on no ingress at all, so that every caller
+// reads "yes" for every resource that predates `ingress.originTls` — the flag only ever
+// turns behaviour off, never on. The parent stack exports the NEGATION of this for the
+// same reason (ToIngressNoOriginTlsExport): a child reading a parent that has never
+// heard of the field gets a zero bool, and the zero has to mean the old behaviour.
+func (r *VmConfig) OriginTlsEnabled() bool {
+	if !r.IngressEnabled() {
+		return true
+	}
+	return lo.FromPtrOr(r.Ingress.OriginTls, true)
+}
+
+// UsePathStyle resolves PathStyle's default: on whenever there is an endpoint.
+func (s *VmAcmeStorage) UsePathStyle() bool {
+	if s.PathStyle != nil {
+		return *s.PathStyle
+	}
+	return s.Endpoint != ""
+}
+
+// StoragePrefix resolves Prefix's default. Rendered explicitly rather than left to the
+// module, so the generated Caddyfile says where the fleet's certificates actually are.
+func (s *VmAcmeStorage) StoragePrefix() string {
+	if s.Prefix != "" {
+		return s.Prefix
+	}
+	return DefaultAcmeStoragePrefix
+}
+
+// StorageRegion resolves Region's default, which only applies when there is an endpoint
+// — validateIngress refuses an empty region without one.
+func (s *VmAcmeStorage) StorageRegion() string {
+	if s.Region != "" {
+		return s.Region
+	}
+	return DefaultAcmeStorageRegion
 }
 
 // VmHost is one machine the operator brought — the whole input of DriverByo.
@@ -449,12 +599,47 @@ func (r *VmConfig) validateIngress() error {
 	if !r.IngressEnabled() {
 		return nil
 	}
-	if r.Ingress.Email == "" {
-		return errors.Errorf("`ingress.enable: true` requires `ingress.email` (the ACME account address)")
-	}
 	if d := r.EffectiveIngressImageDelivery(); d != ImageDeliveryRegistry && d != ImageDeliverySshTar {
 		return errors.Errorf("unknown `ingress.imageDelivery` %q; one of: %s, %s",
 			d, ImageDeliveryRegistry, ImageDeliverySshTar)
+	}
+	if !r.OriginTlsEnabled() {
+		// Every ACME setting is refused rather than ignored, which is this file's
+		// standing rule and earns its keep here: an operator who sets `originTls:
+		// false` and leaves `acmeStorage` behind believes the fleet still holds a
+		// certificate, and would not find out otherwise until something in front of
+		// the machine went away. The remedy is one deleted line and the message names
+		// it.
+		//
+		// `email` is in the list because it has no other purpose on this path — it is
+		// the ACME account address and there is no ACME account.
+		for _, f := range []struct{ name, value string }{
+			{"email", r.Ingress.Email},
+			{"acmeCa", r.Ingress.AcmeCa},
+			{"acmeEabKeyId", r.Ingress.AcmeEabKeyID},
+			{"acmeEabMacKey", r.Ingress.AcmeEabMacKey},
+		} {
+			if f.value != "" {
+				return errors.Errorf(
+					"`ingress.%s` is set together with `ingress.originTls: false`: this machine serves plain "+
+						"HTTP and requests no certificate, so nothing would read it. Remove `ingress.%s`, or "+
+						"remove `originTls: false` and let Caddy terminate TLS itself", f.name, f.name,
+				)
+			}
+		}
+		if r.Ingress.AcmeStorage != nil {
+			return errors.Errorf(
+				"`ingress.acmeStorage` is set together with `ingress.originTls: false`: the shared store holds " +
+					"certificates and ACME challenge state, and this machine requests neither. These are the two " +
+					"alternative front doors for a fleet, not a pair — keep the store and drop `originTls: false` " +
+					"to serve HTTPS from the machines, or keep `originTls: false` and drop the store to serve " +
+					"plain HTTP behind an edge that terminates",
+			)
+		}
+		return nil
+	}
+	if r.Ingress.Email == "" {
+		return errors.Errorf("`ingress.enable: true` requires `ingress.email` (the ACME account address)")
 	}
 	if (r.Ingress.AcmeEabKeyID == "") != (r.Ingress.AcmeEabMacKey == "") {
 		return errors.Errorf(
@@ -467,6 +652,68 @@ func (r *VmConfig) validateIngress() error {
 		return errors.Errorf(
 			"`ingress.acmeEabKeyId` is set without `ingress.acmeCa`: External Account Binding is for a " +
 				"private or enterprise CA, and Let's Encrypt (the default) does not accept it",
+		)
+	}
+	return r.validateAcmeStorage()
+}
+
+// validateAcmeStorage checks the shared certificate store.
+//
+// Every refusal here replaces a failure that is otherwise invisible until a certificate
+// does not renew, which is weeks after the deploy that caused it and on a machine nobody
+// is watching. The store is only consulted on issuance and renewal, so a misconfigured
+// one serves perfectly from cache until it matters.
+func (r *VmConfig) validateAcmeStorage() error {
+	s := r.Ingress.AcmeStorage
+	if s == nil {
+		return nil
+	}
+	if s.Bucket == "" {
+		return errors.Errorf(
+			"`ingress.acmeStorage` is set without `bucket`: the shared certificate store needs a bucket " +
+				"that already exists (SC does not create it — see the field docs)",
+		)
+	}
+	if (s.AccessKey == "") != (s.SecretKey == "") {
+		return errors.Errorf(
+			"`ingress.acmeStorage.accessKey` and `.secretKey` must be set together: the module uses the " +
+				"static credential only when it has both, and otherwise falls through to the AWS SDK's " +
+				"default chain — which on a VPS finds nothing and presents as certificates that never issue",
+		)
+	}
+	if s.Endpoint == "" && s.Region == "" {
+		return errors.Errorf(
+			"`ingress.acmeStorage` has neither `endpoint` nor `region`: no endpoint means real AWS S3, "+
+				"where the wrong region is a failed request rather than a redirect. Set `region`, or set "+
+				"`endpoint` (then `region` defaults to %q, which S3-compatible stores ignore)",
+			DefaultAcmeStorageRegion,
+		)
+	}
+	if s.Endpoint != "" && !strings.HasPrefix(s.Endpoint, "http://") && !strings.HasPrefix(s.Endpoint, "https://") {
+		return errors.Errorf(
+			"`ingress.acmeStorage.endpoint` %q has no scheme: it is used as the SDK's base endpoint and "+
+				"must be a URL (`https://storage.yandexcloud.net`, `http://10.0.0.4:9000`)",
+			s.Endpoint,
+		)
+	}
+	if k := s.EncryptionKey; k != "" && len(k) != AcmeStorageEncryptionKeyLen {
+		// Checked here even though the module checks it too, because the module's
+		// check lands in two different places depending on how the value arrives, and
+		// SC always makes it arrive the harder way: a literal fails Caddyfile parsing
+		// (visible, the deploy fails), but SC delivers this through the env file as a
+		// `{$...}` placeholder, and a substituted wrong-length key reaches `Provision`
+		// — which returns an error that is only in `docker logs sc-caddy`.
+		return errors.Errorf(
+			"`ingress.acmeStorage.encryptionKey` is %d bytes; secretbox needs exactly %d. Leave it unset "+
+				"to store the fleet's private keys unencrypted (acceptable only when the bucket is private "+
+				"and the cloud encrypts at rest)",
+			len(k), AcmeStorageEncryptionKeyLen,
+		)
+	}
+	if s.Insecure && strings.HasPrefix(s.Endpoint, "http://") {
+		return errors.Errorf(
+			"`ingress.acmeStorage.insecure: true` with an `http://` endpoint: there is no TLS to skip " +
+				"verifying. Drop `insecure`",
 		)
 	}
 	return nil

@@ -66,6 +66,27 @@ func RenderCaddyfile(cfg *VmConfig) (string, error) {
 	b := &strings.Builder{}
 	b.WriteString(caddyGeneratedHeader)
 	b.WriteString("\n{\n")
+	if !cfg.OriginTlsEnabled() {
+		// `auto_https off` rather than relying on every site address carrying an
+		// explicit `http://`. Both would stop ACME today, and the scheme on the site
+		// address is what actually makes the port 80 listener happen — but this is a
+		// file an operator edits and a conf.d an operator drops files into, and one
+		// bare domain in one hand-written site block is otherwise enough to send the
+		// machine off to Let's Encrypt for a certificate it cannot validate. Off at
+		// the global level is the statement that this machine does no TLS, in the one
+		// place that cannot be contradicted from below.
+		//
+		// It also disables the HTTP→HTTPS redirect, which is the point: there is no
+		// HTTPS here to redirect to. The edge in front is what serves it.
+		fmt.Fprintf(b, "\t# `ingress.originTls: false` on this vm resource: something in front terminates TLS\n")
+		fmt.Fprintf(b, "\t# (Cloudflare's proxy, a load balancer), so this machine serves plain HTTP on :80,\n")
+		fmt.Fprintf(b, "\t# requests no certificate, and has no ACME account. Edge-to-origin is CLEARTEXT —\n")
+		fmt.Fprintf(b, "\t# the machine's firewall is what has to admit only the edge.\n")
+		b.WriteString("\tauto_https off\n")
+		b.WriteString("}\n\n")
+		writeCaddySnippets(b, snippets)
+		return b.String(), nil
+	}
 	fmt.Fprintf(b, "\temail %s\n", caddyToken(cfg.Ingress.Email))
 	if cfg.Ingress.AcmeCa != "" {
 		// An `acme_ca` that does not speak ACME, or is unreachable, presents as
@@ -80,8 +101,20 @@ func RenderCaddyfile(cfg *VmConfig) (string, error) {
 		// substituted by Caddy's own parser at load time.
 		fmt.Fprintf(b, "\tacme_eab {\n\t\tkey_id {$%s}\n\t\tmac_key {$%s}\n\t}\n", EnvAcmeEabKeyID, EnvAcmeEabMacKey)
 	}
+	if cfg.AcmeStorageEnabled() {
+		writeCaddyAcmeStorage(b, cfg.Ingress.AcmeStorage)
+	}
 	b.WriteString("}\n\n")
+	writeCaddySnippets(b, snippets)
+	return b.String(), nil
+}
 
+// writeCaddySnippets writes everything below the global options block: the inlined
+// snippet library and the conf.d import. Shared by both exits of RenderCaddyfile so the
+// no-origin-TLS machine cannot drift into having a different snippet set — a
+// `siteExtraHelpers` that resolves on one machine and not another is a 500 on one third
+// of a fleet's requests.
+func writeCaddySnippets(b *strings.Builder, snippets []byte) {
 	fmt.Fprintf(b, "# Shared snippet library, inlined from %s in the SC binary.\n",
 		"pkg/clouds/caddy/"+caddyassets.CaddyfilePath)
 	fmt.Fprintf(b, "# Identical to the one the Kubernetes edge serves, so `lbConfig.extraHelpers`\n")
@@ -91,7 +124,67 @@ func RenderCaddyfile(cfg *VmConfig) (string, error) {
 
 	fmt.Fprintf(b, "# One file per stack-env, each written by that stack's own deploy.\n")
 	fmt.Fprintf(b, "import %s/*.caddy\n", CaddyContainerConfigDir+"/conf.d")
-	return b.String(), nil
+}
+
+// writeCaddyAcmeStorage renders the global `storage s3` block — the thing that makes
+// origin HTTPS possible on a fleet at all, rather than a tuning knob.
+//
+// Module: github.com/techknowlogick/certmagic-s3, baked into simplecontainer/caddy and
+// gated by the image build's `caddy list-modules | grep -qE '^caddy\.storage\.s3$'`.
+// An SC binary newer than the image it names will render a block the image's Caddy
+// cannot parse, and Caddy answers that with a config-load failure at container start —
+// which is loud, and the correct way for that skew to present.
+//
+// Two rendering rules, both forced by the module's own parser (s3.go, UnmarshalCaddyfile):
+//
+//   - EVERY BOOLEAN CARRIES AN EXPLICIT VALUE. The parser reads each subdirective with
+//     `if !d.Args(&value) { continue }`, so a bare `use_path_style` is not an error and
+//     is not true — it is SILENTLY SKIPPED. A fleet on minio with a bare `use_path_style`
+//     would therefore address buckets virtual-host style, fail every request, and say
+//     nothing about why.
+//   - CREDENTIALS ARE `{$VAR}` PLACEHOLDERS, resolved by Caddy's parser at load time from
+//     the 0600 env file (RenderCaddyEnvFile). Same reasoning as `acme_eab` above: the
+//     Caddyfile is world-readable inside the container and is echoed by `caddy adapt`.
+//     They do not go through caddyToken, which would quote the braces into a literal.
+func writeCaddyAcmeStorage(b *strings.Builder, s *VmAcmeStorage) {
+	fmt.Fprintf(b, "\t# Shared certificate store — every machine of this fleet points at this one\n")
+	fmt.Fprintf(b, "\t# bucket. That is what lets HTTP-01 work behind N A records: certmagic keeps\n")
+	fmt.Fprintf(b, "\t# the challenge state in storage, so whichever machine the CA happens to dial\n")
+	fmt.Fprintf(b, "\t# can answer a token a sibling minted, and the fleet holds ONE certificate.\n")
+	fmt.Fprintf(b, "\t# If certificates never issue, read `docker logs %s` on every machine, not one.\n", CaddyContainer)
+	b.WriteString("\tstorage s3 {\n")
+	fmt.Fprintf(b, "\t\tbucket %s\n", caddyToken(s.Bucket))
+	if s.Endpoint != "" {
+		fmt.Fprintf(b, "\t\tendpoint %s\n", caddyToken(s.Endpoint))
+	}
+	fmt.Fprintf(b, "\t\tregion %s\n", caddyToken(s.StorageRegion()))
+	fmt.Fprintf(b, "\t\tprefix %s\n", caddyToken(s.StoragePrefix()))
+	// Always rendered, never bare: the effective default is SC's (true whenever a custom
+	// endpoint is set), not the module's, so writing it out is also the only way a reader
+	// of the generated file can tell which addressing style is in force.
+	fmt.Fprintf(b, "\t\tuse_path_style %t\n", s.UsePathStyle())
+	if s.Insecure {
+		fmt.Fprintf(b, "\t\t# TLS verification disabled on the vm resource (`ingress.acmeStorage.insecure`).\n")
+		b.WriteString("\t\tinsecure true\n")
+	}
+	if s.AccessKey != "" {
+		// Both or neither — validateAcmeStorage refuses one without the other, because
+		// the module only uses static credentials when both are set and otherwise falls
+		// through to the AWS default chain, which on a VPS finds nothing.
+		fmt.Fprintf(b, "\t\taccess_key {$%s}\n", EnvAcmeS3AccessKey)
+		fmt.Fprintf(b, "\t\tsecret_key {$%s}\n", EnvAcmeS3SecretKey)
+	}
+	if s.EncryptionKey != "" {
+		fmt.Fprintf(b, "\t\tencryption_key {$%s}\n", EnvAcmeS3EncryptionKey)
+	} else {
+		// The module logs `Clear text certificate storage active` on every start when
+		// this is absent. That is expected here and not a misconfiguration: the bucket
+		// is the operator's own and its contents are the fleet's own certificates.
+		fmt.Fprintf(b, "\t\t# No encryption_key: certificates are stored in clear text. Caddy says so\n")
+		fmt.Fprintf(b, "\t\t# on every start. Set `ingress.acmeStorage.encryptionKey` (exactly %d bytes)\n", AcmeStorageEncryptionKeyLen)
+		fmt.Fprintf(b, "\t\t# to encrypt them at rest.\n")
+	}
+	b.WriteString("\t}\n")
 }
 
 // RenderCaddyDefaultSite is the catch-all site, written once with the ingress.
@@ -176,6 +269,20 @@ func RenderCaddyEnvFile(cfg *VmConfig) string {
 	if cfg != nil && cfg.IngressEnabled() && cfg.Ingress.AcmeEabKeyID != "" {
 		fmt.Fprintf(b, "%s=%s\n", EnvAcmeEabKeyID, cfg.Ingress.AcmeEabKeyID)
 		fmt.Fprintf(b, "%s=%s\n", EnvAcmeEabMacKey, cfg.Ingress.AcmeEabMacKey)
+	}
+	if cfg != nil && cfg.AcmeStorageEnabled() {
+		s := cfg.Ingress.AcmeStorage
+		// Only when both are set: the `storage s3` block renders the two placeholders as
+		// a pair, and a placeholder with no value in this file expands to the empty
+		// string rather than failing — which would read as "the credential is wrong"
+		// instead of "the credential is missing".
+		if s.AccessKey != "" {
+			fmt.Fprintf(b, "%s=%s\n", EnvAcmeS3AccessKey, s.AccessKey)
+			fmt.Fprintf(b, "%s=%s\n", EnvAcmeS3SecretKey, s.SecretKey)
+		}
+		if s.EncryptionKey != "" {
+			fmt.Fprintf(b, "%s=%s\n", EnvAcmeS3EncryptionKey, s.EncryptionKey)
+		}
 	}
 	return b.String()
 }
@@ -330,8 +437,13 @@ func RenderCaddySite(in *VmComposeInput, opts RenderOptions) (string, error) {
 	proxy.WriteString("}")
 
 	imports := []string{"import gzip", "import handle_static"}
-	// Unconditional, unlike Kubernetes' `useSSL`. There is nothing in front of this
-	// Caddy, so it is the thing that terminates TLS and the site is always HTTPS —
+	// Kept even when this machine serves plain HTTP, unlike Kubernetes' `useSSL`.
+	// With origin TLS the reasoning is the obvious one: this Caddy terminates, so the
+	// site is HTTPS and HSTS is its own to send. Without it, the header still reaches
+	// the browser over the EDGE's TLS, where it is honoured and stops a downgrade —
+	// and on the pathological arrangement (no origin TLS and no edge either) a
+	// browser ignores HSTS received over cleartext, so it is inert rather than
+	// harmful. There is no case where dropping it is better.
 	// `lbConfig.https` describes what an external load balancer terminates and has
 	// nothing to answer here.
 	imports = append(imports, "import hsts")
@@ -340,7 +452,19 @@ func RenderCaddySite(in *VmComposeInput, opts RenderOptions) (string, error) {
 	b.WriteString(fmt.Sprintf(caddySiteHeader, opts.Stack, opts.Env, opts.Slot))
 	// The bare domain as the site address: Caddy's automatic HTTPS then provisions a
 	// certificate for it and redirects HTTP to HTTPS by itself.
-	fmt.Fprintf(b, "%s {\n", sc.Domain)
+	//
+	// `http://<domain>` instead when the resource sets `ingress.originTls: false`.
+	// The scheme is not decoration — it is what suppresses automatic HTTPS for this
+	// site and puts the listener on :80. The global block's `auto_https off` says the
+	// same thing for the machine; both are rendered, because this file is written by
+	// the stack's deploy and that one by the resource's provision, and a machine that
+	// has not been re-provisioned since the flag was set would otherwise go asking a
+	// CA for a certificate on behalf of a stack that cannot answer the challenge.
+	if opts.NoOriginTls {
+		fmt.Fprintf(b, "http://%s {\n", sc.Domain)
+	} else {
+		fmt.Fprintf(b, "%s {\n", sc.Domain)
+	}
 	if sc.Prefix == "" {
 		writeIndented(b, proxy.String(), "  ")
 		for _, imp := range imports {

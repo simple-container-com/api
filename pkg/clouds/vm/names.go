@@ -110,6 +110,31 @@ func CaddyDefaultSitePath() string {
 const (
 	EnvAcmeEabKeyID  = "SC_ACME_EAB_KEY_ID"
 	EnvAcmeEabMacKey = "SC_ACME_EAB_MAC_KEY"
+	// The shared certificate store's credential. SC_ACME_S3_ACCESS_KEY is not itself
+	// secret, but it goes through the env file with the other two so that the three
+	// lines of the `storage` block that carry credentials look the same in the
+	// generated Caddyfile — a reader should not have to know which of them is safe.
+	EnvAcmeS3AccessKey     = "SC_ACME_S3_ACCESS_KEY"
+	EnvAcmeS3SecretKey     = "SC_ACME_S3_SECRET_KEY"
+	EnvAcmeS3EncryptionKey = "SC_ACME_S3_ENCRYPTION_KEY"
+)
+
+// The shared certificate store's defaults, rendered explicitly rather than left to the
+// module so that the generated Caddyfile says where the certificates are.
+const (
+	// DefaultAcmeStoragePrefix matches certmagic-s3's own default. Named here because
+	// an operator reading one fleet's prefix needs to know what the other fleet
+	// sharing the bucket is using.
+	DefaultAcmeStoragePrefix = "acme"
+	// DefaultAcmeStorageRegion applies only when an endpoint is set, which means the
+	// store is not real AWS and conventionally ignores the region. validateIngress
+	// refuses an empty region when there is no endpoint.
+	DefaultAcmeStorageRegion = "us-east-1"
+	// AcmeStorageEncryptionKeyLen is secretbox's key size. certmagic-s3 rejects any
+	// other length — at Caddyfile PARSE time for a literal, and at Provision time for
+	// a value that arrived through a placeholder — so SC checks it while the operator
+	// is still looking at the config.
+	AcmeStorageEncryptionKeyLen = 32
 )
 
 // The two blue-green slots. A stack-env occupies one of them at a time; a deploy

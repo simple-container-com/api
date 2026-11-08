@@ -54,6 +54,16 @@ type RenderOptions struct {
 	// Caddy exists (P5.2) and for `ingress.enable: false` (§8.4); 0 publishes nothing
 	// and leaves the service reachable only over the docker network.
 	IngressHostPort int
+	// NoOriginTls renders the site on `http://` instead of on the bare domain,
+	// because `ingress.originTls: false` is set on the vm resource this stack deploys
+	// onto and the machine terminates no TLS.
+	//
+	// It arrives here as a field rather than being read off the vm config because
+	// RenderCaddySite is given the STACK's input and the flag belongs to the parent's
+	// resource; the deploy reads it out of the parent's exports and passes it down.
+	// Negative-named to match that export, where the zero value has to mean the
+	// behaviour every resource had before the field existed.
+	NoOriginTls bool
 }
 
 // RenderedCompose is what the deploy writes to the machine.

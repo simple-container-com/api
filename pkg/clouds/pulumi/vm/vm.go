@@ -162,6 +162,12 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 	}
 	ctx.Export(ToHostCountExport(input.Descriptor.Name), sdk.Int(len(hosts)))
 	ctx.Export(ToIngressEnabledExport(input.Descriptor.Name), sdk.Bool(cfg.IngressEnabled()))
+	// The NEGATION of cfg.OriginTlsEnabled(), and that is deliberate. A child stack
+	// deployed against a parent provisioned before this export existed reads a missing
+	// output as the zero value, so the zero has to be the old behaviour — and the old
+	// behaviour is that the machine terminates TLS. Exporting the positive sense would
+	// make every not-yet-re-provisioned fleet silently switch to plain HTTP.
+	ctx.Export(ToIngressNoOriginTlsExport(input.Descriptor.Name), sdk.Bool(!cfg.OriginTlsEnabled()))
 	// What SC actually opened, so a child stack can tell its operator that the host
 	// port it is about to publish is not reachable. Empty when SC does not manage
 	// this machine's firewall — the child must then say nothing rather than guess,
@@ -205,6 +211,10 @@ func ToHostKeyExport(vmName string, idx int) string {
 
 func ToIngressEnabledExport(vmName string) string {
 	return fmt.Sprintf("%s-vm-ingress-enabled", vmName)
+}
+
+func ToIngressNoOriginTlsExport(vmName string) string {
+	return fmt.Sprintf("%s-vm-ingress-no-origin-tls", vmName)
 }
 
 func ToOpenPortsExport(vmName string) string {
