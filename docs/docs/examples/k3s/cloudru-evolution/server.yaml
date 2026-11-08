@@ -58,9 +58,13 @@ templates:
       dockerRegistryUsername: ${secret:CLOUDRU_KEY_ID}
       dockerRegistryPassword: ${secret:CLOUDRU_KEY_SECRET}
 
-      # Optional, default true. `false` is the honest setting while you are still
-      # reaching the cluster on a node port and have no certificate.
-      useSSL: true
+      # Optional, default true. Whether connections from CLIENTS are HTTPS, whoever
+      # terminated them — it sends HSTS and gives Caddy the HTTP→HTTPS redirect.
+      # `false` is the honest setting while you are still reaching the cluster on a
+      # node port and have no certificate. It does NOT make the cluster serve TLS;
+      # `originTls` is that switch, and it is off unless stated. (`useSSL` was the old
+      # name for this field and still works.)
+      clientTls: true
 
 resources:
   resources:

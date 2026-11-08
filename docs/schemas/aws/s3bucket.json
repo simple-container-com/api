@@ -9,62 +9,76 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "baseDnsZone": {
-            "type": "string"
-          },
-          "corsConfig": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "allowedMethods": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "allowedOrigins": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "allowedOrigins"
-            ],
-            "type": "object"
-          },
-          "domain": {
-            "type": "string"
-          },
-          "errorDocument": {
-            "type": "string"
-          },
-          "indexDocument": {
-            "type": "string"
-          },
-          "provisionWwwDomain": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "baseDnsZone",
-          "domain",
-          "errorDocument",
-          "indexDocument",
-          "provisionWwwDomain"
-        ],
-        "type": "object"
+      "accessKey": {
+        "type": "string"
+      },
+      "account": {
+        "type": "string"
       },
       "allowOnlyHttps": {
         "type": "boolean"
       },
+      "baseDnsZone": {
+        "type": "string"
+      },
+      "corsConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "allowedMethods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "allowedOrigins": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowedOrigins"
+        ],
+        "type": "object"
+      },
+      "credentials": {
+        "type": "string"
+      },
+      "domain": {
+        "type": "string"
+      },
+      "errorDocument": {
+        "type": "string"
+      },
+      "indexDocument": {
+        "type": "string"
+      },
       "name": {
+        "type": "string"
+      },
+      "permissionsBoundary": {
+        "type": "string"
+      },
+      "provisionWwwDomain": {
+        "type": "boolean"
+      },
+      "region": {
+        "type": "string"
+      },
+      "secretAccessKey": {
         "type": "string"
       }
     },
     "required": [
-      "",
-      "allowOnlyHttps"
+      "accessKey",
+      "account",
+      "allowOnlyHttps",
+      "baseDnsZone",
+      "credentials",
+      "domain",
+      "errorDocument",
+      "indexDocument",
+      "provisionWwwDomain",
+      "region",
+      "secretAccessKey"
     ],
     "type": "object"
   }

@@ -39,9 +39,25 @@ templates:
       dockerRegistryURL: registry.example.ru/mycompany
       dockerRegistryUsername: ${secret:RU_REGISTRY_USERNAME}
       dockerRegistryPassword: ${secret:RU_REGISTRY_PASSWORD}
-      # Optional. `useSSL: false` is the honest setting while you are still reaching the
-      # cluster on a host port and have no certificate.
-      useSSL: true
+      # Optional. Whether connections from CLIENTS are HTTPS, whoever terminated them.
+      # It adds `import hsts` to the generated site entry and hands Caddy the
+      # HTTP→HTTPS redirect. `clientTls: false` is the honest setting while you are
+      # still reaching the cluster on a host port with no certificate.
+      #
+      # It does NOT make the cluster serve TLS — see `originTls` below. The old spelling
+      # of this field was `useSSL`, which read as if it did; `useSSL` still works and
+      # means exactly this.
+      clientTls: true
+      # Optional, and OFF unless stated. Whether this edge TERMINATES TLS itself: the
+      # generated Caddy site address becomes `https://<domain>`, which is what arms
+      # Caddy's automatic HTTPS and therefore ACME. Leave it unset when something in
+      # front terminates — Cloudflare's proxy, or a cloud load balancer — which is the
+      # usual arrangement. A single stack can still override this in its own
+      # client.yaml with `lbConfig.originTls`.
+      #
+      # Not the same field as the `vm` resource's `ingress.originTls` below, which
+      # answers the same question for a machine's own Caddy and defaults ON.
+      # originTls: true
 
 resources:
   resources:

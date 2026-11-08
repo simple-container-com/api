@@ -7,7 +7,7 @@
       "type": "cloudextras",
       "provider": "aws",
       "description": "AWS-specific cloudExtras configuration for Simple Container deployments including Lambda scheduling, security groups, and load balancer settings",
-      "goPackage": "pkg/clouds/aws/",
+      "goPackage": "github.com/simple-container-com/sc-plugin-aws/api",
       "goStruct": "CloudExtras",
       "resourceType": "aws-cloudextras",
       "schema": {}
@@ -50,6 +50,36 @@
       "goPackage": "pkg/clouds/aws/",
       "goStruct": "MysqlConfig",
       "resourceType": "aws-rds-mysql",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS pluginfield configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "aws",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "aws",
+      "description": "AWS pluginfield configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "aws-kms",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "provisioner",
+      "provider": "aws",
+      "description": "AWS secrets management configuration",
+      "goPackage": "pkg/clouds/aws/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "aws-secrets-manager",
       "schema": {}
     },
     {

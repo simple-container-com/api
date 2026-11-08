@@ -116,6 +116,30 @@ func stackConfigFacts(cfg *api.StackConfigCompose) (domain, ephemeralSize string
 	return cfg.Domain, ephemeralSize
 }
 
+// resolveEdgeOriginTls answers the edge-wide origin-TLS default: whether the cluster's
+// shared Caddy terminates TLS for the sites it serves, for stacks whose own `lbConfig`
+// says nothing.
+//
+// The caddy RESOURCE wins over the cloudrun TEMPLATE, because the edge is the thing that
+// terminates and the template only says how stacks reach it; in practice an operator sets
+// one or the other, never both.
+//
+// nil means "no edge-wide default", which leaves every stack's `lbConfig` deciding on its
+// own exactly as it did before this field existed — which is why unset must stay
+// distinguishable from false all the way down. Pulled out of KubeRunWithProvider so the
+// precedence is assertable; it is the kind of rule that inverts silently and then costs a
+// certificate nobody asked for, or none where one was expected.
+func resolveEdgeOriginTls(caddyConfig *k8s.CaddyConfig, in *k8s.KubeRunInput) *bool {
+	caddyCfg := lo.FromPtrOr(caddyConfig, k8s.CaddyConfig{})
+	if fromCaddy := caddyCfg.OriginTlsDefault(); fromCaddy != nil {
+		return fromCaddy
+	}
+	if in == nil {
+		return nil
+	}
+	return in.OriginTlsDefault()
+}
+
 func KubeRun(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != k8s.TemplateTypeKubernetesCloudrun {
 		return nil, errors.Errorf("unsupported template type %q", input.Descriptor.Type)
@@ -219,7 +243,12 @@ func KubeRunWithProvider(
 		return nil, errors.Errorf("caddy is configured to use prefixes, but domain for service is specified")
 	}
 
-	useSSL := kubeRunInput.UseSSL == nil || *kubeRunInput.UseSSL
+	if err := kubeRunInput.ValidateTls(); err != nil {
+		return nil, err
+	}
+	useSSL := kubeRunInput.ClientTlsEnabled()
+
+	originTlsDefault := resolveEdgeOriginTls(caddyConfig, kubeRunInput)
 
 	kubeconfig := kubeRunInput.Kubeconfig
 
@@ -252,6 +281,7 @@ func KubeRunWithProvider(
 		Input:                  input,
 		Deployment:             kubeRunInput.Deployment,
 		UseSSL:                 useSSL,
+		OriginTls:              originTlsDefault,
 		Images:                 images,
 		Params:                 params,
 		KubeProvider:           params.Provider,

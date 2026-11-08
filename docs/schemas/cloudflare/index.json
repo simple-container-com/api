@@ -3,13 +3,23 @@
   "provider": "cloudflare",
   "resources": [
     {
-      "name": "RegistrarConfig",
+      "name": "PluginFieldConfig",
       "type": "resource",
       "provider": "cloudflare",
-      "description": "Cloudflare registrar configuration",
+      "description": "Cloudflare pluginfield configuration",
       "goPackage": "pkg/clouds/cloudflare/",
-      "goStruct": "RegistrarConfig",
+      "goStruct": "PluginFieldConfig",
       "resourceType": "cloudflare",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "template",
+      "provider": "cloudflare",
+      "description": "Cloudflare deployment template configuration",
+      "goPackage": "pkg/clouds/cloudflare/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "cloudflare-static-website",
       "schema": {}
     }
   ]

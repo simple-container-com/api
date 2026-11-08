@@ -9,22 +9,31 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "kubeconfig": {
-            "type": "string"
-          }
+      "kubeconfig": {
+        "type": "string"
+      },
+      "namespace": {
+        "type": "string"
+      },
+      "operatorNamespace": {
+        "type": "string"
+      },
+      "values": {
+        "additionalProperties": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "object",
+            "array",
+            "null"
+          ]
         },
-        "required": [
-          "kubeconfig"
-        ],
         "type": "object"
       }
     },
     "required": [
-      "",
-      ""
+      "kubeconfig"
     ],
     "type": "object"
   }

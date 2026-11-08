@@ -3,7 +3,7 @@
   "type": "cloudextras",
   "provider": "aws",
   "description": "AWS-specific cloudExtras configuration for Simple Container deployments including Lambda scheduling, security groups, and load balancer settings",
-  "goPackage": "pkg/clouds/aws/",
+  "goPackage": "github.com/simple-container-com/sc-plugin-aws/api",
   "goStruct": "CloudExtras",
   "resourceType": "aws-cloudextras",
   "schema": {
@@ -14,6 +14,21 @@
           "type": "string"
         },
         "type": "array"
+      },
+      "containerSecrets": {
+        "additionalProperties": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "type": "object"
+      },
+      "disablePublicIPWithStaticEgress": {
+        "type": "boolean"
+      },
+      "enableHTTPS": {
+        "type": "boolean"
       },
       "lambdaInvokeMode": {
         "type": "string"
@@ -62,8 +77,17 @@
         },
         "type": "array"
       },
+      "leastPrivilegeRoles": {
+        "type": "boolean"
+      },
       "loadBalancerType": {
         "type": "string"
+      },
+      "nlbSecurityGroups": {
+        "type": "boolean"
+      },
+      "restrictTaskIngress": {
+        "type": "boolean"
       },
       "secretsBundle": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

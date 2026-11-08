@@ -787,6 +787,188 @@ Generalisable rule: **a helper that doesn't call `RegisterResource`
 cannot order work via `ResourceOption`s. Order via output
 dependencies on its inputs, or make the helper register a resource.**
 
+### 6.9 A `fmt.Sprintf`-built shell string executes as a shell
+
+Sibling trap to §6.7 and §6.8, in the shell domain. A plugin that
+generates a remote script — an init container, a `sh -c` Job, a
+cloud-init payload, a `psql -c` wrapping an identifier — is building
+a program that will be interpreted by a shell (and sometimes a
+second interpreter inside it, like psql or bash). Every character
+operator-controlled values pass through is live in that interpreter's
+grammar, not just the ones you were thinking about.
+
+Two concrete shapes that pass `sh -n` and every substring assertion
+yet execute unsafely:
+
+**(a) A backtick inside a double-quoted sh string is command
+substitution.** Writing:
+
+```go
+msg := fmt.Sprintf(`echo "run \`docker network create %s\`"`, netName)
+```
+
+— means `echo` fires `docker network create <netName>` BEFORE
+printing the message. Found live inside an error-handling path (the
+message existed because the command had already failed), so running
+it a second time compounded the state problem the operator had.
+
+**(b) Operator-supplied values reaching prose, not just command
+arguments.** Shell-quoting an argument for `sudo` doesn't help if
+the same value is also interpolated raw into an `echo` message:
+
+```go
+cmds := fmt.Sprintf(`
+    sudo useradd -m '%s'
+    echo "created user %s"
+`, user, user)
+```
+
+— the first line is safe (single-quoted argument, operator can't
+escape), the second is not (`"..."` keeps `$` and backtick live).
+A user name like `foo$(rm -rf /)` runs the subcommand on the second
+line.
+
+Rules:
+
+- **Treat EVERY interpolation point as a shell injection.** Not just
+  the ones that reach `exec` or `sudo` — `echo`, `printf`, SQL
+  identifiers, container names, labels. `$` and backtick are live in
+  more places than a reader expects.
+- **For prose messages, use `printf` with the message as a format
+  string argument**, not interpolation into the string itself.
+  `printf '%s\n' "$MSG"` is the shape; the message's `$`s and
+  backticks are now data, not code.
+- **Shell-quote at the boundary.** Go's standard library has no
+  single-source-of-truth shell quoter, but
+  `"'" + strings.ReplaceAll(v, "'", `'\''`) + "'"` is the inline
+  form for POSIX sh; wrap this in a helper and use it on every
+  operator-controlled interpolation.
+
+**How to test it:** don't assert on the generated script text —
+`sh -n` catches syntax errors, substring matches catch presence,
+and neither catches a hostile value being substituted correctly or
+incorrectly. **Execute the generated script against stubbed binaries
+on an empty `PATH`.** The stubs record their invocations; the test
+asserts on those recordings. A value that escapes correctly reaches
+the stub as one argument; a value that escapes incorrectly reaches
+as two, or triggers a subcommand that the stub doesn't exist to
+answer, or fires an unrelated stub earlier in the script than
+intended. Only a shell can distinguish those; only the recording
+sees the difference.
+
+The reference pattern lives on `feat/caddy-edge-batch` in
+`pkg/clouds/pulumi/vm/compose_scripts_test.go` (`runEnsureNetwork`)
+and `pkg/clouds/vm/cloudinit_test.go` (`runByoDockerInstall`). SHAs
+may move under rebase; the branch name is the stable citation. The
+shape in both: `PATH=<stub-dir-only> sh -c <generated-script>` with
+stubs that log `$0 $*` to a file.
+
+Live-caught during the Caddy-edge batch (2026-11-08): both shapes
+shipped in the same commit, both caught by the executing tests
+before merge. The backtick-in-echo was an error-hint message that
+would have *fired the failing command a second time*; the
+raw-operator-value-in-echo was a `useradd` login whose name was
+quoted correctly for the `sudo` lines but interpolated bare into
+two `echo` lines. The executing test caught both.
+
+### 6.10 Write PR numbers, not per-commit SHAs, into roadmap items
+
+Two separate traps combine to make per-commit SHAs an unreliable
+"did this ship" handle in this repo.
+
+**Trap 1: committing onto an already-merged branch is completely
+silent.** `git push` reports success, the branch exists on origin,
+the GitHub UI shows no open PR to notice. If the PR was merged while
+you were writing the commit, your work exists on the branch alone,
+reachable from `origin/<branch>` and nowhere else — in particular,
+not from `origin/main`.
+
+Found live 2026-11-08: `ee4afc84`, the `isPulumiOutputSet` fix
+recorded as "merged with api#563", was committed onto
+`feat/vm-multi-host-roles` 13 minutes AFTER #563 merged. No open PR,
+no visible failure, correct-looking SHA in the roadmap row.
+Discovered only because an independent re-derivation of the same
+fix hit a reviewer and the two attributions contradicted each
+other.
+
+**Trap 2: api squash-merges.** A multi-commit PR lands as one new
+commit on main with subject `(#NNN)` — the pre-merge per-commit SHAs
+you recorded (either pre-rebase or post-rebase) are unreachable from
+`main` the moment it merges. Verified empirically 2026-11-08:
+`gh pr view 573 --json commits,mergeCommit` returned 5 commits in
+`commits[]` and a single `mergeCommit.oid`, with `git log --graph
+origin/main` showing a linear history of `(#NNN)` subjects. A
+nine-commit PR lands as **one** commit.
+
+**The two traps answer the same question with opposite semantics.**
+`git merge-base --is-ancestor <sha> origin/main` says "no" for both
+a stranded commit (ee4afc84 — the trap) and a squashed-merged commit
+(any pre-merge SHA, including ones that shipped perfectly). The
+check tells you the SHA is useless, not whether the code is there.
+
+**The durable handle is the PR number.**
+
+The two-second check:
+
+```sh
+gh pr view NNN --repo <owner>/<repo> --json state,mergeCommit
+```
+
+- `state: MERGED` + a non-null `mergeCommit.oid` → the work shipped,
+  and the squash-merge SHA is the one and only commit on main that
+  carries it.
+- `state: OPEN` → not shipped yet; a per-commit SHA on the branch
+  may be real work-in-progress but won't survive the eventual merge.
+- `state: CLOSED` without a mergeCommit → the PR was closed without
+  merging. Any commits on that branch are unreachable from main.
+
+**If you only have a SHA, not a PR number**, don't reach for
+`gh pr list --search <sha>` — that command searches PR **text**
+(title, description, comments), so it matches whichever PR
+*mentioned* the SHA in a comment, not necessarily the one that
+*contained* it. Verified empirically 2026-11-08: searching three
+different SHAs returned the same PR number for all three because
+that PR's description happened to reference them.
+
+The correct lookup is:
+
+```sh
+gh api repos/<owner>/<repo>/commits/<sha>/pulls
+```
+
+It returns the PR that actually contained the commit even after the
+squash. One alarming-looking detail that isn't a bug: this endpoint
+reports a *merged* PR as `state: closed`. The GitHub API doesn't have
+a `merged` state; it's `state: closed` + `merged: true` + a non-null
+`merged_at`. Read those together.
+
+Run the check before writing "merged" or a SHA into:
+
+- a roadmap item's `## Status` or `## History` section,
+- a commit message that references another commit as shipped,
+- any SendMessage or peer coordination that cites a SHA.
+
+Write the PR number in the item (`PR #573 merged`), not the SHA. If
+you need to cite a specific change, cite it by PR + subject (`PR
+#573's LoadForBackend variant`) rather than SHA. The PR number
+survives rebase, squash-merge, and the entire failure surface
+above.
+
+**Why `git merge-base --is-ancestor` still has a use.** For *your
+own in-flight commits* on a branch whose PR is still open, the
+check answers "did my latest work reach my own branch on origin".
+That's the `gh pr list --head <branch> --state open` equivalent —
+useful for "did I remember to push". Just don't confuse "reachable
+from origin/<branch>" with "shipped".
+
+**The failure mode that justifies the two seconds.** Every other
+section in this chapter says "live-caught <SHA>, 2026-MM-DD" when
+the citation predates squash-merge or when the author checked
+`git merge-base`. A future reader cross-references those SHAs and
+sees "not found on main" for a legitimate merge, concludes the fix
+was reverted, and re-derives it — the same failure mode the
+`ee4afc84` discovery caught, but from the opposite direction.
+
 ---
 
 ## 7. Prior art

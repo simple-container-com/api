@@ -9,20 +9,11 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "credentials": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "credentials"
-        ],
-        "type": "object"
-      },
       "allowUnverifiedProvider": {
         "type": "boolean"
+      },
+      "credentials": {
+        "type": "string"
       },
       "extraSshKeys": {
         "items": {
@@ -46,10 +37,16 @@
             "port": {
               "type": "integer"
             },
+            "privateAddress": {
+              "type": "string"
+            },
             "privateKey": {
               "type": "string"
             },
             "privateKeyPassword": {
+              "type": "string"
+            },
+            "role": {
               "type": "string"
             },
             "user": {
@@ -78,6 +75,42 @@
           "acmeEabMacKey": {
             "type": "string"
           },
+          "acmeStorage": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "accessKey": {
+                "type": "string"
+              },
+              "bucket": {
+                "type": "string"
+              },
+              "encryptionKey": {
+                "type": "string"
+              },
+              "endpoint": {
+                "type": "string"
+              },
+              "insecure": {
+                "type": "boolean"
+              },
+              "pathStyle": {
+                "type": "boolean"
+              },
+              "prefix": {
+                "type": "string"
+              },
+              "region": {
+                "type": "string"
+              },
+              "secretKey": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "bucket"
+            ],
+            "type": "object"
+          },
           "email": {
             "type": "string"
           },
@@ -89,6 +122,9 @@
           },
           "imageDelivery": {
             "type": "string"
+          },
+          "originTls": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -133,6 +169,9 @@
         },
         "required": [],
         "type": "object"
+      },
+      "nodes": {
+        "type": "integer"
       },
       "packageMirror": {
         "type": "string"
@@ -182,7 +221,7 @@
       }
     },
     "required": [
-      "",
+      "credentials",
       "provider"
     ],
     "type": "object"

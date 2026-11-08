@@ -124,6 +124,30 @@ func TestToVmComposeConfigRefusals(t *testing.T) {
 			},
 			msg: "there is no cluster",
 		},
+		{
+			// Per-site origin TLS is a Kubernetes-edge concept: one shared Caddy
+			// serves many stacks, so each can be fronted differently. A machine has
+			// one Caddy and it IS the front door, so the switch is a property of the
+			// machine and lives on the vm resource. Accepted-and-ignored here would
+			// read to the operator as "this stack's origin TLS is off" while the
+			// machine carried on serving HTTPS for it.
+			name: "lbConfig.originTls belongs to the vm resource",
+			stackCfg: &api.StackConfigCompose{
+				Runs:     []string{"backend"},
+				LBConfig: &api.SimpleContainerLBConfig{OriginTls: lo.ToPtr(false)},
+			},
+			msg: "`ingress.originTls`",
+		},
+		{
+			// True is refused for the same reason as false: the stack is not where
+			// the answer lives, whichever answer it is.
+			name: "lbConfig.originTls true is refused too",
+			stackCfg: &api.StackConfigCompose{
+				Runs:     []string{"backend"},
+				LBConfig: &api.SimpleContainerLBConfig{OriginTls: lo.ToPtr(true)},
+			},
+			msg: "not applicable to the",
+		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := ToVmComposeConfig(testTemplate(), readTestCompose(t), tt.stackCfg)
@@ -154,6 +178,24 @@ func TestToVmComposeConfigWarnings(t *testing.T) {
 	Expect(warnings).To(ContainElement(ContainSubstring("`imagePullPolicy: Always` is ignored")))
 	Expect(warnings).To(ContainElement(ContainSubstring("`cloudExtras` is ignored")))
 	Expect(warnings).To(ContainElement(ContainSubstring("`alerts` is not wired")))
+}
+
+// The other half of the `lbConfig.originTls` refusal: an `lbConfig` that sets anything
+// else is still accepted untouched. `siteExtraHelpers` on a vm stack is documented
+// (docs/examples/vm-compose/byo-host/server.yaml) and `https` is the deprecated spelling
+// of a field that is refused here — so a stack carrying either must not start failing.
+func TestToVmComposeConfigAcceptsLbConfigWithoutOriginTls(t *testing.T) {
+	RegisterTestingT(t)
+
+	_, err := ToVmComposeConfig(testTemplate(), readTestCompose(t), &api.StackConfigCompose{
+		Runs: []string{"backend"},
+		LBConfig: &api.SimpleContainerLBConfig{
+			Https:             true,
+			SiteExtraHelpers:  []string{"import gzip"},
+			RequestBufferSize: "4MiB",
+		},
+	})
+	Expect(err).ToNot(HaveOccurred())
 }
 
 // `scale.max > 1` used to be refused outright, on the reasoning that one machine runs

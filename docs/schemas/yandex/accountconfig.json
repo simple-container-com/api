@@ -9,22 +9,13 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "credentials": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "credentials"
-        ],
-        "type": "object"
-      },
       "accessKey": {
         "type": "string"
       },
       "cloudId": {
+        "type": "string"
+      },
+      "credentials": {
         "type": "string"
       },
       "folderId": {
@@ -44,8 +35,8 @@
       }
     },
     "required": [
-      "",
       "cloudId",
+      "credentials",
       "folderId"
     ],
     "type": "object"

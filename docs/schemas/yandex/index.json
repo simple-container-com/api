@@ -23,6 +23,36 @@
       "schema": {}
     },
     {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX pluginfield configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "yandex",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX pluginfield configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "yc-kms",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX pluginfield configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "yc-object-storage",
+      "schema": {}
+    },
+    {
       "name": "RegistrarConfig",
       "type": "resource",
       "provider": "yandex",
@@ -63,6 +93,16 @@
       "schema": {}
     },
     {
+      "name": "StaticWebsiteTemplateConfig",
+      "type": "template",
+      "provider": "yandex",
+      "description": "YANDEX deployment template configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "StaticWebsiteTemplateConfig",
+      "resourceType": "yc-static-website",
+      "schema": {}
+    },
+    {
       "name": "TemplateConfig",
       "type": "template",
       "provider": "yandex",
@@ -71,6 +111,16 @@
       "goStruct": "TemplateConfig",
       "resourceType": "yc-serverless-container",
       "templateType": "yc-serverless-container",
+      "schema": {}
+    },
+    {
+      "name": "WildcardCertConfig",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX wildcardcert configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "WildcardCertConfig",
+      "resourceType": "yc-wildcard-cert",
       "schema": {}
     },
     {

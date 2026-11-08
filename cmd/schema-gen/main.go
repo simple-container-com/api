@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 
@@ -692,6 +693,19 @@ func (sg *SchemaGenerator) generateJSONSchema(t reflect.Type) map[string]interfa
 			return fields[i].field.Name < fields[j].field.Name
 		})
 
+		// An inline struct contributes its fields to THIS object, so its schema is
+		// MERGED rather than nested. `,inline` splits to the empty string, so until
+		// this was handled every inline field landed under the single property key ""
+		// and each one overwrote the last: k8s.CloudrunTemplate inlines three structs
+		// and its published schema described one of them, silently losing
+		// `dockerRegistryURL`. `required` also grew one empty-string entry per field.
+		//
+		// Direct fields are written FIRST and inline ones never overwrite them,
+		// because an outer field shadows a promoted one in Go and the schema must
+		// agree. Doing it in two passes rather than one is what makes that true
+		// regardless of how the embedded type's name happens to sort.
+		var inlined []reflect.StructField
+
 		for _, fieldInfo := range fields {
 			field := fieldInfo.field
 
@@ -717,6 +731,16 @@ func (sg *SchemaGenerator) generateJSONSchema(t reflect.Type) map[string]interfa
 				continue
 			}
 
+			// Covers the NAMED inline case too (api.StackConfigStatic's `Site
+			// StaticSiteConfig` with `yaml:",inline"`): yaml.v3 inlines a named field
+			// tagged that way, and the yaml shape is what these schemas describe. The
+			// `fieldName == ""` test alone would also catch a plain `json:",omitempty"`,
+			// which is not an inline field, hence the explicit test for the tag.
+			if fieldName == "" && (field.Anonymous || strings.Contains(jsonTag, "inline") || strings.Contains(yamlTag, "inline")) {
+				inlined = append(inlined, field)
+				continue
+			}
+
 			// Generate property schema
 			propSchema := sg.generatePropertySchema(field.Type, field.Tag)
 			properties[fieldName] = propSchema
@@ -727,12 +751,25 @@ func (sg *SchemaGenerator) generateJSONSchema(t reflect.Type) map[string]interfa
 				schema["required"] = append(required, fieldName)
 			}
 		}
+
+		for _, field := range inlined {
+			sub := sg.generateJSONSchema(field.Type)
+			for name, prop := range sub["properties"].(map[string]interface{}) {
+				if _, shadowed := properties[name]; !shadowed {
+					properties[name] = prop
+				}
+			}
+			if subRequired, ok := sub["required"].([]string); ok && len(subRequired) > 0 {
+				schema["required"] = append(schema["required"].([]string), subRequired...)
+			}
+		}
 	}
 
-	// Sort the required fields for consistent ordering
+	// Sort the required fields for consistent ordering, and drop duplicates: a merged
+	// inline embed can name a field the outer struct also requires.
 	if required, ok := schema["required"].([]string); ok {
 		sort.Strings(required)
-		schema["required"] = required
+		schema["required"] = slices.Compact(required)
 	}
 
 	return schema

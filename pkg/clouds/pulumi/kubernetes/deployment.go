@@ -46,12 +46,20 @@ type Args struct {
 	SecretEnvs             map[string]string
 	ImagePullSecret        *docker.RegistryCredentials
 	ProvisionIngress       bool
-	UseSSL                 bool
-	VPA                    *k8s.VPAConfig     // Vertical Pod Autoscaler configuration
-	ReadinessProbe         *k8s.CloudRunProbe // Global readiness probe configuration
-	LivenessProbe          *k8s.CloudRunProbe // Global liveness probe configuration
-	StartupProbe           *k8s.CloudRunProbe // Global startup probe configuration
-	EphemeralSize          string
+	// UseSSL is the resolved `clientTls` (formerly `useSSL`): send HSTS and let
+	// Caddy own the HTTP→HTTPS redirect. It does NOT make the edge serve TLS —
+	// OriginTls below is that decision. The Go name is kept because plugins
+	// construct this struct (sc-plugin-gcp's gke_autopilot_stack.go does).
+	UseSSL bool
+	// OriginTls is the edge-wide default for whether the edge terminates TLS,
+	// consulted only when the stack's own `lbConfig` says nothing. nil means the
+	// edge states no default and the stack decides alone.
+	OriginTls      *bool
+	VPA            *k8s.VPAConfig     // Vertical Pod Autoscaler configuration
+	ReadinessProbe *k8s.CloudRunProbe // Global readiness probe configuration
+	LivenessProbe  *k8s.CloudRunProbe // Global liveness probe configuration
+	StartupProbe   *k8s.CloudRunProbe // Global startup probe configuration
+	EphemeralSize  string
 	// TerminationGracePeriodSeconds overrides pod-level terminationGracePeriodSeconds.
 	TerminationGracePeriodSeconds *int
 	// PreStopSleepSeconds injects a preStop exec sleep on all containers, allowing LB drain before SIGTERM.
@@ -261,6 +269,7 @@ func DeploySimpleContainer(ctx *sdk.Context, args Args, opts ...sdk.ResourceOpti
 		ServiceType:               args.ServiceType,
 		ExternalTrafficPolicy:     args.ExternalTrafficPolicy,
 		UseSSL:                    args.UseSSL,
+		OriginTls:                 args.OriginTls,
 		ProvisionIngress:          args.ProvisionIngress,
 		Namespace:                 namespace,
 		Service:                   deploymentName,

@@ -13,6 +13,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/clouds/compose"
 	"github.com/simple-container-com/api/pkg/clouds/docker"
+	"github.com/simple-container-com/api/pkg/clouds/k8s"
 )
 
 func TestK3sCloudrunTemplateValidate(t *testing.T) {
@@ -53,6 +54,42 @@ func TestK3sCloudrunTemplateValidate(t *testing.T) {
 				RegistryCredentials: docker.RegistryCredentials{DockerRegistryURL: lo.ToPtr("")},
 			},
 			wantErr: "`dockerRegistryURL` must be specified",
+		},
+		{
+			// Both spellings of the same switch, disagreeing. Refused here rather
+			// than resolved by precedence: whichever way a tie-break went, half the
+			// operators who wrote this would be wrong about their edge.
+			name: "clientTls contradicts the deprecated useSSL",
+			tpl: K3sCloudrunTemplate{
+				K3sClusterResource: "ru-cluster",
+				RegistryCredentials: docker.RegistryCredentials{
+					DockerRegistryURL: lo.ToPtr("registry.example.ru/forge"),
+				},
+				TlsConfig: k8s.TlsConfig{ClientTls: lo.ToPtr(false), UseSSL: lo.ToPtr(true)},
+			},
+			wantErr: "`clientTls: false` contradicts `useSSL: true`",
+		},
+		{
+			// Agreeing spellings are not a contradiction — an operator mid-migration
+			// will have both for a while.
+			name: "clientTls agreeing with useSSL is fine",
+			tpl: K3sCloudrunTemplate{
+				K3sClusterResource: "ru-cluster",
+				RegistryCredentials: docker.RegistryCredentials{
+					DockerRegistryURL: lo.ToPtr("registry.example.ru/forge"),
+				},
+				TlsConfig: k8s.TlsConfig{ClientTls: lo.ToPtr(true), UseSSL: lo.ToPtr(true)},
+			},
+		},
+		{
+			name: "originTls alone is fine",
+			tpl: K3sCloudrunTemplate{
+				K3sClusterResource: "ru-cluster",
+				RegistryCredentials: docker.RegistryCredentials{
+					DockerRegistryURL: lo.ToPtr("registry.example.ru/forge"),
+				},
+				TlsConfig: k8s.TlsConfig{OriginTls: lo.ToPtr(true)},
+			},
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -106,7 +143,15 @@ func TestToK3sCloudrunConfigDelegatesToTheK8sConverter(t *testing.T) {
 			DockerRegistryPassword: lo.ToPtr("pwd"),
 		},
 		CaddyResource: lo.ToPtr("caddy"),
-		UseSSL:        lo.ToPtr(true),
+		// All three switches, because ToK3sCloudrunConfig synthesises a
+		// k8s.CloudrunTemplate field by field — anything it forgets to copy is
+		// silently dropped on this path only, and silently means "the edge was
+		// never configured".
+		TlsConfig: k8s.TlsConfig{
+			UseSSL:    lo.ToPtr(true),
+			ClientTls: lo.ToPtr(true),
+			OriginTls: lo.ToPtr(true),
+		},
 	}
 	composeCfg := compose.Config{
 		Project: &types.Project{
@@ -137,7 +182,14 @@ func TestToK3sCloudrunConfigDelegatesToTheK8sConverter(t *testing.T) {
 	Expect(lo.FromPtr(in.DockerRegistryURL)).To(Equal("registry.example.ru/forge"))
 	Expect(in.RegistryRequiresAuth()).To(BeTrue())
 	Expect(lo.FromPtr(in.CaddyResource)).To(Equal("caddy"))
+	// `in.UseSSL` is promoted through the embedded k8s.TlsConfig and still reads the
+	// same as when it was a direct field — the proof that moving it inline did not
+	// break the Go call sites any more than it broke the yaml.
 	Expect(lo.FromPtr(in.UseSSL)).To(BeTrue())
+	Expect(lo.FromPtr(in.ClientTls)).To(BeTrue())
+	Expect(lo.FromPtr(in.OriginTls)).To(BeTrue())
+	Expect(in.ClientTlsEnabled()).To(BeTrue())
+	Expect(lo.FromPtr(in.OriginTlsDefault())).To(BeTrue())
 	// And the k8s converter's own work is present — containers were mapped.
 	Expect(in.Deployment.Containers).NotTo(BeEmpty())
 	Expect(in.Deployment.StackConfig).NotTo(BeNil())

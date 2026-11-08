@@ -96,7 +96,18 @@ references the one below it **by name**, which is the split `gcp-gke-autopilot` 
 |---|---|---|
 | `provider`, `hosts`/`credentials`, `sshUser` | `vmResource` | `k3sClusterResource` |
 | `region`, `zones`, `image`, `size` | `version`, `endpoint`, `tlsSans` | `dockerRegistryURL` / username / password |
-| `ingress` (one machine, one port 443) | `disable`, `extraServerArgs` | `caddyResource`, `useSSL` |
+| `ingress` (one machine, one port 443) | `disable`, `extraServerArgs` | `caddyResource`, `clientTls`, `originTls` |
+
+Two of those are easy to confuse, and one of them used to be called `useSSL`:
+
+| Field | Where | What it decides |
+|---|---|---|
+| `clientTls` (was `useSSL`) | `k3s-cloudrun` template, or the `kubernetes-caddy` resource | Clients reach us over HTTPS, whoever terminated it: send HSTS, and Caddy owns the HTTP→HTTPS redirect. Defaults **on**. Does *not* make anything serve TLS. |
+| `originTls` | same two places, as the edge-wide default; `lbConfig.originTls` in a stack's own client.yaml to override | This edge terminates TLS itself — `https://<domain>` as the Caddy site address, so automatic HTTPS and ACME are armed. Defaults **off**: normally Cloudflare or a cloud load balancer terminates in front. |
+| `ingress.originTls` | the `vm` resource | The same question for a *machine's* Caddy, which is the front door, so it defaults **on**. |
+
+`useSSL` still works everywhere it worked before and means `clientTls`. Setting both to
+different values is refused rather than resolved silently.
 
 ## Why there are two Kubernetes templates
 

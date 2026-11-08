@@ -40,169 +40,124 @@
           "maxCPU": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "properties": {
-              "": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "properties": {
-                  "alertName": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "periodSec": {
-                    "type": "integer"
-                  },
-                  "threshold": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "alertName",
-                  "description",
-                  "periodSec",
-                  "threshold"
-                ],
-                "type": "object"
+              "alertName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "periodSec": {
+                "type": "integer"
+              },
+              "threshold": {
+                "type": "number"
               }
             },
             "required": [
-              ""
+              "alertName",
+              "description",
+              "periodSec",
+              "threshold"
             ],
             "type": "object"
           },
           "maxErrors": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "properties": {
-              "": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "properties": {
-                  "alertName": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "periodSec": {
-                    "type": "integer"
-                  },
-                  "threshold": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "alertName",
-                  "description",
-                  "periodSec",
-                  "threshold"
-                ],
-                "type": "object"
+              "alertName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
               },
               "errorLogMessageRegexp": {
                 "type": "string"
+              },
+              "periodSec": {
+                "type": "integer"
+              },
+              "threshold": {
+                "type": "number"
               }
             },
             "required": [
-              "",
-              "errorLogMessageRegexp"
+              "alertName",
+              "description",
+              "errorLogMessageRegexp",
+              "periodSec",
+              "threshold"
             ],
             "type": "object"
           },
           "maxMemory": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "properties": {
-              "": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "properties": {
-                  "alertName": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "periodSec": {
-                    "type": "integer"
-                  },
-                  "threshold": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "alertName",
-                  "description",
-                  "periodSec",
-                  "threshold"
-                ],
-                "type": "object"
+              "alertName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "periodSec": {
+                "type": "integer"
+              },
+              "threshold": {
+                "type": "number"
               }
             },
             "required": [
-              ""
+              "alertName",
+              "description",
+              "periodSec",
+              "threshold"
             ],
             "type": "object"
           },
           "responseTime": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "properties": {
-              "": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "properties": {
-                  "alertName": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "periodSec": {
-                    "type": "integer"
-                  },
-                  "threshold": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "alertName",
-                  "description",
-                  "periodSec",
-                  "threshold"
-                ],
-                "type": "object"
+              "alertName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "periodSec": {
+                "type": "integer"
+              },
+              "threshold": {
+                "type": "number"
               }
             },
             "required": [
-              ""
+              "alertName",
+              "description",
+              "periodSec",
+              "threshold"
             ],
             "type": "object"
           },
           "serverErrors": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "properties": {
-              "": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "properties": {
-                  "alertName": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "periodSec": {
-                    "type": "integer"
-                  },
-                  "threshold": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "alertName",
-                  "description",
-                  "periodSec",
-                  "threshold"
-                ],
-                "type": "object"
+              "alertName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "periodSec": {
+                "type": "integer"
+              },
+              "threshold": {
+                "type": "number"
               }
             },
             "required": [
-              ""
+              "alertName",
+              "description",
+              "periodSec",
+              "threshold"
             ],
             "type": "object"
           },
@@ -237,33 +192,24 @@
           "unhealthyHosts": {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "properties": {
-              "": {
-                "$schema": "https://json-schema.org/draft/2020-12/schema",
-                "properties": {
-                  "alertName": {
-                    "type": "string"
-                  },
-                  "description": {
-                    "type": "string"
-                  },
-                  "periodSec": {
-                    "type": "integer"
-                  },
-                  "threshold": {
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "alertName",
-                  "description",
-                  "periodSec",
-                  "threshold"
-                ],
-                "type": "object"
+              "alertName": {
+                "type": "string"
+              },
+              "description": {
+                "type": "string"
+              },
+              "periodSec": {
+                "type": "integer"
+              },
+              "threshold": {
+                "type": "number"
               }
             },
             "required": [
-              ""
+              "alertName",
+              "description",
+              "periodSec",
+              "threshold"
             ],
             "type": "object"
           }
@@ -348,6 +294,9 @@
             "type": "array"
           },
           "https": {
+            "type": "boolean"
+          },
+          "originTls": {
             "type": "boolean"
           },
           "requestBufferSize": {
