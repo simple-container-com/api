@@ -210,7 +210,7 @@ func (p *pulumi) deployStackProgram(stack api.Stack, params api.StackParams, par
 				Config: clientStackDesc.Config,
 			}
 
-			provisionParams, err := p.getProvisionParams(ctx, stack, resDesc, params.Environment, "")
+			provisionParams, err := p.getProvisionParams(ctx, stack, resDesc, params.Environment, "", nil)
 			if err != nil {
 				p.logger.Error(ctx.Context(), "failed to init provision params for %q: %v", resDesc.Type, err)
 				return "failure", errors.Wrapf(err, "failed to init provision params for %q", resDesc.Type)
@@ -274,7 +274,7 @@ func (p *pulumi) processResourceDependency(ctx *sdk.Context, stack api.Stack, pa
 	if fnc, ok := pApi.ComputeProcessorFuncByType[depResource.Type]; !ok {
 		p.logger.Info(ctx.Context(), "could not find compute processor for resource %q of type %q, skipping...", dep.resName, depResource.Type)
 		return nil
-	} else if provisionParams, err := p.getProvisionParams(ctx, stack, depResource, dep.resEnv, suffix); err != nil {
+	} else if provisionParams, err := p.getProvisionParams(ctx, stack, depResource, dep.resEnv, suffix, nil); err != nil {
 		p.logger.Warn(ctx.Context(), "failed to get provision params for resource %q of type %q in stack %q: %q", dep.resName, depResource.Type, stack.Name, err.Error())
 		return nil
 	} else {

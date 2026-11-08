@@ -3,7 +3,11 @@
 
 package k8s
 
-import "github.com/simple-container-com/api/pkg/api"
+import (
+	"github.com/pkg/errors"
+
+	"github.com/simple-container-com/api/pkg/api"
+)
 
 const ResourceTypeCaddy = "kubernetes-caddy"
 
@@ -30,12 +34,24 @@ func CaddyReadConfig(config *api.Config) (api.Config, error) {
 	if err != nil {
 		return cfg, err
 	}
+	res, ok := cfg.Config.(*CaddyResource)
+	if !ok {
+		return cfg, nil
+	}
 	// Normalize empty slices to nil — yaml.Unmarshal into inline pointer
 	// structs can produce []string{} instead of nil for absent fields.
-	if res, ok := cfg.Config.(*CaddyResource); ok && res.CaddyConfig != nil {
+	if res.CaddyConfig != nil {
 		if len(res.CaddyConfig.TrustedProxies) == 0 {
 			res.CaddyConfig.TrustedProxies = nil
 		}
+	}
+	// A Caddy edge is the first and most common consumer of the
+	// `${resource:<cluster>.kubeconfig}` reference, and it does NOT go through
+	// ReadKubernetesConfig — this type has its own reader. Refuse a malformed
+	// reference here too, rather than letting it reach the provider as a string
+	// that merely fails to connect.
+	if _, _, err := res.KubernetesConfig.KubeconfigRef(); err != nil {
+		return cfg, errors.Wrap(err, "invalid kubeconfig")
 	}
 	return cfg, nil
 }
