@@ -871,51 +871,83 @@ raw-operator-value-in-echo was a `useradd` login whose name was
 quoted correctly for the `sudo` lines but interpolated bare into
 two `echo` lines. The executing test caught both.
 
-### 6.10 Check `git merge-base --is-ancestor <sha> origin/main`
-before writing "merged" into a roadmap item
+### 6.10 Write PR numbers, not per-commit SHAs, into roadmap items
 
-Not a code trap — a roadmap-hygiene trap, included here because it
-is the one that silently falsifies every other section's incident
-citation.
+Two separate traps combine to make per-commit SHAs an unreliable
+"did this ship" handle in this repo.
 
-**Committing onto an already-merged branch is completely silent.**
-`git push` reports success, the branch exists on origin, the GitHub
-UI shows no open PR to notice. If the PR was merged while you were
-writing the commit, your work exists on the branch alone, reachable
-from `origin/<branch>` and nowhere else — in particular, not from
-`origin/main`.
+**Trap 1: committing onto an already-merged branch is completely
+silent.** `git push` reports success, the branch exists on origin,
+the GitHub UI shows no open PR to notice. If the PR was merged while
+you were writing the commit, your work exists on the branch alone,
+reachable from `origin/<branch>` and nowhere else — in particular,
+not from `origin/main`.
 
 Found live 2026-11-08: `ee4afc84`, the `isPulumiOutputSet` fix
 recorded as "merged with api#563", was committed onto
 `feat/vm-multi-host-roles` 13 minutes AFTER #563 merged. No open PR,
 no visible failure, correct-looking SHA in the roadmap row.
-Discovered only because an independent re-derivation of the same fix
-hit a reviewer and the two attributions contradicted each other.
+Discovered only because an independent re-derivation of the same
+fix hit a reviewer and the two attributions contradicted each
+other.
 
-Not GitHub-specific — the same shape happens anywhere a branch is
-merged + closed while new commits land on it: GitLab, Gerrit, a
-local clone another developer rebased.
+**Trap 2: api squash-merges.** A multi-commit PR lands as one new
+commit on main with subject `(#NNN)` — the pre-merge per-commit SHAs
+you recorded (either pre-rebase or post-rebase) are unreachable from
+`main` the moment it merges. Verified empirically 2026-11-08:
+`gh pr view 573 --json commits,mergeCommit` returned 5 commits in
+`commits[]` and a single `mergeCommit.oid`, with `git log --graph
+origin/main` showing a linear history of `(#NNN)` subjects. A
+nine-commit PR lands as **one** commit.
 
-**The two-second check:**
+**The two traps answer the same question with opposite semantics.**
+`git merge-base --is-ancestor <sha> origin/main` says "no" for both
+a stranded commit (ee4afc84 — the trap) and a squashed-merged commit
+(any pre-merge SHA, including ones that shipped perfectly). The
+check tells you the SHA is useless, not whether the code is there.
+
+**The durable handle is the PR number.**
+
+The two-second check:
 
 ```sh
-git merge-base --is-ancestor <sha> origin/main && echo reachable || echo orphaned
+gh pr view NNN --repo <owner>/<repo> --json state,mergeCommit
 ```
 
-Run this before writing `<sha>` or "merged" into:
+- `state: MERGED` + a non-null `mergeCommit.oid` → the work shipped,
+  and the squash-merge SHA is the one and only commit on main that
+  carries it.
+- `state: OPEN` → not shipped yet; a per-commit SHA on the branch
+  may be real work-in-progress but won't survive the eventual merge.
+- `state: CLOSED` without a mergeCommit → the PR was closed without
+  merging. Any commits on that branch are unreachable from main.
+
+Run this before writing "merged" or a SHA into:
 
 - a roadmap item's `## Status` or `## History` section,
 - a commit message that references another commit as shipped,
 - any SendMessage or peer coordination that cites a SHA.
 
-The alternative shape — `gh pr list --head <branch> --state open` —
-tells you whether there's STILL a PR to merge through, which is the
-other side of the same check.
+Write the PR number in the item (`PR #573 merged`), not the SHA. If
+you need to cite a specific change, cite it by PR + subject (`PR
+#573's LoadForBackend variant`) rather than SHA. The PR number
+survives rebase, squash-merge, and the entire failure surface
+above.
 
-**The failure mode that justifies the two seconds:** every other
-section in this chapter says "live-caught <SHA>, 2026-MM-DD". A
-future reader cross-references those SHAs. An orphaned fix SHA reads
-as "solved" to that reader, who moves on. The actual bug ships again.
+**Why `git merge-base --is-ancestor` still has a use.** For *your
+own in-flight commits* on a branch whose PR is still open, the
+check answers "did my latest work reach my own branch on origin".
+That's the `gh pr list --head <branch> --state open` equivalent —
+useful for "did I remember to push". Just don't confuse "reachable
+from origin/<branch>" with "shipped".
+
+**The failure mode that justifies the two seconds.** Every other
+section in this chapter says "live-caught <SHA>, 2026-MM-DD" when
+the citation predates squash-merge or when the author checked
+`git merge-base`. A future reader cross-references those SHAs and
+sees "not found on main" for a legitimate merge, concludes the fix
+was reverted, and re-derives it — the same failure mode the
+`ee4afc84` discovery caught, but from the opposite direction.
 
 ---
 
