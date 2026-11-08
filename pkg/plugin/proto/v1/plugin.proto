@@ -695,6 +695,24 @@ message ProvisionRequest {
   string registrar_plugin_name = 8;   // e.g. "cloudflare"
   string registrar_type = 9;          // the registrar type token (e.g. "cloudflare")
   string registrar_main_domain = 10;  // MainDomain() value — pApi.Registrar's base zone
+
+  // ParentInfo blob for a template Provision that reads outputs from a
+  // parent stack — kubeconfig/registry-url on `gcp-gke-autopilot`, zone
+  // creds on `aws-static-website`, ANY template whose provisioning
+  // body reaches into `params.ParentStack.FullReference`. Same shape as
+  // ComputeProcessRequest.parent_info_json (:391): JSON-marshalled
+  // `pApi.ParentInfo`, decoded by `runtime.ParentInfoFromProvisionRequest`
+  // on the plugin side and set on `ProvisionParams.ParentStack` before
+  // the plugin internal body runs.
+  //
+  // Older plugins ignore the field and get a nil ParentStack — same as
+  // today's silent-drop, but now DOCUMENTED as the fallback. Templates
+  // that nil-deref on `params.ParentStack.X` SIGSEGV loudly; every
+  // template body that reads the field must nil-check and error with a
+  // sentence. See
+  // forge/docs/roadmap/items/sc-plugin-provisionrequest-missing-parent-info.md
+  // for the two-guardrails-ship-together framing.
+  bytes parent_info_json = 11;
 }
 
 message ProvisionResponse {
