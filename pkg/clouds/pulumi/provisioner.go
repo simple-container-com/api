@@ -122,7 +122,7 @@ func (p *pulumi) loadPreEnginePlugins(ctx context.Context, stack api.Stack) erro
 	if len(stack.Server.Plugins) == 0 {
 		return nil
 	}
-	b := newPreEnginePluginBundle(p.logger)
+	b := newPreEnginePluginBundle(ctx, p.logger)
 	if err := b.Load(ctx, stack.Server.Plugins); err != nil {
 		b.Close()
 		return err

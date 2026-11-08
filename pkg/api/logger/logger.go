@@ -83,3 +83,17 @@ func getLogLevel(ctx context.Context) int {
 	}
 	return defaultLogLevel
 }
+
+// LevelFromContext exposes the level SetLogLevel/Silent stored, for the one
+// case the Logger interface cannot cover: handing SC's verbosity to a
+// third-party logger that writes on its own. hashicorp/go-plugin takes an
+// hclog.Logger and logs the whole spawn handshake through it, so without this
+// a command that silenced SC still got go-plugin's output (see
+// pkg/plugin/discover.go).
+//
+// Returns the same defaultLogLevel as the Logger methods when the context
+// carries no level, so a caller cannot accidentally read "silent" from a bare
+// context.Background().
+func LevelFromContext(ctx context.Context) int {
+	return getLogLevel(ctx)
+}
