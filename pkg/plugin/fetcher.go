@@ -201,8 +201,24 @@ func fileSHA256(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// downloadFileHTTPTimeout bounds a single plugin binary download. Plugin
+// binaries carry every cloud SDK a plugin depends on and run 180-280MB per
+// platform-arch (sc-plugin-gcp is the current ceiling). GHA hosted runners
+// see ~1-2 MB/s steady-state to GitHub releases on a cold download, so even
+// the ceiling fits comfortably in 15 min. The old 5 min cutoff pinned us to
+// a window that the 230MB sc-plugin-gcp binary brushed up against — CI
+// e2e tests that re-fetch on every run hit `context deadline exceeded` even
+// though the stream was making progress. Live-caught 2026-11-08 on api PR
+// #568 (phase 5 of sc-plugin-gcp extraction): two consecutive reruns of
+// TestScopeRegression_DamagedScopeFileFailsLintDeployAndReseal + Test_Provision
+// timed out inside this call. See
+// forge/docs/roadmap/items/sc-plugin-stack-outputs-latency-full-schema-load.md
+// for the companion latency work (cache-aware load for read-only entries;
+// this fix is orthogonal — about the first-ever fetch, not repeat lookups).
+const downloadFileHTTPTimeout = 15 * time.Minute
+
 func downloadFile(url, dst string) error {
-	client := &http.Client{Timeout: 5 * time.Minute}
+	client := &http.Client{Timeout: downloadFileHTTPTimeout}
 	resp, err := client.Get(url) //nolint:noctx // allow — tool-level call
 	if err != nil {
 		return err
