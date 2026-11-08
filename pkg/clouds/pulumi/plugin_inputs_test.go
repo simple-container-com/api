@@ -5,21 +5,21 @@ package pulumi
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"google.golang.org/grpc"
 	"gopkg.in/yaml.v3"
 
 	. "github.com/onsi/gomega"
-	"github.com/samber/lo"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"github.com/samber/lo"
+	ycApi "github.com/simple-container-com/sc-plugin-yandex/api"
 
 	"github.com/simple-container-com/api/pkg/api"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	scPlugin "github.com/simple-container-com/api/pkg/plugin"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
-	ycApi "github.com/simple-container-com/sc-plugin-yandex/api"
 )
 
 type nestedSite struct {
@@ -210,6 +210,100 @@ func TestResourceSidecar_ForwardsConfigAndComputeEnv(t *testing.T) {
 	Expect(env[1].GetSecret()).To(BeTrue(), "a var from SecretEnvVariables is secret even when its entry's flag is unset")
 	Expect(env[1].GetResourceType()).To(Equal("mongodb-atlas"))
 	Expect(env[1].GetStackName()).To(Equal("backend"))
+}
+
+// TestResourceSidecar_PacksDependencyOutputs — a sibling resource provisioned
+// earlier in the same stack publishes outputs onto its `api.ResourceOutput.Ref`
+// as `*api.PluginResourceOutput` (post-#569). When THIS resource's sidecar
+// fires with `ProvisionParams.ResourceOutputs` carrying such Refs, the
+// `DependencyOutputsJson` field on the outbound `ProvisionRequest` must be
+// populated — `runtime.DependencyOutputsFromProvisionRequest` decodes it on
+// the plugin side and the body reads `params.ResourceOutputs[dep].Ref` as
+// `*api.PluginResourceOutput`, which is exactly the shape in-tree bodies
+// already type-assert on.
+//
+// Live-caught 2026-11-08: `gcp-docker-image-push` read
+// `params.ResourceOutputs[registryResource].Ref` and errored with
+// `expected registry resource %q to be present in outputs for %q in %q`
+// because this sidecar previously left `DependencyOutputsJson` empty. See
+// forge/docs/roadmap/items/sc-plugin-dependency-outputs-not-populated.md.
+func TestResourceSidecar_PacksDependencyOutputs(t *testing.T) {
+	RegisterTestingT(t)
+	withActiveSession(t)
+
+	stub := &stubProvisionClient{}
+	sidecar := (&preEnginePluginBundle{}).makeResourceSidecar(
+		scPlugin.NewClientWithStub(stub), "sc-plugin-yandex", ycApi.TemplateTypeYandexServerlessContainer,
+	)
+	cfg := &ycApi.ServerlessContainerInput{
+		AccountConfig: ycApi.AccountConfig{FolderID: "b1g"},
+		StackConfig: api.StackConfigSingleImage{
+			Image: &api.ContainerImage{Dockerfile: "Dockerfile"},
+		},
+	}
+	// Mix: one plugin-owned sibling (packable), one in-tree Ref (string — NOT
+	// packable, silently dropped since the plugin can't unmarshal a Go struct).
+	resourceOutputs := map[string]*api.ResourceOutput{
+		"my-registry": {Ref: &api.PluginResourceOutput{
+			PluginName: "yc",
+			Urn:        "urn:pulumi:parent::stack::yandex:index:ContainerRegistry::my-registry",
+			Outputs: map[string]api.PluginOutputValue{
+				"url": {Value: "cr.yandex/my-registry", Secret: false},
+			},
+		}},
+		"legacy-intree": {Ref: "plain-string-ref"},
+	}
+
+	err := sdk.RunErr(func(ctx *sdk.Context) error {
+		_, err := sidecar(ctx, api.Stack{Name: "backend"}, api.ResourceInput{
+			Descriptor:  &api.ResourceDescriptor{Type: ycApi.TemplateTypeYandexServerlessContainer, Name: "backend", Config: api.Config{Config: cfg}},
+			StackParams: &api.StackParams{StackName: "backend", Environment: "staging-ru"},
+		}, pApi.ProvisionParams{ResourceOutputs: resourceOutputs})
+		return err
+	}, sdk.WithMocks("project", "stack", &refMocks{}))
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(stub.gotReq).ToNot(BeNil())
+	raw := stub.gotReq.GetDependencyOutputsJson()
+	Expect(raw).ToNot(BeEmpty(), "sibling-published outputs must cross the bus as DependencyOutputsJson")
+
+	// Decode and verify shape — same path the plugin side uses.
+	var decoded map[string]*api.PluginResourceOutput
+	Expect(json.Unmarshal(raw, &decoded)).To(Succeed())
+	Expect(decoded).To(HaveKey("my-registry"))
+	Expect(decoded).ToNot(HaveKey("legacy-intree"), "in-tree Refs are dropped — plugin can't unmarshal unknown Go struct shapes")
+	Expect(decoded["my-registry"].PluginName).To(Equal("yc"))
+	Expect(decoded["my-registry"].Outputs["url"].Value).To(Equal("cr.yandex/my-registry"))
+}
+
+// TestResourceSidecar_EmptyResourceOutputs — the common case: a resource with
+// no sibling deps. DependencyOutputsJson stays empty (older-plugin-compatible),
+// and the plugin side's `params.ResourceOutputs` is nil — matching the
+// pre-field behaviour exactly.
+func TestResourceSidecar_EmptyResourceOutputs(t *testing.T) {
+	RegisterTestingT(t)
+	withActiveSession(t)
+
+	stub := &stubProvisionClient{}
+	sidecar := (&preEnginePluginBundle{}).makeResourceSidecar(
+		scPlugin.NewClientWithStub(stub), "sc-plugin-yandex", ycApi.TemplateTypeYandexServerlessContainer,
+	)
+	cfg := &ycApi.ServerlessContainerInput{
+		AccountConfig: ycApi.AccountConfig{FolderID: "b1g"},
+		StackConfig: api.StackConfigSingleImage{
+			Image: &api.ContainerImage{Dockerfile: "Dockerfile"},
+		},
+	}
+
+	err := sdk.RunErr(func(ctx *sdk.Context) error {
+		_, err := sidecar(ctx, api.Stack{Name: "backend"}, api.ResourceInput{
+			Descriptor:  &api.ResourceDescriptor{Type: ycApi.TemplateTypeYandexServerlessContainer, Name: "backend", Config: api.Config{Config: cfg}},
+			StackParams: &api.StackParams{StackName: "backend", Environment: "staging-ru"},
+		}, pApi.ProvisionParams{})
+		return err
+	}, sdk.WithMocks("project", "stack", &refMocks{}))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(stub.gotReq.GetDependencyOutputsJson()).To(BeEmpty())
 }
 
 func TestComputeContextToProto_Nil(t *testing.T) {

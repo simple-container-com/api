@@ -2924,8 +2924,35 @@ type ProvisionRequest struct {
 	// forge/docs/roadmap/items/sc-plugin-provisionrequest-missing-parent-info.md
 	// for the two-guardrails-ship-together framing.
 	ParentInfoJson []byte `protobuf:"bytes,11,opt,name=parent_info_json,json=parentInfoJson,proto3" json:"parent_info_json,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Dependency outputs for a resource whose config implements
+	// `api.WithParentDependencies`: the values its sibling resources (provisioned
+	// earlier in the same stack) published, keyed by sibling resource name. Each
+	// value is a JSON-marshalled `api.PluginResourceOutput` with `PluginName`,
+	// `Urn`, and the per-key `Outputs` map (the same values that get re-exported
+	// onto the parent stack root — see api PR #569 for why the per-value secret
+	// flag travels with each output).
+	//
+	// Populated in `pkg/clouds/pulumi/plugin_sidecars.go`'s
+	// `makeResourceSidecar` from `params.ResourceOutputs`, decoded on the plugin
+	// side by `runtime.DependencyOutputsFromProvisionRequest` into
+	// `map[string]*api.ResourceOutput` with `Ref: &api.PluginResourceOutput`.
+	//
+	// The flat `dependency_outputs = 5` field was declared on the proto but never
+	// wired by any sidecar (its string-only shape couldn't carry the per-value
+	// secret flag or the nested map structure a sibling consumer needs). This
+	// JSON blob carries the richer shape instead; the flat field is left in place
+	// for wire-compat and may be reused for simpler use-cases later.
+	//
+	// Older plugins ignore the field: the fallback is an empty
+	// `params.ResourceOutputs` map, which is the same silent-drop shape that
+	// broke `gcp-docker-image-push` (reading
+	// `params.ResourceOutputs[registryResource].Ref` as `*ArtifactRegistryOut`
+	// and erroring with `expected registry resource %q to be present in
+	// outputs`). See
+	// forge/docs/roadmap/items/sc-plugin-dependency-outputs-not-populated.md.
+	DependencyOutputsJson []byte `protobuf:"bytes,12,opt,name=dependency_outputs_json,json=dependencyOutputsJson,proto3" json:"dependency_outputs_json,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ProvisionRequest) Reset() {
@@ -3031,6 +3058,13 @@ func (x *ProvisionRequest) GetRegistrarMainDomain() string {
 func (x *ProvisionRequest) GetParentInfoJson() []byte {
 	if x != nil {
 		return x.ParentInfoJson
+	}
+	return nil
+}
+
+func (x *ProvisionRequest) GetDependencyOutputsJson() []byte {
+	if x != nil {
+		return x.DependencyOutputsJson
 	}
 	return nil
 }
@@ -4414,7 +4448,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x11StackOutputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x14\n" +
-	"\x12PreDestroyResponse\"\xfa\x05\n" +
+	"\x12PreDestroyResponse\"\xb2\x06\n" +
 	"\x10ProvisionRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12#\n" +
@@ -4428,7 +4462,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x0eregistrar_type\x18\t \x01(\tR\rregistrarType\x122\n" +
 	"\x15registrar_main_domain\x18\n" +
 	" \x01(\tR\x13registrarMainDomain\x12(\n" +
-	"\x10parent_info_json\x18\v \x01(\fR\x0eparentInfoJson\x1aS\n" +
+	"\x10parent_info_json\x18\v \x01(\fR\x0eparentInfoJson\x126\n" +
+	"\x17dependency_outputs_json\x18\f \x01(\fR\x15dependencyOutputsJson\x1aS\n" +
 	"\vInputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\x1aD\n" +
