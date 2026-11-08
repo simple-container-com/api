@@ -13,7 +13,6 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -44,7 +43,10 @@ import (
 //
 // The caller fills RequestHeader.MonitorAddress and ProviderUrns — this package
 // cannot see the active session. The driver fills the rest of the header (stack,
-// environment) because it is the side that has the ResourceInput.
+// environment, dry-run) because it is the side that has the ResourceInput and the
+// *sdk.Context. That split is the whole reason dry_run was missing until
+// 2026-11-07: it is readable only on this side, and only the other side was
+// thinking about the header.
 type VmHostsCall func(ctx context.Context, req *scpluginv1.VmHostsRequest) (*scpluginv1.VmHostsResponse, error)
 
 var (
@@ -132,7 +134,26 @@ func (d pluginDriver) Hosts(
 	}
 
 	req := &scpluginv1.VmHostsRequest{
-		Header:       &scpluginv1.RequestHeader{},
+		Header: &scpluginv1.RequestHeader{
+			// DryRun has to be set HERE and nowhere else. Every other plugin
+			// dispatch path sets it (plugin_sidecars.go:136, :324, :433), but the
+			// vm seam is split in two: this function holds the *sdk.Context and
+			// makeVmHostsSidecar holds the monitor address, so each side fills the
+			// fields only it can know — and `DryRun` fell in the gap, because the
+			// sidecar's ctx is a plain context.Context with no DryRun to read.
+			//
+			// The consequence is exactly what RequestHeader.dry_run's own comment
+			// predicts: a plugin's `pctx.DryRun()` was ALWAYS false, so every
+			// preview-skip guard in every vm plugin misfired. Live-caught on
+			// sc-plugin-mws's first preview (2026-11-07): the driver's
+			// `requireString` over a nested provider output has to tolerate a nil
+			// during preview, and its DryRun gate never fired, so the preview died
+			// with "MWS returned no external address status.ipAddress … this is a
+			// provider or API-shape change, not a config error" — accusing the
+			// cloud of changing shape when the resource simply did not exist yet.
+			// No vm plugin could have worked around this from its own side.
+			DryRun: ctx.DryRun(),
+		},
 		Driver:       d.driver,
 		ResourceName: input.Descriptor.Name,
 		ConfigJson:   configJSON,
