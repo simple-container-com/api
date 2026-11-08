@@ -787,6 +787,136 @@ Generalisable rule: **a helper that doesn't call `RegisterResource`
 cannot order work via `ResourceOption`s. Order via output
 dependencies on its inputs, or make the helper register a resource.**
 
+### 6.9 A `fmt.Sprintf`-built shell string executes as a shell
+
+Sibling trap to §6.7 and §6.8, in the shell domain. A plugin that
+generates a remote script — an init container, a `sh -c` Job, a
+cloud-init payload, a `psql -c` wrapping an identifier — is building
+a program that will be interpreted by a shell (and sometimes a
+second interpreter inside it, like psql or bash). Every character
+operator-controlled values pass through is live in that interpreter's
+grammar, not just the ones you were thinking about.
+
+Two concrete shapes that pass `sh -n` and every substring assertion
+yet execute unsafely:
+
+**(a) A backtick inside a double-quoted sh string is command
+substitution.** Writing:
+
+```go
+msg := fmt.Sprintf(`echo "run \`docker network create %s\`"`, netName)
+```
+
+— means `echo` fires `docker network create <netName>` BEFORE
+printing the message. Found live inside an error-handling path (the
+message existed because the command had already failed), so running
+it a second time compounded the state problem the operator had.
+
+**(b) Operator-supplied values reaching prose, not just command
+arguments.** Shell-quoting an argument for `sudo` doesn't help if
+the same value is also interpolated raw into an `echo` message:
+
+```go
+cmds := fmt.Sprintf(`
+    sudo useradd -m '%s'
+    echo "created user %s"
+`, user, user)
+```
+
+— the first line is safe (single-quoted argument, operator can't
+escape), the second is not (`"..."` keeps `$` and backtick live).
+A user name like `foo$(rm -rf /)` runs the subcommand on the second
+line.
+
+Rules:
+
+- **Treat EVERY interpolation point as a shell injection.** Not just
+  the ones that reach `exec` or `sudo` — `echo`, `printf`, SQL
+  identifiers, container names, labels. `$` and backtick are live in
+  more places than a reader expects.
+- **For prose messages, use `printf` with the message as a format
+  string argument**, not interpolation into the string itself.
+  `printf '%s\n' "$MSG"` is the shape; the message's `$`s and
+  backticks are now data, not code.
+- **Shell-quote at the boundary.** Go's standard library has no
+  single-source-of-truth shell quoter, but
+  `"'" + strings.ReplaceAll(v, "'", `'\''`) + "'"` is the inline
+  form for POSIX sh; wrap this in a helper and use it on every
+  operator-controlled interpolation.
+
+**How to test it:** don't assert on the generated script text —
+`sh -n` catches syntax errors, substring matches catch presence,
+and neither catches a hostile value being substituted correctly or
+incorrectly. **Execute the generated script against stubbed binaries
+on an empty `PATH`.** The stubs record their invocations; the test
+asserts on those recordings. A value that escapes correctly reaches
+the stub as one argument; a value that escapes incorrectly reaches
+as two, or triggers a subcommand that the stub doesn't exist to
+answer, or fires an unrelated stub earlier in the script than
+intended. Only a shell can distinguish those; only the recording
+sees the difference.
+
+The reference pattern lives on `feat/caddy-edge-batch` in
+`pkg/clouds/pulumi/vm/compose_scripts_test.go` (`runEnsureNetwork`)
+and `pkg/clouds/vm/cloudinit_test.go` (`runByoDockerInstall`). SHAs
+may move under rebase; the branch name is the stable citation. The
+shape in both: `PATH=<stub-dir-only> sh -c <generated-script>` with
+stubs that log `$0 $*` to a file.
+
+Live-caught during the Caddy-edge batch (2026-11-08): both shapes
+shipped in the same commit, both caught by the executing tests
+before merge. The backtick-in-echo was an error-hint message that
+would have *fired the failing command a second time*; the
+raw-operator-value-in-echo was a `useradd` login whose name was
+quoted correctly for the `sudo` lines but interpolated bare into
+two `echo` lines. The executing test caught both.
+
+### 6.10 Check `git merge-base --is-ancestor <sha> origin/main`
+before writing "merged" into a roadmap item
+
+Not a code trap — a roadmap-hygiene trap, included here because it
+is the one that silently falsifies every other section's incident
+citation.
+
+**Committing onto an already-merged branch is completely silent.**
+`git push` reports success, the branch exists on origin, the GitHub
+UI shows no open PR to notice. If the PR was merged while you were
+writing the commit, your work exists on the branch alone, reachable
+from `origin/<branch>` and nowhere else — in particular, not from
+`origin/main`.
+
+Found live 2026-11-08: `ee4afc84`, the `isPulumiOutputSet` fix
+recorded as "merged with api#563", was committed onto
+`feat/vm-multi-host-roles` 13 minutes AFTER #563 merged. No open PR,
+no visible failure, correct-looking SHA in the roadmap row.
+Discovered only because an independent re-derivation of the same fix
+hit a reviewer and the two attributions contradicted each other.
+
+Not GitHub-specific — the same shape happens anywhere a branch is
+merged + closed while new commits land on it: GitLab, Gerrit, a
+local clone another developer rebased.
+
+**The two-second check:**
+
+```sh
+git merge-base --is-ancestor <sha> origin/main && echo reachable || echo orphaned
+```
+
+Run this before writing `<sha>` or "merged" into:
+
+- a roadmap item's `## Status` or `## History` section,
+- a commit message that references another commit as shipped,
+- any SendMessage or peer coordination that cites a SHA.
+
+The alternative shape — `gh pr list --head <branch> --state open` —
+tells you whether there's STILL a PR to merge through, which is the
+other side of the same check.
+
+**The failure mode that justifies the two seconds:** every other
+section in this chapter says "live-caught <SHA>, 2026-MM-DD". A
+future reader cross-references those SHAs. An orphaned fix SHA reads
+as "solved" to that reader, who moves on. The actual bug ships again.
+
 ---
 
 ## 7. Prior art
