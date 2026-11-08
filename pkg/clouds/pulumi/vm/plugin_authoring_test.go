@@ -81,6 +81,17 @@ func TestPluginDriver_AcceptsWhatTheAuthoringHelperBuilds(t *testing.T) {
 		Expect(address.Known).To(BeTrue())
 		Expect(address.Secret).To(BeFalse())
 
+		// This plugin — like every plugin in the fleet today — said nothing about a
+		// private address, so the field arrives as the ZERO Output. Read through the
+		// accessor it resolves to Address; read directly it does not resolve at all,
+		// it panics (see EffectivePrivateAddress).
+		private := awaitString(t, ctx.Context(), facts.EffectivePrivateAddress())
+		Expect(private.Value).To(Equal("203.0.113.9"))
+		Expect(private.Known).To(BeTrue())
+		Expect(private.Secret).To(BeFalse(),
+			"a private address is not a credential, and redacting it hides the one "+
+				"value that tells a correctly-addressed cluster from an exposed one")
+
 		// The helper marked it secret on the wire and core marks it secret again.
 		// Both, deliberately — see PrivateKey's doc comment.
 		key := awaitString(t, ctx.Context(), facts.PrivateKey)
@@ -110,4 +121,43 @@ func TestPluginDriver_AcceptsWhatTheAuthoringHelperBuilds(t *testing.T) {
 	Expect(facts.Role).To(Equal(vm.RoleCompose))
 	Expect(facts.HostKeyPinned).To(BeFalse(), "TrustOnFirstUse is not a pinned key")
 	Expect(facts.DependsOn).To(HaveLen(1))
+}
+
+// The zero sdk.StringOutput is the hazard that made EffectivePrivateAddress an
+// accessor rather than a plain field read, and it is worth a test of its own because
+// the failure is a PANIC in pulumi's internals rather than an empty string: a zero
+// Output carries no OutputState, so sdk.All nil-dereferences inside gatherJoinSet.
+//
+// Every cloud VM driver is an out-of-tree plugin compiled against an older
+// HostFacts, so "the field is zero" is the normal case for the whole fleet, not an
+// edge one. This test fails loudly if someone later swaps the accessor for a direct
+// read, or drops the comparison on the theory that an unset Output behaves like "".
+func TestHostFacts_ZeroPrivateAddressFallsBackInsteadOfPanicking(t *testing.T) {
+	RegisterTestingT(t)
+
+	err := sdk.RunErr(func(ctx *sdk.Context) error {
+		// Exactly the shape a pre-field plugin produces: Address set, everything
+		// else left alone.
+		facts := HostFacts{Address: sdk.String("203.0.113.9").ToStringOutput()}
+		Expect(facts.PrivateAddress).To(Equal(sdk.StringOutput{}),
+			"the premise: an older plugin leaves this at its zero value")
+
+		// sdk.All is where the panic happened — the k3s cluster builder joins the
+		// SAN list, the join URL and this value before rendering the install script.
+		joined := sdk.All(facts.EffectivePrivateAddress()).ApplyT(func(args []any) string {
+			return args[0].(string)
+		}).(sdk.StringOutput)
+
+		Expect(awaitString(t, ctx.Context(), joined).Value).To(Equal("203.0.113.9"))
+
+		// And an explicit value is passed through untouched.
+		set := HostFacts{
+			Address:        sdk.String("203.0.113.9").ToStringOutput(),
+			PrivateAddress: sdk.String("10.0.0.9").ToStringOutput(),
+		}
+		Expect(awaitString(t, ctx.Context(), set.EffectivePrivateAddress()).Value).To(Equal("10.0.0.9"))
+
+		return nil
+	}, sdk.WithMocks("project", "stack", newVmMocks()))
+	Expect(err).ToNot(HaveOccurred())
 }

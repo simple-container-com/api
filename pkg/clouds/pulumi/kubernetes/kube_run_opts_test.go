@@ -43,6 +43,55 @@ func TestKubeRunOptsIngressIPExportOverrideIsUsedVerbatim(t *testing.T) {
 	Expect(opts.ingressIPExport("my-parent", "caddy-std--likeclaw-us")).To(Equal("ru-cluster--staging-ingress-ip"))
 }
 
+// ToIngressIpsExport must NOT collide with ToIngressIpExport, and the difference has to
+// be more than a plural: both outputs live on the same parent stack at the same time,
+// and a reader asking for the wrong one gets either a comma-joined list written into an
+// A record's value or a single node of a fleet.
+func TestIngressIpsExportIsADistinctOutput(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect(ToIngressIpsExport("ru-cluster--staging")).To(Equal("ru-cluster--staging-ingress-ips"))
+	Expect(ToIngressIpsExport("ru-cluster--staging")).ToNot(Equal(ToIngressIpExport("ru-cluster--staging")))
+}
+
+// The switch between one A record and N. Empty means the single-address path, so every
+// way the parent's output can be useless has to arrive here as empty — including the
+// missing output, which is "" and which strings.Split turns into one EMPTY address
+// rather than none.
+func TestFleetAddresses(t *testing.T) {
+	RegisterTestingT(t)
+
+	for name, tc := range map[string]struct {
+		joined string
+		want   []string
+	}{
+		"missing output":    {"", []string{}},
+		"single address":    {"203.0.113.10", []string{"203.0.113.10"}},
+		"three addresses":   {"203.0.113.10,203.0.113.11,203.0.113.12", []string{"203.0.113.10", "203.0.113.11", "203.0.113.12"}},
+		"trailing sep":      {"203.0.113.10,203.0.113.11,", []string{"203.0.113.10", "203.0.113.11"}},
+		"unresolved middle": {"203.0.113.10,,203.0.113.12", []string{"203.0.113.10", "203.0.113.12"}},
+		"separators only":   {",,", []string{}},
+		"padded":            {" 203.0.113.10 , 203.0.113.11 ", []string{"203.0.113.10", "203.0.113.11"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			RegisterTestingT(t)
+			// Equal and not ConsistOf: order is the host order of the fleet, and
+			// len() == 0 is what the caller reads as "fall back to one record".
+			Expect(fleetAddresses(tc.joined)).To(Equal(tc.want))
+		})
+	}
+}
+
+// And the option itself defaults off: every flavour but k3s leaves it empty, which is
+// the single-record behaviour KubeRun has always had.
+func TestKubeRunOptsIngressIPsExportIsOptional(t *testing.T) {
+	RegisterTestingT(t)
+
+	Expect(KubeRunOpts{}.IngressIPsExport).To(BeEmpty())
+	Expect(KubeRunOpts{IngressIPExport: "ru-cluster--staging-ingress-ip"}.IngressIPsExport).To(BeEmpty(),
+		"setting the single-address override must not opt a flavour into the fleet path")
+}
+
 // A cloud-compose client stack that omits `size:` leaves StackConfig.Size nil, and
 // reading the ephemeral size straight through it used to panic the deploy with a bare
 // SIGSEGV before any resource was touched.

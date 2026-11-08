@@ -15,6 +15,7 @@ import (
 	"github.com/pkg/errors"
 
 	"github.com/simple-container-com/api/pkg/api"
+	"github.com/simple-container-com/api/pkg/api/logger"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
 )
 
@@ -34,6 +35,40 @@ import (
 // prefer CachedSchema first and only fall through to ResolveAndSchema
 // on cache miss — spawning a plugin per parse costs a 200-400 ms
 // handshake per plugin that CachedSchema sidesteps.
+// defaultPluginHclog builds the hclog.Logger hashicorp/go-plugin logs its
+// spawn handshake through, at a level derived from SC's own.
+//
+// Debug is the default and is load-bearing: it is what surfaces plugin panic
+// traces, because go-plugin relays the child's stderr at Debug
+// (client.go:1186). A Warn-level logger discards every byte of it and turns a
+// panic into a bare `exit status 2` with no further diagnostics — live-caught
+// 2026-10-30, forge-baas. So Info and Debug both keep Debug here; the level
+// is only lowered when SC was explicitly asked to be quieter.
+//
+// Silent maps to Off rather than Error. A command that silences SC wants a
+// machine-readable stdout (`sc stack outputs` emits a JSON document for jq),
+// and while go-plugin writes here to stderr, "silent" that still prints two
+// dozen handshake lines per plugin is not silent to the operator reading the
+// terminal. Nothing diagnostic is lost: a plugin that fails to spawn still
+// returns an error through ResolveAndSchema, and re-running with -v restores
+// the full trace.
+func defaultPluginHclog(ctx context.Context, name string) hclog.Logger {
+	level := hclog.Debug
+	switch logger.LevelFromContext(ctx) {
+	case logger.LogLevelSilent:
+		level = hclog.Off
+	case logger.LogLevelError:
+		level = hclog.Error
+	case logger.LogLevelWarn:
+		level = hclog.Warn
+	}
+	return hclog.New(&hclog.LoggerOptions{
+		Name:   "sc-plugin-" + name,
+		Level:  level,
+		Output: os.Stderr,
+	})
+}
+
 func ResolveAndSchema(
 	ctx context.Context,
 	name string,
@@ -51,16 +86,7 @@ func ResolveAndSchema(
 		return nil, nil, err
 	}
 	if logger == nil {
-		// Mirror the preengine's choice: Debug surfaces plugin panic
-		// traces via hashicorp/go-plugin's stderr-at-Debug logging
-		// (client.go:1186). A Warn-level logger discards every byte
-		// and turns panics into `exit status 2` with no further
-		// diagnostics. See loadOne comment.
-		logger = hclog.New(&hclog.LoggerOptions{
-			Name:   "sc-plugin-" + name,
-			Level:  hclog.Debug,
-			Output: os.Stderr,
-		})
+		logger = defaultPluginHclog(ctx, name)
 	}
 	cli, err = NewClient(ClientConfig{
 		Path:    resolvedPath,

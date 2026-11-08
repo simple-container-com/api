@@ -66,6 +66,27 @@ func RenderCaddyfile(cfg *VmConfig) (string, error) {
 	b := &strings.Builder{}
 	b.WriteString(caddyGeneratedHeader)
 	b.WriteString("\n{\n")
+	if !cfg.OriginTlsEnabled() {
+		// `auto_https off` rather than relying on every site address carrying an
+		// explicit `http://`. Both would stop ACME today, and the scheme on the site
+		// address is what actually makes the port 80 listener happen — but this is a
+		// file an operator edits and a conf.d an operator drops files into, and one
+		// bare domain in one hand-written site block is otherwise enough to send the
+		// machine off to Let's Encrypt for a certificate it cannot validate. Off at
+		// the global level is the statement that this machine does no TLS, in the one
+		// place that cannot be contradicted from below.
+		//
+		// It also disables the HTTP→HTTPS redirect, which is the point: there is no
+		// HTTPS here to redirect to. The edge in front is what serves it.
+		fmt.Fprintf(b, "\t# `ingress.originTls: false` on this vm resource: something in front terminates TLS\n")
+		fmt.Fprintf(b, "\t# (Cloudflare's proxy, a load balancer), so this machine serves plain HTTP on :80,\n")
+		fmt.Fprintf(b, "\t# requests no certificate, and has no ACME account. Edge-to-origin is CLEARTEXT —\n")
+		fmt.Fprintf(b, "\t# the machine's firewall is what has to admit only the edge.\n")
+		b.WriteString("\tauto_https off\n")
+		b.WriteString("}\n\n")
+		writeCaddySnippets(b, snippets)
+		return b.String(), nil
+	}
 	fmt.Fprintf(b, "\temail %s\n", caddyToken(cfg.Ingress.Email))
 	if cfg.Ingress.AcmeCa != "" {
 		// An `acme_ca` that does not speak ACME, or is unreachable, presents as
@@ -84,7 +105,16 @@ func RenderCaddyfile(cfg *VmConfig) (string, error) {
 		writeCaddyAcmeStorage(b, cfg.Ingress.AcmeStorage)
 	}
 	b.WriteString("}\n\n")
+	writeCaddySnippets(b, snippets)
+	return b.String(), nil
+}
 
+// writeCaddySnippets writes everything below the global options block: the inlined
+// snippet library and the conf.d import. Shared by both exits of RenderCaddyfile so the
+// no-origin-TLS machine cannot drift into having a different snippet set — a
+// `siteExtraHelpers` that resolves on one machine and not another is a 500 on one third
+// of a fleet's requests.
+func writeCaddySnippets(b *strings.Builder, snippets []byte) {
 	fmt.Fprintf(b, "# Shared snippet library, inlined from %s in the SC binary.\n",
 		"pkg/clouds/caddy/"+caddyassets.CaddyfilePath)
 	fmt.Fprintf(b, "# Identical to the one the Kubernetes edge serves, so `lbConfig.extraHelpers`\n")
@@ -94,7 +124,6 @@ func RenderCaddyfile(cfg *VmConfig) (string, error) {
 
 	fmt.Fprintf(b, "# One file per stack-env, each written by that stack's own deploy.\n")
 	fmt.Fprintf(b, "import %s/*.caddy\n", CaddyContainerConfigDir+"/conf.d")
-	return b.String(), nil
 }
 
 // writeCaddyAcmeStorage renders the global `storage s3` block — the thing that makes
@@ -408,8 +437,13 @@ func RenderCaddySite(in *VmComposeInput, opts RenderOptions) (string, error) {
 	proxy.WriteString("}")
 
 	imports := []string{"import gzip", "import handle_static"}
-	// Unconditional, unlike Kubernetes' `useSSL`. There is nothing in front of this
-	// Caddy, so it is the thing that terminates TLS and the site is always HTTPS —
+	// Kept even when this machine serves plain HTTP, unlike Kubernetes' `useSSL`.
+	// With origin TLS the reasoning is the obvious one: this Caddy terminates, so the
+	// site is HTTPS and HSTS is its own to send. Without it, the header still reaches
+	// the browser over the EDGE's TLS, where it is honoured and stops a downgrade —
+	// and on the pathological arrangement (no origin TLS and no edge either) a
+	// browser ignores HSTS received over cleartext, so it is inert rather than
+	// harmful. There is no case where dropping it is better.
 	// `lbConfig.https` describes what an external load balancer terminates and has
 	// nothing to answer here.
 	imports = append(imports, "import hsts")
@@ -418,7 +452,19 @@ func RenderCaddySite(in *VmComposeInput, opts RenderOptions) (string, error) {
 	b.WriteString(fmt.Sprintf(caddySiteHeader, opts.Stack, opts.Env, opts.Slot))
 	// The bare domain as the site address: Caddy's automatic HTTPS then provisions a
 	// certificate for it and redirects HTTP to HTTPS by itself.
-	fmt.Fprintf(b, "%s {\n", sc.Domain)
+	//
+	// `http://<domain>` instead when the resource sets `ingress.originTls: false`.
+	// The scheme is not decoration — it is what suppresses automatic HTTPS for this
+	// site and puts the listener on :80. The global block's `auto_https off` says the
+	// same thing for the machine; both are rendered, because this file is written by
+	// the stack's deploy and that one by the resource's provision, and a machine that
+	// has not been re-provisioned since the flag was set would otherwise go asking a
+	// CA for a certificate on behalf of a stack that cannot answer the challenge.
+	if opts.NoOriginTls {
+		fmt.Fprintf(b, "http://%s {\n", sc.Domain)
+	} else {
+		fmt.Fprintf(b, "%s {\n", sc.Domain)
+	}
 	if sc.Prefix == "" {
 		writeIndented(b, proxy.String(), "  ")
 		for _, imp := range imports {

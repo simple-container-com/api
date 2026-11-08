@@ -275,7 +275,7 @@ Refused rather than accepted and ignored:
 | `hosts` | that is `provider: byo` |
 | `network` | the create call rejects `subnet_id`/`networks`/`nics` — the machine lands on the zone's default |
 | `extraSshKeys` | extra keys are authorised through user-data, which this cloud has none of; the create call takes exactly one key |
-| more than one zone | this is a single machine |
+| ~~more than one zone~~ | no longer refused at the config tier — but see the k3s caveat below before you use it |
 | `publicIP: false` | every delivery step is an outbound SSH connection, and SC has no bastion |
 
 To place a machine on your own network or security group, create it in the console and
@@ -288,11 +288,18 @@ Stated plainly, because `scale:` will happily let you believe otherwise:
 
 - **One failure domain.** Replicas on one node survive a pod crash, not a machine
   reboot. `scale: {min: 1, max: 1}` is honesty, not a technical limit.
-- **No multi-node yet.** `vmResource` resolves to exactly one host today; more than one
-  is refused rather than silently using the first.
+- **Multi-node is not usable on this cloud yet, for two separate reasons.** The config
+  tier accepts it — `nodes:`, several `zones:`, `servers:` on the cluster resource — but
+  (1) no cloud driver creates more than one machine yet, and SC refuses the mismatch
+  rather than handing you a one-machine "fleet"; and (2) even once it does, an Evolution
+  VM create takes no `subnet_id`, so each machine lands on its own zone's default subnet
+  and the node-to-node firewall rules SC writes (flannel, kubelet, etcd) are scoped to
+  the subnet the machine landed on — which does not cover its siblings in other zones.
+  Keep a k3s pool in one zone here. A compose fleet is unaffected: those machines never
+  talk to each other.
 - **`local-storage` is the default storage class.** A PersistentVolume is a directory on
   that one machine, and it does not survive the machine. Cloud.ru's own block storage is
-  not wired to a CSI driver here.
+  not wired to a CSI driver here, and nothing replicates a volume across a pool.
 - **A destroy/provision cycle moves the address.** This driver allocates a new floating
   IP, so every saved kubeconfig and every DNS record points at the old one. Set
   `endpoint:` to a DNS name if that matters.

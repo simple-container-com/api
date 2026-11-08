@@ -131,8 +131,16 @@ type ContainerImageBuild struct {
 }
 
 type StackConfigSingleImage struct {
-	Image               *ContainerImage                 `json:"image" yaml:"image"`
-	Domain              string                          `json:"domain" yaml:"domain"`
+	Image  *ContainerImage `json:"image" yaml:"image"`
+	Domain string          `json:"domain" yaml:"domain"`
+	// DomainProxied mirrors StackConfigCompose.DomainProxied, which is where every
+	// target actually reads it from (vm-compose, gke-autopilot, kubernetes). Without
+	// it here the key parses and is then dropped on the floor by the single-image →
+	// compose conversion: no error, no warning, and an UNPROXIED record pointing at a
+	// fleet whose origin is deliberately plain HTTP. Live-caught 2026-11-08 on the
+	// 3-VPS compose smoke, where `domainProxied: true` produced three `proxied=false`
+	// A records and a name reachable only over cleartext.
+	DomainProxied       *bool                           `json:"domainProxied" yaml:"domainProxied"`
 	BaseDnsZone         string                          `json:"baseDnsZone" yaml:"baseDnsZone"` // only necessary if differs from parent stack
 	Env                 map[string]string               `json:"env" yaml:"env"`
 	Secrets             map[string]string               `json:"secrets" yaml:"secrets"`
