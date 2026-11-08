@@ -553,9 +553,9 @@ stacks:
 
 Deploys containerized applications on Google Cloud Run.
 
-**Golang Struct Reference:** `pkg/clouds/gcloud/cloudrun.go:CloudRunInput`
+**Golang Struct Reference:** `github.com/simple-container-com/sc-plugin-gcp/api/cloudrun.go:CloudRunTemplate`
 
-**JSON Schema:** [CloudRunInput Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/cloudruninput.json)
+**JSON Schema:** [CloudRunTemplate Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/cloudruntemplate.json)
 
 ```yaml
 # server.yaml - Parent Stack (DevOps managed)
@@ -566,12 +566,33 @@ templates:
       # GCP credentials and project (from TemplateConfig struct)
       projectId: "${auth:gcp-main.projectId}"
       credentials: "${auth:gcp-main}"
+      # Cloud Run is a regional resource — required.
+      region: us-central1
+      # Images from the client stack's docker-compose are built and
+      # pushed to this parent-stack gcp-artifact-registry resource
+      # before the Cloud Run service references them. Required.
+      artifactRegistryResource: my-registry
 
 resources:
   resources:
     production:
       template: my-cloudrun-template
+      resources:
+        my-registry:
+          type: gcp-artifact-registry
+          config:
+            credentials: "${auth:gcp-main}"
+            projectId: "${auth:gcp-main.projectId}"
+            location: us-central1
+            docker:
+              immutableTags: false
 ```
+
+The Cloud Run v2 Service auto-enables `run.googleapis.com` on first
+provision and is created with `deletion_protection: false` so `sc
+destroy` tears it down cleanly. A public `allUsers → roles/run.invoker`
+IAM binding is set by default; a future `access:` knob narrows this to
+authenticated-only or specific service accounts.
 
 **How Client Stacks Use This Template:**
 ```yaml
@@ -597,7 +618,7 @@ stacks:
 
 Template for deploying applications to GKE Autopilot clusters. References GKE cluster and Artifact Registry resources.
 
-**Golang Struct Reference:** `pkg/clouds/gcloud/gke_autopilot.go:GkeAutopilotTemplate`
+**Golang Struct Reference:** `github.com/simple-container-com/sc-plugin-gcp/api/gke_autopilot.go:GkeAutopilotTemplate`
 
 ```yaml
 # server.yaml - Parent Stack (DevOps managed)
@@ -645,7 +666,7 @@ resources:
 
 Hosts static websites on Google Cloud Storage with Cloud CDN.
 
-**Golang Struct Reference:** `pkg/clouds/gcloud/static_website.go:StaticSiteInput`
+**Golang Struct Reference:** `github.com/simple-container-com/sc-plugin-gcp/api/static_website.go:StaticSiteInput`
 
 ```yaml
 # server.yaml
@@ -665,7 +686,7 @@ stacks:
 
 Creates and manages Google Kubernetes Engine Autopilot clusters as a resource.
 
-**Golang Struct Reference:** `pkg/clouds/gcloud/gke_autopilot.go:GkeAutopilotResource`
+**Golang Struct Reference:** `github.com/simple-container-com/sc-plugin-gcp/api/gke_autopilot.go:GkeAutopilotResource`
 
 **JSON Schema:** [GkeAutopilotResource Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/gkeautopilotresource.json)
 
@@ -755,7 +776,7 @@ resources:
 
 Template for deploying applications to GKE Autopilot clusters. References GKE cluster and Artifact Registry resources.
 
-**Golang Struct Reference:** `pkg/clouds/gcloud/gke_autopilot.go:GkeAutopilotTemplate`
+**Golang Struct Reference:** `github.com/simple-container-com/sc-plugin-gcp/api/gke_autopilot.go:GkeAutopilotTemplate`
 
 ```yaml
 # server.yaml - Template Definition
@@ -838,7 +859,7 @@ resources:
 
 Creates and manages Google Cloud Storage buckets with S3-compatible access via HMAC keys.
 
-**Golang Struct Reference:** `pkg/clouds/gcloud/bucket.go:GcpBucket`
+**Golang Struct Reference:** `github.com/simple-container-com/sc-plugin-gcp/api/bucket.go:GcpBucket`
 
 **JSON Schema:** [GcpBucket Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/gcpbucket.json)
 
@@ -870,7 +891,7 @@ When this resource is used in a client stack via the `uses` section, Simple Cont
 
 Creates and manages Google Artifact Registry repositories.
 
-**Golang Struct Reference:** `pkg/clouds/gcloud/artifactregistry.go:ArtifactRegistryConfig`
+**Golang Struct Reference:** `github.com/simple-container-com/sc-plugin-gcp/api/artifactregistry.go:ArtifactRegistryConfig`
 
 ```yaml
 # server.yaml - Parent Stack
@@ -934,7 +955,7 @@ An unrecognised key in `server.yaml` is silently ignored rather than rejected, s
 
 Creates and manages Google Cloud SQL PostgreSQL databases.
 
-**Golang Struct Reference:** `pkg/clouds/gcloud/postgres.go:PostgresGcpCloudsqlConfig`
+**Golang Struct Reference:** `github.com/simple-container-com/sc-plugin-gcp/api/postgres.go:PostgresGcpCloudsqlConfig`
 
 **JSON Schema:** [PostgresGcpCloudsqlConfig Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/postgresgcpcloudsqlconfig.json)
 
@@ -991,7 +1012,7 @@ Your container connects to Cloud SQL over `localhost` — the injected `*.host`/
 
 Creates and manages Google Cloud Memorystore Redis instances.
 
-**Golang Struct Reference:** `pkg/clouds/gcloud/redis.go:RedisConfig`
+**Golang Struct Reference:** `github.com/simple-container-com/sc-plugin-gcp/api/redis.go:RedisConfig`
 
 **JSON Schema:** [RedisConfig Schema](https://github.com/simple-container-com/api/tree/main/docs/schemas/gcp/redisconfig.json)
 
@@ -1031,7 +1052,7 @@ When this resource is used in a client stack via the `uses` section, Simple Cont
 
 Creates and manages Google Cloud Pub/Sub topics and subscriptions.
 
-**Golang Struct Reference:** `pkg/clouds/gcloud/pubsub.go:PubSubConfig`
+**Golang Struct Reference:** `github.com/simple-container-com/sc-plugin-gcp/api/pubsub.go:PubSubConfig`
 
 ```yaml
 # server.yaml - Parent Stack
