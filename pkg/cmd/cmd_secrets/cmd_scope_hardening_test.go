@@ -22,6 +22,16 @@ import (
 	"github.com/simple-container-com/api/pkg/cmd/root_cmd"
 	"github.com/simple-container-com/api/pkg/provisioner"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
+
+	// TestScopeCmd_LintChecksAuthEntriesWithEnvScopeKeysOnly puts a
+	// `type: gcp-service-account` into a scope file and expects lint to
+	// catch a malformed config via the typed decoder. Post-phase-5 the
+	// bootstrap registers only the opaque decoder for gcp tokens, which
+	// accepts any map shape. Blank-importing sc-plugin-gcp/api fires its
+	// init() → RegisterProviderConfig → typed ReadAuthServiceAccountConfig
+	// overrides the opaque one, restoring the parse-time strictness the
+	// test relies on.
+	_ "github.com/simple-container-com/sc-plugin-gcp/api"
 )
 
 // newScopeRepo is a repository with stack "app" and a scope "pr" sealed to admin.
@@ -29,6 +39,20 @@ func newScopeRepo(t *testing.T) (workdir, adminPub, adminPEM string) {
 	t.Helper()
 	workdir = t.TempDir()
 	mkStackDirs(t, workdir, ".sc/stacks", "app")
+	// Declare sc-plugin-gcp so `type: gcp-service-account` resolves during
+	// lint. After phase 5 of the GCP extraction the in-tree registrations
+	// are gone and the only path to GCP tokens is through the plugin
+	// bootstrap or an explicit `plugins:` block.
+	if err := os.WriteFile(filepath.Join(workdir, ".sc", "stacks", "app", "server.yaml"), []byte(`schemaVersion: 1.0
+plugins:
+  gcp:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-gcp
+      version: v2026.11.07-8bf6d5d
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	adminPub, adminPEM = testRecipient(t)
 	if out, err := execScope(t, workdir, "", "allow", "--scope", "pr", adminPub); err != nil {
 		t.Fatalf("allow: %v\n%s", err, out)

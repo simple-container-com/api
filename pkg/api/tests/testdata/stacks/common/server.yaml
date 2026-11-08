@@ -67,6 +67,11 @@ plugins:
       type: github-release
       repository: simple-container-com/sc-plugin-cloudflare
       version: v2026.10.26-5eddde3
+  gcp:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-gcp
+      version: v2026.11.07-8bf6d5d
 resources:
   registrar:
     type: cloudflare

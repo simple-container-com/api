@@ -91,6 +91,11 @@ templates:
   stack-per-app-aws:
     type: fargate
 plugins:
+  gcp:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-gcp
+      version: v2026.11.07-8bf6d5d
   cloudflare:
     source:
       type: github-release

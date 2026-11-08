@@ -30,6 +30,12 @@ import (
 // secrets.yaml could not be revealed, and the job holds only its own scope key.
 
 const scopedParentServer = `schemaVersion: 1.0
+plugins:
+  gcp:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-gcp
+      version: v2026.11.07-8bf6d5d
 provisioner:
   type: pulumi
   config:

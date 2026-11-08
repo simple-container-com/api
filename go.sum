@@ -868,8 +868,12 @@ github.com/simple-container-com/sc-plugin-aws/api v0.0.0-20261102081521-e5fd1e8f
 github.com/simple-container-com/sc-plugin-aws/api v0.0.0-20261102081521-e5fd1e8fa7a8/go.mod h1:xrWxpDoBjIeQhguBwoIsVj/JxTLpZHxyxqaGtbjUCJs=
 github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261031083455-cdbcf98c7bfb h1:whdI/2NLI+LOis05ojruccP+v1UqydKFMJVH6WdDlz8=
 github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261031083455-cdbcf98c7bfb/go.mod h1:grjigb/0Y7wQ5hT9eWnsIghVoumT2YWeo8x5B2hetSo=
+github.com/simple-container-com/sc-plugin-gcp v0.0.0-20261108045141-58ce4b6cfa4a h1:1BPNHNyBU3PV/TDqkOs1fd6r3yvV+s+P66MDwRUGPlM=
+github.com/simple-container-com/sc-plugin-gcp v0.0.0-20261108045141-58ce4b6cfa4a/go.mod h1:vFStCvcXkTyVIo6MN9BvudXRmAm4drwwN6d908KqXlw=
 github.com/simple-container-com/sc-plugin-gcp/api v0.0.0-20261107212225-8bf6d5d6f638 h1:h564wJ/YQs3wKyHdDjcp/aj1VzvpvjqkWLm/ebtWUiM=
 github.com/simple-container-com/sc-plugin-gcp/api v0.0.0-20261107212225-8bf6d5d6f638/go.mod h1:ebRWOMTQAIyTtzDzB27cx5FidTdjDF57fSpCcVBWn3c=
+github.com/simple-container-com/sc-plugin-gcp/api v0.0.0-20261108045141-58ce4b6cfa4a h1:XrF9fCS3a76uqO+fLs7vRb636oDtQJZoKpF2XMCvbA0=
+github.com/simple-container-com/sc-plugin-gcp/api v0.0.0-20261108045141-58ce4b6cfa4a/go.mod h1:ebRWOMTQAIyTtzDzB27cx5FidTdjDF57fSpCcVBWn3c=
 github.com/simple-container-com/sc-plugin-mongodb/api v0.0.0-20261029130510-ff1589792eaa h1:y+iTXrgLbZdP5WCSdbkdFOcDzANk+uBqszuVtJue+VE=
 github.com/simple-container-com/sc-plugin-mongodb/api v0.0.0-20261029130510-ff1589792eaa/go.mod h1:hcPcAX/B6qNRSqkYYE5IDeQviydAmjQ39S9sKmJnmPw=
 github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261101233310-67602079742f h1:4CHL1KWcyF979Y2qW4OKeHf3QMKl3Ih6CgBkoaDzBvU=

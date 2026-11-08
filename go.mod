@@ -51,7 +51,7 @@ require (
 	github.com/samber/lo v1.53.0
 	github.com/simple-container-com/sc-plugin-aws/api v0.0.0-20261102081521-e5fd1e8fa7a8
 	github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261031083455-cdbcf98c7bfb
-	github.com/simple-container-com/sc-plugin-gcp/api v0.0.0-20261107212225-8bf6d5d6f638
+	github.com/simple-container-com/sc-plugin-gcp/api v0.0.0-20261108045141-58ce4b6cfa4a
 	github.com/simple-container-com/sc-plugin-mongodb/api v0.0.0-20261029130510-ff1589792eaa
 	github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261101233310-67602079742f
 	github.com/spf13/cobra v1.10.2
