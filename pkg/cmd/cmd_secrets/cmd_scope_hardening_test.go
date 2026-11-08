@@ -49,7 +49,7 @@ plugins:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-gcp
-      version: v2026.11.07-8bf6d5d
+      version: v2026.11.08-d14f4da
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
