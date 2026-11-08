@@ -81,6 +81,176 @@ func caddyPodAnnotations(cfg *k8s.CaddyConfig) (map[string]string, error) {
 	return annotations, nil
 }
 
+// caddyfileRenderScript is the Caddy init container's entrypoint: it assembles
+// /tmp/Caddyfile from the embedded base config plus every Service carrying a
+// simple-container.com/caddyfile-entry annotation, and waits for the annotation
+// change it was rolled for to become visible before doing so.
+//
+// A const rather than an inline literal so caddy_render_script_test.go can run it
+// against a fake kubectl — the logic that matters here is shell, so the test that
+// matters has to execute shell.
+const caddyfileRenderScript = `
+	      # set -e (exit on error) + pipefail (any pipe component fail = fail).
+	      # Notably we do NOT enable -x here: tracing every command would dump
+	      # the raw caddyfile-entry annotation body to stdout for every Service
+	      # on every pod restart, which lands in cluster logs (GCP/Datadog/ELK).
+	      # SC-generated annotations don't contain secrets, but consumer-side
+	      # misuse (eg. basicauth credentials in Headers or LbConfig.ExtraHelpers
+	      # that templated into the annotation) could leak via -x. The trade-off
+	      # is debuggability — for live troubleshooting, re-enable -x by
+	      # overriding the init-container command in the cluster.
+	      set -eo pipefail;
+
+	      # Defaults are the only values production ever uses; every one of these is
+	      # overridable solely so the render + retry logic can be exercised by a unit
+	      # test (caddy_render_script_test.go) without a cluster and without waiting a
+	      # real minute. CADDY_SYNC_ATTEMPTS/INTERVAL double as an operator escape
+	      # hatch if a very large cluster ever needs a longer window.
+	      CADDY_SRC_CADDYFILE="${CADDY_SRC_CADDYFILE:-/etc/caddy/Caddyfile}"
+	      CADDY_WORK_DIR="${CADDY_WORK_DIR:-/tmp}"
+	      CADDY_SYNC_ATTEMPTS="${CADDY_SYNC_ATTEMPTS:-20}"
+	      CADDY_SYNC_INTERVAL="${CADDY_SYNC_INTERVAL:-3}"
+
+	      # render_caddyfile <out-file> <entry-hash-file>
+	      #
+	      # Assembles the whole Caddyfile from live cluster state, and records md5 of
+	      # each Service's raw caddyfile-entry annotation into the hash file. The hash
+	      # is what lets the caller below decide whether the state it rendered from is
+	      # new enough — see the retry loop. A function, not straight-line script,
+	      # purely so it can be re-run; the body is unchanged apart from writing to
+	      # "$out" instead of /tmp/Caddyfile directly.
+	      render_caddyfile() {
+	      out="$1"; hashes="$2"
+	      : > "$hashes"
+	      cp -f "$CADDY_SRC_CADDYFILE" "$out";
+
+	      # Inject custom Caddyfile prefix at the top (e.g., GCS storage configuration)
+	      if [ -n "$CADDYFILE_PREFIX" ]; then
+	        echo "$CADDYFILE_PREFIX" >> "$out"
+	        echo "" >> "$out"
+	      fi
+
+	      # List Services carrying the caddyfile-entry annotation. We also pull
+	      # creationTimestamp so we can dedup by site-address with the newest
+	      # Service winning — during a Pulumi Replace of a namespace (or Service),
+	      # the old and new Services transiently coexist and both carry the same
+	      # annotation; without dedup that produced two "http://<domain> { ... }"
+	      # blocks and Caddy aborted with "ambiguous site definition".
+	      # kubectl and sort are split into separate assignments so a kubectl
+	      # failure surfaces unambiguously even without pipefail (originally
+	      # they were piped; pipefail was added in response to a review catch
+	      # and we kept the structural split so future readers do not need
+	      # to know about pipefail to reason about failure modes here).
+	      # pipefail is kept on as belt-and-suspenders for the later
+	      # printf-to-sort pipe and the printf-to-while-read pipeline below.
+	      # If either listing step fails the init-container exits non-zero
+	      # and K8s reschedules — preferable to a Caddyfile with only the
+	      # default 503 block, which would mean a complete loss of routing
+	      # for the entire cluster.
+	      raw_services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.creationTimestamp}{" "}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
+	      services=$(printf '%s' "$raw_services" | sort -r)
+          echo "$DEFAULT_ENTRY_START" >> "$out"
+          if [ "$USE_PREFIXES" == "false" ]; then
+            echo "$DEFAULT_ENTRY" >> "$out"
+	        echo "}" >> "$out"
+          fi
+	      # Dedup state: first non-blank, non-comment line of each annotation is
+	      # the site address (e.g. "http://support-payhey.pay.space {") or the
+	      # "handle_path /<prefix>*" matcher for prefix routing. Whitespace is
+	      # trimmed both sides so an indentation difference can't pass through as
+	      # a distinct key. Already-seen keys are skipped — most-recently-created
+	      # Service wins via sort -r.
+	      #
+	      # Cleaned up explicitly at the end of the function rather than via
+	      # 'trap ... EXIT': the function runs more than once, and a trap would
+	      # re-register on every call.
+	      seen=$(mktemp)
+	      raw=$(mktemp)
+	      # Process each service that has Caddyfile entry annotation
+	      printf '%s\n' "$services" | while read ts ns service; do
+	          if [ -n "$ns" ] && [ -n "$service" ]; then
+	              # Fetched to a FILE, not a $(...) capture, so the md5 below is taken
+	              # over the annotation's exact bytes. kubectl -o jsonpath appends no
+	              # newline, but the entry template ends with one, and command
+	              # substitution strips trailing newlines — hashing the capture would
+	              # give a digest that never equals CADDY_UPDATE_HASH.
+	              kubectl get service -n "$ns" "$service" -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' > "$raw" 2>/dev/null || true
+	              entry=$(cat "$raw")
+	              if [ -z "$entry" ]; then
+	                  continue
+	              fi
+	              key=$(printf '%s\n' "$entry" | awk '
+	                  /^[[:space:]]*$/ { next }
+	                  /^[[:space:]]*#/ { next }
+	                  { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print; exit }
+	              ')
+	              if [ -n "$key" ] && grep -qFx -- "$key" "$seen" 2>/dev/null; then
+	                  echo "Skipping duplicate caddyfile-entry '$key' from $ns/$service (older Service)"
+	                  continue
+	              fi
+	              [ -n "$key" ] && printf '%s\n' "$key" >> "$seen"
+	              md5sum "$raw" | awk '{print $1}' >> "$hashes"
+	              echo "Processing service: $service in namespace: $ns"
+	              printf '%s\n' "$entry" >> "$out"
+	              echo "" >> "$out"
+	          fi
+	      done
+          if [ "$USE_PREFIXES" == "true" ]; then
+            echo "$DEFAULT_ENTRY" >> "$out"
+	        echo "}" >> "$out"
+          fi
+          echo "" >> "$out"
+	      rm -f "$seen" "$raw"
+	      }
+
+	      # Render, and if this pod was rolled for a Caddyfile change it cannot yet
+	      # see, render again.
+	      #
+	      # CADDY_UPDATE_HASH is md5 of the caddyfile-entry body whose change rolled
+	      # this deployment. The patch that rolls us can land BEFORE the Service
+	      # annotation it hashed is visible to a 'kubectl get' (measured 2026-11-08:
+	      # pod template at 16:16:30, annotation at 16:16:39) — so the first pod of a
+	      # rollout can render the PREVIOUS config and keep serving it for its whole
+	      # lifetime, because nothing re-renders and the Deployment has no further
+	      # reason to roll. With replicas > 1 the other pods render correctly and the
+	      # result is a permanent ~1/N failure rate across every node address, with
+	      # all pods Running and Ready.
+	      #
+	      # PatchDeployment now waits on the Service's applied state, so the ordering
+	      # inversion should no longer occur from the SC-driven path. This wait stays
+	      # because it is the only thing that covers the cases pulumi ordering cannot:
+	      # a hand-edited or externally-reconciled annotation, and any future caller
+	      # that forgets to pass the dependency.
+	      #
+	      # So: wait until one of the entries we just rendered hashes to the value we
+	      # were rolled for. FAIL-OPEN after ~60s, because a hash that can never match
+	      # is a legitimate state and must not take the edge down:
+	      #   - the app that patched the hash has since been deleted, so its Service
+	      #     (and its entry) no longer exist;
+	      #   - a migrated stack whose Service annotation is re-rendered against the
+	      #     legacy namespace while the hash is taken over the static render, so the
+	      #     two differ by design.
+	      # In both cases we proceed with exactly the config today's code would have
+	      # produced, having only cost ourselves the delay — never readiness.
+	      attempt=0
+	      while : ; do
+	          render_caddyfile "$CADDY_WORK_DIR/Caddyfile.rendering" "$CADDY_WORK_DIR/caddy-entry-hashes"
+	          if [ -z "$CADDY_UPDATE_HASH" ] || grep -qFx -- "$CADDY_UPDATE_HASH" "$CADDY_WORK_DIR/caddy-entry-hashes"; then
+	              break
+	          fi
+	          attempt=$((attempt + 1))
+	          if [ "$attempt" -ge "$CADDY_SYNC_ATTEMPTS" ]; then
+	              echo "WARNING: caddy-update-hash $CADDY_UPDATE_HASH is not present in any Service's caddyfile-entry after $attempt attempts; rendering from current cluster state anyway" >&2
+	              break
+	          fi
+	          echo "caddy-update-hash $CADDY_UPDATE_HASH not visible in cluster state yet, retrying ($attempt/$CADDY_SYNC_ATTEMPTS)"
+	          sleep "$CADDY_SYNC_INTERVAL"
+	      done
+	      # Single mv so a partially-rendered file is never what Caddy starts on.
+	      mv -f "$CADDY_WORK_DIR/Caddyfile.rendering" "$CADDY_WORK_DIR/Caddyfile"
+	      cat "$CADDY_WORK_DIR/Caddyfile"
+		`
+
 func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
 	if input.Descriptor.Type != k8s.ResourceTypeCaddy {
 		return nil, errors.Errorf("unsupported caddy type %q", input.Descriptor.Type)
@@ -246,6 +416,20 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 				},
 			}
 
+			// The pod's own copy of the annotation that caused this rollout
+			// (kube_run.go:371 patches it onto spec.template.metadata). The render
+			// below waits until it can see the Service annotation this hash was
+			// taken of — see caddyfileSyncAttempts. Absent on a Caddy that no app
+			// has ever patched, which the downward API resolves to "".
+			envVars = append(envVars, corev1.EnvVarArgs{
+				Name: sdk.String("CADDY_UPDATE_HASH"),
+				ValueFrom: corev1.EnvVarSourceArgs{
+					FieldRef: corev1.ObjectFieldSelectorArgs{
+						FieldPath: sdk.String(fmt.Sprintf("metadata.annotations['%s']", AnnotationCaddyUpdateHash)),
+					},
+				},
+			})
+
 			// Add Caddyfile prefix - prefer dynamic output over static config
 			if isPulumiOutputSet(caddy.CaddyfilePrefixOut) {
 				// Use dynamic Caddyfile prefix from cloud provider (e.g., GCS storage config with trusted proxies baked in)
@@ -267,86 +451,7 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 
 			return envVars
 		}(),
-		Command: sdk.ToStringArray([]string{"bash", "-c", `
-	      # set -e (exit on error) + pipefail (any pipe component fail = fail).
-	      # Notably we do NOT enable -x here: tracing every command would dump
-	      # the raw caddyfile-entry annotation body to stdout for every Service
-	      # on every pod restart, which lands in cluster logs (GCP/Datadog/ELK).
-	      # SC-generated annotations don't contain secrets, but consumer-side
-	      # misuse (eg. basicauth credentials in Headers or LbConfig.ExtraHelpers
-	      # that templated into the annotation) could leak via -x. The trade-off
-	      # is debuggability — for live troubleshooting, re-enable -x by
-	      # overriding the init-container command in the cluster.
-	      set -eo pipefail;
-	      cp -f /etc/caddy/Caddyfile /tmp/Caddyfile;
-
-	      # Inject custom Caddyfile prefix at the top (e.g., GCS storage configuration)
-	      if [ -n "$CADDYFILE_PREFIX" ]; then
-	        echo "$CADDYFILE_PREFIX" >> /tmp/Caddyfile
-	        echo "" >> /tmp/Caddyfile
-	      fi
-
-	      # List Services carrying the caddyfile-entry annotation. We also pull
-	      # creationTimestamp so we can dedup by site-address with the newest
-	      # Service winning — during a Pulumi Replace of a namespace (or Service),
-	      # the old and new Services transiently coexist and both carry the same
-	      # annotation; without dedup that produced two "http://<domain> { ... }"
-	      # blocks and Caddy aborted with "ambiguous site definition".
-	      # kubectl and sort are split into separate assignments so a kubectl
-	      # failure surfaces unambiguously even without pipefail (originally
-	      # they were piped; pipefail was added in response to a review catch
-	      # and we kept the structural split so future readers do not need
-	      # to know about pipefail to reason about failure modes here).
-	      # pipefail is kept on as belt-and-suspenders for the later
-	      # printf-to-sort pipe and the printf-to-while-read pipeline below.
-	      # If either listing step fails the init-container exits non-zero
-	      # and K8s reschedules — preferable to a Caddyfile with only the
-	      # default 503 block, which would mean a complete loss of routing
-	      # for the entire cluster.
-	      raw_services=$(kubectl get services --all-namespaces -o jsonpath='{range .items[?(@.metadata.annotations.simple-container\.com/caddyfile-entry)]}{.metadata.creationTimestamp}{" "}{.metadata.namespace}{" "}{.metadata.name}{"\n"}{end}')
-	      services=$(printf '%s' "$raw_services" | sort -r)
-          echo "$DEFAULT_ENTRY_START" >> /tmp/Caddyfile
-          if [ "$USE_PREFIXES" == "false" ]; then
-            echo "$DEFAULT_ENTRY" >> /tmp/Caddyfile
-	        echo "}" >> /tmp/Caddyfile
-          fi
-	      # Dedup state: first non-blank, non-comment line of each annotation is
-	      # the site address (e.g. "http://support-payhey.pay.space {") or the
-	      # "handle_path /<prefix>*" matcher for prefix routing. Whitespace is
-	      # trimmed both sides so an indentation difference can't pass through as
-	      # a distinct key. Already-seen keys are skipped — most-recently-created
-	      # Service wins via sort -r.
-	      seen=$(mktemp)
-	      trap 'rm -f "$seen"' EXIT
-	      # Process each service that has Caddyfile entry annotation
-	      printf '%s\n' "$services" | while read ts ns service; do
-	          if [ -n "$ns" ] && [ -n "$service" ]; then
-	              entry=$(kubectl get service -n "$ns" "$service" -o jsonpath='{.metadata.annotations.simple-container\.com/caddyfile-entry}' 2>/dev/null || true)
-	              if [ -z "$entry" ]; then
-	                  continue
-	              fi
-	              key=$(printf '%s\n' "$entry" | awk '
-	                  /^[[:space:]]*$/ { next }
-	                  /^[[:space:]]*#/ { next }
-	                  { sub(/^[[:space:]]+/, ""); sub(/[[:space:]]+$/, ""); print; exit }
-	              ')
-	              if [ -n "$key" ] && grep -qFx -- "$key" "$seen" 2>/dev/null; then
-	                  echo "Skipping duplicate caddyfile-entry '$key' from $ns/$service (older Service)"
-	                  continue
-	              fi
-	              [ -n "$key" ] && printf '%s\n' "$key" >> "$seen"
-	              echo "Processing service: $service in namespace: $ns"
-	              printf '%s\n' "$entry" >> /tmp/Caddyfile
-	              echo "" >> /tmp/Caddyfile
-	          fi
-	      done
-          if [ "$USE_PREFIXES" == "true" ]; then
-            echo "$DEFAULT_ENTRY" >> /tmp/Caddyfile
-	        echo "}" >> /tmp/Caddyfile
-          fi
-          echo "" >> /tmp/Caddyfile
-	      cat /tmp/Caddyfile
-		`}),
+		Command: sdk.ToStringArray([]string{"bash", "-c", caddyfileRenderScript}),
 	}
 
 	var addOpts []sdk.ResourceOption

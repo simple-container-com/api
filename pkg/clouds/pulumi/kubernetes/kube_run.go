@@ -368,7 +368,7 @@ func KubeRunWithProvider(
 				// the Caddyfile actually changes. Content-hash, not wall-clock time, prevents
 				// spurious restarts (and Cloudflare 521s) on every pulumi up.
 				Annotations: map[string]sdk.StringOutput{
-					"simple-container.com/caddy-update-hash": sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
+					AnnotationCaddyUpdateHash: sdk.All(sc.CaddyfileEntry).ApplyT(func(entry []any) string {
 						sum := md5.Sum([]byte(entry[0].(string)))
 						return hex.EncodeToString(sum[:])
 					}).(sdk.StringOutput),
