@@ -33,20 +33,39 @@ type CaddyDeployment struct {
 	// caddy-<env>; see KubernetesCaddyDeploymentName. Deliberately NOT named
 	// DeploymentName: that would shadow the promoted CaddyConfig.DeploymentName, which is
 	// the user-facing adoption override and a different thing.
-	ObjectsName        string
-	ClusterResource    sdk.Resource
-	CaddyfilePrefixOut sdk.StringOutput // Dynamic Caddyfile prefix for cloud storage (e.g., GCS config from GCP)
+	ObjectsName     string
+	ClusterResource sdk.Resource
+	// CaddyfilePrefixOut is a Caddyfile prefix a CLOUD computed, from values only known
+	// during the apply — today just GKE, whose cluster resource provisions a GCS bucket
+	// and renders `storage gcs` with the bucket's name (gcp/gke_autopilot.go). It REPLACES
+	// the statically-assembled prefix, which is why a cloud that sets it must bake the
+	// trusted-proxies block in too.
+	//
+	// Left zero by every other path, and "is it set" is decided by isPulumiOutputSet,
+	// which until 2026-11-08 always answered yes: `trustedProxies` and `caddyfilePrefix`
+	// therefore reached NO non-GKE edge, and every such deploy passed an unknown output
+	// as CADDYFILE_PREFIX instead.
+	CaddyfilePrefixOut sdk.StringOutput
 	// Cloud-specific configuration (following SimpleContainer patterns)
 	SecretEnvs          map[string]string      // Secret environment variables (e.g., GOOGLE_APPLICATION_CREDENTIALS=/etc/gcp/credentials.json)
 	SecretVolumes       []k8s.SimpleTextVolume // Secret volumes to mount (e.g., GCP credentials)
 	SecretVolumeOutputs []any                  // Pulumi outputs for secret volumes
 }
 
-// isPulumiOutputSet checks if a Pulumi StringOutput has been initialized with a value
-// This is safer than directly checking ElementType() on potentially uninitialized outputs
+// isPulumiOutputSet reports whether a StringOutput was ever given a value, as opposed to
+// being the zero value of its field.
+//
+// It checks the embedded *OutputState, which is the only thing that distinguishes the
+// two. ElementType() CANNOT: it is a method on the VALUE type returning a package-level
+// `reflect.TypeOf("")`, so it answers non-nil for every StringOutput that exists,
+// including `var o sdk.StringOutput`. That made this function a constant `true` —
+// see CaddyfilePrefixOut's own doc for what that cost.
+//
+// An unset output is not merely empty: a nil OutputState awaits as UNKNOWN (value nil,
+// known false), so handing one to a provider as an input is not "" but an unresolved
+// value.
 func isPulumiOutputSet(output sdk.StringOutput) bool {
-	// Check if the output's element type is set (indicates it was initialized)
-	return output.ElementType() != nil
+	return output.OutputState != nil
 }
 
 // caddyHSTSEnv returns env-var additions overriding the `(hsts)` snippet's
@@ -303,6 +322,15 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 	namespace := lo.If(caddy.Namespace != nil, lo.FromPtr(caddy.Namespace)).Else("caddy")
 	caddyImage := lo.If(caddy.Image != nil, lo.FromPtr(caddy.Image)).Else(fmt.Sprintf("simplecontainer/caddy:%s", build.Version))
 
+	// Assembled here and not inside the container's Env closure below, which cannot
+	// return an error: before this, BuildTrustedProxiesBlock's error was discarded with
+	// `_` and an invalid CIDR silently dropped the whole block, leaving an edge that
+	// trusts no proxy and reports every client as the load balancer.
+	staticPrefix, err := staticCaddyfilePrefix(caddy)
+	if err != nil {
+		return nil, errors.Wrapf(err, "invalid caddy global options for cluster %q", input.Descriptor.Name)
+	}
+
 	// Generate volume names using the same logic as SimpleContainer to ensure consistency
 	// This fixes the volume mount name mismatch issue for custom stacks
 	// Use the deploymentName (which includes environment suffix) as the service name
@@ -437,16 +465,12 @@ func DeployCaddyService(ctx *sdk.Context, caddy CaddyDeployment, input api.Resou
 					Name:  sdk.String("CADDYFILE_PREFIX"),
 					Value: caddy.CaddyfilePrefixOut.ToStringOutput(),
 				})
-			} else {
-				// Build static Caddyfile prefix from config (non-GKE path)
-				trustedBlock, _ := BuildTrustedProxiesBlock(lo.FromPtrOr(caddy.CaddyConfig, k8s.CaddyConfig{}))
-				userPrefix := lo.FromPtrOr(caddy.CaddyfilePrefix, "")
-				if prefix := BuildCaddyfileGlobalOptions("", trustedBlock, userPrefix); prefix != "" {
-					envVars = append(envVars, corev1.EnvVarArgs{
-						Name:  sdk.String("CADDYFILE_PREFIX"),
-						Value: sdk.String(prefix),
-					})
-				}
+			} else if staticPrefix != "" {
+				// Static Caddyfile prefix from config (non-GKE path), assembled above.
+				envVars = append(envVars, corev1.EnvVarArgs{
+					Name:  sdk.String("CADDYFILE_PREFIX"),
+					Value: sdk.String(staticPrefix),
+				})
 			}
 
 			return envVars
