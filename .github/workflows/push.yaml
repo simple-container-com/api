@@ -489,7 +489,11 @@ jobs:
           cache: ${{ vars.FORGE_CI_RUNNER == '' }}
       - name: test
         run: |
-          go test ./...
+          # -timeout 30m — see the matching comment on branch.yaml's
+          # `test` step. Default 10m / test-binary leaves no room when
+          # pkg/e2e/scopedstore has to cold-fetch the ~230MB
+          # sc-plugin-gcp binary mid-test.
+          go test -timeout 30m ./...
 
   build-docs:
     name: Build documentation
