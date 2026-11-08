@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -170,6 +169,37 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 				return nil, errors.Wrapf(err, "plugin %q Provision(%q): marshal ParentStack", pluginName, typeToken)
 			}
 			req.ParentInfoJson = b
+		}
+		// Dependency outputs for resources whose config implements
+		// api.WithParentDependencies: pack the sibling-published outputs so the
+		// plugin's Provision body can read them. The flat `dependency_outputs`
+		// proto field (:683 on ProvisionRequest) can't carry the per-value
+		// secret flag or nested shape #569 added; the JSON blob does.
+		//
+		// Only plugin-owned sibling Refs (*api.PluginResourceOutput, produced
+		// by harvestPluginOutputs) are packable — in-tree Refs are typed Go
+		// structs whose shape the receiving plugin doesn't know how to unmarshal.
+		// An in-tree dep without a PluginResourceOutput Ref is dropped silently
+		// here; the plugin body sees it as absent and errors with its own
+		// resource-not-in-outputs message. That matches the pre-#569 silent
+		// behaviour and keeps the plugin bus free of in-tree Go struct shapes.
+		if len(params.ResourceOutputs) > 0 {
+			depOuts := map[string]*api.PluginResourceOutput{}
+			for name, rOut := range params.ResourceOutputs {
+				if rOut == nil {
+					continue
+				}
+				if plOut, ok := rOut.Ref.(*api.PluginResourceOutput); ok && plOut != nil {
+					depOuts[name] = plOut
+				}
+			}
+			if len(depOuts) > 0 {
+				b, err := json.Marshal(depOuts)
+				if err != nil {
+					return nil, errors.Wrapf(err, "plugin %q Provision(%q): marshal dependency outputs", pluginName, typeToken)
+				}
+				req.DependencyOutputsJson = b
+			}
 		}
 		resp, err := cli.Provision(ctx.Context(), req)
 		if err != nil {
