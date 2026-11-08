@@ -681,6 +681,86 @@ cluster. The fleet-wide lesson is the first framing above — the second
 form (check the source) is the preferred shape at every call site
 where the source is in scope.
 
+### 6.8 A helper that bypasses the framework gives up the resource graph
+
+The sibling trap to §6.7: a surface that *looks* like it carries
+ordering intent (`Opts []sdk.ResourceOption`) but never reaches the
+Pulumi engine silently discards `sdk.DependsOn`, `sdk.Provider`, every
+other `ResourceOption` the caller passed. Ordering becomes fiction —
+the code reads correctly, a reviewer sees `sdk.DependsOn([]sdk.Resource{x})`
+and infers "waits for x", but at runtime the apply fires whenever its
+own inputs resolve, in whatever order the engine happens to schedule.
+
+The root cause is architectural: only a `RegisterResource` call
+attaches a resource (and its `ResourceOption`s) to the Pulumi graph.
+A helper that mutates state inside a bare `sdk.All(...).ApplyT(...)`
+side effect — no `RegisterResource` — is OUTSIDE the graph. Any
+`ResourceOption` the helper accepts goes nowhere.
+
+The two-second check: **`grep -n '<field>' <file>` returning only the
+declaration.** If the only occurrence of `Opts` in a helper's file is
+the struct field definition, the helper never used it — the
+`ResourceOption`s travelled from the call site to a dead end.
+
+The anti-pattern — don't:
+
+```go
+// DeploymentPatchArgs carries options the caller believes order the patch.
+// The helper below does not call RegisterResource; the Opts never leave
+// this struct. DependsOn here is a documentation-only annotation.
+type DeploymentPatchArgs struct {
+    ...
+    Opts []sdk.ResourceOption
+}
+
+func PatchDeployment(ctx *sdk.Context, args DeploymentPatchArgs) error {
+    return sdk.All(args.Service.Metadata).ApplyTWithContext(
+        ctx.Context(),
+        func(_ context.Context, all []any) error {
+            // mutate k8s state here; no RegisterResource call → outside the graph
+            return doPatch(all[0].(metav1.ObjectMeta))
+        },
+    ).(sdk.AnyOutput).Result()
+}
+
+// Call site — the DependsOn is a lie.
+err := PatchDeployment(ctx, DeploymentPatchArgs{
+    Opts: []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{svc})},
+    ...
+})
+```
+
+The correct shape depends on what the helper is actually doing:
+
+- **If the helper registers a resource**: pass `Opts` through to
+  `RegisterResource` (or to a pulumi SDK call that does). This is the
+  common case — most helpers *should* register resources, and `Opts`
+  reaches the engine naturally.
+- **If the helper is a bare `ApplyT` side effect** (like a patch
+  computed from another resource's applied state): drop the
+  `ResourceOption` field entirely and order the apply via its input
+  outputs. `sdk.ToStringMapOutput` and similar `*Output` types
+  preserve the source's output dependencies — an `ApplyT` on an
+  output cannot run until the source has resolved, which is the only
+  ordering mechanism an apply-driven helper has.
+
+Live-caught (Caddy-edge batch commits 1-2, 2026-11-08): `PatchDeployment`
+(`pkg/clouds/pulumi/kubernetes/deployment_patch.go`) carried an unused
+`Opts []sdk.ResourceOption` for over a year. Two call sites
+(`kube_run.go`, `gcp/gke_autopilot_stack.go`) passed
+`sdk.DependsOn([]sdk.Resource{sc.Service})` through it. The ordering
+never fired: a Caddy pod rolled 9s before the Service annotation it
+was rolled for became visible (pod template 16:16:30, annotation
+16:16:39). Fix was to compute the pod-template hash from the Service's
+applied annotation — `sdk.ToStringMapOutput` preserves the
+annotation's output dependency, so the patch's apply blocks on it.
+Dead `Opts` field removed; `PatchDeployment`'s doc comment now states
+that `DependsOn` cannot order it and what to do instead.
+
+Generalisable rule: **a helper that doesn't call `RegisterResource`
+cannot order work via `ResourceOption`s. Order via output
+dependencies on its inputs, or make the helper register a resource.**
+
 ---
 
 ## 7. Prior art
