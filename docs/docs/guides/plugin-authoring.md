@@ -624,6 +624,169 @@ list. **Copy the one from the repo you're linting**, not the one you
 remember. Running `gci` with the wrong section list is a lint-only diff —
 `gofmt` doesn't catch it — and it fails CI from an operator-invisible place.
 
+### 6.7 Never test an Output's zero-ness via its value methods
+
+`pulumi.StringOutput` is a struct with a single embedded pointer field —
+`struct { *OutputState }`. `ElementType()` is a *value* method that
+returns a package-level `reflect.Type` constant — the full citation is
+`pulumi/sdk/v3@v3.245.0/go/pulumi/types_builtins.go:9471`:
+
+```go
+func (StringOutput) ElementType() reflect.Type { return stringType }
+```
+
+So `out.ElementType() != nil` is a constant true for every
+`StringOutput` in existence, including `var o sdk.StringOutput`. The
+method answers identically on a zero-value struct and a fully-
+resolved one, because the method can't see whether the embedded
+pointer was ever assigned. **Any value method on a struct-with-
+embedded-pointer has this property**, so the rule that catches the
+whole class is:
+
+> The only field that distinguishes a zero Output is the embedded
+> pointer. Test `out.OutputState != nil`, never a method.
+
+The anti-pattern — don't:
+
+```go
+// isPulumiOutputSet tests a value method that returns a constant for ALL instances of
+// the type — zero-value or populated. The predicate reads correctly but is
+// unconditionally true, and the "set" branch always wins.
+func isPulumiOutputSet(out pulumi.StringOutput) bool {
+    return out.ElementType() != nil
+}
+```
+
+The correct shape — test the embedded pointer:
+
+```go
+// out.OutputState is the only field that distinguishes a zero Output
+// from a populated one. The zero value is `pulumi.StringOutput{}` with
+// *OutputState == nil.
+func isOutputSet(out pulumi.StringOutput) bool {
+    return out.OutputState != nil
+}
+```
+
+The sharper framing: **check the source, not the output.** When the
+value comes from a plain string you already hold in scope, the
+predicate on the source is always clearer and never has this failure
+mode:
+
+```go
+// Preferred: predicate on the source string, not on an Output derived from it.
+// Use this when the source value is in scope at the call site.
+var valueOut pulumi.StringOutput = record.ValueOut
+if record.Value != "" {
+    valueOut = pulumi.String(record.Value).ToStringOutput()
+}
+```
+
+Live-caught (api `ee4afc84`, 2026-11-08): a `kubernetes-caddy` driver's
+`isXSet`-over-output predicate was unconditionally true, so the
+GKE-only branch always won and `caddyfilePrefix` + `trustedProxies`
+were accepted, validated and **silently discarded** on every non-GKE
+cluster. The fleet-wide lesson is the first framing above — the second
+form (check the source) is the preferred shape at every call site
+where the source is in scope.
+
+**Why this is invisible in preview.** A zero-value `sdk.StringOutput`
+doesn't await as the empty string — it awaits as UNKNOWN. Probed live
+against the shipped SDK (pulumi/sdk/v3@v3.245.0):
+
+```
+value=<nil> known=false secret=false err=<nil>
+```
+
+So the downstream failure modes differ by who consumes the zero
+Output: a predicate-reader gets the wrong branch selected (the
+`caddyfilePrefix` discard above); an awaiter gets UNKNOWN forever,
+which lands on the wire as an unresolved placeholder — a Caddy pod
+handed `CADDYFILE_PREFIX=<unresolved>` never comes up. Previews don't
+distinguish "will resolve to known" from "will never resolve", so
+neither shape surfaces until apply-time, which is why these bugs can
+live for a year before anyone measures.
+
+### 6.8 A helper that bypasses the framework gives up the resource graph
+
+The sibling trap to §6.7: a surface that *looks* like it carries
+ordering intent (`Opts []sdk.ResourceOption`) but never reaches the
+Pulumi engine silently discards `sdk.DependsOn`, `sdk.Provider`, every
+other `ResourceOption` the caller passed. Ordering becomes fiction —
+the code reads correctly, a reviewer sees `sdk.DependsOn([]sdk.Resource{x})`
+and infers "waits for x", but at runtime the apply fires whenever its
+own inputs resolve, in whatever order the engine happens to schedule.
+
+The root cause is architectural: only a `RegisterResource` call
+attaches a resource (and its `ResourceOption`s) to the Pulumi graph.
+A helper that mutates state inside a bare `sdk.All(...).ApplyT(...)`
+side effect — no `RegisterResource` — is OUTSIDE the graph. Any
+`ResourceOption` the helper accepts goes nowhere.
+
+The two-second check: **`grep -n '<field>' <file>` returning only the
+declaration.** If the only occurrence of `Opts` in a helper's file is
+the struct field definition, the helper never used it — the
+`ResourceOption`s travelled from the call site to a dead end.
+
+The anti-pattern — don't:
+
+```go
+// DeploymentPatchArgs carries options the caller believes order the patch.
+// The helper below does not call RegisterResource; the Opts never leave
+// this struct. DependsOn here is a documentation-only annotation.
+type DeploymentPatchArgs struct {
+    ...
+    Opts []sdk.ResourceOption
+}
+
+func PatchDeployment(ctx *sdk.Context, args DeploymentPatchArgs) error {
+    return sdk.All(args.Service.Metadata).ApplyTWithContext(
+        ctx.Context(),
+        func(_ context.Context, all []any) error {
+            // mutate k8s state here; no RegisterResource call → outside the graph
+            return doPatch(all[0].(metav1.ObjectMeta))
+        },
+    ).(sdk.AnyOutput).Result()
+}
+
+// Call site — the DependsOn is a lie.
+err := PatchDeployment(ctx, DeploymentPatchArgs{
+    Opts: []sdk.ResourceOption{sdk.DependsOn([]sdk.Resource{svc})},
+    ...
+})
+```
+
+The correct shape depends on what the helper is actually doing:
+
+- **If the helper registers a resource**: pass `Opts` through to
+  `RegisterResource` (or to a pulumi SDK call that does). This is the
+  common case — most helpers *should* register resources, and `Opts`
+  reaches the engine naturally.
+- **If the helper is a bare `ApplyT` side effect** (like a patch
+  computed from another resource's applied state): drop the
+  `ResourceOption` field entirely and order the apply via its input
+  outputs. `sdk.ToStringMapOutput` and similar `*Output` types
+  preserve the source's output dependencies — an `ApplyT` on an
+  output cannot run until the source has resolved, which is the only
+  ordering mechanism an apply-driven helper has.
+
+Live-caught (Caddy-edge batch commits 1-2, 2026-11-08): `PatchDeployment`
+(`pkg/clouds/pulumi/kubernetes/deployment_patch.go`) carried an unused
+`Opts []sdk.ResourceOption` for over a year. Two call sites
+(`kube_run.go`, `gcp/gke_autopilot_stack.go`) passed
+`sdk.DependsOn([]sdk.Resource{sc.Service})` through it. The ordering
+never fired: a Caddy pod rolled 9s before the Service annotation it
+was rolled for became visible (pod template 16:16:30, annotation
+16:16:39). Fix was to compute the pod-template hash from the Service's
+applied annotation — `sdk.ToStringMapOutput` preserves the
+annotation's output dependency, so the patch's apply blocks on it.
+Dead `Opts` field removed; `PatchDeployment`'s doc comment now states
+that `DependsOn` cannot order it and what to do instead.
+
+Generalisable rule: **a helper that doesn't call `RegisterResource`
+cannot order work via `ResourceOption`s. Order via output
+dependencies on its inputs, or make the helper register a resource.**
+
 ---
 
 ## 7. Prior art
