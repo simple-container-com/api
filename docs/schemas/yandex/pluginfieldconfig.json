@@ -1,0 +1,37 @@
+{
+  "name": "PluginFieldConfig",
+  "type": "resource",
+  "provider": "yandex",
+  "description": "YANDEX pluginfield configuration",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "PluginFieldConfig",
+  "resourceType": "yc-object-storage",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "credentials": {
+        "type": "string"
+      },
+      "projectId": {
+        "type": "string"
+      },
+      "provision": {
+        "type": "boolean"
+      },
+      "type": {
+        "type": "string"
+      },
+      "url": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "credentials",
+      "projectId",
+      "provision",
+      "type",
+      "url"
+    ],
+    "type": "object"
+  }
+}

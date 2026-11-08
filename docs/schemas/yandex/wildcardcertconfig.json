@@ -1,0 +1,57 @@
+{
+  "name": "WildcardCertConfig",
+  "type": "resource",
+  "provider": "yandex",
+  "description": "YANDEX wildcardcert configuration",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "WildcardCertConfig",
+  "resourceType": "yc-wildcard-cert",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "accessKey": {
+        "type": "string"
+      },
+      "adoptCertificateId": {
+        "type": "string"
+      },
+      "cloudId": {
+        "type": "string"
+      },
+      "credentials": {
+        "type": "string"
+      },
+      "folderId": {
+        "type": "string"
+      },
+      "region": {
+        "type": "string"
+      },
+      "secretAccessKey": {
+        "type": "string"
+      },
+      "serviceAccountKey": {
+        "type": "string"
+      },
+      "zone": {
+        "type": "string"
+      },
+      "zoneId": {
+        "type": "string"
+      },
+      "zoneName": {
+        "type": "string"
+      },
+      "zoneResourceName": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "cloudId",
+      "credentials",
+      "folderId",
+      "zoneName"
+    ],
+    "type": "object"
+  }
+}

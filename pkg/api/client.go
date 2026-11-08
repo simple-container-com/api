@@ -167,7 +167,29 @@ type TextVolume struct {
 type Headers map[string]string
 
 type SimpleContainerLBConfig struct {
+	// Https is the DEPRECATED spelling of OriginTls. Still honoured, and means
+	// exactly the same thing — `originTls` is the name that says what it does.
 	Https bool `json:"https" yaml:"https"`
+
+	// OriginTls is whether the edge serving this stack's site terminates TLS for
+	// it: whether the generated Caddy site address is `https://<domain>` rather
+	// than `http://<domain>`. The scheme is not decoration — `https://` is what
+	// arms Caddy's automatic HTTPS, and therefore ACME, for this site.
+	//
+	// Unset means "inherit the edge's default" (the template's `originTls`) and,
+	// failing that, FALSE: something in front — Cloudflare's proxy, a cloud load
+	// balancer — terminates TLS and the edge serves plain HTTP. That is the
+	// fleet's normal arrangement, which is why this defaults off while the vm
+	// resource's `ingress.originTls` defaults on: there, the machine's Caddy IS
+	// the front door.
+	//
+	// NOT the same decision as the template's `clientTls` (formerly `useSSL`),
+	// which only governs HSTS and which side owns the HTTP→HTTPS redirect.
+	//
+	// Has no effect on the vm path, where origin TLS is a property of the
+	// machine's one Caddy and belongs to the vm resource (`ingress.originTls`)
+	// rather than to each site.
+	OriginTls *bool `json:"originTls,omitempty" yaml:"originTls,omitempty"`
 	// ExtraHelpers renders one directive per line INSIDE the per-stack
 	// `reverse_proxy { ... }` block (alongside `header_down`, `import
 	// handle_server_error`, etc.). Use this for reverse-proxy-subdirective
@@ -196,6 +218,43 @@ type SimpleContainerLBConfig struct {
 	// and remain subject to Django #28668 — raise the size for endpoints
 	// receiving large chunked uploads.
 	RequestBufferSize string `json:"requestBufferSize,omitempty" yaml:"requestBufferSize,omitempty"`
+}
+
+// OriginTlsEnabled reports whether the edge terminates TLS for this stack's site, and
+// therefore whether the site address is rendered `https://` (automatic HTTPS and ACME
+// armed) or `http://`.
+//
+// Precedence: this stack's `originTls`, then its deprecated `https`, then the
+// edge-wide default from the template, then false. A nil receiver answers the same as
+// an empty block, because a client.yaml with no `lbConfig` at all is the majority case
+// and must not behave differently from one that declares the block and says nothing.
+func (c *SimpleContainerLBConfig) OriginTlsEnabled(edgeDefault *bool) bool {
+	if c != nil {
+		if c.OriginTls != nil {
+			return *c.OriginTls
+		}
+		if c.Https {
+			return true
+		}
+	}
+	if edgeDefault != nil {
+		return *edgeDefault
+	}
+	return false
+}
+
+// ValidateTls refuses the one combination of the two spellings that cannot be honoured
+// both ways. Everything else resolves by the documented precedence.
+func (c *SimpleContainerLBConfig) ValidateTls() error {
+	if c == nil || c.OriginTls == nil {
+		return nil
+	}
+	if c.Https && !*c.OriginTls {
+		return errors.Errorf("`lbConfig.https: true` contradicts `lbConfig.originTls: false`: " +
+			"`https` is the deprecated spelling of `originTls` and they are the same switch — " +
+			"drop `https` and keep `originTls`")
+	}
+	return nil
 }
 
 type StackConfigCompose struct {

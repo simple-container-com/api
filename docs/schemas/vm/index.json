@@ -13,6 +13,26 @@
       "schema": {}
     },
     {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "vm",
+      "description": "VM pluginfield configuration",
+      "goPackage": "pkg/clouds/vm/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "cloudru-evolution-vm",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "vm",
+      "description": "VM pluginfield configuration",
+      "goPackage": "pkg/clouds/vm/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "cloudru-vm",
+      "schema": {}
+    },
+    {
       "name": "VmConfig",
       "type": "resource",
       "provider": "vm",

@@ -9,31 +9,6 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              },
-              "serviceAccount": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "",
-          ""
-        ],
-        "type": "object"
-      },
       "adopt": {
         "type": "boolean"
       },
@@ -45,6 +20,9 @@
           },
           "caddyfilePrefix": {
             "type": "string"
+          },
+          "clientTls": {
+            "type": "boolean"
           },
           "deploymentName": {
             "type": "string"
@@ -69,6 +47,9 @@
               "type": "string"
             },
             "type": "object"
+          },
+          "originTls": {
+            "type": "boolean"
           },
           "podAnnotations": {
             "additionalProperties": {
@@ -382,6 +363,9 @@
         "required": [],
         "type": "object"
       },
+      "credentials": {
+        "type": "string"
+      },
       "externalEgressIp": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -418,6 +402,12 @@
       "privateVpc": {
         "type": "boolean"
       },
+      "projectId": {
+        "type": "string"
+      },
+      "serviceAccount": {
+        "type": "string"
+      },
       "timeouts": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -443,9 +433,10 @@
       }
     },
     "required": [
-      "",
+      "credentials",
       "gkeMinVersion",
       "location",
+      "projectId",
       "zone"
     ],
     "type": "object"

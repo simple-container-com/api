@@ -9,45 +9,11 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "credentials": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "credentials"
-            ],
-            "type": "object"
-          },
-          "accessKey": {
-            "type": "string"
-          },
-          "account": {
-            "type": "string"
-          },
-          "permissionsBoundary": {
-            "type": "string"
-          },
-          "region": {
-            "type": "string"
-          },
-          "secretAccessKey": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "",
-          "accessKey",
-          "account",
-          "region",
-          "secretAccessKey"
-        ],
-        "type": "object"
+      "accessKey": {
+        "type": "string"
+      },
+      "account": {
+        "type": "string"
       },
       "alerts": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -180,6 +146,9 @@
         "required": [],
         "type": "object"
       },
+      "credentials": {
+        "type": "string"
+      },
       "discord": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -211,8 +180,17 @@
       "logGroupRegion": {
         "type": "string"
       },
+      "permissionsBoundary": {
+        "type": "string"
+      },
+      "region": {
+        "type": "string"
+      },
       "requireLogFileValidation": {
         "type": "boolean"
+      },
+      "secretAccessKey": {
+        "type": "string"
       },
       "slack": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -247,9 +225,13 @@
       }
     },
     "required": [
-      "",
+      "accessKey",
+      "account",
       "alerts",
-      "logGroupName"
+      "credentials",
+      "logGroupName",
+      "region",
+      "secretAccessKey"
     ],
     "type": "object"
   }

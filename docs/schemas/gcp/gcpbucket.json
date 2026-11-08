@@ -9,35 +9,13 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              },
-              "serviceAccount": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "",
-          ""
-        ],
-        "type": "object"
-      },
       "adopt": {
         "type": "boolean"
       },
       "bucketName": {
+        "type": "string"
+      },
+      "credentials": {
         "type": "string"
       },
       "location": {
@@ -45,11 +23,18 @@
       },
       "name": {
         "type": "string"
+      },
+      "projectId": {
+        "type": "string"
+      },
+      "serviceAccount": {
+        "type": "string"
       }
     },
     "required": [
-      "",
-      "location"
+      "credentials",
+      "location",
+      "projectId"
     ],
     "type": "object"
   }

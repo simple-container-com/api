@@ -9,22 +9,13 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "credentials": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "credentials"
-        ],
-        "type": "object"
-      },
       "accessKey": {
         "type": "string"
       },
       "account": {
+        "type": "string"
+      },
+      "credentials": {
         "type": "string"
       },
       "permissionsBoundary": {
@@ -38,9 +29,9 @@
       }
     },
     "required": [
-      "",
       "accessKey",
       "account",
+      "credentials",
       "region",
       "secretAccessKey"
     ],

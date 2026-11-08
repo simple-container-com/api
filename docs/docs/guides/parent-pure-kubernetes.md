@@ -148,7 +148,9 @@ templates:
       dockerRegistryUsername: "${secret:docker-registry-username}"
       dockerRegistryPassword: "${secret:docker-registry-password}"
       caddyResource: caddy  # Routing for services
-      useSSL: false  # Disable SSL (can be enabled later)
+      # Clients are not on HTTPS yet: no HSTS, and the ingress keeps the HTTP→HTTPS
+      # redirect. This is NOT "TLS off" — see `originTls` for that. (Was `useSSL`.)
+      clientTls: false
 
 # Infrastructure resources provisioned inside Kubernetes
 resources:
@@ -170,7 +172,13 @@ resources:
             usePrefixes: true  # Routes services using `/service1`, `/service2`
             serviceType: ClusterIP  # Internal routing
             provisionIngress: true
-            useSSL: false
+            clientTls: false
+            # The edge-wide default for whether this Caddy TERMINATES TLS itself
+            # (`https://<domain>` site addresses, automatic HTTPS, ACME). Off unless
+            # stated, which is correct behind an ingress controller or a CDN that
+            # terminates in front. Set it true for an edge that really is the front
+            # door, instead of repeating `lbConfig.originTls: true` in every stack.
+            # originTls: true
         postgres:
           type: kubernetes-helm-postgres-operator
           config:

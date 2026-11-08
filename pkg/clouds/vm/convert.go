@@ -211,6 +211,22 @@ func (i *VmComposeInput) validateStackConfig() error {
 	// one front-door arrangement that needs no shared certificate store unreachable,
 	// which is the opposite trade.
 
+	if lbc := cfg.LBConfig; lbc != nil && lbc.OriginTls != nil {
+		// Refused rather than ignored, by this function's own governing rule. On the
+		// Kubernetes path `lbConfig.originTls` is per-SITE, because one shared Caddy
+		// serves many stacks and each can be fronted differently. On a machine there
+		// is one Caddy, it is the front door, and whether it terminates TLS is a
+		// property of the machine — so the switch lives on the vm resource in the
+		// parent stack, where `auto_https off` and the site scheme are both rendered
+		// from one answer. Accepting it here would let a stack appear to turn its own
+		// origin TLS off while the machine carried on serving HTTPS for it.
+		return errors.Errorf(
+			"`lbConfig.originTls` is not applicable to the `%s` template: a machine has one Caddy and it "+
+				"is the front door, so origin TLS is set on the `%s` resource in the parent stack as "+
+				"`ingress.originTls` — not per stack. Remove it here and set it there.",
+			TemplateTypeVmCompose, ResourceTypeVm,
+		)
+	}
 	if cfg.ClusterIPAddress != nil {
 		return errors.Errorf(
 			"`clusterIPAddress` is not applicable to the `%s` template: there is no cluster. The stack is "+

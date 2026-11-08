@@ -1,0 +1,56 @@
+{
+  "description": "JSON Schema definitions for Cloudru resources and templates",
+  "provider": "cloudru",
+  "resources": [
+    {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "cloudru",
+      "description": "CLOUDRU pluginfield configuration",
+      "goPackage": "pkg/clouds/cloudru/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "cloudru",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "auth",
+      "provider": "cloudru",
+      "description": "CLOUDRU authentication configuration",
+      "goPackage": "pkg/clouds/cloudru/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "cloudru-access-key",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "template",
+      "provider": "cloudru",
+      "description": "CLOUDRU deployment template configuration",
+      "goPackage": "pkg/clouds/cloudru/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "cloudru-container-app",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "cloudru",
+      "description": "CLOUDRU pluginfield configuration",
+      "goPackage": "pkg/clouds/cloudru/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "cloudru-dns",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "auth",
+      "provider": "cloudru",
+      "description": "CLOUDRU authentication configuration",
+      "goPackage": "pkg/clouds/cloudru/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "cloudru-evolution-key",
+      "schema": {}
+    }
+  ]
+}

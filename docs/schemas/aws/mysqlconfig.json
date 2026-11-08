@@ -9,48 +9,17 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "credentials": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "credentials"
-            ],
-            "type": "object"
-          },
-          "accessKey": {
-            "type": "string"
-          },
-          "account": {
-            "type": "string"
-          },
-          "permissionsBoundary": {
-            "type": "string"
-          },
-          "region": {
-            "type": "string"
-          },
-          "secretAccessKey": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "",
-          "accessKey",
-          "account",
-          "region",
-          "secretAccessKey"
-        ],
-        "type": "object"
+      "accessKey": {
+        "type": "string"
+      },
+      "account": {
+        "type": "string"
       },
       "allocateStorage": {
         "type": "integer"
+      },
+      "credentials": {
+        "type": "string"
       },
       "databaseName": {
         "type": "string"
@@ -70,6 +39,15 @@
       "password": {
         "type": "string"
       },
+      "permissionsBoundary": {
+        "type": "string"
+      },
+      "region": {
+        "type": "string"
+      },
+      "secretAccessKey": {
+        "type": "string"
+      },
       "storageEncrypted": {
         "type": "boolean"
       },
@@ -78,13 +56,17 @@
       }
     },
     "required": [
-      "",
+      "accessKey",
+      "account",
       "allocateStorage",
+      "credentials",
       "databaseName",
       "engineVersion",
       "instanceClass",
       "name",
       "password",
+      "region",
+      "secretAccessKey",
       "username"
     ],
     "type": "object"

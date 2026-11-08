@@ -1,0 +1,59 @@
+{
+  "name": "StaticWebsiteTemplateConfig",
+  "type": "template",
+  "provider": "yandex",
+  "description": "YANDEX deployment template configuration",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "StaticWebsiteTemplateConfig",
+  "resourceType": "yc-static-website",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "accessKey": {
+        "type": "string"
+      },
+      "cloudId": {
+        "type": "string"
+      },
+      "credentials": {
+        "type": "string"
+      },
+      "edgeCacheSettings": {
+        "type": "integer"
+      },
+      "folderId": {
+        "type": "string"
+      },
+      "forceDestroy": {
+        "type": "boolean"
+      },
+      "gzipOn": {
+        "type": "boolean"
+      },
+      "ignoreCookie": {
+        "type": "boolean"
+      },
+      "redirectHttpToHttps": {
+        "type": "boolean"
+      },
+      "region": {
+        "type": "string"
+      },
+      "secretAccessKey": {
+        "type": "string"
+      },
+      "serviceAccountKey": {
+        "type": "string"
+      },
+      "zone": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "cloudId",
+      "credentials",
+      "folderId"
+    ],
+    "type": "object"
+  }
+}

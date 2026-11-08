@@ -9,31 +9,6 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              },
-              "serviceAccount": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "",
-          ""
-        ],
-        "type": "object"
-      },
       "basicAuth": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -122,6 +97,9 @@
       "cleanupPolicyDryRun": {
         "type": "boolean"
       },
+      "credentials": {
+        "type": "string"
+      },
       "docker": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "properties": {
@@ -140,14 +118,21 @@
       "location": {
         "type": "string"
       },
+      "projectId": {
+        "type": "string"
+      },
       "public": {
         "type": "boolean"
+      },
+      "serviceAccount": {
+        "type": "string"
       }
     },
     "required": [
-      "",
+      "credentials",
       "domain",
-      "location"
+      "location",
+      "projectId"
     ],
     "type": "object"
   }

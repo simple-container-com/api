@@ -9,51 +9,8 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "baseDnsZone": {
-            "type": "string"
-          },
-          "corsConfig": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "allowedMethods": {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "allowedOrigins": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "allowedOrigins"
-            ],
-            "type": "object"
-          },
-          "domain": {
-            "type": "string"
-          },
-          "errorDocument": {
-            "type": "string"
-          },
-          "indexDocument": {
-            "type": "string"
-          },
-          "provisionWwwDomain": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "baseDnsZone",
-          "domain",
-          "errorDocument",
-          "indexDocument",
-          "provisionWwwDomain"
-        ],
-        "type": "object"
+      "baseDnsZone": {
+        "type": "string"
       },
       "bucketName": {
         "type": "string"
@@ -61,15 +18,49 @@
       "bundleDir": {
         "type": "string"
       },
+      "corsConfig": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "allowedMethods": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "allowedOrigins": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowedOrigins"
+        ],
+        "type": "object"
+      },
+      "domain": {
+        "type": "string"
+      },
+      "errorDocument": {
+        "type": "string"
+      },
+      "indexDocument": {
+        "type": "string"
+      },
       "location": {
         "type": "string"
+      },
+      "provisionWwwDomain": {
+        "type": "boolean"
       }
     },
     "required": [
-      "",
+      "baseDnsZone",
       "bucketName",
       "bundleDir",
-      "location"
+      "domain",
+      "errorDocument",
+      "indexDocument",
+      "location",
+      "provisionWwwDomain"
     ],
     "type": "object"
   }

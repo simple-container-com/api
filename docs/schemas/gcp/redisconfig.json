@@ -9,35 +9,13 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
-      "": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "properties": {
-          "": {
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "properties": {
-              "projectId": {
-                "type": "string"
-              },
-              "serviceAccount": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "projectId"
-            ],
-            "type": "object"
-          }
-        },
-        "required": [
-          "",
-          ""
-        ],
-        "type": "object"
-      },
       "adopt": {
         "type": "boolean"
       },
       "authorizedNetwork": {
+        "type": "string"
+      },
+      "credentials": {
         "type": "string"
       },
       "instanceId": {
@@ -49,6 +27,9 @@
       "project": {
         "type": "string"
       },
+      "projectId": {
+        "type": "string"
+      },
       "redisConfig": {
         "additionalProperties": {
           "type": "string"
@@ -58,14 +39,18 @@
       "region": {
         "type": "string"
       },
+      "serviceAccount": {
+        "type": "string"
+      },
       "version": {
         "type": "string"
       }
     },
     "required": [
-      "",
+      "credentials",
       "memorySizeGb",
       "project",
+      "projectId",
       "redisConfig",
       "region",
       "version"
