@@ -20,7 +20,7 @@ import (
 // mistrusts in a generated file.
 const caddyGlobalOptsIndent = "  "
 
-// caddyAcmeStorageBlock renders this edge's `storage s3` block and the `admin` block
+// caddyAcmeStorageBlock renders this edge's `storage s3` block and the `persist_config off`
 // that keeps its credentials out of Caddy's config autosave, or "" when the edge has no
 // shared store. It also validates the store, so that a refusal happens here rather than
 // inside a Pulumi apply where the message reaches the operator wrapped in a stack trace.

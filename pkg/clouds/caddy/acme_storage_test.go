@@ -5,6 +5,9 @@ package caddy
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -126,27 +129,46 @@ func TestWriteAcmeStorageGlobalsIndentsInTheCallersUnit(t *testing.T) {
 // The autosave guard rides with the store because a store without it writes all three
 // credentials in the clear to /config/caddy/autosave.json on every node, on every start.
 // Nothing else in the tree would notice if it stopped being rendered.
+//
+// This test previously asserted `admin { config { persist false } }` — the shape that
+// reads like the target JSON — and passed, while Caddy rejected the Caddyfile it
+// described and every replica CrashLoopBackOffed (3-VPS fleet stand, 2026-11-09). So
+// the assertions below deliberately pin what the Caddyfile GRAMMAR allows, not what the
+// JSON looks like: `admin` takes only `origins` and `enforce_origin`, and `persist_config`
+// is a top-level option. Verified by adapting against simplecontainer/caddy:2026.11.30,
+// which is the only check that would have caught the original.
 func TestWriteAcmeStorageGlobalsDisablesConfigPersistence(t *testing.T) {
 	g := NewGomegaWithT(t)
 
 	for _, indent := range []string{"\t", "  "} {
 		block := renderStore(fullStore(), indent)
 
-		g.Expect(block).To(ContainSubstring(indent + "admin {\n"))
-		g.Expect(block).To(ContainSubstring(strings.Repeat(indent, 2) + "config {\n"))
-		g.Expect(block).To(ContainSubstring(strings.Repeat(indent, 3) + "persist false\n"))
+		g.Expect(block).To(ContainSubstring(indent + "persist_config off\n"))
 
-		// NOT `admin off`. That would take the admin API down with the autosave, and
-		// `docker exec sc-caddy caddy reload` is a client of it — every deploy would
-		// become a container restart, dropping connections and hiding config errors
-		// until after the old config was gone.
+		// No `admin` block at all. Not a style preference: the adapter errors on any
+		// subdirective other than origins/enforce_origin, and a config error is fatal
+		// — `caddy run` exits 1 rather than starting with the option ignored.
+		for _, line := range strings.Split(block, "\n") {
+			fields := strings.Fields(line)
+			if len(fields) > 0 && fields[0] == "admin" {
+				g.Expect(fields).To(BeEmpty(), "rendered an `admin` directive: %q", line)
+			}
+		}
+		g.Expect(block).ToNot(ContainSubstring("persist false"))
+
+		// NOT `admin off` either, which was the other way to stop the autosave. It
+		// would take the admin API down with it, and `docker exec sc-caddy caddy
+		// reload` is a client of that API — every deploy would become a container
+		// restart, dropping connections and hiding config errors until after the old
+		// config was gone.
 		for _, line := range strings.Split(block, "\n") {
 			g.Expect(strings.Fields(line)).ToNot(Equal([]string{"admin", "off"}))
 		}
 
-		// The two blocks are siblings in one global options block, not nested.
-		g.Expect(strings.Index(block, "admin {")).To(BeNumerically("<", strings.Index(block, "storage s3 {")))
-		g.Expect(block).To(ContainSubstring(indent + "}\n" + indent + "# Shared certificate store"))
+		// The guard precedes the store it guards, both at the same depth in the one
+		// global options block.
+		g.Expect(strings.Index(block, "persist_config off")).To(BeNumerically("<", strings.Index(block, "storage s3 {")))
+		g.Expect(block).To(ContainSubstring(indent + "persist_config off\n" + indent + "# Shared certificate store"))
 	}
 }
 
@@ -236,4 +258,45 @@ func TestToken(t *testing.T) {
 	g.Expect(Token("two words")).To(Equal(`"two words"`))
 	g.Expect(Token("a{b}")).To(Equal(`"a{b}"`))
 	g.Expect(Token(`a"b`)).To(Equal(`"a\"b"`))
+}
+
+// The only check that would have caught api#578's invalid `admin { config { persist
+// false } }`: hand the rendered block to a real Caddy and let its own parser judge it.
+// Every substring assertion in this file agreed with that Caddyfile, and Caddy rejected
+// it with "unrecognized parameter 'config'" — a fatal config error, so all three
+// replicas on the fleet stand exited 1 in a loop (2026-11-09).
+//
+// Gated on docker because api's unit suite must run without it: skipped when docker is
+// absent or cannot pull, and the skip says which, so a silent skip can't masquerade as
+// a pass. Opt in deliberately with SC_CADDY_ADAPT_IMAGE=<image> in a richer environment
+// (CI with docker, or a developer checking a new Caddy version before bumping it).
+func TestRenderedGlobalsAdaptUnderRealCaddy(t *testing.T) {
+	image := os.Getenv("SC_CADDY_ADAPT_IMAGE")
+	if image == "" {
+		t.Skip("SC_CADDY_ADAPT_IMAGE unset: set it to a simplecontainer/caddy tag to adapt for real")
+	}
+	if _, err := exec.LookPath("docker"); err != nil {
+		t.Skipf("docker not on PATH: %v", err)
+	}
+	g := NewGomegaWithT(t)
+
+	// WriteAcmeStorageGlobals renders the INSIDE of a global options block, so wrap it.
+	// The `{$NAME}` credential placeholders need no values: Caddy substitutes unset env
+	// vars with the empty string at adapt time, and adapt validates grammar, not content.
+	path := filepath.Join(t.TempDir(), "Caddyfile")
+	caddyfile := "{\n" + renderStore(fullStore(), "\t") + "}\n\n:8080 {\n\trespond \"ok\"\n}\n"
+	g.Expect(os.WriteFile(path, []byte(caddyfile), 0o600)).To(Succeed())
+
+	out, err := exec.Command("docker", "run", "--rm", "--entrypoint", "caddy",
+		"-v", path+":/probe.Caddyfile:ro", image,
+		"adapt", "--config", "/probe.Caddyfile").CombinedOutput()
+	if err != nil && strings.Contains(string(out), "docker daemon") {
+		t.Skipf("docker unusable: %s", strings.TrimSpace(string(out)))
+	}
+	g.Expect(err).ToNot(HaveOccurred(), "caddy rejected the rendered globals:\n%s\n--- Caddyfile ---\n%s", out, caddyfile)
+
+	// Adapt exits 0 on a config it merely warns about, so assert the two things the
+	// block exists to produce actually reached the JSON.
+	g.Expect(string(out)).To(ContainSubstring(`"persist":false`))
+	g.Expect(string(out)).To(ContainSubstring(`"module":"s3"`))
 }
