@@ -704,6 +704,12 @@ func serverYAML(stagingResources string) string {
 		stagingResources = " {}"
 	}
 	return `schemaVersion: 1.0
+plugins:
+  gcp:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-gcp
+      version: v2026.11.08-d14f4da
 provisioner:
   type: pulumi
   config:

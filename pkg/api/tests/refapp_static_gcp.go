@@ -4,8 +4,9 @@
 package tests
 
 import (
+	gcpApi "github.com/simple-container-com/sc-plugin-gcp/api"
+
 	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 )
 
 var RefappStaticGCPServerDescriptor = &api.ServerDescriptor{
@@ -21,13 +22,13 @@ var RefappStaticGCPServerDescriptor = &api.ServerDescriptor{
 	},
 	Templates: map[string]api.StackDescriptor{
 		"static-website": {
-			Type: gcloud.TemplateTypeStaticWebsite,
-			Config: api.Config{Config: &gcloud.TemplateConfig{
-				Credentials: gcloud.Credentials{
+			Type: gcpApi.TemplateTypeStaticWebsite,
+			Config: api.Config{Config: &gcpApi.TemplateConfig{
+				Credentials: gcpApi.Credentials{
 					Credentials: api.Credentials{
 						Credentials: "${auth:gcloud}",
 					},
-					ServiceAccountConfig: gcloud.ServiceAccountConfig{
+					ServiceAccountConfig: gcpApi.ServiceAccountConfig{
 						ProjectId: "${auth:gcloud.projectId}",
 					},
 				},
@@ -57,13 +58,13 @@ var ResolvedRefappStaticGCPServerDescriptor = &api.ServerDescriptor{
 	CiCd:          ResolvedCommonServerDescriptor.CiCd,
 	Templates: map[string]api.StackDescriptor{
 		"static-website": {
-			Type: gcloud.TemplateTypeStaticWebsite,
-			Config: api.Config{Config: &gcloud.TemplateConfig{
-				Credentials: gcloud.Credentials{
+			Type: gcpApi.TemplateTypeStaticWebsite,
+			Config: api.Config{Config: &gcpApi.TemplateConfig{
+				Credentials: gcpApi.Credentials{
 					Credentials: api.Credentials{
 						Credentials: "<gcloud-service-account-email>",
 					},
-					ServiceAccountConfig: gcloud.ServiceAccountConfig{
+					ServiceAccountConfig: gcpApi.ServiceAccountConfig{
 						ProjectId: "test-gcp-project",
 					},
 				},

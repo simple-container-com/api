@@ -1,3 +1,9 @@
+plugins:
+  gcp:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-gcp
+      version: v2026.11.09-4c0caf5
 schemaVersion: 1.0
 provisioner:
   inherit: common

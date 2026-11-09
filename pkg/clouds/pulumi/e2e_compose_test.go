@@ -10,13 +10,13 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
-
-	"github.com/simple-container-com/api/pkg/api"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
-	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 	"github.com/simple-container-com/sc-plugin-aws/api"
 	"github.com/simple-container-com/sc-plugin-cloudflare/api"
+	gcpApi "github.com/simple-container-com/sc-plugin-gcp/api"
 	"github.com/simple-container-com/sc-plugin-mongodb/api"
+
+	"github.com/simple-container-com/api/pkg/api"
+	secretTestutil "github.com/simple-container-com/api/pkg/clouds/pulumi/testutil"
 )
 
 const (
@@ -38,8 +38,8 @@ func Test_CreateComposeStackGCPWithBucket(t *testing.T) {
 			kmsKeyName: tmpResName(e2eKmsTestKeyName),
 			templates: map[string]api.StackDescriptor{
 				"stack-per-app": {
-					Type: gcloud.TemplateTypeGcpCloudrun,
-					Config: api.Config{Config: &gcloud.TemplateConfig{
+					Type: gcpApi.TemplateTypeGcpCloudrun,
+					Config: api.Config{Config: &gcpApi.TemplateConfig{
 						Credentials: *cfg.GcpCredentials,
 					}},
 				},
@@ -55,9 +55,9 @@ func Test_CreateComposeStackGCPWithBucket(t *testing.T) {
 					Template: "stack-per-app",
 					Resources: map[string]api.ResourceDescriptor{
 						"test-bucket": {
-							Type: gcloud.ResourceTypeBucket,
+							Type: gcpApi.ResourceTypeBucket,
 							Config: api.Config{
-								Config: &gcloud.GcpBucket{
+								Config: &gcpApi.GcpBucket{
 									Credentials: *cfg.GcpCredentials,
 									Name:        tmpResName("e2e-create--test-bucket"),
 								},
@@ -107,8 +107,8 @@ func Test_CreateComposeStackGCPWithMongo(t *testing.T) {
 			kmsKeyName: tmpResName(e2eKmsTestKeyName),
 			templates: map[string]api.StackDescriptor{
 				"stack-per-app": {
-					Type: gcloud.TemplateTypeGcpCloudrun,
-					Config: api.Config{Config: &gcloud.TemplateConfig{
+					Type: gcpApi.TemplateTypeGcpCloudrun,
+					Config: api.Config{Config: &gcpApi.TemplateConfig{
 						Credentials: *cfg.GcpCredentials,
 					}},
 				},

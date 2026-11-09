@@ -111,6 +111,43 @@ func init() {
 			Repository: "simple-container-com/sc-plugin-mongodb",
 		},
 	})
+	RegisterPluginRequirement(PluginRequirement{
+		PluginName: "gcp",
+		// Full token list sc-plugin-gcp owns after the phase 5 extraction
+		// of pkg/clouds/gcloud + pkg/clouds/pulumi/gcp out of api core.
+		// Must stay in sync with sc-plugin-gcp/api/init.go's OwnedTypes.
+		// Same shape as the aws/yandex/cloudflare/cloudru/mongodb entries
+		// above — one DefaultSource; operators who paste any of these
+		// tokens into server.yaml without a `plugins: gcp:` block get
+		// auto-inject via ValidatePluginRequirements.
+		OwnedTypes: []string{
+			// provider
+			"gcp",
+			// auth
+			"gcp-service-account",
+			// secrets
+			"gcp-secrets-manager",
+			// state store
+			"gcp-bucket",
+			// secrets provider (Pulumi stack-secrets)
+			"gcp-kms",
+			// resources
+			"gcp-pubsub",
+			"gcp-redis",
+			"gcp-cloudsql-postgres",
+			"gcp-artifact-registry",
+			"gcp-docker-image-push",
+			"gcp-gke-autopilot-cluster",
+			// templates
+			"cloudrun",
+			"gcp-static-website",
+			"gcp-gke-autopilot",
+		},
+		DefaultSource: PluginSource{
+			Type:       "github-release",
+			Repository: "simple-container-com/sc-plugin-gcp",
+		},
+	})
 
 	// ALSO populate providerConfigMapping (via RegisterPluginOwnedType)
 	// for every bootstrap token, so DetectResourcesType / DetectAuthType /
@@ -169,6 +206,26 @@ func init() {
 		},
 		"mongodb": {
 			PluginOwnedKindResource: {"mongodb-atlas"},
+		},
+		"gcp": {
+			// Provider + resources + templates all seed providerConfigMapping
+			// identically (RegisterPluginOwnedType's kind field is read only
+			// by the state-store / secrets-provider / auth post-processing).
+			PluginOwnedKindResource: {
+				"gcp",
+				"gcp-pubsub",
+				"gcp-redis",
+				"gcp-cloudsql-postgres",
+				"gcp-artifact-registry",
+				"gcp-docker-image-push",
+				"gcp-gke-autopilot-cluster",
+				"cloudrun",
+				"gcp-static-website",
+				"gcp-gke-autopilot",
+			},
+			PluginOwnedKindStateStore:      {"gcp-bucket"},
+			PluginOwnedKindSecretsProvider: {"gcp-kms", "gcp-secrets-manager"},
+			PluginOwnedKindAuth:            {"gcp-service-account"},
 		},
 	} {
 		for kind, tokens := range kinds {
