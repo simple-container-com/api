@@ -46,10 +46,19 @@ func (r *KubernetesConfig) ProjectIdValue() string {
 // Deliberately not resolved here: this method is a pure string accessor called
 // from the generic provider-init path, which has no Pulumi context and no sibling
 // outputs to resolve against. The one consumer that can resolve it —
-// kubernetes.Provider — checks KubeconfigRef first and never reaches this value
-// in the reference case. Anything else that treats the result as a credential
-// without that check will fail loudly (an invalid kubeconfig), not silently.
+// kubernetes.Provider and kubernetes.CaddyResource — check KubeconfigRef first
+// and never reach this value in the reference case. Anything else that treats the
+// result as a credential without that check will fail loudly (an invalid
+// kubeconfig), not silently.
+//
+// Nil-safe for the same reason KubeconfigRef is: the struct is embedded as a
+// POINTER by every resource that takes a kubeconfig, so a config that omitted the
+// whole inline block leaves it nil, and reading the promoted field through that
+// nil pointer panics the provisioner instead of refusing the stack.
 func (r *KubernetesConfig) CredentialsValue() string {
+	if r == nil {
+		return ""
+	}
 	return r.Kubeconfig
 }
 

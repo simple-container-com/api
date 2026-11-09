@@ -286,12 +286,28 @@ func CaddyResource(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, p
 		return nil, err
 	}
 
+	// Resolved, not read raw. A Caddy edge is the commonest consumer of
+	// `${resource:<cluster>.kubeconfig}` — CaddyReadConfig already refuses a
+	// MALFORMED reference — but this path builds its own provider
+	// (DeployCaddyService below) instead of going through kubernetes.Provider, so
+	// until this call a well-formed reference was handed to pulumi-kubernetes as
+	// the literal string `${resource:smoke-k3s.kubeconfig}`. That parses as a YAML
+	// string scalar, and the provider fails with "couldn't get version/kind; json
+	// parse error: cannot unmarshal string into Go value of type struct {
+	// APIVersion; Kind }" — an error that names neither the resource nor the
+	// reference, on a resource (the ServiceAccount) that is not the one at fault.
+	// Live-caught on the 3-VPS k3s smoke, 2026-11-09.
+	kubeconfig, err := providerKubeconfig(caddyCfg.KubernetesConfig, params)
+	if err != nil {
+		return nil, errors.Wrapf(err, "invalid kubeconfig for caddy resource %q", input.Descriptor.Name)
+	}
+
 	params.Log.Info(ctx.Context(), "Deploying caddy service...")
 	caddyService, err := DeployCaddyService(ctx, CaddyDeployment{
 		CaddyConfig: caddyCfg.CaddyConfig,
 		ClusterName: input.Descriptor.Name,
 		ObjectsName: objectsName,
-	}, input, params, sdk.String(caddyCfg.Kubeconfig).ToStringOutput())
+	}, input, params, kubeconfig)
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to deploy caddy service for stack %q", stack.Name)
 	}
