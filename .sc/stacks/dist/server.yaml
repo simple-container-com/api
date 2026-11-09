@@ -25,14 +25,22 @@ plugins:
   # `templates.static-website.type: gcp-static-website` below is owned
   # by sc-plugin-gcp since phase-5 of the extraction (api #568) deleted
   # pkg/clouds/gcloud + pkg/clouds/pulumi/gcp. The pin is deliberate —
-  # SC does not resolve "latest". v2026.11.09-4c0caf5 carries the
-  # StaticSiteInput plugin-bus roundtrip fix (sc-plugin-gcp #3), which
-  # the dist preview-publish needs to receive a non-empty Domain.
+  # SC does not resolve "latest". v2026.11.09-4c0caf5 carried the
+  # StaticSiteInput Provision-side plugin-bus roundtrip fix (sc-plugin-
+  # gcp #3), but the ConvertStackConfig-side StackConfigStatic decode
+  # still used a yaml-roundtrip and lost Site.Domain on the wire —
+  # 5th exposure of plugin-bus-json-yaml-inline-tag-asymmetry. The
+  # cloudflare Record was planned for rename `dist.simple-container.com
+  # -record` → `-record` (name=""), create failed with CF 9000 and
+  # live record stayed intact only because Pulumi orders create-before-
+  # delete. v2026.11.09-640c8ee (sc-plugin-gcp #4) fixes the
+  # ConvertStackConfig decode via decodeInputsAsJSON — symmetric with
+  # SC-core's sender (PlainToInputs → json.Marshal) — so Site survives.
   gcp:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-gcp
-      version: v2026.11.09-4c0caf5
+      version: v2026.11.09-640c8ee
 templates:
   static-website:
     type: gcp-static-website
