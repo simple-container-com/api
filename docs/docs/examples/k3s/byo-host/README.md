@@ -1,7 +1,10 @@
 # k3s on a Machine You Brought (`byo`)
 
-Stand up a single-node Kubernetes cluster on one virtual machine over SSH, and deploy
-client stacks onto it through SC's ordinary Kubernetes path.
+Stand up a Kubernetes cluster on virtual machines over SSH, and deploy client stacks
+onto it through SC's ordinary Kubernetes path. This file is the single-node shape; the
+commented block in `server.yaml` is the multi-node one, and
+[Known limits of a single node](#known-limits-of-a-single-node) below is what to read
+before reaching for it.
 
 Use this when the cloud you are deploying into has no managed Kubernetes — which is the
 case across most of the Russian market, and is why this path exists. It is also the
@@ -199,11 +202,15 @@ Stated plainly, because `scale:` will happily let you believe otherwise:
 - **One failure domain.** Replicas on one node survive a pod crash, not a machine
   reboot. `scale: {min: 1, max: 1}` in `client.yaml` is honesty, not a technical limit.
 - **Multi-node needs a private network.** More than one `hosts:` entry is accepted — see
-  the commented block in `server.yaml` — but every entry then needs `privateAddress:`,
-  and that is refused rather than defaulted. k3s otherwise advertises whichever address
+  the commented block in `server.yaml` — and each then names a `role:` (`k3s-server` or
+  `k3s-agent`, all-or-none) plus a `privateAddress:`, with `servers:` on the
+  `k3s-cluster` resource deciding how many run the control plane (default 1, sqlite and
+  no etcd; above 1 must be odd and opts into embedded etcd). `privateAddress:` is
+  refused rather than defaulted. k3s otherwise advertises whichever address
   the machine's default route carries, which on a single-NIC VPS is the public one, and
   etcd plus flannel's unencrypted VXLAN overlay would cross the internet on a host where
   SC has no firewall to write a rule in. If your machines share no private network,
+  an SC-managed WireGuard mesh is the planned answer and is not built yet —
   run a [compose fleet](../../vm-compose/byo-host/README.md) instead — it needs no
   node-to-node traffic at all.
 - **`local-storage` is the default storage class.** A PersistentVolume is a directory

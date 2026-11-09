@@ -1,18 +1,21 @@
 # Docker Compose on a VM Examples
 
-Deploying a client stack onto one virtual machine over SSH, as a generated docker
-compose project. No Kubernetes, no managed container runtime, and — with the default
-`ssh-tar` image delivery — no container registry the machine has to be able to reach.
+Deploying a client stack onto virtual machines over SSH — one of them, or a fleet — as
+a generated docker compose project. No Kubernetes, no managed container runtime, and —
+with the default `ssh-tar` image delivery — no container registry the machines have to
+be able to reach.
 
 Use this path when the cloud you are deploying into has no Simple Container driver yet,
-or when a single machine is simply the right size for the workload.
+or when a single machine is simply the right size for the workload, or when a handful of
+plain machines is a cheaper answer to "survive one of them" than a managed cluster.
 
 ## Available Examples
 
 ### [A Machine You Brought (`byo`)](byo-host/README.md)
 
 One VM created by hand in a cloud console, declared with `provider: byo`, running a
-`type: single-image` client stack.
+`type: single-image` client stack — and the same file with more `hosts` entries is a
+fleet.
 
 **Use case:** the first deployment into a cloud SC does not drive yet; small
 single-machine services; getting off a managed runtime without adopting Kubernetes.
@@ -125,8 +128,37 @@ description.
 | `provider`, `credentials`, `region`, `zones` | `vmResource` |
 | `image`, `size`, `publicIP`, `network` | `imageDelivery`, `strategy`, `keepImages` |
 | `sshUser`, `hosts`, `extraSshKeys` | `dockerRegistryURL` / username / password |
-| `ingress` (one machine, one port 443) | |
+| `ingress` (one Caddy per machine; one machine, one port 443) | |
 | `registryMirrors`, `packageMirror` | |
+
+## A fleet is the same resource with more hosts
+
+Add entries to `hosts:` and every stack on that resource deploys **a full container
+set onto each machine**, rolled one host at a time. No `role:` is needed — a pool that
+declares none is a compose fleet — and no `privateAddress:` either, because these
+machines never talk to each other. That is the useful difference from a
+[multi-node k3s pool](../k3s/index.md), and it is why a compose fleet runs on cheap
+VPS hosting that offers no private network at all.
+
+Two things a fleet needs that one machine does not:
+
+- **`ingress.acmeStorage`** — one S3-compatible store shared by every machine.
+  Without it each Caddy runs its own ACME client against the same name, and the
+  HTTP-01 challenge is answered by whichever machine DNS happened to pick, which 404s
+  a token another machine minted. The alternative is `ingress.originTls: false`,
+  letting Cloudflare or a load balancer terminate in front — the only option that needs
+  no shared state. Both are annotated in full in
+  [`byo-host/server.yaml`](byo-host/server.yaml).
+- **More than one A record** for the name, which SC writes itself when the parent
+  stack declares a registrar. Note what that does and does not give you: a dead machine
+  means roughly 1/N of requests fail and are retried by the client. It is round-robin,
+  **not** failover.
+
+The roll is sequential (the next host starts only after the previous host's new slot is
+live), host 0's resource names stay byte-identical to a single-host deploy's, and
+blue/green stays *within* a host. `scale.max > 1` on a client stack is a warning rather
+than a refusal for this reason — a three-host resource genuinely serves three — but the
+replica count is the host count here, not that field's to set.
 
 ## Related
 
