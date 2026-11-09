@@ -8,9 +8,10 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/samber/lo"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/events"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
-	"github.com/samber/lo"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -153,6 +154,15 @@ func isDestructiveReplace(meta apitype.StepEventMetadata) bool {
 	// See isStatelessRemoteCommand for why the type cannot simply go on the
 	// safe-to-replace allowlist.
 	if isStatelessRemoteCommand(meta) {
+		return false
+	}
+	// A replace the engine reports only because it cannot yet name the ID
+	// of a provider that is itself in the plan. Same provider URN, new ID
+	// is the unknown sentinel, `provider` the sole replace-forcing key —
+	// the apply computes the real diff and does not replace these. See
+	// isUnknownProviderIDOnly for the measurement; without it the second
+	// `sc provision` of any k3s + Caddy stack is refused.
+	if isUnknownProviderIDOnly(meta) {
 		return false
 	}
 	// A resource SC itself marked for retention is still physically

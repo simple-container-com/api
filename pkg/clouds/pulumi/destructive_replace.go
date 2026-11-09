@@ -97,6 +97,102 @@ func hasCommandDelete(state *apitype.StepEventStateMetadata) bool {
 	return strings.TrimSpace(script) != ""
 }
 
+// providerRefKey is the replace-forcing "key" the engine names when what
+// changed is not a property of the resource at all but which provider
+// instance serves it.
+const providerRefKey = "provider"
+
+// pulumiUnknownValue is the engine's placeholder for a value it cannot
+// compute during a preview, mirroring
+// `pulumi/sdk/go/common/resource/plugin.UnknownStringValue`. Hardcoded
+// rather than imported: that package pulls the whole plugin host into a
+// file that otherwise needs only apitype, and the constant is part of
+// Pulumi's wire format — it has not changed since the sentinel was
+// introduced and cannot, since every provider SDK in every language
+// hardcodes it too. The test pins it against the SDK's own copy.
+const pulumiUnknownValue = "04da6b54-80e4-46f7-96ec-b56ff0331ba9"
+
+// isUnknownProviderIDOnly reports whether this replace exists only
+// because the engine does not yet know its provider's ID — a preview
+// artifact, not a decision.
+//
+// The shape, measured on the 3-VPS fleet stand (2026-11-09) rather than
+// inferred. A provider reference is `<urn>::<id>`, and for all seven
+// Kubernetes resources the guard refused:
+//
+//	keys    = [provider]
+//	oldProv = urn:…:providers:kubernetes::smoke-caddy--staging-caddy-kubeprovider::d85914e8-7282-41fc-82a9-ae3d49f014a6
+//	newProv = urn:…:providers:kubernetes::smoke-caddy--staging-caddy-kubeprovider::04da6b54-80e4-46f7-96ec-b56ff0331ba9
+//
+// Identical URN; the new ID is the unknown sentinel. Nothing is being
+// re-pointed at a different provider — the engine simply cannot name the
+// ID of a provider that is itself in the plan, so it conservatively
+// reports every dependent as a replace. The apply then computes the real
+// diff and does not replace them: in the same stand's successful run the
+// provider's own step was `refresh` then **`update`**, while its preview
+// had planned create-replacement / replace / delete-replaced.
+//
+// Why a type allowlist is the wrong fix here, and why this had to be its
+// own predicate. The seven resources were a Namespace, a Deployment, a
+// Service, a ServiceAccount, a PodDisruptionBudget, a ClusterRole and a
+// ClusterRoleBinding. Several of those replace genuinely destructively —
+// a Service loses its ClusterIP and, where the cluster has one, its
+// load-balancer address; a Namespace cascades to everything inside it.
+// Exempting them by TYPE to get a provision through would blind the
+// guard to exactly the faults it was written for. The honest exemption
+// is not about what the resources are, it is about the fact that no
+// input of theirs changed.
+//
+// Why this is not rare. SC nonces every read command on purpose (see
+// pulumiVm.TriggersForRead), so a k3s stack's kubeconfig read is
+// replaced on every provision; any provider configured from its stdout
+// therefore has an unknown credential at preview, and every resource
+// under that provider shows up here. Without this predicate the second
+// and every subsequent `sc provision` of a k3s + Caddy stack is refused,
+// naming resources the apply would only update.
+//
+// Both halves of the condition are load-bearing. A differing URN is a
+// genuine re-pointing — a resource moved to another cluster's provider —
+// and stays guarded. A known-but-different ID is a provider that really
+// was replaced, and stays guarded. Only "same provider, ID not yet
+// computed" is waved through, and only when `provider` is the sole
+// replace-forcing key: a step that also changed a real input is still
+// that input's replace.
+func isUnknownProviderIDOnly(meta apitype.StepEventMetadata) bool {
+	if len(meta.Keys) != 1 || meta.Keys[0] != providerRefKey {
+		return false
+	}
+	if meta.Old == nil || meta.New == nil {
+		return false
+	}
+	oldURN, oldID, ok := splitProviderRef(meta.Old.Provider)
+	if !ok {
+		return false
+	}
+	newURN, newID, ok := splitProviderRef(meta.New.Provider)
+	if !ok {
+		return false
+	}
+	// oldID != "" keeps this from exempting a step whose old provider was
+	// itself never created; that is a different situation and the Old.ID
+	// check in isDestructiveReplace already covers the resource, but the
+	// provider reference deserves the same scepticism.
+	return oldURN == newURN && oldID != "" && newID == pulumiUnknownValue
+}
+
+// splitProviderRef splits a Pulumi provider reference `<urn>::<id>` into
+// its two halves. The URN itself contains `::` as a field separator, so
+// the split is on the LAST occurrence — splitting on the first would
+// return a fragment of the URN as the id and make the comparison above
+// accidentally true for unrelated providers.
+func splitProviderRef(ref string) (urn, id string, ok bool) {
+	idx := strings.LastIndex(ref, "::")
+	if idx < 0 {
+		return "", "", false
+	}
+	return ref[:idx], ref[idx+2:], true
+}
+
 // envAllowDestructiveReplace is the operator-level escape hatch for
 // S4 of `cloudflare-plugin-wrong-zone`. Setting it to a truthy value
 // (`1` / `true` / `yes`, case-insensitive) in the deploy environment
