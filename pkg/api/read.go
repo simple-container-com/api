@@ -519,6 +519,63 @@ type PluginFieldConfig struct {
 
 func (p *PluginFieldConfig) ProviderType() string { return p.TypeName }
 
+// Zones implements RegistrarZonesAware for a plugin-owned registrar.
+//
+// Without this, NO registrar in the fleet can report its zones. Both
+// registrar types are plugin-owned since the extraction, so core holds
+// this opaque config rather than a typed one, and a Go interface cannot
+// be implemented by a config whose Go type lives in another repo.
+// `declaredZones` (pkg/clouds/pulumi/registrars.go) therefore returned
+// nil for every delegate, `multiRegistrar.forDomain` could never match a
+// zone, and every domain fell through to whichever registrar is marked
+// `default: true`.
+//
+// That single fault produced both halves of the 2026-11-09 landing
+// outage, which is why it took three attempts to find: with Cloudflare
+// as the default, `simple-forge.ru` routed to CLOUDFLARE, so
+//
+//   - the cloudflare plugin was asked to serve it and answered
+//     `error retrieving zone ID for domain "simple-forge.ru": 0 found`;
+//   - and `provisionDomainRegistrar` computed `regType = cloudflare`,
+//     found that the YANDEX plugin does not serve that type, took its
+//     early return, and the yandex plugin refused the deploy with
+//     `no yc-dns registrar initialised that serves "simple-forge.ru"`.
+//
+// The information was never missing — `Raw` carries the operator's
+// `zoneName:` verbatim. Nothing read it.
+//
+// Both spellings are accepted because both are in use: a single
+// `zoneName:` (cloudflare, yc-dns) and a `zones:` list. A registrar that
+// declares neither returns nil and keeps the old behaviour — it can
+// still be the stack's only registrar, or its default.
+func (p *PluginFieldConfig) Zones() []string {
+	if p == nil || len(p.Raw) == 0 {
+		return nil
+	}
+	var zones []string
+	if zone := stringFromMap(p.Raw, "zoneName"); zone != "" {
+		zones = append(zones, zone)
+	}
+	// A list value arrives as []any from the YAML decoder; []string only
+	// if some caller built the map in Go. Accept both rather than depend
+	// on which did.
+	switch list := p.Raw["zones"].(type) {
+	case []string:
+		for _, zone := range list {
+			if zone != "" {
+				zones = append(zones, zone)
+			}
+		}
+	case []any:
+		for _, item := range list {
+			if zone, ok := item.(string); ok && zone != "" {
+				zones = append(zones, zone)
+			}
+		}
+	}
+	return zones
+}
+
 // CredentialsValue returns the string the placeholder resolver substitutes
 // for `${auth:<name>}`. Two shapes:
 //
