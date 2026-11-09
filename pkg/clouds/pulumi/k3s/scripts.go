@@ -168,6 +168,57 @@ func UnitFor(role vm.HostRole) string {
 	return lo.If(role == vm.RoleK3sAgent, AgentUnit).Else(ServerUnit)
 }
 
+// retryAttempts is how many times a download-bearing step of the install is tried
+// before the provision fails. The four backoffs double from 5s (5+10+20+40), so a
+// step gets ~75s of wall clock on top of its own attempts — long enough to ride
+// out the blips measured below, short enough that a genuinely unreachable host
+// still fails inside the command's own timeout.
+const retryAttempts = 5
+
+// scRetryFunc is a POSIX-sh retry wrapper, prepended to every script that
+// downloads something.
+//
+// It exists because the k3s installer fetches two artefacts from
+// github.com/k3s-io/k3s/releases — a hash file and the ~70 MB binary — with no
+// retry of its own, and both of those requests are, on a meaningful part of the
+// target market, intermittently answered by something that is not GitHub. Measured
+// on a vdsina VPS (RU hosting), 2026-11-09, six sequential requests for the hash
+// file:
+//
+//	try1:504 t=0.030  try2:504 t=0.030  try3:504 t=0.029
+//	try4:200 t=4.759  try5:200 t=0.044  try6:200 t=0.044
+//
+// A 504 returned in 30 ms is a middlebox, not GitHub; api.github.com and
+// get.k3s.io answered 200 throughout, so this is not "the host has no network"
+// and not something a readiness gate would catch. One such blip against the
+// single-shot installer fails the whole provision, and the operator's only
+// recourse is to re-run `sc provision` and hope — which is exactly the loop this
+// moves into the script, where it costs seconds instead of a round-trip.
+//
+// Retrying the installer rather than just the curl is deliberate: the failure that
+// matters is inside it (the binary download), and it is safe to re-enter — it
+// diffs the unit and env files it would write against what is on disk and exits 0
+// printing "No change detected so skipping service start" when they match.
+// A failure is reported on every attempt, not only the last: a provision that
+// succeeded on attempt 3 looks identical to one that succeeded on attempt 1
+// otherwise, and the difference is the only warning an operator gets that their
+// network is doing this.
+var scRetryFunc = fmt.Sprintf(`sc_retry() {
+  sc_n=1
+  sc_wait=5
+  while :; do
+    if "$@"; then return 0; fi
+    if [ "$sc_n" -ge %d ]; then
+      echo "sc: giving up after $sc_n attempts: $*" >&2
+      return 1
+    fi
+    echo "sc: attempt $sc_n of %d failed, retrying in ${sc_wait}s: $*" >&2
+    sleep "$sc_wait"
+    sc_n=$((sc_n + 1))
+    sc_wait=$((sc_wait * 2))
+  done
+}`, retryAttempts, retryAttempts)
+
 // InstallScript is the remote half of standing up the control plane.
 //
 // Everything it does is conditional on the machine not already being in the wanted
@@ -188,6 +239,7 @@ func InstallScript(version, installURL, nodeArgs, unit, token string) string {
 	}
 	return strings.Join([]string{
 		`set -eu`,
+		scRetryFunc,
 		fmt.Sprintf(`WANT_VERSION=%q`, version),
 		fmt.Sprintf(`WANT_ARGS=%q`, nodeArgs),
 		fmt.Sprintf(`UNIT=%q`, unit),
@@ -200,7 +252,7 @@ func InstallScript(version, installURL, nodeArgs, unit, token string) string {
 		`  echo "k3s $WANT_VERSION already running as $UNIT with the requested configuration"`,
 		`  exit 0`,
 		`fi`,
-		fmt.Sprintf(`curl -fsSL %q -o %s`, installURL, InstallerPath),
+		fmt.Sprintf(`sc_retry curl -fsSL %q -o %s`, installURL, InstallerPath),
 		// `sudo env VAR=…` rather than `VAR=… sudo` or a pipe into `sudo sh`: the
 		// first form is the only one that reliably survives sudo's env_reset, and
 		// INSTALL_K3S_VERSION not arriving means the installer quietly takes the
@@ -212,7 +264,14 @@ func InstallScript(version, installURL, nodeArgs, unit, token string) string {
 		// is anything else); `extraServerArgs` is word-split on spaces, which is the
 		// documented behaviour of a pass-through field and the reason each entry
 		// should be one flag.
-		fmt.Sprintf(`sudo env INSTALL_K3S_VERSION="$WANT_VERSION"%s sh %s $WANT_ARGS`, tokenEnv, InstallerPath),
+		//
+		// Retried (sc_retry) because the installer's own two GitHub release
+		// downloads have no retry and intermittently get a middlebox 504 on RU
+		// hosting — see scRetryFunc for the measurement. $WANT_ARGS stays unquoted
+		// through sc_retry: the words become sc_retry's own positional parameters
+		// and are forwarded by `"$@"` one for one, which is the same vector the
+		// installer would have received directly.
+		fmt.Sprintf(`sc_retry sudo env INSTALL_K3S_VERSION="$WANT_VERSION"%s sh %s $WANT_ARGS`, tokenEnv, InstallerPath),
 		fmt.Sprintf(`rm -f %s`, InstallerPath),
 		// The installer does NOT guarantee a running service, and this is the line
 		// that cost a provision: get.k3s.io diffs the unit and env files it would
