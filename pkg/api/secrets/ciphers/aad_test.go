@@ -66,6 +66,33 @@ func TestAAD_MismatchFails(t *testing.T) {
 	Expect(string(eok)).To(Equal("v"))
 }
 
+// Dense UTF-8 exceeds the OAEP-SHA256 byte limit within the old 128-rune window.
+// Byte slices may split a rune; decrypting and joining must restore the original bytes.
+func TestRSAChunking_MultibyteRoundTrip(t *testing.T) {
+	RegisterTestingT(t)
+	priv, pub, err := GenerateKeyPair(2048)
+	Expect(err).NotTo(HaveOccurred())
+	input := strings.Repeat("界", 128) + "tail" // 384 bytes in the first 128 runes; OAEP limit is 190 bytes.
+
+	for _, tc := range []struct {
+		name string
+		aad  []byte
+	}{
+		{"scoped", []byte("sc-scope-v1\x00prod\x00dense-utf8")},
+		{"legacy", nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			RegisterTestingT(t)
+			chunks, err := EncryptLargeStringWithAAD(pub, input, tc.aad)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(chunks).To(HaveLen(3)) // 388 bytes at 190 bytes per chunk.
+			got, err := DecryptLargeStringWithAAD(priv, chunks, tc.aad)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(got).To(Equal([]byte(input)))
+		})
+	}
+}
+
 // TestRSAChunkFraming_ReorderTruncateSpliceFails covers P0-B: a multi-chunk RSA
 // value bound with a non-nil AAD must reject reordered/dropped chunks.
 func TestRSAChunkFraming_ReorderTruncateSpliceFails(t *testing.T) {
