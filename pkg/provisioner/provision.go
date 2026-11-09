@@ -103,7 +103,7 @@ func (p *provisioner) ReadStacks(ctx context.Context, cfg *api.ConfigFile, param
 			Name: stackName,
 		}
 
-		if serverDesc, err := p.readServerDescriptor(ctx, stacksDir, stackName); err != nil && (errors.Is(err, api.ErrServerDescriptorInvalid) || !readOpts.IgnoreServerMissing || lo.Contains(readOpts.RequireServerConfigs, stackName)) {
+		if serverDesc, err := p.readServerDescriptor(ctx, stacksDir, stackName, readOpts.PluginTypesNotNeeded); err != nil && (errors.Is(err, api.ErrServerDescriptorInvalid) || !readOpts.IgnoreServerMissing || lo.Contains(readOpts.RequireServerConfigs, stackName)) {
 			// A server.yaml that EXISTS but is malformed or rejected is fatal even
 			// under IgnoreServerMissing. Swallowing it leaves stack.Server zero and
 			// the failure resurfaces as "provisioner is not set for stack %q" with
@@ -193,8 +193,26 @@ func (p *provisioner) resolvePlaceholders() error {
 	return nil
 }
 
-func (p *provisioner) readServerDescriptor(ctx context.Context, rootDir string, stackName string) (*api.ServerDescriptor, error) {
+func (p *provisioner) readServerDescriptor(ctx context.Context, rootDir string, stackName string, pluginTypesNotNeeded bool) (*api.ServerDescriptor, error) {
 	descFilePath := path.Join(rootDir, stackName, api.ServerDescriptorFileName)
+	// The caller said it will not provision, deploy or convert, so try the
+	// parse that does not pre-spawn every declared plugin. This is the whole
+	// point of api.ReadServerDescriptor still existing next to the
+	// plugin-aware one; its own doc calls itself the fallback "for callers
+	// that do not want the pre-parse discovery cost".
+	//
+	// On ANY error we fall through to the full read rather than inspecting the
+	// error: a server.yaml using a plugin-owned type that the pkg/api
+	// bootstrap seed does not carry is exactly the case that must still work,
+	// and the full read produces the better message for a genuinely broken
+	// file. The cost of guessing wrong is doing what we already do today; the
+	// cost of guessing right is not downloading a 112 MiB plugin to read a
+	// string out of a YAML file.
+	if pluginTypesNotNeeded {
+		if desc, err := api.ReadServerDescriptor(descFilePath); err == nil {
+			return desc, nil
+		}
+	}
 	// Plugin-aware two-pass: pass 1 unmarshals the plugins: block and
 	// spawns each plugin to discover its Schema types; pass 2 is the
 	// normal api.ReadServerConfigs with full type knowledge. Types

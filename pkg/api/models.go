@@ -29,6 +29,29 @@ type ReadOpts struct {
 	RequireClientConfigs []string
 	RequireServerConfigs []string
 	RequireSecretConfigs []string
+
+	// PluginTypesNotNeeded lets a read try the cheap server-descriptor parse
+	// that does NOT pre-spawn every declared plugin to discover its types.
+	//
+	// Only for callers that read a stack and then neither provision, deploy,
+	// nor convert a stack config: the cheap parse does not record plugin specs
+	// for the ConvertStackConfig dialler, so a conversion afterwards would fail
+	// with "no plugin spec recorded". `sc stack secret-get` is the model case —
+	// it reads one value out of secrets.yaml and exits.
+	//
+	// It is a HINT, not a promise. The read falls back to the full
+	// plugin-aware parse whenever the cheap one fails, so a server.yaml whose
+	// types only a plugin's Schema can describe still works; it just costs
+	// what it costs today. Nothing becomes unreadable by setting this.
+	//
+	// Why it matters (measured 2026-11-09): with the per-version Schema cache
+	// cold, `sc stack secret-get` spawned sc-plugin-cloudflare and took
+	// 0.59-1.32 s against 0.06-0.09 s warm — and in CI the cache AND the
+	// binary are both absent, so the same command downloads a 112 MiB plugin
+	// release (sc-plugin-cloudflare-linux-amd64 is 117,547,170 bytes) to read
+	// a string out of a YAML file. forge's own provision.yaml does this three
+	// times in a row.
+	PluginTypesNotNeeded bool
 }
 
 var (
@@ -37,6 +60,13 @@ var (
 	ReadIgnoreNoSecretsAndClientCfg = ReadOpts{IgnoreSecretsMissing: true, IgnoreClientMissing: true}
 	ReadIgnoreNoSecretsAndServerCfg = ReadOpts{IgnoreSecretsMissing: true, IgnoreServerMissing: true}
 	ReadIgnoreNoAnyCfg              = ReadOpts{IgnoreSecretsMissing: true, IgnoreServerMissing: true, IgnoreClientMissing: true}
+
+	// ReadSecretsOnly is for a command that wants a stack's secret values and
+	// nothing else — it tolerates a missing client.yaml and asks the read not
+	// to pay the plugin pre-parse. The server descriptor is still read (a
+	// scoped secrets store needs its provisioner config), just cheaply when
+	// that is possible. See ReadOpts.PluginTypesNotNeeded.
+	ReadSecretsOnly = ReadOpts{IgnoreClientMissing: true, PluginTypesNotNeeded: true}
 )
 
 // ParentStackName returns the stack name of a client's parent reference, which is

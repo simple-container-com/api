@@ -34,7 +34,7 @@ func TestReadServerDescriptor_MissingIsNotInvalid(t *testing.T) {
 	RegisterTestingT(t)
 	root := writeStack(t, "client-only", "")
 
-	_, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "client-only")
+	_, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "client-only", false)
 
 	Expect(err).NotTo(BeNil())
 	Expect(errors.Is(err, api.ErrServerDescriptorInvalid)).To(BeFalse(),
@@ -47,7 +47,7 @@ func TestReadServerDescriptor_MalformedIsInvalid(t *testing.T) {
 	RegisterTestingT(t)
 	root := writeStack(t, "broken", "provisioner: [this is not a mapping\n")
 
-	_, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "broken")
+	_, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "broken", false)
 
 	Expect(err).NotTo(BeNil())
 	Expect(errors.Is(err, api.ErrServerDescriptorInvalid)).To(BeTrue())
@@ -92,7 +92,7 @@ func TestReadServerDescriptor_MissingPluginPinIsAutoInjected(t *testing.T) {
 	})()
 	root := writeStack(t, "dist", unpinnedCloudflareStack)
 
-	desc, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "dist")
+	desc, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "dist", false)
 
 	Expect(err).To(BeNil())
 	Expect(desc).NotTo(BeNil())
@@ -117,7 +117,7 @@ func TestReadServerDescriptor_UnresolvablePluginPinIsInvalidAndActionable(t *tes
 	})()
 	root := writeStack(t, "dist", unpinnedCloudflareStack)
 
-	_, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "dist")
+	_, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "dist", false)
 
 	Expect(err).NotTo(BeNil())
 	Expect(errors.Is(err, api.ErrServerDescriptorInvalid)).To(BeTrue())
@@ -166,7 +166,7 @@ resources:
       zoneName: example.com
 `)
 
-	desc, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "dist")
+	desc, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "dist", false)
 
 	Expect(err).To(BeNil())
 	Expect(desc).NotTo(BeNil())
@@ -176,4 +176,105 @@ resources:
 		"a declared plugin must not trigger a GitHub release lookup")
 	Expect(desc.Plugins["cloudflare"].Source.Version).To(Equal("v2026.10.26-5eddde3"),
 		"the operator's pin must survive parsing unmodified")
+}
+
+// `sc stack secret-get` reads one value out of secrets.yaml and exits, so it has
+// no use for plugin-owned type knowledge. Measured 2026-11-09 before this hint
+// existed: with the per-version Schema cache cold the command spawned
+// sc-plugin-cloudflare and took 0.59-1.32 s against 0.06-0.09 s warm — and in CI
+// neither the cache nor the 112 MiB plugin binary is present, so it downloaded
+// the release to print a string. forge's provision.yaml does this three times in
+// a row.
+//
+// The assertion that matters is not the timing, which a test cannot hold: it is
+// that the version RESOLVER and the plugin are never consulted. A pinned plugin
+// does not hit the resolver, so this descriptor leaves the version UNPINNED —
+// which on the plugin-aware path forces a GitHub release lookup. If the hint
+// stops working, resolverCalled goes true.
+func TestReadServerDescriptor_PluginTypesNotNeededSkipsDiscovery(t *testing.T) {
+	RegisterTestingT(t)
+	resolverCalled := false
+	defer api.SetLatestVersionResolver(func(string) (string, error) {
+		resolverCalled = true
+		return "", errors.New("resolver must not be consulted when plugin types are not needed")
+	})()
+	root := writeStack(t, "dist", `schemaVersion: 1.0
+provisioner:
+  type: pulumi
+  config:
+    organization: acme
+    state-storage:
+      type: pulumi-cloud
+      config:
+        credentials: "token"
+    secrets-provider:
+      type: pulumi-cloud
+      config:
+        credentials: "token"
+plugins:
+  cloudflare:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-cloudflare
+resources:
+  registrar:
+    type: cloudflare
+    config:
+      zoneName: example.com
+`)
+
+	desc, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "dist", true)
+
+	Expect(err).To(BeNil())
+	Expect(desc).NotTo(BeNil())
+	Expect(desc.Provisioner.GetProvisioner()).NotTo(BeNil(),
+		"the cheap parse must still yield a usable provisioner — a scoped secrets store needs it")
+	Expect(resolverCalled).To(BeFalse(),
+		"an unpinned plugin must not trigger a release lookup when plugin types are not needed")
+}
+
+// The hint is a hint. A server.yaml the cheap parse cannot handle must still be
+// read through the plugin-aware path, so setting it can never make a stack
+// unreadable — it only ever removes work that was not needed.
+//
+// Asserted through the error, which is the one observable that distinguishes the
+// two paths without a live plugin: a descriptor this broken fails either way,
+// and the message must be the full read's (api.ErrServerDescriptorInvalid), not
+// a bare return from the cheap attempt.
+func TestReadServerDescriptor_PluginTypesNotNeededStillFallsBack(t *testing.T) {
+	RegisterTestingT(t)
+	root := writeStack(t, "broken", "schemaVersion: 1.0\nprovisioner: [this is not a provisioner]\n")
+
+	_, err := (&provisioner{}).readServerDescriptor(context.Background(), root, "broken", true)
+
+	Expect(err).NotTo(BeNil())
+	Expect(errors.Is(err, api.ErrServerDescriptorInvalid)).To(BeTrue(),
+		"a present-but-unusable server.yaml must stay fatal under the hint, with the full read's error")
+}
+
+// And the hint changes nothing about a descriptor with no plugins at all, which
+// is the majority of stacks: same result on both paths.
+func TestReadServerDescriptor_PluginTypesNotNeededIsNoOpWithoutPlugins(t *testing.T) {
+	RegisterTestingT(t)
+	const yaml = `schemaVersion: 1.0
+provisioner:
+  type: pulumi
+  config:
+    organization: acme
+    state-storage:
+      type: pulumi-cloud
+      config:
+        credentials: "token"
+    secrets-provider:
+      type: pulumi-cloud
+      config:
+        credentials: "token"
+`
+	cheap, cheapErr := (&provisioner{}).readServerDescriptor(context.Background(), writeStack(t, "s", yaml), "s", true)
+	full, fullErr := (&provisioner{}).readServerDescriptor(context.Background(), writeStack(t, "s", yaml), "s", false)
+
+	Expect(cheapErr).To(BeNil())
+	Expect(fullErr).To(BeNil())
+	Expect(cheap.Provisioner.Type).To(Equal(full.Provisioner.Type))
+	Expect(cheap.SchemaVersion).To(Equal(full.SchemaVersion))
 }
