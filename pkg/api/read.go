@@ -521,25 +521,41 @@ func (p *PluginFieldConfig) ProviderType() string { return p.TypeName }
 
 // Zones implements RegistrarZonesAware for a plugin-owned registrar.
 //
-// Without this, NO registrar in the fleet can report its zones. Both
-// registrar types are plugin-owned since the extraction, so core holds
-// this opaque config rather than a typed one, and a Go interface cannot
-// be implemented by a config whose Go type lives in another repo.
-// `declaredZones` (pkg/clouds/pulumi/registrars.go) therefore returned
-// nil for every delegate, `multiRegistrar.forDomain` could never match a
-// zone, and every domain fell through to whichever registrar is marked
-// `default: true`.
+// Without this, no registrar config that core holds as an OPAQUE
+// PluginFieldConfig can report its zones — and in the SHIPPED binary
+// that is every plugin-owned registrar, because `cmd/sc` links no
+// plugin's Go module at all (plugins are reached over hashicorp/go-plugin
+// gRPC). `declaredZones` (pkg/clouds/pulumi/registrars.go) therefore read
+// no zones, `multiRegistrar.forDomain` could not match, and every domain
+// fell through to whichever registrar is marked `default: true`.
 //
-// That single fault produced both halves of the 2026-11-09 landing
-// outage, which is why it took three attempts to find: with Cloudflare
-// as the default, `simple-forge.ru` routed to CLOUDFLARE, so
+// That is what broke the 2026-11-09 `.ru` landing: with Cloudflare as the
+// fleet's default, `simple-forge.ru` routed to CLOUDFLARE, so
 //
 //   - the cloudflare plugin was asked to serve it and answered
 //     `error retrieving zone ID for domain "simple-forge.ru": 0 found`;
 //   - and `provisionDomainRegistrar` computed `regType = cloudflare`,
 //     found that the YANDEX plugin does not serve that type, took its
-//     early return, and the yandex plugin refused the deploy with
-//     `no yc-dns registrar initialised that serves "simple-forge.ru"`.
+//     early return, and the yandex plugin refused with `no yc-dns
+//     registrar initialised that serves "simple-forge.ru"`.
+//
+// Fixed by this method; `.ru` deployed green on v2026.11.45 with both
+// preview and deploy logging `initialising yandex registrar for zone
+// "simple-forge.ru"` → `ready; main domain is "simple-forge.ru"`.
+//
+// A WARNING for anyone re-measuring this in a test. A test binary in
+// `pkg/clouds/pulumi` sees `yc-dns` as a TYPED *yandex.RegistrarConfig,
+// not as an opaque config, because a sibling test file
+// (plugin_inputs_test.go) imports `sc-plugin-yandex/api` and that
+// registers the typed decoder. The shipped binary does not:
+//
+//	go list -deps ./cmd/sc              | grep -c sc-plugin-yandex  -> 0
+//	go list -deps -test ./pkg/clouds/pulumi | grep sc-plugin-yandex -> api
+//
+// So a local test can show this bug as already-fixed when production has
+// it, which is exactly what happened mid-investigation and briefly cost
+// this fix a wrongful retraction. Measure the import graph before trusting
+// a Go type observed in a test.
 //
 // The information was never missing — `Raw` carries the operator's
 // `zoneName:` verbatim. Nothing read it.

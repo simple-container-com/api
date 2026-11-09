@@ -43,21 +43,31 @@ func cachedPluginDir(repo, version string) (string, bool) {
 // credential is needed, because routing is decided before any registrar is
 // constructed (which is the whole point of RegistrarZonesAware).
 //
-// Why this exists alongside the unit tests, and what it already caught. The unit
-// tests build a RegistrarDescriptor in Go, so they prove forDomain given a
-// correct PluginFieldConfig; they cannot prove what the PARSE produces. Run
-// against a real two-registrar server.yaml it immediately showed that the two
-// registrars decode to DIFFERENT Go types, only one of which was ever broken:
+// WHAT THIS TEST CANNOT TELL YOU, learned the hard way on 2026-11-09.
 //
-//	cloudflare              type=cloudflare   *api.PluginFieldConfig    zones=[]  <- opaque, could not report
+// In THIS binary the two registrars decode to different Go types:
+//
+//	cloudflare              type=cloudflare   *api.PluginFieldConfig    zones=[]  (pre-#592)
 //	yandex-simple-forge-ru  type=yc-dns       *yandex.RegistrarConfig   zones=[simple-forge.ru]
 //
-// The yc-dns config is a TYPED struct from the plugin's own Go module (the
-// pre-A3 `/api/init.go` link-time path), and it implements RegistrarZonesAware
-// perfectly well. So "no registrar can report its zones" was false, and routing
-// for simple-forge.ru already worked. That killed a root-cause theory before it
-// could be merged on top of two earlier fixes that had also been verified
-// against hand-built shapes.
+// That asymmetry is an ARTEFACT OF THE TEST BINARY, not of production. A
+// sibling test file in this package (plugin_inputs_test.go) imports
+// `sc-plugin-yandex/api`, which registers the plugin's TYPED config
+// decoder; the shipped `cmd/sc` links no plugin Go module at all:
+//
+//	go list -deps ./cmd/sc                  | grep -c sc-plugin-yandex  -> 0
+//	go list -deps -test ./pkg/clouds/pulumi | grep sc-plugin-yandex     -> api
+//
+// So in production BOTH registrars arrive as opaque *api.PluginFieldConfig
+// and both were affected by the missing Zones(); here only one is. Reading
+// this test's type column as production behaviour led to a wrongful
+// retraction of the fix that had in fact repaired the `.ru` landing.
+//
+// The production-representative assertion is therefore
+// TestMultiRegistrar_OpaqueRegistrarZoneWinsWithoutBeingDefault below,
+// which builds both registrars as opaque configs. What THIS test is good
+// for is narrower and still worth having: that the real parse yields
+// working routing whatever Go types the binary happens to register.
 //
 // SKIPPED unless both plugin releases are already in ~/.sc/plugins, so a CI run
 // never downloads 224 MiB to assert a routing decision.
