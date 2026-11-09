@@ -138,6 +138,69 @@ type PluginPreparedInput struct {
 	// DependsOnResources_ is the typed Input's
 	// api.WithDependsOnResources.DependsOnResources.
 	DependsOnResources_ []StackConfigDependencyResource `yaml:"dependsOnResources,omitempty" json:"dependsOnResources,omitempty"`
+	// Domain_ is the `domain:` the operator declared on the CLIENT stack,
+	// carried here for the same reason as the three fields above: a
+	// downstream consumer needs it and must not have to parse the plugin's
+	// own Input to find it.
+	//
+	// The consumer is provisionDomainRegistrar (pkg/clouds/pulumi/
+	// plugin_sidecars.go), which resolves the registrar for a plugin
+	// template's zone — core builds registrars lazily, so a zone only the
+	// plugin publishes in is never sent to it otherwise. It used to read the
+	// domain out of the descriptor's config, which works while that config is
+	// the client's `{"stackConfig":{…}}` but NOT for a plugin-owned template,
+	// where the descriptor carries this struct instead and there is no
+	// `stackConfig` key anywhere in it. That is why
+	// forge-landing-ru-apex--staging kept failing with `no yc-dns registrar
+	// initialised that serves "simple-forge.ru"` even after the probe learned
+	// the nested-Site spelling: the probe was being handed the wrong object.
+	//
+	// Each plugin mirrors the domain somewhere in its own Input under its own
+	// name (sc-plugin-yandex and sc-plugin-aws both use `siteDomain`), so
+	// there is no field name core could agree on. This one is core's.
+	Domain_ string `yaml:"domain,omitempty" json:"domain,omitempty"`
+}
+
+// StackConfigDomainOf returns the `domain:` an operator declared on a
+// client stack, by TYPE rather than by marshalling.
+//
+// Why a type switch and not a JSON probe. The domain lives in a
+// different place per config shape — flat on compose and single-image,
+// nested inside StaticSiteConfig on static — and `StackConfigStatic.Site`
+// is a NAMED field tagged `json:",inline"`, which encoding/json does not
+// inline. Any probe over marshalled JSON therefore has to know that
+// `Site` becomes a capital-S nested object, and the next config shape
+// that grows an inline-tagged named field breaks it again. The compiler
+// knows all of this; a probe only guesses. See
+// forge/docs/roadmap/items/plugin-bus-json-yaml-inline-tag-asymmetry.md.
+//
+// Returns "" for a worker-only stack that declares no domain, which is a
+// legitimate answer and not an error.
+func StackConfigDomainOf(cfg any) string {
+	switch c := cfg.(type) {
+	case *StackConfigStatic:
+		if c == nil {
+			return ""
+		}
+		return c.Site.Domain
+	case StackConfigStatic:
+		return c.Site.Domain
+	case *StackConfigCompose:
+		if c == nil {
+			return ""
+		}
+		return c.Domain
+	case StackConfigCompose:
+		return c.Domain
+	case *StackConfigSingleImage:
+		if c == nil {
+			return ""
+		}
+		return c.Domain
+	case StackConfigSingleImage:
+		return c.Domain
+	}
+	return ""
 }
 
 // NewPluginPreparedInput wraps a plugin's typed Input + the three
@@ -153,6 +216,15 @@ func NewPluginPreparedInput(result *PluginStackConvertResult) *PluginPreparedInp
 		Uses_:               result.Uses,
 		DependsOnResources_: result.DependsOnResources,
 	}
+}
+
+// StackConfigDomain returns the client stack's declared domain. Mirrors
+// the OverriddenBaseZone / Uses / DependsOnResources accessors above.
+func (p *PluginPreparedInput) StackConfigDomain() string {
+	if p == nil {
+		return ""
+	}
+	return p.Domain_
 }
 
 // OverriddenBaseZone implements DnsConfigAware.
@@ -273,9 +345,14 @@ func convertPluginOwnedTemplate(ctx context.Context, stackDir, stackName, parent
 		}
 		return nil, true, err
 	}
+	prepared := NewPluginPreparedInput(result)
+	// Carried from the pre-conversion client config, which is the only place
+	// core can read it reliably: after conversion the domain is wherever the
+	// plugin chose to mirror it inside its own Input.
+	prepared.Domain_ = StackConfigDomainOf(stackConfig)
 	return &StackDescriptor{
 		Type:        tpl.Type,
 		ParentStack: parentStack,
-		Config:      Config{Config: NewPluginPreparedInput(result)},
+		Config:      Config{Config: prepared},
 	}, true, nil
 }
