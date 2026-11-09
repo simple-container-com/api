@@ -161,11 +161,11 @@ func isDestructiveReplace(meta apitype.StepEventMetadata) bool {
 	if api.IsSafeToReplace(meta.Type) {
 		return false
 	}
-	// A remote command that carries no delete script destroys nothing when
-	// it is replaced, and SC replaces those on EVERY provision by design.
-	// See isStatelessRemoteCommand for why the type cannot simply go on the
-	// safe-to-replace allowlist.
-	if isStatelessRemoteCommand(meta) {
+	// A pulumi-command resource (local or remote) that carries no delete
+	// script destroys nothing when it is replaced, and SC replaces those on
+	// EVERY provision by design. See isStatelessCommand for why neither type
+	// can simply go on the safe-to-replace allowlist.
+	if isStatelessCommand(meta) {
 		return false
 	}
 	// A replace the engine reports only because it cannot yet name the ID
@@ -274,7 +274,7 @@ func isDestructiveDelete(meta apitype.StepEventMetadata) bool {
 	if api.IsSafeToReplace(meta.Type) {
 		return false
 	}
-	if isStatelessRemoteCommand(meta) {
+	if isStatelessCommand(meta) {
 		return false
 	}
 	return true
