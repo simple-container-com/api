@@ -218,11 +218,32 @@ func destructiveReplacesAllowed() bool {
 	return false
 }
 
+// destructiveCause distinguishes the two shapes the guard catches.
+//
+// It exists because the operator-facing advice is completely different
+// and conflating them produced a message that was simply false for one
+// of them: a replace is "an input you changed forces a new object at
+// the same URN", while a rename-driven delete has no changed input and
+// no replace at all — the resource's NAME moved, so the engine is
+// dropping the old object and building an unrelated new one.
+type destructiveCause int
+
+const (
+	// causeInputReplace is the original shape: OpReplace on a resource
+	// that exists in the world. Zero value on purpose — every existing
+	// construction site keeps meaning what it meant.
+	causeInputReplace destructiveCause = iota
+	// causeRename is a standalone OpDelete of a live resource in a plan
+	// that also creates the same type under a different name. See
+	// renameDrivenDeletes.
+	causeRename
+)
+
 // destructiveReplaceError is the sentinel preview returns when it
-// detected one or more input-driven replaces that would destroy a
-// live resource. It carries the full list so the caller (and the
-// error message the operator sees) can name every URN and the keys
-// that forced each replace, not just the first one.
+// detected one or more steps that would destroy a live resource. It
+// carries the full list so the caller (and the error message the
+// operator sees) can name every URN and why each one is flagged, not
+// just the first one.
 type destructiveReplaceError struct {
 	Replaces []destructiveReplace
 }
@@ -235,11 +256,35 @@ func (e *destructiveReplaceError) Error() string {
 	// Sort by URN so the message is deterministic — map iteration or
 	// event-arrival order would otherwise make the same deploy log
 	// different across runs for diffing.
-	replaces := append([]destructiveReplace(nil), e.Replaces...)
-	sort.Slice(replaces, func(i, j int) bool { return replaces[i].URN < replaces[j].URN })
+	all := append([]destructiveReplace(nil), e.Replaces...)
+	sort.Slice(all, func(i, j int) bool { return all[i].URN < all[j].URN })
+
+	var replaces, renames []destructiveReplace
+	for _, r := range all {
+		if r.Cause == causeRename {
+			renames = append(renames, r)
+			continue
+		}
+		replaces = append(replaces, r)
+	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b,
+	if len(replaces) > 0 {
+		e.writeReplaces(&b, replaces)
+	}
+	if len(renames) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		e.writeRenames(&b, renames)
+	}
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// writeReplaces renders the input-driven-replace section. Its first
+// line is the part CI log parsers match on; keep the prefix stable.
+func (e *destructiveReplaceError) writeReplaces(b *strings.Builder, replaces []destructiveReplace) {
+	fmt.Fprintf(b,
 		"input-driven destructive replace: preview would destroy %d live resource(s) by re-pointing them at new objects. "+
 			"This is the no-destroy invariant failing — a changed REPLACE-forcing input (zone id, region, immutable name, …) "+
 			"would drop the existing resource and create a new one at the same URN but pointing elsewhere.\n",
@@ -250,7 +295,7 @@ func (e *destructiveReplaceError) Error() string {
 	// answer in both cases was to set the variable — which is how an escape
 	// hatch stops being read. Give them the question to ask instead, and the
 	// file where a false positive gets fixed for everyone.
-	fmt.Fprintf(&b,
+	fmt.Fprintf(b,
 		"For each resource below, ask what the replace actually loses. If the answer is nothing — the whole "+
 			"content comes from your config on every apply, or the provider keeps the old revision — then the "+
 			"TYPE belongs on the allowlist in pkg/api/safe_to_replace.go (or its plugin's "+
@@ -268,12 +313,42 @@ func (e *destructiveReplaceError) Error() string {
 		// The message PREFIX above is the stable part for CI grepping; this
 		// line is diagnostics.
 		if len(r.Keys) == 0 {
-			fmt.Fprintf(&b, "  - %s (%s): the provider named no replace-forcing key — check the resource's `triggers`\n", r.URN, r.Type)
+			fmt.Fprintf(b, "  - %s (%s): the provider named no replace-forcing key — check the resource's `triggers`\n", r.URN, r.Type)
 			continue
 		}
-		fmt.Fprintf(&b, "  - %s (%s): keys=[%s]\n", r.URN, r.Type, strings.Join(r.Keys, ", "))
+		fmt.Fprintf(b, "  - %s (%s): keys=[%s]\n", r.URN, r.Type, strings.Join(r.Keys, ", "))
 	}
-	return strings.TrimRight(b.String(), "\n")
+}
+
+// writeRenames renders the rename-driven-delete section. Its first
+// line carries its OWN stable prefix rather than reusing the replace
+// one: there is no input and no replace here, so an operator (or a log
+// parser) matching "input-driven destructive replace" would be reading
+// a false statement. This condition is new, so no existing parser
+// matches it today and nothing breaks by giving it a distinct prefix.
+func (e *destructiveReplaceError) writeRenames(b *strings.Builder, renames []destructiveReplace) {
+	fmt.Fprintf(b,
+		"destructive delete by rename: preview would DELETE %d live resource(s) while creating a "+
+			"differently-named resource of the same type. Pulumi matches resources by NAME, so this is not a "+
+			"replace the engine can reconcile: a name built from a config value that changed (a domain, a "+
+			"bucket, a stack name) produces an independent create plus an independent delete, and the delete "+
+			"destroys the live object.\n",
+		len(renames))
+	// The single most useful instruction, because the usual cause is not a
+	// deliberate rename at all. Live-caught 2026-11-09 on api's own release
+	// deploy: `dist.simple-container.com-record` was planned for deletion
+	// alongside the creation of `-record`, because the domain reached the
+	// registrar empty. The new name is where that shows.
+	fmt.Fprintf(b,
+		"Read the NEW name first. An empty or truncated segment in it (`-record`, `--bucket`, a name that is "+
+			"just a suffix) means a config value arrived empty and the live resource is about to be deleted "+
+			"for nothing — fix the value, do not proceed. If you did intend the rename, the resource will be "+
+			"re-created from config under the new name and %s=1 lets this deploy through; if the resource "+
+			"holds data you cannot regenerate, move it deliberately instead.\n",
+		envAllowDestructiveReplace)
+	for _, r := range renames {
+		fmt.Fprintf(b, "  - %s (%s): would be DELETED; the plan creates %s instead\n", r.URN, r.Type, r.NewURN)
+	}
 }
 
 // destructiveReplaceErrorFrom returns a non-nil sentinel when the

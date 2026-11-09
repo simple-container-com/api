@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi/pkg/v3/backend"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
@@ -64,6 +65,19 @@ type pulumi struct {
 	// it is non-empty, naming the URN and the Keys that forced the
 	// replace. Not thread-safe — the event goroutine is single-reader.
 	destructiveReplaces []destructiveReplace
+
+	// deleteCandidates and createdURNsByType are the rename half of the
+	// same invariant, and they are separate from destructiveReplaces
+	// because a rename cannot be judged from a single step. Pulumi
+	// matches resources by NAME, so when a name derived from config
+	// changes there is no replace to catch: the engine plans an
+	// independent OpCreate of the new name and an independent OpDelete
+	// of the old one, and only the two together reveal that a live
+	// resource is being dropped. Both are accumulated across the whole
+	// preview and correlated in drainDestructiveReplaces. Same
+	// single-reader assumption as above.
+	deleteCandidates  []renameDeleteCandidate
+	createdURNsByType map[string][]string
 }
 
 func InitPulumiProvisioner(config api.Config, opts ...api.ProvisionerOption) (api.Provisioner, error) {
