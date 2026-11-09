@@ -496,3 +496,77 @@ func TestDestructiveReplaceError_NamesTriggersWhenNoKeys(t *testing.T) {
 		t.Fatalf("message prefix changed:\n%s", msg)
 	}
 }
+
+// Rule 3 through the guard, not through the registry: the exact event
+// that stopped the 3-VPS fleet stand on 2026-11-09 must now be recorded
+// as nothing at all.
+//
+// A `pulumi:providers:*` replace is the shape EVERY credential change
+// takes — the kubeconfig below, but equally a rotated cloud key on any
+// provider in any stack — so a regression here does not fail one smoke,
+// it makes `SC_ALLOW_DESTRUCTIVE_REPLACE=1` the documented way to rotate
+// a credential.
+func TestRecordDestructiveReplace_ExemptsProviderResources(t *testing.T) {
+	p := &pulumi{}
+	p.recordDestructiveReplace(&apitype.ResourcePreEvent{Metadata: apitype.StepEventMetadata{
+		Op:   apitype.OpReplace,
+		URN:  "urn:pulumi:fleet::scsmoke::pulumi:providers:kubernetes::smoke-caddy--staging-caddy-kubeprovider",
+		Type: "pulumi:providers:kubernetes",
+		Old:  &apitype.StepEventStateMetadata{ID: "live"},
+		New:  &apitype.StepEventStateMetadata{},
+		Keys: []string{"kubeconfig"},
+	}})
+	if got := p.drainDestructiveReplaces(); len(got) != 0 {
+		t.Fatalf("a provider replace was recorded as destructive: %+v", got)
+	}
+}
+
+// The prefix is matched as a prefix of the TYPE, which is the only
+// reason a single entry can cover every provider package. A type that
+// merely contains the string somewhere else is not exempt — that is the
+// difference between a reserved namespace and a substring.
+func TestEngineOnlyTypes_PrefixNotSubstring(t *testing.T) {
+	for _, typ := range []string{
+		"pulumi:providers:kubernetes",
+		"pulumi:providers:aws",
+		"pulumi:providers:yandex",
+		"pulumi:providers:command",
+	} {
+		if !api.IsEngineOnlyType(typ) {
+			t.Errorf("%q should be engine-only", typ)
+		}
+		if api.SafeToReplaceRule(typ) != api.ReplaceRuleEngineOnly {
+			t.Errorf("%q: rule = %q, want engine-only", typ, api.SafeToReplaceRule(typ))
+		}
+	}
+	for _, typ := range []string{
+		"kubernetes:core/v1:Secret",            // exempt, but under rule 2
+		"gcp:container/cluster:Cluster",        // not exempt at all
+		"mycloud:index/pulumi:providers:Thing", // contains it, does not start with it
+		"pulumi-providers:kubernetes",          // near miss
+	} {
+		if api.IsEngineOnlyType(typ) {
+			t.Errorf("%q must not be engine-only", typ)
+		}
+	}
+}
+
+// Rule 3 is deliberately absent from the enumerable snapshot: a prefix
+// denotes an open set. A caller that asks the map instead of the
+// predicate would wrongly conclude a provider replace is destructive,
+// which is exactly the bug this guards.
+func TestSafeToReplaceTypes_DoesNotEnumerateRule3(t *testing.T) {
+	snap := api.SafeToReplaceTypes()
+	for typ := range snap {
+		if api.IsEngineOnlyType(typ) {
+			t.Errorf("snapshot enumerates prefix-matched type %q", typ)
+		}
+	}
+	if _, ok := snap["pulumi:providers:kubernetes"]; ok {
+		t.Error("snapshot must not claim to list provider types")
+	}
+	// But the guard's own question still answers yes.
+	if !api.IsSafeToReplace("pulumi:providers:kubernetes") {
+		t.Error("IsSafeToReplace must honour rule 3")
+	}
+}

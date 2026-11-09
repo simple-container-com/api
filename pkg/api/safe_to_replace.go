@@ -3,9 +3,12 @@
 
 package api
 
-import "sync"
+import (
+	"strings"
+	"sync"
+)
 
-// The guard in `pkg/clouds/pulumi` exempts a type under either of TWO
+// The guard in `pkg/clouds/pulumi` exempts a type under one of THREE
 // rules, and they are deliberately separate registries rather than one
 // list: the question each answers is different, and merging them would
 // let an entry that only satisfies the weaker rule read as if it
@@ -22,10 +25,22 @@ import "sync"
 //	apply. There is nothing in it that SC could fail to reproduce.
 //	`kubernetes:core/v1:{Secret,ConfigMap}`.
 //
+//	RULE 3 (engineOnlyTypePrefixes) — the "resource" is not a cloud
+//	object at all. A `pulumi:providers:*` resource is a configured
+//	client that lives only in the engine's state; replacing it issues
+//	no API call to any cloud, so there is nothing to destroy and no
+//	window in which anything is absent.
+//
 // Rule 2 is the narrower claim it looks like, not a softer version of
 // rule 1: it admits a brief window where the object does not exist, so
 // it holds ONLY where no data is at stake. A database or a bucket fails
 // it on the first clause and must keep refusing.
+//
+// Rule 3 is the widest exemption and the only one matched by PREFIX,
+// which is safe for exactly one reason: `pulumi:providers:` is a
+// namespace reserved by the Pulumi engine, not a cloud's, and no member
+// of it has a remote counterpart. It is NOT a licence to prefix-match
+// anything else.
 
 // safeToReplaceTypes is rule 1: `OpReplace` is NOT destruction because
 // the provider publishes a new revision additively and the consuming
@@ -113,6 +128,37 @@ var (
 		"kubernetes:core/v1:Secret":    {},
 		"kubernetes:core/v1:ConfigMap": {},
 	}
+
+	// engineOnlyTypePrefixes is rule 3, and the only prefix-matched
+	// registry. Not plugin-registerable and not meant to gain a second
+	// entry: the claim is "this namespace has no cloud counterpart",
+	// which is true of Pulumi's provider namespace and of nothing a
+	// plugin author owns.
+	//
+	// A `pulumi:providers:<pkg>` resource is a configured SDK client.
+	// The engine holds its inputs in state and hands dependent
+	// resources a `urn::id` reference to it; a replace mints a new
+	// client, re-points the dependents on the same apply, and makes no
+	// remote call. Measured rather than assumed on the 3-VPS fleet
+	// stand (2026-11-09): a preview that replaced
+	// `pulumi:providers:kubernetes` listed exactly that one resource —
+	// the Deployment, Service, ServiceAccount and ConfigMaps under it
+	// were untouched, not replaced along with it.
+	//
+	// What made this urgent: ANY change to a provider's credentials is
+	// replace-forcing. So the guard refused
+	//
+	//	pulumi:providers:kubernetes  smoke-caddy--staging-caddy-kubeprovider  keys=[kubeconfig]
+	//
+	// on the first apply that resolved a `${resource:<cluster>.kubeconfig}`
+	// reference to its real value — i.e. the guard blocked the kubeconfig-
+	// reference feature from ever landing on an existing stack. The same
+	// refusal fires for a rotated cloud credential on any provider in any
+	// stack, which is a credential rotation turned into an
+	// `SC_ALLOW_DESTRUCTIVE_REPLACE=1` ritual for no gain.
+	engineOnlyTypePrefixes = []string{
+		"pulumi:providers:",
+	}
 )
 
 // RegisterSafeToReplaceType adds a Pulumi resource type to the
@@ -151,11 +197,27 @@ const (
 	// ReplaceRuleConfigRegenerated: the object is briefly absent, and
 	// its whole content comes from config on every apply.
 	ReplaceRuleConfigRegenerated ReplaceRule = "regenerated-from-config"
+	// ReplaceRuleEngineOnly: the resource exists only in the engine's
+	// state and the replace makes no remote call.
+	ReplaceRuleEngineOnly ReplaceRule = "engine-only"
 )
 
+// IsEngineOnlyType reports whether the type is rule 3 — a resource with
+// no cloud counterpart. Exported separately because it is the one rule
+// SafeToReplaceTypes cannot enumerate: a prefix is not a finite set.
+func IsEngineOnlyType(resourceType string) bool {
+	for _, prefix := range engineOnlyTypePrefixes {
+		if strings.HasPrefix(resourceType, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // SafeToReplaceRule reports the rule under which this type is exempt,
-// or ReplaceRuleNone. Rule 1 is checked first: where a type somehow
-// satisfies both, the stronger claim is the true one.
+// or ReplaceRuleNone. Checked in rule order: where a type somehow
+// satisfies more than one, the narrower claim is the true one, so the
+// diagnostic never overstates what is known about the replace.
 func SafeToReplaceRule(resourceType string) ReplaceRule {
 	safeToReplaceMu.RLock()
 	defer safeToReplaceMu.RUnlock()
@@ -165,14 +227,25 @@ func SafeToReplaceRule(resourceType string) ReplaceRule {
 	if _, ok := configRegeneratedTypes[resourceType]; ok {
 		return ReplaceRuleConfigRegenerated
 	}
+	// Not under the lock's protection by design: the prefix list is a
+	// compile-time constant with no registration path, so there is
+	// nothing to race on. Held anyway because the RLock above already
+	// covers the whole function and splitting it would buy nothing.
+	if IsEngineOnlyType(resourceType) {
+		return ReplaceRuleEngineOnly
+	}
 	return ReplaceRuleNone
 }
 
-// SafeToReplaceTypes returns a snapshot of every exempt type under
-// EITHER rule, for tests and for operator-visible diagnostics ("sc
-// explain"-style). Returned map is a copy — callers may mutate it
-// without affecting the registry. Use SafeToReplaceRule when the rule
-// matters.
+// SafeToReplaceTypes returns a snapshot of every exempt type named
+// EXACTLY — rules 1 and 2 — for tests and for operator-visible
+// diagnostics ("sc explain"-style). Returned map is a copy; callers may
+// mutate it without affecting the registry.
+//
+// Rule 3 is absent and cannot be added: it is prefix-matched, so it
+// denotes an open set with no enumeration. A caller deciding whether a
+// specific type is exempt must ask SafeToReplaceRule or
+// IsSafeToReplace, never membership of this map.
 func SafeToReplaceTypes() map[string]struct{} {
 	safeToReplaceMu.RLock()
 	defer safeToReplaceMu.RUnlock()
