@@ -52,10 +52,10 @@ import (
 // publishes no port for it, so it is reachable exactly through `docker exec` and from
 // nowhere else. Amendment dated 2026-10-17 in the design doc.
 //
-// A machine with a shared certificate store does get `admin { config { persist false } }`
-// — which is a different directive with a different reason (keeping the store's
-// credentials out of the config autosave) and leaves the API, and therefore reload,
-// working. See writeAdminConfigPersistOff.
+// A machine with a shared certificate store does get `persist_config off` — which is a
+// different directive with a different reason (keeping the store's credentials out of
+// the config autosave) and leaves the API, and therefore reload, working. See
+// writeAdminConfigPersistOff.
 func RenderCaddyfile(cfg *VmConfig) (string, error) {
 	if cfg == nil || !cfg.IngressEnabled() {
 		return "", errors.Errorf("ingress is not enabled on this vm resource")
@@ -132,7 +132,7 @@ func writeCaddySnippets(b *strings.Builder, snippets []byte) {
 }
 
 // writeCaddyAcmeStorage renders the global `storage s3` block on this machine, plus the
-// `admin` block that keeps the store's credentials out of Caddy's config autosave.
+// `persist_config off` that keeps the store's credentials out of Caddy's config autosave.
 //
 // Delegated to pkg/clouds/caddy: the Kubernetes edge renders the identical block from a
 // different struct, and the two parser traps the module forces on its caller (explicit

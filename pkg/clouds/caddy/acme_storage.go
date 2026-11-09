@@ -243,7 +243,7 @@ func (s *AcmeStorage) Validate(field string) error {
 
 // WriteAcmeStorageGlobals renders the two global directives a shared certificate store
 // needs: `storage s3` — the thing that makes origin HTTPS possible on a fleet at all,
-// rather than a tuning knob — and the `admin` block that keeps its credentials out of
+// rather than a tuning knob — and the `persist_config off` that keeps its credentials out of
 // Caddy's config autosave.
 //
 // Both, from one function, because rendering the store without the guard is a credential
@@ -333,7 +333,18 @@ func WriteAcmeStorageGlobals(b *strings.Builder, s *AcmeStorage, indent, logHint
 	p("}\n")
 }
 
-// writeAdminConfigPersistOff renders `admin { config { persist false } }`.
+// writeAdminConfigPersistOff renders the global option `persist_config off`.
+//
+// The spelling matters and the obvious one does not work. The target JSON is
+// `{"admin":{"config":{"persist":false}}}`, but the Caddyfile `admin` option accepts
+// only `origins` and `enforce_origin` — `admin { config { persist false } }` is
+// rejected at adapt time with "unrecognized parameter 'config'", which Caddy treats as
+// a fatal config error, so every replica CrashLoopBackOffs on a Caddyfile that renders
+// it. That is how this shipped in api#578 and how it was live-caught on the 3-VPS fleet
+// stand (2026-11-09): three replicas, `exit code 1`, nothing wrong with the storage
+// block itself. `persist_config off` is the top-level option that produces the same
+// JSON; verified by adapting against simplecontainer/caddy:2026.11.30 rather than from
+// the docs.
 //
 // It is not a hardening nicety; it is the only thing standing between the store's
 // credentials and a cleartext file on every node. `{$VAR}` is substituted by the
@@ -371,11 +382,7 @@ func writeAdminConfigPersistOff(b *strings.Builder, indent string) {
 	p("# parser resolves env placeholders at adapt time), and Caddy autosaves that JSON\n")
 	p("# to /config/caddy/autosave.json on every start. Nothing here resumes from it, so\n")
 	p("# persistence is off. The admin API itself stays up — `caddy reload` needs it.\n")
-	p("admin {\n")
-	p("%sconfig {\n", indent)
-	p("%s%spersist false\n", indent, indent)
-	p("%s}\n", indent)
-	p("}\n")
+	p("persist_config off\n")
 }
 
 // Token quotes a Caddyfile token when it contains anything Caddy's parser would read as
