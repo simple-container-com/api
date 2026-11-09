@@ -214,3 +214,67 @@ func TestStackConfigDomain_PrefersTheFlatSpelling(t *testing.T) {
 		t.Fatalf("stackConfigDomain = %q, want the flat spelling", got)
 	}
 }
+
+// The shape the PLUGIN-OWNED path actually produces — built through
+// api.NewPluginPreparedInput exactly as api.convertPluginOwnedTemplate does,
+// rather than hand-rolled.
+//
+// This is the case api#587 missed. That fix taught the probe the nested-`Site`
+// spelling, which is right for the in-tree static path, and verified it against
+// a hand-built `{"stackConfig":{"Site":{...}}}` wrapper. But a plugin-owned
+// template's descriptor does not carry the client config at all — it carries a
+// PluginPreparedInput, whose JSON is `{"input":…,"baseDnsZone":…,"uses":…}` with
+// no `stackConfig` key anywhere. So the probe was being handed the wrong object
+// and still returned "", and forge-landing-ru-apex--staging kept failing with
+// `no yc-dns registrar initialised that serves "simple-forge.ru"` on a binary
+// that contained #587 (v2026.11.41 / 2d72edfa).
+func TestStackConfigDomain_FindsTheDomainOnAPluginPreparedInput(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		clientCfg any
+		want      string
+	}{
+		{
+			// yc-static-website / aws-static-website / gcp-static-website: the
+			// domain is nested inside StaticSiteConfig on the client config, and
+			// each plugin mirrors it in its own Input under its own name
+			// (`siteDomain` for yandex and aws) — which is exactly why core has
+			// to carry its own copy.
+			name:      "static website",
+			clientCfg: &api.StackConfigStatic{BundleDir: "dist", Site: api.StaticSiteConfig{Domain: "simple-forge.ru"}},
+			want:      "simple-forge.ru",
+		},
+		{
+			name:      "cloud-compose",
+			clientCfg: &api.StackConfigCompose{Domain: "forge.simple-container.com"},
+			want:      "forge.simple-container.com",
+		},
+		{
+			name:      "single-image",
+			clientCfg: &api.StackConfigSingleImage{Domain: "x.simple-forge.ru"},
+			want:      "x.simple-forge.ru",
+		},
+		{
+			// A worker-only stack declares no domain. provisionDomainRegistrar's
+			// `domain == ""` early return is correct here: there is no zone to
+			// resolve a registrar for.
+			name:      "no domain declared",
+			clientCfg: &api.StackConfigCompose{},
+			want:      "",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			prepared := api.NewPluginPreparedInput(&api.PluginStackConvertResult{
+				// Whatever the plugin returned. Deliberately carries a DIFFERENT
+				// domain under a plugin-specific key, so a test that passed by
+				// reading the plugin's Input would be reading the wrong value.
+				Input: map[string]any{"siteDomain": "not-the-one-core-should-use.example.com"},
+			})
+			prepared.Domain_ = api.StackConfigDomainOf(tt.clientCfg)
+
+			if got := stackConfigDomain(prepared); got != tt.want {
+				t.Fatalf("stackConfigDomain = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}

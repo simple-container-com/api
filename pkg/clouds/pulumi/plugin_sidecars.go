@@ -371,6 +371,27 @@ func stackConfigDomain(cfg any) string {
 	if cfg == nil {
 		return ""
 	}
+	// A plugin-owned template FIRST, and by type-assertion rather than through
+	// JSON, because JSON cannot see it: api.PluginPreparedInput has a
+	// MarshalJSON that returns the plugin's Input alone, so core's own fields
+	// on that struct are structurally invisible to any probe over marshalled
+	// bytes. That is the documented contract of the type — the interface
+	// methods are what Go code sees via type-assertion, while the fields exist
+	// for the placeholders reflect walker — and it is already how
+	// OverriddenBaseZone / Uses / DependsOnResources are consumed.
+	//
+	// This is the arm that fixes forge-landing-ru-apex--staging. A plugin-owned
+	// template's descriptor carries a PluginPreparedInput, never the client's
+	// `{"stackConfig":{…}}`, so the JSON arms below were being handed the wrong
+	// object and returned "" — leaving provisionDomainRegistrar on its early
+	// return and the yandex plugin refusing with `no yc-dns registrar
+	// initialised that serves "simple-forge.ru"`, on a binary that already
+	// contained api#587 (v2026.11.41 / 2d72edfa).
+	if aware, ok := cfg.(interface{ StackConfigDomain() string }); ok {
+		if domain := aware.StackConfigDomain(); domain != "" {
+			return domain
+		}
+	}
 	b, err := json.Marshal(cfg)
 	if err != nil {
 		return ""
@@ -403,9 +424,24 @@ func stackConfigDomain(cfg any) string {
 	// it is the difference between a landing that deploys and one that does
 	// not.
 	var probe struct {
+		// Top level: a plugin-owned template. The descriptor carries an
+		// api.PluginPreparedInput, whose Domain_ core sets from the
+		// pre-conversion client config — see that field's doc for why the
+		// plugin's own Input cannot be read for this. There is no
+		// `stackConfig` key anywhere in that object, which is why the two
+		// arms below never matched for a `yc-static-website` and
+		// forge-landing-ru-apex--staging kept being refused its registrar.
+		Domain      string `json:"domain"`
 		StackConfig struct {
+			// Flat: compose and single-image client configs.
 			Domain string `json:"domain"`
-			Site   struct {
+			// Nested: StackConfigStatic keeps it inside a NAMED field tagged
+			// `json:",inline"`, which encoding/json does not inline, so it
+			// marshals under a capital `Site`. Reachable only on the non-
+			// plugin-owned (in-tree) static path now that plugin-owned
+			// templates answer from the top-level field above; kept because
+			// that path still exists and costs one struct field.
+			Site struct {
 				Domain string `json:"domain"`
 			} `json:"Site"`
 		} `json:"stackConfig"`
@@ -413,10 +449,16 @@ func stackConfigDomain(cfg any) string {
 	if err := json.Unmarshal(b, &probe); err != nil {
 		return ""
 	}
-	if probe.StackConfig.Domain != "" {
-		return probe.StackConfig.Domain
+	for _, candidate := range []string{
+		probe.Domain,
+		probe.StackConfig.Domain,
+		probe.StackConfig.Site.Domain,
+	} {
+		if candidate != "" {
+			return candidate
+		}
 	}
-	return probe.StackConfig.Site.Domain
+	return ""
 }
 
 // --- provider sidecar: plugin creates pulumi:providers:<pkg> via monitor ---
