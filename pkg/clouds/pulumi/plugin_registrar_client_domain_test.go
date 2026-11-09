@@ -5,6 +5,7 @@ package pulumi
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
 	"google.golang.org/grpc"
@@ -141,5 +142,75 @@ func TestResourceSidecar_ProvisionsClientDomainRegistrarToPlugin(t *testing.T) {
 			Expect(stub.calls).To(Equal(tt.want))
 			Expect(*builds["cloudflare"]).To(Equal(0))
 		})
+	}
+}
+
+// staticStackInput is the static-website counterpart of clientStackInput. The
+// difference that matters is not the template — it is that StackConfigStatic
+// keeps `domain:` inside a NAMED field tagged `json:",inline"`, which
+// encoding/json does not inline, so the domain marshals NESTED under `Site`
+// while a single-image config carries it flat.
+type staticStackInput struct {
+	StackConfig api.StackConfigStatic `json:"stackConfig"`
+}
+
+// stackConfigDomain must find the domain in both config shapes.
+//
+// The static arm is the one that broke forge-landing-ru-apex--staging on
+// 2026-11-09 (landing run 42609670242): the probe saw "", so
+// provisionDomainRegistrar took its `domain == ""` early return, the plugin was
+// never sent ProvisionRegistrar, and sc-plugin-yandex refused the deploy with
+// `no yc-dns registrar initialised that serves "simple-forge.ru"` — against a
+// parent that declared exactly that registrar and had provisioned green. The
+// bug was core not being able to see the domain, not the plugin's lifecycle.
+func TestStackConfigDomain_FindsTheDomainInBothShapes(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		cfg  any
+		want string
+	}{
+		{
+			// The shape the existing sidecar test already covered.
+			name: "flat domain (single-image, compose)",
+			cfg:  &clientStackInput{StackConfig: api.StackConfigSingleImage{Domain: "x.simple-forge.ru"}},
+			want: "x.simple-forge.ru",
+		},
+		{
+			name: "domain nested under the inline-tagged Site field (static website)",
+			cfg:  &staticStackInput{StackConfig: api.StackConfigStatic{BundleDir: "dist", Site: api.StaticSiteConfig{Domain: "simple-forge.ru"}}},
+			want: "simple-forge.ru",
+		},
+		{
+			// No domain at all is the legitimate case the early return exists
+			// for: a worker-only stack publishes nothing and needs no registrar.
+			name: "no domain anywhere",
+			cfg:  &staticStackInput{StackConfig: api.StackConfigStatic{BundleDir: "dist"}},
+			want: "",
+		},
+		{
+			name: "nil config",
+			cfg:  nil,
+			want: "",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := stackConfigDomain(tt.cfg); got != tt.want {
+				t.Fatalf("stackConfigDomain = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// The flat spelling wins when both are present, so a config that grows an
+// explicit top-level `domain:` is not silently overridden by an inherited one.
+func TestStackConfigDomain_PrefersTheFlatSpelling(t *testing.T) {
+	// Built as JSON rather than a struct: no Go type carries both spellings
+	// today, and the point is which key the probe trusts, not which struct.
+	var cfg any
+	if err := json.Unmarshal([]byte(`{"stackConfig":{"domain":"flat.example.com","Site":{"domain":"nested.example.com"}}}`), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if got := stackConfigDomain(cfg); got != "flat.example.com" {
+		t.Fatalf("stackConfigDomain = %q, want the flat spelling", got)
 	}
 }
