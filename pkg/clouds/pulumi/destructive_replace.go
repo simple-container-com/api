@@ -27,16 +27,23 @@ import (
 // thing every vm / k3s provision is built out of.
 const remoteCommandType = "command:remote:Command"
 
+// localCommandType is the same provider's deploy-runner command: a shell
+// execution on the machine running `sc`, not on a managed host. SC builds
+// them for docker build/push, image scanning, registry login and the vm
+// ingress image ship; a plugin builds them for things like
+// `aws s3 sync <dir> s3://<bucket>` on a static-website path.
+const localCommandType = "command:local:Command"
+
 // commandDeleteInput is the pulumi-command input holding the script
 // run when the resource goes away. Its presence is the ONLY thing
 // that makes replacing a remote command destructive.
 const commandDeleteInput = "delete"
 
-// isStatelessRemoteCommand reports whether this replace is of a
-// remote command that will destroy nothing when it is replaced.
+// isStatelessCommand reports whether this step is of a pulumi-command
+// resource — local or remote — that will destroy nothing.
 //
 // Why this is not a `safeToReplaceTypes` entry. That allowlist is
-// per-TYPE, and `command:remote:Command` is not uniformly safe: a
+// per-TYPE, and neither command type is uniformly safe: a
 // command carrying a `delete` script runs that script against a live
 // machine when it is replaced (pulumi-command replaces as
 // create-then-delete), which is a real teardown and exactly what the
@@ -71,12 +78,29 @@ const commandDeleteInput = "delete"
 // resource name — so the guard was never protecting state here, only
 // the delete script. A non-string value is treated as present
 // precisely because it is not provably empty.
-func isStatelessRemoteCommand(meta apitype.StepEventMetadata) bool {
-	if meta.Type != remoteCommandType {
+// Why BOTH command types, added 2026-11-09. `command:local:Command`
+// has the identical `delete` input (pulumi-command sdk v1.2.1,
+// local/command.go:477) and the identical replace semantics, so every
+// sentence above applies to it unchanged — but it was not covered, so
+// a local command was guarded whether or not it could destroy
+// anything. That blocked a landing deploy whose plugin re-runs an
+// `aws s3 sync` (idempotent, no delete script) when its credentials
+// change.
+//
+// The tempting fix was to put `command:local:Command` on the
+// safe-to-replace allowlist. That is wrong for exactly the reason
+// this function exists: SC itself builds local commands for docker
+// build/push, scan barriers, registry login and the vm ingress ship,
+// and a type-level entry would wave through a local command that DOES
+// carry a delete script. The question stays per-RESOURCE.
+func isStatelessCommand(meta apitype.StepEventMetadata) bool {
+	if meta.Type != remoteCommandType && meta.Type != localCommandType {
 		return false
 	}
 	// Both sides matter: the old state is what gets deleted, and the new
-	// state is what a subsequent destroy would run.
+	// state is what a subsequent destroy would run. (For a local command
+	// "deleted" means the script runs on the deploy runner rather than
+	// over SSH — the blast radius differs, the reasoning does not.)
 	return !hasCommandDelete(meta.Old) && !hasCommandDelete(meta.New)
 }
 

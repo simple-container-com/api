@@ -400,7 +400,7 @@ func TestRecordDestructiveReplace_AppendsOnMatch(t *testing.T) {
 	}
 }
 
-// isStatelessRemoteCommand asks a per-RESOURCE question (does this
+// isStatelessCommand asks a per-RESOURCE question (does this
 // command have a delete script?) rather than the per-TYPE one the
 // safe-to-replace allowlist can express, so its edge cases are worth
 // pinning directly: the whole fix rests on reading an input.
@@ -469,8 +469,8 @@ func TestIsStatelessRemoteCommand(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := isStatelessRemoteCommand(tt.meta); got != tt.want {
-				t.Fatalf("isStatelessRemoteCommand() = %v, want %v", got, tt.want)
+			if got := isStatelessCommand(tt.meta); got != tt.want {
+				t.Fatalf("isStatelessCommand() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -870,5 +870,107 @@ func TestDestructiveReplaceError_RendersBothCauses(t *testing.T) {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message does not contain %q:\n%s", want, msg)
 		}
+	}
+}
+
+// The local command type gets the same per-RESOURCE treatment as the remote
+// one, and the WITH-delete row is the whole point: putting
+// `command:local:Command` on the safe-to-replace allowlist — the tempting
+// one-line fix — would wave that row through, and SC builds local commands
+// for docker build/push, scan barriers, registry login and the vm ingress
+// ship. The sdk's local Command carries the identical `delete` input
+// (pulumi-command v1.2.1, local/command.go:477).
+func TestIsStatelessCommand_CoversLocalPerResource(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		meta apitype.StepEventMetadata
+		want bool
+	}{
+		{
+			// A plugin's `aws s3 sync <dir> s3://<bucket>` on a static-website
+			// path: idempotent, no delete script, re-runs when the credentials
+			// in its inputs change. This is the deploy that was blocked.
+			name: "local command with no delete script is exempt",
+			meta: apitype.StepEventMetadata{
+				Type: "command:local:Command",
+				Old:  &apitype.StepEventStateMetadata{ID: "live", Inputs: map[string]any{"create": "aws s3 sync ./dist s3://bucket"}},
+				New:  &apitype.StepEventStateMetadata{Inputs: map[string]any{"create": "aws s3 sync ./dist s3://bucket"}},
+			},
+			want: true,
+		},
+		{
+			name: "local command WITH a delete script stays guarded",
+			meta: apitype.StepEventMetadata{
+				Type: "command:local:Command",
+				Old:  &apitype.StepEventStateMetadata{ID: "live", Inputs: map[string]any{"delete": "aws s3 rm s3://bucket --recursive"}},
+				New:  &apitype.StepEventStateMetadata{},
+			},
+			want: false,
+		},
+		{
+			// The new state is what a later destroy would run, so a delete
+			// script arriving on either side is enough to keep it guarded.
+			name: "delete script only on the new side stays guarded",
+			meta: apitype.StepEventMetadata{
+				Type: "command:local:Command",
+				Old:  &apitype.StepEventStateMetadata{ID: "live"},
+				New:  &apitype.StepEventStateMetadata{Inputs: map[string]any{"delete": "rm -rf /tmp/build"}},
+			},
+			want: false,
+		},
+		{
+			// An empty string is not a script.
+			name: "local command with an empty delete script is exempt",
+			meta: apitype.StepEventMetadata{
+				Type: "command:local:Command",
+				Old:  &apitype.StepEventStateMetadata{ID: "live", Inputs: map[string]any{"delete": "   "}},
+				New:  &apitype.StepEventStateMetadata{},
+			},
+			want: true,
+		},
+		{
+			// Unchanged: a type that is not a pulumi-command resource gets no
+			// exemption from this predicate no matter what its inputs say.
+			name: "another type with no delete input is not exempt here",
+			meta: apitype.StepEventMetadata{
+				Type: "aws:s3/bucket:Bucket",
+				Old:  &apitype.StepEventStateMetadata{ID: "live"},
+				New:  &apitype.StepEventStateMetadata{},
+			},
+			want: false,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isStatelessCommand(tt.meta); got != tt.want {
+				t.Fatalf("isStatelessCommand() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+// And through the guard, both ways: the blocked deploy's step is recorded as
+// nothing, while the same shape carrying a delete script is still refused.
+func TestRecordDestructiveReplace_LocalCommandPerResource(t *testing.T) {
+	step := func(inputs map[string]any) *apitype.ResourcePreEvent {
+		return &apitype.ResourcePreEvent{Metadata: apitype.StepEventMetadata{
+			Op:   apitype.OpReplace,
+			URN:  "urn:pulumi:landing--staging::forge-landing::command:local:Command::sync-bundle",
+			Type: "command:local:Command",
+			Old:  &apitype.StepEventStateMetadata{ID: "live", Inputs: inputs},
+			New:  &apitype.StepEventStateMetadata{Inputs: inputs},
+			Keys: []string{"environment", "triggers"},
+		}}
+	}
+
+	exempt := &pulumi{}
+	exempt.recordDestructiveReplace(step(map[string]any{"create": "aws s3 sync ./dist s3://bucket"}))
+	if got := exempt.drainDestructiveReplaces(); len(got) != 0 {
+		t.Fatalf("a script-less local command was recorded as destructive: %+v", got)
+	}
+
+	guarded := &pulumi{}
+	guarded.recordDestructiveReplace(step(map[string]any{"delete": "aws s3 rm s3://bucket --recursive"}))
+	if got := guarded.drainDestructiveReplaces(); len(got) != 1 {
+		t.Fatalf("a local command with a delete script must stay guarded, got %+v", got)
 	}
 }
