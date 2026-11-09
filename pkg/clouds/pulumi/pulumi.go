@@ -5,11 +5,16 @@ package pulumi
 
 import (
 	"github.com/simple-container-com/api/pkg/clouds/fs"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 )
 
 const (
-	StateStorageTypeGcpBucket = gcloud.StateStorageTypeGcpBucket
+	// Literal string instead of importing sc-plugin-gcp/api — SC core
+	// stops Go-link-time importing the plugin's /api module in phase 5 of
+	// the GCP extraction (mirrors the comment on StateStorageTypeS3Bucket
+	// a few lines down — same reasoning: the token is a wire-level string
+	// both sides have agreed on, a const in the plugin's /api is just one
+	// place the spelling lives).
+	StateStorageTypeGcpBucket = "gcp-bucket"
 	// Literal string instead of the sc-plugin-aws/api constant so SC
 	// core doesn't need to Go-link-time-import the plugin's /api
 	// module. The token is a wire-level string that both sides have

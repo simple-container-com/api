@@ -84,8 +84,6 @@ github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapp
 github.com/GoogleCloudPlatform/opentelemetry-operations-go/internal/resourcemapping v0.55.0/go.mod h1:Mf6O40IAyB9zR/1J8nGDDPirZQQPbYJni8Yisy7NTMc=
 github.com/HdrHistogram/hdrhistogram-go v1.1.2 h1:5IcZpTvzydCQeHzK4Ef/D5rrSqwxob0t8PQPMybUNFM=
 github.com/HdrHistogram/hdrhistogram-go v1.1.2/go.mod h1:yDgFjdqOqDEKOvasDdhWNXYg9BVp4O+o5f6V/ehm6Oo=
-github.com/MShekow/directory-checksum v1.4.18 h1:1nPPVl7uREa6WMTAPKoWW/GylhnASs0C9C+GPiwLwXA=
-github.com/MShekow/directory-checksum v1.4.18/go.mod h1:iUupsPb0X0BumQQymLrpD5Pkqe/CbV13OSgosw1oFc4=
 github.com/Masterminds/semver/v3 v3.4.0 h1:Zog+i5UMtVoCU8oKka5P7i9q9HgrJeGzI9SA1Xbatp0=
 github.com/Masterminds/semver/v3 v3.4.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
 github.com/Microsoft/go-winio v0.5.2/go.mod h1:WpS1mjBmmwHBEWmogvA2mj8546UReBk4v8QkMxJ6pZY=
@@ -361,8 +359,6 @@ github.com/go-delve/delve v1.27.0 h1:i66Einw/sQhm0hlbjLNUNxrwCmKdTcIqpyHVqSWAbd0
 github.com/go-delve/delve v1.27.0/go.mod h1:l6Xb1ype6VEKoKZCaOg7mGN5B8Zi3Sn+K7qs5Pqqc8k=
 github.com/go-delve/liner v1.2.3-0.20231231155935-4726ab1d7f62 h1:IGtvsNyIuRjl04XAOFGACozgUD7A82UffYxZt4DWbvA=
 github.com/go-delve/liner v1.2.3-0.20231231155935-4726ab1d7f62/go.mod h1:biJCRbqp51wS+I92HMqn5H8/A0PAhxn2vyOT+JqhiGI=
-github.com/go-errors/errors v1.5.1 h1:ZwEMSLRCapFLflTpT7NKaAc7ukJ8ZPEjzlxt8rPN8bk=
-github.com/go-errors/errors v1.5.1/go.mod h1:sIVyrIiJhuEF+Pj9Ebtd6P/rEYROXFi3BopGUQ5a5Og=
 github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 h1:+zs/tPmkDkHx3U66DAb0lQFJrpS6731Oaa12ikc+DiI=
 github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376/go.mod h1:an3vInlBmSxCcxctByoQdvwPiA7DTK7jaaFDBTtu0ic=
 github.com/go-git/go-billy/v5 v5.9.0 h1:jItGXszUDRtR/AlferWPTMN4j38BQ88XnXKbilmmBPA=
@@ -803,8 +799,6 @@ github.com/pulumi/pulumi-command/sdk v1.2.1 h1:mAziZ91a/9U+5IjZH5Skcar80OSmpBSYl
 github.com/pulumi/pulumi-command/sdk v1.2.1/go.mod h1:hQxv9DXg6bFjcd9BEiNdMImQ/V1rnC9D115q5VXYNps=
 github.com/pulumi/pulumi-docker/sdk/v4 v4.11.2 h1:mc9IbrRi1pWSg9HWEFT6EcQ274WnZ97nyP2pmUEvSp4=
 github.com/pulumi/pulumi-docker/sdk/v4 v4.11.2/go.mod h1:gPNbbz+ywFqnRRQMDxQQbMp4nXJIk43QBUj0N+xWXbw=
-github.com/pulumi/pulumi-gcp/sdk/v8 v8.41.1 h1:w6OnO3d4j5yVf2vpm8OzXFC/xHOEGqt+9FjWCUBCq6U=
-github.com/pulumi/pulumi-gcp/sdk/v8 v8.41.1/go.mod h1:UyZyv7hz4knpFx6/Sh+SkZe6hT6sJHtDvw9A0TbvEsk=
 github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.32.0 h1:QwJzM3PseaorfASUlDXxsyntVGac7ZSYjqjxa038uoU=
 github.com/pulumi/pulumi-kubernetes/sdk/v4 v4.32.0/go.mod h1:MtckkCd6mzQQ3AYw+qjdt6ROfdBB3dr8dI/dE5/jxrM=
 github.com/pulumi/pulumi-random/sdk/v4 v4.21.0 h1:j6LtoXue77y16trYOR40iqCUxXxv8TnxvOCOP/a0zVI=
@@ -874,6 +868,12 @@ github.com/simple-container-com/sc-plugin-aws/api v0.0.0-20261102081521-e5fd1e8f
 github.com/simple-container-com/sc-plugin-aws/api v0.0.0-20261102081521-e5fd1e8fa7a8/go.mod h1:xrWxpDoBjIeQhguBwoIsVj/JxTLpZHxyxqaGtbjUCJs=
 github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261031083455-cdbcf98c7bfb h1:whdI/2NLI+LOis05ojruccP+v1UqydKFMJVH6WdDlz8=
 github.com/simple-container-com/sc-plugin-cloudflare/api v0.0.0-20261031083455-cdbcf98c7bfb/go.mod h1:grjigb/0Y7wQ5hT9eWnsIghVoumT2YWeo8x5B2hetSo=
+github.com/simple-container-com/sc-plugin-gcp v0.0.0-20261108045141-58ce4b6cfa4a h1:1BPNHNyBU3PV/TDqkOs1fd6r3yvV+s+P66MDwRUGPlM=
+github.com/simple-container-com/sc-plugin-gcp v0.0.0-20261108045141-58ce4b6cfa4a/go.mod h1:vFStCvcXkTyVIo6MN9BvudXRmAm4drwwN6d908KqXlw=
+github.com/simple-container-com/sc-plugin-gcp/api v0.0.0-20261107212225-8bf6d5d6f638 h1:h564wJ/YQs3wKyHdDjcp/aj1VzvpvjqkWLm/ebtWUiM=
+github.com/simple-container-com/sc-plugin-gcp/api v0.0.0-20261107212225-8bf6d5d6f638/go.mod h1:ebRWOMTQAIyTtzDzB27cx5FidTdjDF57fSpCcVBWn3c=
+github.com/simple-container-com/sc-plugin-gcp/api v0.0.0-20261108045141-58ce4b6cfa4a h1:XrF9fCS3a76uqO+fLs7vRb636oDtQJZoKpF2XMCvbA0=
+github.com/simple-container-com/sc-plugin-gcp/api v0.0.0-20261108045141-58ce4b6cfa4a/go.mod h1:ebRWOMTQAIyTtzDzB27cx5FidTdjDF57fSpCcVBWn3c=
 github.com/simple-container-com/sc-plugin-mongodb/api v0.0.0-20261029130510-ff1589792eaa h1:y+iTXrgLbZdP5WCSdbkdFOcDzANk+uBqszuVtJue+VE=
 github.com/simple-container-com/sc-plugin-mongodb/api v0.0.0-20261029130510-ff1589792eaa/go.mod h1:hcPcAX/B6qNRSqkYYE5IDeQviydAmjQ39S9sKmJnmPw=
 github.com/simple-container-com/sc-plugin-yandex/api v0.0.0-20261101233310-67602079742f h1:4CHL1KWcyF979Y2qW4OKeHf3QMKl3Ih6CgBkoaDzBvU=

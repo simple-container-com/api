@@ -22,6 +22,11 @@ variables:
     type: string
     value: M10
 plugins:
+  gcp:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-gcp
+      version: v2026.11.09-4c0caf5
   aws:
     source:
       type: github-release

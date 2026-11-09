@@ -10,16 +10,17 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/ssh"
+
 	. "github.com/onsi/gomega"
 	"github.com/pkg/errors"
+	gcpApi "github.com/simple-container-com/sc-plugin-gcp/api"
 	"github.com/stretchr/testify/mock"
-	"golang.org/x/crypto/ssh"
 
 	"github.com/simple-container-com/api/pkg/api"
 	git_mocks "github.com/simple-container-com/api/pkg/api/git/mocks"
 	"github.com/simple-container-com/api/pkg/api/secrets/ciphers"
 	"github.com/simple-container-com/api/pkg/api/secrets/scoped"
-	"github.com/simple-container-com/api/pkg/clouds/gcloud"
 	pulumi_mocks "github.com/simple-container-com/api/pkg/clouds/pulumi/mocks"
 	"github.com/simple-container-com/api/pkg/provisioner/placeholders"
 )
@@ -29,6 +30,12 @@ import (
 // secrets.yaml could not be revealed, and the job holds only its own scope key.
 
 const scopedParentServer = `schemaVersion: 1.0
+plugins:
+  gcp:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-gcp
+      version: v2026.11.08-d14f4da
 provisioner:
   type: pulumi
   config:
@@ -199,7 +206,7 @@ func Test_Deploy_ScopedOnly_AmbientAuth(t *testing.T) {
 	Expect(appEnv(got, "staging")).To(HaveKeyWithValue("APP_KEY", "s3cr3t"))
 	auth, ok := got.Secrets.Auth["gcloud"]
 	Expect(ok).To(BeTrue())
-	creds, ok := auth.Config.Config.(*gcloud.Credentials)
+	creds, ok := auth.Config.Config.(*gcpApi.Credentials)
 	Expect(ok).To(BeTrue(), "auth config is %T", auth.Config.Config)
 	Expect(creds.UsesAmbientCredentials()).To(BeTrue())
 	Expect(creds.ProjectId).To(Equal("acme-staging"))
@@ -286,7 +293,7 @@ func Test_Deploy_ScopedAuthCannotOverrideLegacy(t *testing.T) {
 	log := &captureLogger{}
 	got, err := w.deploy(t, log, "staging")
 	Expect(err).NotTo(HaveOccurred())
-	creds := got.Secrets.Auth["gcloud"].Config.Config.(*gcloud.Credentials)
+	creds := got.Secrets.Auth["gcloud"].Config.Config.(*gcpApi.Credentials)
 	Expect(creds.ProjectId).To(Equal("legacy-project"))
 	Expect(strings.Join(log.warns, "\n")).To(ContainSubstring(`scoped auth "gcloud" is shadowed`))
 }
