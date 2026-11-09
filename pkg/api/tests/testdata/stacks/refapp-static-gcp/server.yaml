@@ -3,7 +3,7 @@ plugins:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-gcp
-      version: v2026.11.09-4c0caf5
+      version: v2026.11.09-640c8ee
 schemaVersion: 1.0
 provisioner:
   inherit: common
