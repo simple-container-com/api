@@ -1,0 +1,1 @@
+Both ruled out conclusively: the embed root is `docs/docs/**` (the edited `docs/CONTRIBUTING.md` sits outside it), and the Go hit is a filename-classification map constant, not file content. Zero Go surface confirmed by inspection, not assumption.
