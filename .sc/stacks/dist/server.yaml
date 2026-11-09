@@ -22,6 +22,17 @@ plugins:
       type: github-release
       repository: simple-container-com/sc-plugin-cloudflare
       version: v2026.10.26-5eddde3
+  # `templates.static-website.type: gcp-static-website` below is owned
+  # by sc-plugin-gcp since phase-5 of the extraction (api #568) deleted
+  # pkg/clouds/gcloud + pkg/clouds/pulumi/gcp. The pin is deliberate —
+  # SC does not resolve "latest". v2026.11.09-4c0caf5 carries the
+  # StaticSiteInput plugin-bus roundtrip fix (sc-plugin-gcp #3), which
+  # the dist preview-publish needs to receive a non-empty Domain.
+  gcp:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-gcp
+      version: v2026.11.09-4c0caf5
 templates:
   static-website:
     type: gcp-static-website

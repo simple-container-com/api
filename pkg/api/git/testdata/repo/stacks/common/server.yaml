@@ -40,7 +40,7 @@ plugins:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-gcp
-      version: v2026.11.08-d14f4da
+      version: v2026.11.09-4c0caf5
   cloudflare:
     source:
       type: github-release
