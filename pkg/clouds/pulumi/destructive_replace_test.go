@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/apitype"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource/plugin"
 
 	"github.com/simple-container-com/api/pkg/api"
 )
@@ -568,5 +569,117 @@ func TestSafeToReplaceTypes_DoesNotEnumerateRule3(t *testing.T) {
 	// But the guard's own question still answers yes.
 	if !api.IsSafeToReplace("pulumi:providers:kubernetes") {
 		t.Error("IsSafeToReplace must honour rule 3")
+	}
+}
+
+// The seven-resource refusal measured on the 3-VPS fleet stand (2026-11-09). Every one
+// of these replaces named `provider` as its sole key, with an identical provider URN and
+// the unknown sentinel as the new ID — and the apply that followed only updated them.
+func TestRecordDestructiveReplace_ExemptsUnknownProviderIDOnly(t *testing.T) {
+	const provURN = "urn:pulumi:fleet::scsmoke::pulumi:providers:kubernetes::smoke-caddy--staging-caddy-kubeprovider"
+
+	for _, resType := range []string{
+		"kubernetes:apps/v1:Deployment",
+		"kubernetes:core/v1:Namespace",
+		"kubernetes:core/v1:Service",
+		"kubernetes:core/v1:ServiceAccount",
+		"kubernetes:policy/v1:PodDisruptionBudget",
+		"kubernetes:rbac.authorization.k8s.io/v1:ClusterRole",
+		"kubernetes:rbac.authorization.k8s.io/v1:ClusterRoleBinding",
+	} {
+		p := &pulumi{}
+		p.recordDestructiveReplace(&apitype.ResourcePreEvent{Metadata: apitype.StepEventMetadata{
+			Op:   apitype.OpReplace,
+			URN:  "urn:pulumi:fleet::scsmoke::" + resType + "::caddy-staging",
+			Type: resType,
+			Old:  &apitype.StepEventStateMetadata{ID: "live", Provider: provURN + "::d85914e8-7282-41fc-82a9-ae3d49f014a6"},
+			New:  &apitype.StepEventStateMetadata{Provider: provURN + "::04da6b54-80e4-46f7-96ec-b56ff0331ba9"},
+			Keys: []string{"provider"},
+		}})
+		if got := p.drainDestructiveReplaces(); len(got) != 0 {
+			t.Fatalf("%s: an unknown-provider-ID replace was recorded as destructive: %+v", resType, got)
+		}
+	}
+}
+
+// Each of these is one mutation away from the exempt case above, and each must stay
+// guarded. The exemption is narrow by construction; this is what holds it narrow.
+func TestUnknownProviderIDOnly_StaysGuarded(t *testing.T) {
+	const provURN = "urn:pulumi:fleet::scsmoke::pulumi:providers:kubernetes::caddy-kubeprovider"
+	const otherURN = "urn:pulumi:fleet::scsmoke::pulumi:providers:kubernetes::other-kubeprovider"
+	const unknown = "::04da6b54-80e4-46f7-96ec-b56ff0331ba9"
+	const realID = "::d85914e8-7282-41fc-82a9-ae3d49f014a6"
+
+	for name, meta := range map[string]apitype.StepEventMetadata{
+		// The fault the guard exists for: a resource moved to a different
+		// cluster's provider. Unknown ID or not, the URN changed.
+		"a different provider URN": {
+			Old:  &apitype.StepEventStateMetadata{ID: "live", Provider: provURN + realID},
+			New:  &apitype.StepEventStateMetadata{Provider: otherURN + unknown},
+			Keys: []string{"provider"},
+		},
+		// A provider that genuinely was replaced and whose new ID is known.
+		"a known but different provider ID": {
+			Old:  &apitype.StepEventStateMetadata{ID: "live", Provider: provURN + realID},
+			New:  &apitype.StepEventStateMetadata{Provider: provURN + "::11111111-2222-3333-4444-555555555555"},
+			Keys: []string{"provider"},
+		},
+		// A real input moved too. That input's replace is not excused by the
+		// provider's ID being unknown alongside it.
+		"provider plus a real input": {
+			Old:  &apitype.StepEventStateMetadata{ID: "live", Provider: provURN + realID},
+			New:  &apitype.StepEventStateMetadata{Provider: provURN + unknown},
+			Keys: []string{"provider", "metadata"},
+		},
+		// Not the provider reference at all — a property that happens to be
+		// named "provider" on some resource type.
+		"a non-provider key": {
+			Old:  &apitype.StepEventStateMetadata{ID: "live", Provider: provURN + realID},
+			New:  &apitype.StepEventStateMetadata{Provider: provURN + unknown},
+			Keys: []string{"zoneId"},
+		},
+		// A malformed reference must fail closed, not open.
+		"a provider reference with no id separator": {
+			Old:  &apitype.StepEventStateMetadata{ID: "live", Provider: "not-a-reference"},
+			New:  &apitype.StepEventStateMetadata{Provider: provURN + unknown},
+			Keys: []string{"provider"},
+		},
+	} {
+		meta.Op = apitype.OpReplace
+		meta.URN = "urn:pulumi:fleet::scsmoke::kubernetes:core/v1:Service::caddy-staging"
+		meta.Type = "kubernetes:core/v1:Service"
+
+		p := &pulumi{}
+		p.recordDestructiveReplace(&apitype.ResourcePreEvent{Metadata: meta})
+		if got := p.drainDestructiveReplaces(); len(got) != 1 {
+			t.Fatalf("%s: expected the replace to stay guarded, recorded %+v", name, got)
+		}
+	}
+}
+
+// The URN contains `::` as its own field separator, so splitting on the FIRST
+// occurrence would compare a fragment of the URN against the sentinel and make the
+// exemption fire for unrelated providers.
+func TestSplitProviderRef_SplitsOnTheLastSeparator(t *testing.T) {
+	urn, id, ok := splitProviderRef("urn:pulumi:fleet::scsmoke::pulumi:providers:kubernetes::kubeprovider::abc-123")
+	if !ok {
+		t.Fatal("a well-formed reference was rejected")
+	}
+	if id != "abc-123" {
+		t.Fatalf("id = %q, want abc-123", id)
+	}
+	if urn != "urn:pulumi:fleet::scsmoke::pulumi:providers:kubernetes::kubeprovider" {
+		t.Fatalf("urn = %q", urn)
+	}
+	if _, _, ok := splitProviderRef("no-separator"); ok {
+		t.Fatal("a reference with no separator was accepted")
+	}
+}
+
+// pulumiUnknownValue is hardcoded so this file needs only apitype. That is only safe
+// while it agrees with the SDK, and the SDK is already a dependency — so pin it.
+func TestPulumiUnknownValueMatchesTheSDK(t *testing.T) {
+	if pulumiUnknownValue != plugin.UnknownStringValue {
+		t.Fatalf("pulumiUnknownValue = %q, SDK says %q — the sentinel moved", pulumiUnknownValue, plugin.UnknownStringValue)
 	}
 }
