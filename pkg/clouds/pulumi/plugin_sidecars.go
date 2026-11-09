@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -374,15 +375,48 @@ func stackConfigDomain(cfg any) string {
 	if err != nil {
 		return ""
 	}
+	// TWO spellings, and the second one is not redundant.
+	//
+	// `StackConfigStatic.Site` is a NAMED field tagged `json:",inline"
+	// yaml:",inline"`, and encoding/json has no `,inline`: on a named field
+	// it reads the tag as "no rename, plus an option I do not recognise" and
+	// keeps the Go field name. So a static website's config marshals as
+	// `{"stackConfig":{"bundleDir":…,"Site":{"domain":"…"}}}` — the domain is
+	// NESTED under a capital `Site`, while a compose or single-image config
+	// carries it flat. Only yaml.v3 honours the tag and flattens it.
+	//
+	// Live-caught 2026-11-09 (forge-landing-ru-apex--staging, landing run
+	// 42609670242): this probe returned "" for a `yc-static-website`, so
+	// provisionDomainRegistrar took its `domain == ""` early return, the
+	// plugin never received ProvisionRegistrar, and the yandex plugin
+	// refused with `no yc-dns registrar initialised that serves
+	// "simple-forge.ru"` — a parent whose server.yaml declared that
+	// registrar and had just provisioned green. Nothing about the plugin's
+	// lifecycle was wrong; core simply could not see the domain. Cloudflare
+	// never showed it because the stacks in front of it declare `domain:`
+	// flat.
+	//
+	// The `Site` arm becomes dead the day that field is embedded or named on
+	// both tags — see
+	// forge/docs/roadmap/items/plugin-bus-json-yaml-inline-tag-asymmetry.md,
+	// which proposes rejecting the tag outright. Delete it then; until then
+	// it is the difference between a landing that deploys and one that does
+	// not.
 	var probe struct {
 		StackConfig struct {
 			Domain string `json:"domain"`
+			Site   struct {
+				Domain string `json:"domain"`
+			} `json:"Site"`
 		} `json:"stackConfig"`
 	}
 	if err := json.Unmarshal(b, &probe); err != nil {
 		return ""
 	}
-	return probe.StackConfig.Domain
+	if probe.StackConfig.Domain != "" {
+		return probe.StackConfig.Domain
+	}
+	return probe.StackConfig.Site.Domain
 }
 
 // --- provider sidecar: plugin creates pulumi:providers:<pkg> via monitor ---
