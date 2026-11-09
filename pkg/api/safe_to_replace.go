@@ -139,11 +139,29 @@ var (
 	// The engine holds its inputs in state and hands dependent
 	// resources a `urn::id` reference to it; a replace mints a new
 	// client, re-points the dependents on the same apply, and makes no
-	// remote call. Measured rather than assumed on the 3-VPS fleet
-	// stand (2026-11-09): a preview that replaced
-	// `pulumi:providers:kubernetes` listed exactly that one resource —
-	// the Deployment, Service, ServiceAccount and ConfigMaps under it
-	// were untouched, not replaced along with it.
+	// remote call — nothing in any cloud is destroyed, which is what
+	// earns the whole namespace a pass.
+	//
+	// Measured on the 3-VPS fleet stand (2026-11-09), and the first
+	// reading of that measurement was wrong, so it is written out here.
+	// The dependents are NOT absent from the plan: a preview that
+	// replaced `smoke-caddy--staging-caddy-kubeprovider` also planned a
+	// replace for all seven resources under it (Namespace, Deployment,
+	// Service, ServiceAccount, PodDisruptionBudget, ClusterRole,
+	// ClusterRoleBinding), each with `provider` as its sole
+	// replace-forcing key. What makes those safe is a different fact —
+	// their new provider reference carries an IDENTICAL URN with
+	// Pulumi's unknown sentinel as the id, because the provider's own id
+	// is not computed yet at preview time, and the apply only `update`s
+	// them. That case is handled where it belongs, by
+	// `isUnknownProviderIDOnly` in pkg/clouds/pulumi, NOT by this rule.
+	//
+	// This rule covers only the provider resource itself, and it has to,
+	// because there is no signature available for it: its
+	// replace-forcing input is `kubeconfig`, a secret, and the step
+	// event redacts BOTH sides to the byte-identical
+	// `{"4dabf…":"1b470…","ciphertext":"[secret]"}` — there is nothing
+	// to compare. The apply, measured, only `update`d it.
 	//
 	// What made this urgent: ANY change to a provider's credentials is
 	// replace-forcing. So the guard refused
