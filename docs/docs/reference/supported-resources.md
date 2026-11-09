@@ -1648,8 +1648,21 @@ its zero value there means **"not measured yet"**, not "absent".
   regionless one (`cloudru-evolution-vm`): one global endpoint, and placement is
   the availability zone. A `region:` SC silently dropped would read as placement
   you controlled.
-- `zones` takes at most one entry, because one machine. Multi-zone pools arrive
-  with multi-host `vm` resources.
+- `zones` and `nodes` together size the pool. `nodes` defaults to `len(zones)`
+  when zones are listed and to 1 otherwise, so `zones: [a, b, c]` alone means
+  three machines, one per zone, and `nodes: 3` with one zone means three in that
+  zone. Machine *i* goes in zone *i % len(zones)* — deterministic and
+  index-stable, so raising the count later never moves an existing machine to
+  another zone. Listing more zones than machines is refused (a zone nobody is
+  placed in is an ignored setting), as is listing more zones than the driver's
+  `MultiAZInRegion` capability says the cloud has.
+  **Caveat, and it is a large one: no cloud driver creates more than one machine
+  yet.** The fields are accepted and reach every vm plugin, so a plugin built
+  before them unmarshals `nodes` into nothing and creates **one** machine for a
+  three-machine resource — a green provision and a pool that is silently single.
+  SC therefore refuses a provision whose driver returned the wrong number of
+  hosts, naming the driver and both counts. Until N-machine creation lands per
+  cloud, a fleet is a `provider: byo` resource with several `hosts`.
 - `network.id` and `network.subnets` must be given together. A driver that picked
   "some subnet in the VPC" would place the machine in a zone, or behind a route
   table, you did not choose.
@@ -1764,6 +1777,23 @@ resources:
               # acmeCa: https://acme.example.ru/directory
               # acmeEabKeyId: "..."
               # acmeEabMacKey: "${secret:ACME_EAB_MAC_KEY}"
+              # Does THIS machine terminate TLS? Unset means true. False puts
+              # Caddy on plain HTTP on :80 with no ACME account at all, for
+              # Cloudflare or a load balancer to terminate in front — and it is
+              # what makes `domainProxied: true` legal on a client stack.
+              # originTls: false
+              # ONE certificate store shared by every machine of this resource.
+              # Optional on one machine; the prerequisite on a fleet, where
+              # `originTls: false` is the only alternative.
+              # acmeStorage:
+              #   bucket: mycompany-acme
+              #   endpoint: https://storage.yandexcloud.net  # omit for AWS S3
+              #   region: ru-central1                        # default us-east-1
+              #   accessKey: "${secret:ACME_S3_ACCESS_KEY}"
+              #   secretKey: "${secret:ACME_S3_SECRET_KEY}"
+              #   encryptionKey: "${secret:ACME_S3_ENCRYPTION_KEY}"  # 32 bytes
+              #   prefix: acme                               # default `acme`
+              #   # pathStyle: true   # defaults to true when `endpoint` is set
             # For machines with no route to Docker Hub or the distro mirrors:
             # registryMirrors: ["https://mirror.example.ru"]
             # packageMirror: "https://mirror.example.ru/ubuntu"
@@ -1771,7 +1801,8 @@ resources:
 
 Per-host keys (`hosts[]`): `address` (**required**), `user`, `port`,
 `privateKey` (**required** — write it as `${secret:...}`; password and
-ssh-agent authentication are not supported), `privateKeyPassword`, `hostKey`.
+ssh-agent authentication are not supported), `privateKeyPassword`, `hostKey`,
+`role`, `privateAddress`.
 
 `hostKey` is optional and is the one optional field whose absence has a real
 cost. A deploy onto a VM carries the stack's entire env file, every
@@ -1789,11 +1820,40 @@ it cannot apply them. Configure those in the cloud console; on a `byo` host the
 ports are yours to open, and SC prints the list it would have asked for so you
 do not have to derive it. Note that this is a refusal, not a warning: an operator
 certain the NodePort range is open is exactly the incident `ingressPorts` exists
-to prevent. `byo` also currently accepts **exactly
-one** host; multi-host pools arrive with the k3s work (`sc-k3s-cluster-resource`).
-The reverse holds for the cloud drivers — `hosts` is only valid with `byo` — and
-each cloud driver's own requirements are in the
+to prevent. The reverse holds for the cloud drivers — `hosts` is only valid with
+`byo` — and each cloud driver's own requirements are in the
 [driver table above](#vm-self-hosted-kubernetes).
+
+**A pool of machines.** `hosts` takes as many entries as you have, and `byo` is
+the only driver that makes a pool today. Two per-host fields describe what the
+pool is for, and both are checked as a *set* rather than per entry, because the
+shapes refused below each produce a deploy that half-works:
+
+| Field | Rule |
+|---|---|
+| `role` | one of `compose`, `k3s-server`, `k3s-agent`. **All-or-none** across the pool — SC will not guess which machine runs etcd, and the guess decides whether a machine joins the cluster at all. No roles declared means a compose fleet, exactly as before the field existed. Mixing `compose` with a `k3s-*` role in one resource is refused: one machine has one port 443, so declare the fleet and the cluster as two resources |
+| `privateAddress` | the address a machine's **siblings** reach it on. **Required on every host of a multi-node k3s pool**, all-or-none, duplicates refused. Unused on a single host and on a compose fleet, neither of which has node-to-node traffic |
+
+`privateAddress` is a refusal and not a warning because the failure mode is a
+**success**. SC passes it to k3s as `--node-ip`, and to servers also as
+`--advertise-address` (without the second the API server still advertises its
+default route to its peers). With no value, k3s advertises whichever address the
+machine's default route carries — on a single-NIC VPS that is the **public** one
+— so etcd peer traffic, which is the cluster's entire state including every
+Secret, and flannel's unencrypted VXLAN overlay cross the public internet, on a
+`byo` host where SC owns no firewall to stop them. That deploy succeeds: every
+node `Ready`, nothing in the output saying the overlay is exposed.
+
+If the machines share no private network — a lot of cheap VPS hosting has none —
+there is nothing honest to put there yet. Run a **compose fleet** instead: it
+needs no node-to-node traffic at all. An SC-managed WireGuard mesh is the planned
+answer for the k3s half and is not built.
+
+A compose fleet needs two things a single machine does not: `ingress.acmeStorage`
+(below), and more than one A record for the name — which SC writes itself, one
+per machine, when the parent stack declares a registrar. Note what multi-A does
+and does not buy you: a dead machine means roughly 1/N of requests fail and are
+retried by the client. It is round-robin, **not** failover.
 
 **A machine SC creates itself** looks like this instead. Same resource type, same
 everything above it; `hosts` is gone and the machine's shape takes its place:
@@ -1839,6 +1899,39 @@ credential type, that `region: ru-moscow-1` is required rather than refused, and
 that the resource must also carry `allowUnverifiedProvider: true` — that driver
 has provisioned nothing yet.
 
+**The front door: who terminates TLS.** `ingress.originTls` decides it and the
+rest follows from that one answer. Unset means `true` — the behaviour of every
+`vm` resource that predates the field.
+
+| | `originTls: true` (default) | `originTls: false` |
+|---|---|---|
+| who presents the certificate | the machine's Caddy, via ACME | whatever is in front (Cloudflare's proxy, a cloud LB) |
+| `ingress.email` | required — no CA issues without one | not used; no ACME runs at all |
+| the origin speaks | HTTPS on 443 | plain HTTP on 80 |
+| `domainProxied: true` on a stack | refused — the orange cloud breaks HTTP-01 | correct; an *unproxied* record would expose a cleartext origin |
+| a fleet of N machines | needs `ingress.acmeStorage` | needs nothing shared |
+
+Every ACME setting is **refused** rather than ignored under `originTls: false`,
+and `acmeStorage` says in its error that the two are alternatives rather than a
+pair. Edge-to-origin is cleartext over the public internet unless the machine's
+firewall admits only the edge's addresses (`ingressPorts` is where those go); the
+generated Caddyfile says so too.
+
+**Why a fleet needs `acmeStorage`.** Behind N A records, Let's Encrypt's
+validator reaches an arbitrary machine, which 404s a challenge token another
+machine minted — so without a shared store each Caddy runs its own ACME client
+against the same name: N certificates, N sets of rate-limit consumption, and
+split-brain renewals. certmagic shares the challenge state *and* the issued
+certificate through storage, so one store makes it one certificate and any
+machine can answer any machine's challenge. One S3-compatible code path serves
+Yandex, AWS, GCP (its interop endpoint) and minio; there is no `type:` field
+because there is one legal value. The three credentials never reach the rendered
+Caddyfile — it holds `{$SC_ACME_S3_*}` placeholders and the values arrive in a
+`0600` env file, alongside `admin { config { persist false } }` so Caddy does not
+autosave the resolved JSON with the credentials in it. The same block exists on
+the Kubernetes edge as `kubernetes-caddy`'s `acmeStorage`, rendered by the same
+code.
+
 **Stack outputs** (read with `sc stack outputs`), for resource name `<vm>` and
 host index `<i>`:
 
@@ -1849,6 +1942,7 @@ host index `<i>`:
 | `<vm>-vm-host-<i>-private-key` / `-private-key-password` | **secret-marked** |
 | `<vm>-vm-host-<i>-host-key` | the pinned public host key |
 | `<vm>-vm-ingress-enabled` | whether the Caddy front door is on |
+| `<vm>-vm-ingress-no-origin-tls` | the **negation** of `ingress.originTls`, deliberately: a child stack deployed against a parent provisioned before this output existed reads a missing value as the zero one, and the zero has to mean the old behaviour (the machine terminates TLS) |
 | `<vm>-vm-open-ports` | the resolved firewall list, e.g. `ssh=tcp/22,k3s-api=tcp/6443,k3s-nodeport=tcp/30000-32767,k3s-kubelet=tcp/10250@nodes`; `@nodes` marks a range permitted only from the machine's own subnet. Empty on a driver that manages no firewall |
 
 > `sc stack outputs` prints secret-marked values in the clear. Redirect it to a
@@ -1856,10 +1950,10 @@ host index `<i>`:
 
 #### **k3s Cluster** (`k3s-cluster`)
 
-A single-node (today) k3s control plane installed over SSH on the hosts of a
-`vm` resource. It exports a kubeconfig and an ingress IP **under the same output
-names GKE Autopilot uses**, which is why the whole Kubernetes layer above it —
-Deployment, Service, `cloudExtras`, probes, helm operators, the Caddy edge —
+A k3s control plane installed over SSH on the hosts of a `vm` resource — one
+host, or several. It exports a kubeconfig and an ingress IP **under the same
+output names GKE Autopilot uses**, which is why the whole Kubernetes layer above
+it — Deployment, Service, `cloudExtras`, probes, helm operators, the Caddy edge —
 works unchanged.
 
 **Golang Struct Reference:** `pkg/clouds/k3s/cluster.go:K3sClusterConfig`
@@ -1887,6 +1981,7 @@ resources:
           type: k3s-cluster
           config:
             vmResource: cluster-vm     # named, not described
+            # servers: 3               # default 1; odd and <= the host count
             # version: v1.36.5+k3s1    # pinned by default; a CHANNEL name is refused
             # endpoint: k8s.example.ru # what the exported kubeconfig points at
             # tlsSans: [k8s-internal.example.ru, 10.0.0.10]
@@ -1898,12 +1993,22 @@ resources:
 | Key | Default | Notes |
 |---|---|---|
 | `vmResource` | — (**required**) | name of a `vm` resource in the same stack and env; provisioned after it and reads its host facts |
+| `servers` | `1` | how many of the pool's machines run the control plane. `1` uses **sqlite** and has no etcd at all, which is why it is the default: losing the server loses the control plane but not the running workloads. Anything above 1 opts into embedded etcd (`--cluster-init` on the first, the rest joining) and must be **odd** and no larger than the host count — two members tolerate zero failures, so they are strictly worse than one, and four tolerate the same single failure as three while costing a machine. etcd is latency-sensitive: across availability zones in one region (~1 ms) is the intended topology; across regions or hosters (10-80 ms) flaps raft heartbeats |
 | `version` | `v1.36.5+k3s1` | pinned deliberately: k3s's installer resolves a release *channel* at install time, so the default would make the control-plane version depend on the day the deploy ran. A channel name is refused |
 | `endpoint` | the node's address | also becomes the first `--tls-san`. The kubeconfig has to work from wherever `sc deploy` runs — for CI that is the runner, not the machine |
 | `tlsSans` | endpoint + node address | spend these freely: adding a SAN later re-issues the certificate and restarts the API server; an unused SAN costs nothing |
 | `disable` | derived from the host | valid entries: `traefik`, `servicelb`, `local-storage`, `metrics-server`. An explicit empty list means "disable nothing" (that is how you get Traefik back) |
 | `extraServerArgs` | — | passed to `k3s server` verbatim; flags SC manages itself (`--tls-san`, `--disable`, `--write-kubeconfig*`) are refused rather than silently fought |
 | `installScriptUrl` | `https://get.k3s.io` | for a network that cannot reach Rancher's |
+
+**A multi-node cluster** is a `vm` resource whose `hosts` each name a `role` of
+`k3s-server` or `k3s-agent`, and a `privateAddress` — see
+[the `vm` resource](#virtual-machine-vm) for both rules and for why the second
+is a refusal rather than a warning. Servers are installed in sequence so etcd
+forms in a defined order and agents in parallel; the join token is read off the
+first host and passed as `K3S_TOKEN` rather than on a command line; `--tls-san`
+covers the servers; and the readiness gate counts the whole fleet rather than
+one node. Destroying the stack uninstalls k3s from every host.
 
 **One machine has one port 443.** The `vm` resource's `ingress` and k3s's own
 load-balancer implementation (klipper-lb, k3s's `servicelb`) both want 80/443,
@@ -1933,6 +2038,15 @@ names are byte-for-byte those of a GKE Autopilot cluster:
 Runs a client stack as a Docker Compose project on the machine, with blue/green
 slots and a health gate. Accepts **both** `type: cloud-compose` and
 `type: single-image` client stacks.
+
+On a `vm` resource with several hosts the stack gets **one full container set per
+machine**, rolled one host at a time — the next host starts only after the
+previous host's new slot is live, so a bad image stops the roll instead of taking
+the fleet down. The image is built once and shipped per host, and host 0's
+resource names stay byte-identical to a single-host deploy's, so growing a
+resource from one machine to three does not replace the machine you already have.
+Blue/green stays **within** a host: each machine has its own slot pair and its
+own Caddy.
 
 **Golang Struct Reference:** `pkg/clouds/vm/compose.go:ComposeTemplateConfig`
 
@@ -2017,19 +2131,27 @@ honour on a VM is an error, not a silent no-op:
 
 | Field | Behaviour | Why |
 |---|---|---|
-| `domainProxied` | **error** | the machine answers the ACME challenge itself; a Cloudflare proxy in front of it breaks that |
-| `clusterIPAddress` | **error** | there is no cluster |
-| `scale.max > 1` | **error** | one machine runs one replica — use `{min: 1, max: 1}`, or move to `k3s-cluster` |
+| `clusterIPAddress` | **error** | there is no cluster — the stack is reachable at the address of each machine it was deployed onto |
+| a `bind` mount in a compose file | **error** | its source is a path on the developer's machine, which does not exist on the VM |
+| `domainProxied` | **error while the machine terminates TLS** | the machine answers the ACME challenge itself and a proxy in front of it breaks that. On a fleet with `ingress.originTls: false` the proxy *is* the front door and `domainProxied: true` is the correct setting. The check therefore lands at **deploy** rather than at config load: whether a machine terminates TLS is a property of the *parent's* `vm` resource, which the client tier cannot see |
+| `scale.max > 1` | warning | a fleet made this an expressible thing to want: the stack gets one replica of each service **per machine**, so a three-host `vm` resource genuinely serves three. The number is not this field's to set — it is the host count on the parent stack's `vm` resource, and the warning says so. The count is checked again against the real one at deploy, the first place both are in hand. Scaling *within* a machine still needs a k3s/Kubernetes parent |
 | `scale.min: 0` | warning | has no effect on a VM (nothing scales to zero) |
 | `scale.policy` | warning | ignored on a VM |
 
 **DNS and TLS.** With `ingress.enable: true` on the vm resource and a `domain`
 on the client stack, the stack publishes **no host port** — 443 is the only way
-in — and the URL output becomes `https://<domain>`. You still create the DNS
-record yourself: an A record at the machine's address, **not** proxied. Set one
-without the other and SC warns and deploys on a deterministic high host port;
-the stack answers either way, and the warning is what keeps "my certificate
-never appeared" from being silent.
+in — and the URL output becomes `https://<domain>`. Set one without the other
+and SC warns and deploys on a deterministic high host port; the stack answers
+either way, and the warning is what keeps "my certificate never appeared" from
+being silent.
+
+The A records are **SC's to write** when the parent stack declares a registrar —
+one record per machine on the `vm` resource — and the provision warns, naming the
+addresses, when it declares none, because hand-made DNS is a supported
+arrangement. Whether the record may be **proxied** follows the machine: while it
+terminates TLS it must not be (`domainProxied: true` is refused, see above), and
+on a fleet with `ingress.originTls: false` the proxy is the front door and an
+*unproxied* record would be the mistake.
 
 **Stack outputs**, for client stack `<stack>`:
 
@@ -2037,6 +2159,7 @@ never appeared" from being silent.
 |---|---|
 | `<stack>-vm-compose-url` | `https://<domain>`, or `http://<address>:<port>` when the stack is on a host port |
 | `<stack>-vm-compose-slot` | which blue/green slot is live |
+| `<stack>-vm-compose-host-count` | how many machines this stack was deployed onto |
 
 #### **k3s Cloud Run** (`k3s-cloudrun`)
 

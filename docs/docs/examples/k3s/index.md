@@ -12,7 +12,9 @@ cluster is more cluster than the workload needs.
 ### [k3s on a Machine You Brought (`byo`)](byo-host/README.md)
 
 One VM created by hand in a cloud console, declared with `provider: byo`, running a
-single-node k3s cluster and a `type: cloud-compose` client stack on it.
+single-node k3s cluster and a `type: cloud-compose` client stack on it. The same file
+with more `hosts` entries — each naming a `role` and a `privateAddress` — is a
+multi-node cluster.
 
 **Use case:** the first Kubernetes deployment into a cloud SC does not drive yet;
 small services that want the Kubernetes API without a managed control plane's price.
@@ -96,7 +98,8 @@ references the one below it **by name**, which is the split `gcp-gke-autopilot` 
 |---|---|---|
 | `provider`, `hosts`/`credentials`, `sshUser` | `vmResource` | `k3sClusterResource` |
 | `region`, `zones`, `image`, `size` | `version`, `endpoint`, `tlsSans` | `dockerRegistryURL` / username / password |
-| `ingress` (one machine, one port 443) | `disable`, `extraServerArgs` | `caddyResource`, `clientTls`, `originTls` |
+| `ingress` (one Caddy per machine; one machine, one port 443) | `disable`, `extraServerArgs` | `caddyResource`, `clientTls`, `originTls` |
+| `hosts[].role`, `hosts[].privateAddress` | `servers` | |
 
 Two of those are easy to confuse, and one of them used to be called `useSSL`:
 
@@ -108,6 +111,35 @@ Two of those are easy to confuse, and one of them used to be called `useSSL`:
 
 `useSSL` still works everywhere it worked before and means `clientTls`. Setting both to
 different values is refused rather than resolved silently.
+
+## More than one node
+
+A multi-node cluster is the same two resources with more `hosts`. Each entry then names
+a `role` — `k3s-server` or `k3s-agent` — and a `privateAddress`, and `k3s-cluster`'s
+`servers:` says how many machines run the control plane. The full shape, annotated, is
+the commented block in [`byo-host/server.yaml`](byo-host/server.yaml); the three rules
+worth knowing before you plan around it:
+
+- **`role:` is all-or-none.** SC will not guess which of several machines runs etcd, and
+  the guess decides whether a machine joins the cluster at all. Mixing `compose` with a
+  `k3s-*` role in one `vm` resource is refused — one machine has one port 443, so a
+  compose fleet and a k3s pool are two resources.
+- **`servers:` defaults to 1**, which uses sqlite and has no etcd: losing the server
+  loses the control plane but not the running workloads. Above 1 it opts into embedded
+  etcd, and must be **odd** and no larger than the host count. etcd wants low RTT —
+  across availability zones in one region is the intended topology, not across regions
+  or hosters.
+- **`privateAddress:` is required on every host**, and refused rather than warned about,
+  because the failure mode is a *success*. SC passes it as `--node-ip`; with no value
+  k3s advertises whichever address the machine's default route carries — the public one
+  on a single-NIC VPS — putting etcd peer traffic and flannel's unencrypted VXLAN
+  overlay on the public internet, on a `byo` host where SC owns no firewall. The cluster
+  still comes up `Ready` with nothing saying so.
+
+**If your machines share no private network**, there is nothing honest to put in
+`privateAddress` yet: an SC-managed WireGuard mesh is the planned answer and is not
+built. Run a [compose fleet](../vm-compose/index.md) instead — it needs no node-to-node
+traffic at all.
 
 ## Why there are two Kubernetes templates
 

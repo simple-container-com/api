@@ -1,8 +1,10 @@
 # Docker Compose on a Machine You Brought (`byo`)
 
-Deploy an existing `single-image` or `cloud-compose` client stack onto one virtual
-machine over SSH — no Kubernetes, no managed container runtime, and (with the default
-`ssh-tar` delivery) no container registry the machine has to be able to reach.
+Deploy an existing `single-image` or `cloud-compose` client stack onto virtual machines
+over SSH — one of them, or a fleet — with no Kubernetes, no managed container runtime,
+and (with the default `ssh-tar` delivery) no container registry the machines have to be
+able to reach. This file shows one machine; a fleet is the same `hosts:` list with more
+entries, and `server.yaml` annotates the two things it additionally needs.
 
 This is the path to use when the cloud you are deploying into has no SC driver yet:
 you create the machine in its console, declare it with `provider: byo`, and everything
