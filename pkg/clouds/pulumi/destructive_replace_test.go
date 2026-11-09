@@ -683,3 +683,192 @@ func TestPulumiUnknownValueMatchesTheSDK(t *testing.T) {
 		t.Fatalf("pulumiUnknownValue = %q, SDK says %q — the sentinel moved", pulumiUnknownValue, plugin.UnknownStringValue)
 	}
 }
+
+// The exact plan api's own release deploy produced on 2026-11-09 (run
+// 42599182582, `sc deploy -s dist -e prod` on main e93143d2). The guard let it
+// through, and only Cloudflare rejecting the empty name stopped the live DNS
+// record for dist.simple-container.com — the host that serves sc.sh to every CI
+// job in the fleet — from being deleted.
+func TestDrainDestructiveReplaces_CatchesTheRenamedDnsRecord(t *testing.T) {
+	const (
+		recordType = "cloudflare:index/record:Record"
+		oldURN     = "urn:pulumi:dist--prod::simple-container-api::" + recordType + "::dist.simple-container.com-record"
+		newURN     = "urn:pulumi:dist--prod::simple-container-api::" + recordType + "::-record"
+	)
+	p := &pulumi{}
+	// Order matters only in that it must NOT: the delete arrives first here,
+	// before the create that explains it, which is why the correlation happens
+	// at drain and not as events arrive.
+	p.recordPlanStep(&apitype.ResourcePreEvent{Metadata: apitype.StepEventMetadata{
+		Op:   apitype.OpDelete,
+		URN:  oldURN,
+		Type: recordType,
+		Old:  &apitype.StepEventStateMetadata{ID: "e0d2f1b4c6a8"},
+	}})
+	p.recordPlanStep(&apitype.ResourcePreEvent{Metadata: apitype.StepEventMetadata{
+		Op:   apitype.OpCreate,
+		URN:  newURN,
+		Type: recordType,
+		New:  &apitype.StepEventStateMetadata{},
+	}})
+
+	got := p.drainDestructiveReplaces()
+	if len(got) != 1 {
+		t.Fatalf("the renamed DNS record was not caught: %+v", got)
+	}
+	if got[0].URN != oldURN {
+		t.Errorf("flagged URN = %q, want the DELETED one %q", got[0].URN, oldURN)
+	}
+	if got[0].Cause != causeRename {
+		t.Errorf("cause = %v, want causeRename", got[0].Cause)
+	}
+	if got[0].NewURN != newURN {
+		t.Errorf("NewURN = %q, want %q", got[0].NewURN, newURN)
+	}
+
+	// And the operator must be told to look at the new name, because that is
+	// where the empty segment shows.
+	msg := (&destructiveReplaceError{Replaces: got}).Error()
+	if !strings.HasPrefix(msg, "destructive delete by rename:") {
+		t.Fatalf("rename-only error must carry its own stable prefix:\n%s", msg)
+	}
+	if strings.Contains(msg, "input-driven destructive replace") {
+		t.Errorf("a rename is not an input-driven replace; message must not claim it is:\n%s", msg)
+	}
+	for _, want := range []string{oldURN, newURN, "DELETED", "Read the NEW name first", envAllowDestructiveReplace} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message does not contain %q:\n%s", want, msg)
+		}
+	}
+}
+
+// Drain clears both trackers, so a `pulumi` instance re-used across
+// preview+up cycles judges each plan in isolation. Without this a rename
+// caught once would be reported on every subsequent preview.
+func TestDrainDestructiveReplaces_ClearsTheRenameTrackers(t *testing.T) {
+	const recordType = "cloudflare:index/record:Record"
+	p := &pulumi{}
+	p.recordPlanStep(&apitype.ResourcePreEvent{Metadata: apitype.StepEventMetadata{
+		Op: apitype.OpDelete, URN: "urn:a", Type: recordType,
+		Old: &apitype.StepEventStateMetadata{ID: "live"},
+	}})
+	p.recordPlanStep(&apitype.ResourcePreEvent{Metadata: apitype.StepEventMetadata{
+		Op: apitype.OpCreate, URN: "urn:b", Type: recordType,
+	}})
+	if got := p.drainDestructiveReplaces(); len(got) != 1 {
+		t.Fatalf("first drain: got %d, want 1", len(got))
+	}
+	if got := p.drainDestructiveReplaces(); len(got) != 0 {
+		t.Fatalf("second drain must be empty, got %+v", got)
+	}
+}
+
+// Everything one mutation away from the caught case, each of which must stay
+// quiet. The guard's whole value is that a deploy it refuses is worth stopping;
+// a false positive here blocks every stack in the fleet.
+func TestRenameDrivenDeletes_StayQuiet(t *testing.T) {
+	const recordType = "cloudflare:index/record:Record"
+	live := func() *apitype.StepEventStateMetadata {
+		return &apitype.StepEventStateMetadata{ID: "live"}
+	}
+
+	for _, tc := range []struct {
+		name  string
+		steps []apitype.StepEventMetadata
+	}{
+		{
+			// A plain removal: the operator deleted the resource from config and
+			// nothing of that type is created. The narrow signature is what keeps
+			// this from demanding the escape hatch.
+			name: "delete with no sibling create",
+			steps: []apitype.StepEventMetadata{
+				{Op: apitype.OpDelete, URN: "urn:a", Type: recordType, Old: live()},
+			},
+		},
+		{
+			// A create of a DIFFERENT type is not a rename of this one.
+			name: "sibling create of another type",
+			steps: []apitype.StepEventMetadata{
+				{Op: apitype.OpDelete, URN: "urn:a", Type: recordType, Old: live()},
+				{Op: apitype.OpCreate, URN: "urn:b", Type: "cloudflare:index/workersRoute:WorkersRoute"},
+			},
+		},
+		{
+			// The replacement halves of a genuine OpReplace. Counting these would
+			// report every replace twice — once as itself, once as a "rename".
+			name: "replacement halves are not a rename",
+			steps: []apitype.StepEventMetadata{
+				{Op: apitype.OpDeleteReplaced, URN: "urn:a", Type: recordType, Old: live()},
+				{Op: apitype.OpCreateReplacement, URN: "urn:a", Type: recordType},
+			},
+		},
+		{
+			// Never existed in the world, so there is nothing to destroy.
+			name: "delete of a resource with no id",
+			steps: []apitype.StepEventMetadata{
+				{Op: apitype.OpDelete, URN: "urn:a", Type: recordType, Old: &apitype.StepEventStateMetadata{}},
+				{Op: apitype.OpCreate, URN: "urn:b", Type: recordType},
+			},
+		},
+		{
+			// On the safe-to-replace allowlist: the content comes back from config
+			// on every apply, so losing the state entry loses nothing.
+			name: "allowlisted type",
+			steps: []apitype.StepEventMetadata{
+				{Op: apitype.OpDelete, URN: "urn:a", Type: "aws:ecs/taskDefinition:TaskDefinition", Old: live()},
+				{Op: apitype.OpCreate, URN: "urn:b", Type: "aws:ecs/taskDefinition:TaskDefinition"},
+			},
+		},
+		{
+			// A remote command with no `delete` script runs nothing when it goes
+			// away — and SC renames these whenever a host index moves.
+			name: "stateless remote command",
+			steps: []apitype.StepEventMetadata{
+				{Op: apitype.OpDelete, URN: "urn:a", Type: remoteCommandType, Old: live()},
+				{Op: apitype.OpCreate, URN: "urn:b", Type: remoteCommandType},
+			},
+		},
+		{
+			// `sc destroy`'s shape: deletes and no creates at all. (destroy.go
+			// never calls the guard either, so this is belt and braces.)
+			name: "destroy — many deletes, no creates",
+			steps: []apitype.StepEventMetadata{
+				{Op: apitype.OpDelete, URN: "urn:a", Type: recordType, Old: live()},
+				{Op: apitype.OpDelete, URN: "urn:b", Type: recordType, Old: live()},
+				{Op: apitype.OpDelete, URN: "urn:c", Type: "cloudflare:index/workerScript:WorkerScript", Old: live()},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := &pulumi{}
+			for _, step := range tc.steps {
+				p.recordPlanStep(&apitype.ResourcePreEvent{Metadata: step})
+			}
+			if got := p.drainDestructiveReplaces(); len(got) != 0 {
+				t.Fatalf("recorded %+v, want nothing", got)
+			}
+		})
+	}
+}
+
+// Both shapes in one plan render both sections, each with its own prefix. A
+// refactor that changes a name AND a replace-forcing input hits this, and the
+// operator needs both lists.
+func TestDestructiveReplaceError_RendersBothCauses(t *testing.T) {
+	msg := (&destructiveReplaceError{Replaces: []destructiveReplace{
+		{URN: "urn:replaced", Type: "cloudflare:index/record:Record", Keys: []string{"zoneId"}},
+		{URN: "urn:deleted", Type: "cloudflare:index/record:Record", Cause: causeRename, NewURN: "urn:created"},
+	}}).Error()
+
+	if !strings.HasPrefix(msg, "input-driven destructive replace:") {
+		t.Fatalf("the replace section must still lead, for CI parsers:\n%s", msg)
+	}
+	if !strings.Contains(msg, "destructive delete by rename:") {
+		t.Fatalf("the rename section is missing:\n%s", msg)
+	}
+	for _, want := range []string{"urn:replaced", "keys=[zoneId]", "urn:deleted", "urn:created"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message does not contain %q:\n%s", want, msg)
+		}
+	}
+}
