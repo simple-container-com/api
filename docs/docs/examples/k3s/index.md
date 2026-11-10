@@ -13,8 +13,8 @@ cluster is more cluster than the workload needs.
 
 One VM created by hand in a cloud console, declared with `provider: byo`, running a
 single-node k3s cluster and a `type: cloud-compose` client stack on it. The same file
-with more `hosts` entries — each naming a `role` and a `privateAddress` — is a
-multi-node cluster.
+with more `hosts` entries — each naming a `role`, plus a node-to-node address from
+either `privateAddress` or `mesh` — is a multi-node cluster.
 
 **Use case:** the first Kubernetes deployment into a cloud SC does not drive yet;
 small services that want the Kubernetes API without a managed control plane's price.
@@ -99,7 +99,7 @@ references the one below it **by name**, which is the split `gcp-gke-autopilot` 
 | `provider`, `hosts`/`credentials`, `sshUser` | `vmResource` | `k3sClusterResource` |
 | `region`, `zones`, `image`, `size` | `version`, `endpoint`, `tlsSans` | `dockerRegistryURL` / username / password |
 | `ingress` (one Caddy per machine; one machine, one port 443) | `disable`, `extraServerArgs` | `caddyResource`, `clientTls`, `originTls` |
-| `hosts[].role`, `hosts[].privateAddress` | `servers` | |
+| `hosts[].role`, `hosts[].privateAddress`, `mesh` | `servers` | |
 
 Two of those are easy to confuse, and one of them used to be called `useSSL`:
 
@@ -115,10 +115,10 @@ different values is refused rather than resolved silently.
 ## More than one node
 
 A multi-node cluster is the same two resources with more `hosts`. Each entry then names
-a `role` — `k3s-server` or `k3s-agent` — and a `privateAddress`, and `k3s-cluster`'s
-`servers:` says how many machines run the control plane. The full shape, annotated, is
-the commented block in [`byo-host/server.yaml`](byo-host/server.yaml); the three rules
-worth knowing before you plan around it:
+a `role` — `k3s-server` or `k3s-agent` — the pool needs a node-to-node address, and
+`k3s-cluster`'s `servers:` says how many machines run the control plane. The full shape,
+annotated, is the commented block in [`byo-host/server.yaml`](byo-host/server.yaml); the
+three rules worth knowing before you plan around it:
 
 - **`role:` is all-or-none.** SC will not guess which of several machines runs etcd, and
   the guess decides whether a machine joins the cluster at all. Mixing `compose` with a
@@ -129,17 +129,58 @@ worth knowing before you plan around it:
   etcd, and must be **odd** and no larger than the host count. etcd wants low RTT —
   across availability zones in one region is the intended topology, not across regions
   or hosters.
-- **`privateAddress:` is required on every host**, and refused rather than warned about,
-  because the failure mode is a *success*. SC passes it as `--node-ip`; with no value
-  k3s advertises whichever address the machine's default route carries — the public one
-  on a single-NIC VPS — putting etcd peer traffic and flannel's unencrypted VXLAN
-  overlay on the public internet, on a `byo` host where SC owns no firewall. The cluster
-  still comes up `Ready` with nothing saying so.
+- **The pool needs a node-to-node address**, from `privateAddress` on every host or
+  from `mesh.enable: true` on the resource — and the absence of both is refused rather
+  than warned about, because the failure mode is a *success*. SC passes the address as
+  `--node-ip`; with no value k3s advertises whichever address the machine's default
+  route carries — the public one on a single-NIC VPS — putting etcd peer traffic and
+  flannel's unencrypted VXLAN overlay on the public internet, on a `byo` host where SC
+  owns no firewall. The cluster still comes up `Ready` with nothing saying so.
 
-**If your machines share no private network**, there is nothing honest to put in
-`privateAddress` yet: an SC-managed WireGuard mesh is the planned answer and is not
-built. Run a [compose fleet](../vm-compose/index.md) instead — it needs no node-to-node
-traffic at all.
+**If your machines share no private network** — a lot of cheap VPS hosting has none —
+set `mesh.enable: true` on the `vm` resource. SC builds a WireGuard overlay across the
+pool, generates each machine's key on the machine, and addresses every node on the
+overlay: the join URL, `--node-ip`, `--advertise-address` and the node-to-node SANs all
+become `10.88.0.x` rather than a public address. The cluster below is the shape proven
+live on three single-NIC VPSs from three different hosters:
+
+```yaml
+        cluster-vm:
+          type: vm
+          config:
+            provider: byo
+            mesh:
+              enable: true      # 10.88.0.0/24, 51820/udp — both overridable
+            hosts:
+              - address: 203.0.113.10        # no privateAddress anywhere
+                role: k3s-server
+                user: ubuntu
+                privateKey: ${secret:CLUSTER_VM_DEPLOY_KEY}
+              - address: 203.0.113.11
+                role: k3s-server
+                user: ubuntu
+                privateKey: ${secret:CLUSTER_VM_DEPLOY_KEY}
+              - address: 203.0.113.12
+                role: k3s-server
+                user: ubuntu
+                privateKey: ${secret:CLUSTER_VM_DEPLOY_KEY}
+
+        ru-cluster:
+          type: k3s-cluster
+          config:
+            vmResource: cluster-vm
+            servers: 3          # embedded etcd across all three
+```
+
+That cluster reports `INTERNAL-IP` `10.88.0.1/.2/.3`, binds etcd's client and peer
+ports to the overlay address rather than the public NIC, and survives losing a
+control-plane node. Where a cloud *does* give you a private network, keep using
+`privateAddress`: it is cheaper, faster, and already trusted by that cloud's firewall.
+Details and the field table: [the `mesh` reference](../../reference/supported-resources.md#mesh-an-sc-managed-wireguard-overlay).
+
+A [compose fleet](../vm-compose/index.md) remains the lighter option when you do not
+need the Kubernetes API at all — it has no node-to-node traffic, so it needs neither
+a private network nor a mesh.
 
 ## Why there are two Kubernetes templates
 

@@ -77,9 +77,10 @@ resources:
                 port: 22
                 privateKey: ${secret:CLUSTER_VM_DEPLOY_KEY}
                 hostKey: "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEXAMPLEEXAMPLEEXAMPLEEXAMPLEEXAMPLE00"
-            # One machine, so no `role:` and no `privateAddress:` — both are inferred,
-            # and a single-node cluster has no node-to-node traffic to address. For
-            # more than one machine, both become required. The multi-node shape:
+            # One machine, so no `role:` and no node-to-node address — the role is
+            # inferred, and a single-node cluster has nothing to address. With more than
+            # one machine, `role:` becomes required on every host and the pool needs a
+            # node-to-node address. The multi-node shape:
             #
             # hosts:
             #   - address: 203.0.113.10        # what YOU and SC reach it on
@@ -103,20 +104,46 @@ resources:
             # joins the cluster at all. Mixing `compose` with a `k3s-*` role in one vm
             # resource is refused: one machine has one port 443.
             #
-            # `privateAddress:` is REQUIRED on every host of a multi-node pool, and
-            # the refusal is deliberate rather than a convenience. SC passes it to
-            # k3s as `--node-ip`; without it k3s advertises whichever address the
-            # machine's default route carries, which on a single-NIC VPS is the PUBLIC
-            # one — and then etcd peer traffic (the cluster's whole state, every
-            # Secret) and flannel's unencrypted VXLAN overlay cross the public
+            # A multi-node pool REQUIRES a node-to-node address, and the refusal when
+            # it has none is deliberate rather than a convenience. SC passes that
+            # address to k3s as `--node-ip`; without one k3s advertises whichever
+            # address the machine's default route carries, which on a single-NIC VPS is
+            # the PUBLIC one — and then etcd peer traffic (the cluster's whole state,
+            # every Secret) and flannel's unencrypted VXLAN overlay cross the public
             # internet, on a `byo` host where SC has no firewall to write a rule in.
             # That deploy SUCCEEDS: three nodes `Ready`, nothing in the output saying
             # the overlay is exposed. Hence a refusal and not a warning.
             #
-            # If your machines share no private network at all — a lot of cheap VPS
-            # hosting has none — there is nothing honest to put here yet. Run a
-            # compose fleet instead (../../vm-compose/byo-host/), which needs no
-            # node-to-node traffic; SC-managed WireGuard is the planned answer.
+            # There are two ways to give it one, and they are alternatives:
+            #
+            #  * `privateAddress:` per host (above) — correct wherever the hosting
+            #    provides a private network. Cheaper and faster than an overlay, and
+            #    already trusted by that cloud's firewall.
+            #  * `mesh: {enable: true}` on this resource — for machines that share no
+            #    private network, which is most cheap VPS hosting, and for machines in
+            #    different clouds entirely. SC builds a WireGuard overlay across the
+            #    pool and addresses every node on it, so no `privateAddress:` is
+            #    needed anywhere. The mesh wins where both are declared.
+            #
+            # mesh:
+            #   enable: true
+            #   # cidr: 10.88.0.0/24   # default; machine i gets host address i+1, so
+            #   #                      # host 0/1/2 are always .1/.2/.3. Override only
+            #   #                      # on a collision with your own ranges — changing
+            #   #                      # it later re-addresses every node.
+            #   # port: 51820          # default; UDP, and open to the internet by
+            #   #                      # design: a peer's endpoint is its public
+            #   #                      # address, and WireGuard answers nothing at all
+            #   #                      # to a packet that does not authenticate.
+            #
+            # Each machine's private key is generated ON that machine and never leaves
+            # it, so no key enters the Pulumi state or a preview diff. The interface is
+            # `sc-mesh`, not `wg0` — a byo machine may already have a hand-written
+            # `wg0`, and SC taking that name would cut your own access to the box.
+            #
+            # A compose fleet (../../vm-compose/byo-host/) needs neither: it has no
+            # node-to-node traffic at all.
+
             # Deliberately absent here: `ingress`.
             #
             # On the vm-compose path, `ingress.enable: true` runs a Caddy container that
