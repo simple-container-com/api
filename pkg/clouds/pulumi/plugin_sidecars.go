@@ -1203,34 +1203,16 @@ func newPluginProviderResource(_ *sdk.Context, urn string) sdk.ProviderResource 
 // it back off DependencyOutputsJson to learn its deployed service's URL.
 const componentDispatchOutputKey = "_deployed_service"
 
-// ComponentTemplateMergeFunc produces the ResourceInput the template's own
-// ProvisionFunc consumes, given (a) the operator-declared template descriptor
-// and (b) the Component plugin's own config. Keyed by template.Type in
-// componentTemplateMergeFuncs — a template with no registered merge func
-// falls through to the pass-through merge, which uses the operator's template
-// config verbatim and only renames the dispatched resource to the component's
-// own name (slice 1a scope). Future components that need plugin-supplied
-// image / env overrides register a template-type-specific merge func that
-// reads them off cfg.
-//
-// The merge func returns the new descriptor and optionally a sanity error
-// (e.g. plugin asked to override a key not in ComponentAllowedOverrides).
-type ComponentTemplateMergeFunc func(
-	template api.StackDescriptor,
-	componentResourceName string,
-	cfg *api.ComponentConfig,
-) (*api.ResourceDescriptor, error)
+// Component template merge registry moved to pulumi/api/mapping.go so
+// per-template drivers (pulumi/vm, pulumi/aws, …) can register from
+// their own init() without an import cycle back up into pulumi. Type
+// alias kept here for callers that reference the old name.
+type ComponentTemplateMergeFunc = pApi.ComponentTemplateMergeFunc
 
-var componentTemplateMergeFuncs = map[string]ComponentTemplateMergeFunc{}
-
-// RegisterComponentTemplateMergeFunc registers a per-template-type merge
-// function for the SC Components dispatch. Thread-safety matches the
-// ProvisionFuncByType pattern — populated once at startup, not mutex-guarded.
+// RegisterComponentTemplateMergeFunc is a shim that forwards to
+// pApi.RegisterComponentTemplateMergeFunc. Kept for API continuity.
 func RegisterComponentTemplateMergeFunc(templateType string, fnc ComponentTemplateMergeFunc) {
-	if templateType == "" || fnc == nil {
-		return
-	}
-	componentTemplateMergeFuncs[templateType] = fnc
+	pApi.RegisterComponentTemplateMergeFunc(templateType, fnc)
 }
 
 // dispatchComponentTemplate runs the operator-chosen template's ProvisionFunc
@@ -1309,7 +1291,7 @@ func mergeComponentIntoTemplate(
 	componentResourceName string,
 	cfg *api.ComponentConfig,
 ) (*api.ResourceDescriptor, error) {
-	if fnc, ok := componentTemplateMergeFuncs[template.Type]; ok {
+	if fnc, ok := pApi.ComponentTemplateMergeFuncs[template.Type]; ok {
 		return fnc(template, componentResourceName, cfg)
 	}
 	// Pass-through default — the template config is used unchanged.

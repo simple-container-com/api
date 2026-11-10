@@ -160,3 +160,25 @@ func RegisterComputeProcessor(register map[string]ComputeProcessorFunc) {
 func RegisterPreDestroyHook(fnc PreDestroyHookFunc) {
 	PreDestroyHookFuncs = append(PreDestroyHookFuncs, fnc)
 }
+
+// ComponentTemplateMergeFunc — see pulumi/plugin_sidecars.go for the full
+// doc. Lives here rather than in the pulumi package so per-template
+// drivers (pulumi/vm, pulumi/aws, …) can register without creating an
+// import cycle back up into pulumi.
+type ComponentTemplateMergeFunc func(
+	template api.StackDescriptor,
+	componentResourceName string,
+	cfg *api.ComponentConfig,
+) (*api.ResourceDescriptor, error)
+
+var ComponentTemplateMergeFuncs = map[string]ComponentTemplateMergeFunc{}
+
+// RegisterComponentTemplateMergeFunc registers a per-template-type merge
+// function for the SC Components dispatch. Thread-safety matches the
+// ProvisionFuncByType pattern — populated once at startup, not mutex-guarded.
+func RegisterComponentTemplateMergeFunc(templateType string, fnc ComponentTemplateMergeFunc) {
+	if templateType == "" || fnc == nil {
+		return
+	}
+	ComponentTemplateMergeFuncs[templateType] = fnc
+}
