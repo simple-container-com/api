@@ -312,6 +312,21 @@ func TestRenderAcmeStoreCompose(t *testing.T) {
 	// rewriting the credential SC generated for it.
 	Expect(out).To(ContainSubstring(AcmeStoreS3ConfigPath() + ":/etc/sc/s3.json:ro"))
 	Expect(out).To(ContainSubstring("restart: always"))
+	// The image's entrypoint is bypassed, and this is a credential-permissions
+	// assertion rather than a cosmetic one. `/entrypoint.sh` ends with
+	// `exec su-exec seaweed "$0" "$@"` whenever it starts as root, so without the
+	// override `weed` runs as uid 1000 and cannot read the 0600 root-owned identity
+	// file — the S3 gateway then dies on a loop inside a container docker reports as
+	// `running` (live-caught on the 3-host stand, 2026-11-10). The flags carried over
+	// are the ones that entrypoint's own `server` case passes.
+	Expect(out).To(ContainSubstring("- /usr/bin/weed"))
+	Expect(out).To(ContainSubstring("-logtostderr=true"))
+	Expect(out).To(ContainSubstring("-volume.max=0"))
+	Expect(out).To(ContainSubstring("GODEBUG: fips140=on"))
+	// And no `user:` key, which would NOT have fixed it: the drop happens whenever
+	// the entrypoint sees uid 0, and starting as 1000 lands on the same unreadable
+	// file from the other side.
+	Expect(out).ToNot(MatchRegexp(`(?m)^\s*user:`))
 	// Log rotation, because this container's logs are on a machine SC does not own.
 	Expect(out).To(ContainSubstring("max-size"))
 	// No healthcheck, deliberately: the image's tooling is not pinned by SC, so a

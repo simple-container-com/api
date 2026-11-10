@@ -319,6 +319,51 @@ func TestMeshScripts(t *testing.T) {
 	Expect(up).To(ContainSubstring("wg syncconf " + shellQuoteArg(MeshInterface)))
 	Expect(up).To(ContainSubstring("wg-quick strip " + shellQuoteArg(MeshInterface)))
 	Expect(up).To(ContainSubstring(`want='10.88.0.1/24'`))
+	// The stripped config reaches `wg` on /dev/stdin and NEVER through a temp file.
+	// Ubuntu's wireguard-tools ships an enforcing AppArmor profile for /usr/bin/wg that
+	// permits /etc/wireguard/** and nothing else, so a path under /tmp is refused with
+	// `fopen: Permission denied` — as root, on a file `wg` can stat. Live-caught on the
+	// 3-host stand 2026-11-10, and only on the SECOND provision, because the sync path
+	// needs an interface that already exists.
+	Expect(up).ToNot(ContainSubstring("mktemp"))
+	for _, line := range strings.Split(up, "\n") {
+		if !strings.Contains(line, "wg syncconf") {
+			continue
+		}
+		fields := strings.Fields(line)
+		src := fields[len(fields)-1]
+		Expect(src).To(SatisfyAny(
+			Equal("/dev/stdin"),
+			HavePrefix("/etc/wireguard/"),
+		), "wg is confined to /etc/wireguard by AppArmor, so syncconf must read "+
+			"/dev/stdin or a path under it, not %q", src)
+	}
+	// And the strip is captured in a variable, not piped straight in: `set -e` ignores
+	// a pipeline's left-hand failure, and `wg syncconf` with an EMPTY config is not an
+	// error — it is a successful instruction to delete every peer. A bare pipe would
+	// turn a failed strip into a silent teardown of the mesh.
+	Expect(up).ToNot(MatchRegexp(`wg-quick strip [^\n]*\|[^\n]*wg syncconf`))
+	Expect(up).To(ContainSubstring(`stripped="$(sudo wg-quick strip ` + shellQuoteArg(MeshInterface) + `)"`))
+	Expect(up).To(ContainSubstring(`[ -n "$stripped" ]`))
+	// The private key goes back on immediately after the sync. `strip` removes PostUp,
+	// which is the only thing carrying it (SC never holds the private half), and
+	// `wg syncconf` with no PrivateKey in the config CLEARS the running one rather than
+	// leaving it alone — leaving an interface that lists every peer, reports success,
+	// and can never complete a handshake again. Live-caught on the 3-host stand
+	// 2026-11-10. Asserted on ordering, because the reverse order is a no-op.
+	syncAt := strings.Index(up, "wg syncconf")
+	setKeyAt := strings.Index(up, "wg set "+shellQuoteArg(MeshInterface)+" private-key "+MeshPrivateKeyPath)
+	Expect(syncAt).To(BeNumerically(">", 0))
+	Expect(setKeyAt).To(BeNumerically(">", syncAt),
+		"the private key must be re-applied AFTER wg syncconf, which is what clears it")
+	// A path, never the key itself: an inline key would reach argv and every process
+	// list on the machine.
+	Expect(up).ToNot(MatchRegexp(`private-key [A-Za-z0-9+/]{43}=`))
+	// And whichever branch ran, the interface must end up holding the key this host
+	// generated — the one failure mode every other signal in this script calls success.
+	Expect(up).To(ContainSubstring(`wg show ` + shellQuoteArg(MeshInterface) + ` public-key`))
+	Expect(up).To(ContainSubstring(`wg pubkey < ` + MeshPrivateKeyPath))
+	Expect(up).To(ContainSubstring(`[ "$have_pub" = "$want_pub" ]`))
 	// The config is written to a sibling path and moved, so a half-written file is
 	// never what `wg-quick up` reads.
 	Expect(up).To(ContainSubstring(MeshConfigPath + ".new"))

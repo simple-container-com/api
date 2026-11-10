@@ -354,11 +354,23 @@ esac
 	// `s3.bucket.create` on an existing bucket is an error rather than a no-op, which is
 	// why the list is consulted first instead of swallowing the create's exit code: a
 	// swallowed error would also swallow "the master is not up yet".
-	fmt.Fprintf(b, `if echo %s | docker exec -i %s weed shell -master localhost:9333 2>/dev/null | grep -qx %s; then
+	//
+	// `awk '{print $1}'` is not cosmetic. `s3.bucket.list` prints a padded TABLE, not a
+	// list of names — one line per bucket, two leading spaces and tab-separated columns:
+	//
+	//	"  sc-acme\tsize:0\tlogical:0\tchunk:0"
+	//
+	// so `grep -qx <bucket>` can never match, on a bucket that exists. Live-caught on the
+	// 3-host stand 2026-11-10, and the shape of the failure is why this is worth the
+	// comment: the create SUCCEEDED and printed `created bucket sc-acme`, then the
+	// verification right after it declared the bucket uncreatable and failed the
+	// provision. A fixed-column parse would be the same bet on a format this project has
+	// never promised; the first field is the one part of that line that is a name.
+	fmt.Fprintf(b, `if echo %s | docker exec -i %s weed shell -master localhost:9333 2>/dev/null | awk '{print $1}' | grep -qx %s; then
   echo %s
 else
   echo %s | docker exec -i %s weed shell -master localhost:9333 >&2 2>&1
-  if ! echo %s | docker exec -i %s weed shell -master localhost:9333 2>/dev/null | grep -qx %s; then
+  if ! echo %s | docker exec -i %s weed shell -master localhost:9333 2>/dev/null | awk '{print $1}' | grep -qx %s; then
     echo %s >&2
     exit 1
   fi

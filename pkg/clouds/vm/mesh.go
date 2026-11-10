@@ -468,12 +468,51 @@ func MeshUpScript(conf string) string {
 		`sudo mv -f ` + newPath + ` ` + MeshConfigPath,
 		`if [ -n "$have" ] && [ "$have" = "$want" ]; then`,
 		// strip removes wg-quick's own directives (Address, PostUp, …) and leaves
-		// what `wg syncconf` takes. Through a temp file rather than process
-		// substitution, which is a bashism and this runs under sh.
-		`  tmp="$(mktemp)"`,
-		`  trap 'rm -f "$tmp"' EXIT`,
-		`  sudo wg-quick strip ` + q(MeshInterface) + ` > "$tmp"`,
-		`  sudo wg syncconf ` + q(MeshInterface) + ` "$tmp"`,
+		// what `wg syncconf` takes.
+		//
+		// Held in a SHELL VARIABLE and handed over on /dev/stdin, and both halves of
+		// that are load-bearing.
+		//
+		// NOT A TEMP FILE: Ubuntu's wireguard-tools ships an ENFORCING AppArmor
+		// profile for /usr/bin/wg which permits /etc/wireguard/** and nothing else, so
+		// `wg syncconf <iface> /tmp/tmp.XXXX` fails with a bare `fopen: Permission
+		// denied` — as root, on a root-owned 0600 file it has just written. Nothing in
+		// the message says AppArmor. Live-caught on the 3-host stand 2026-11-10, where
+		// it failed the SECOND provision on all three hosts while the first had been
+		// clean: the sync path only runs once an interface already exists.
+		//
+		// NOT A BARE PIPE from strip either. `set -e` does not fail a pipeline on the
+		// left-hand side's exit code, and `wg syncconf` given an EMPTY config is not
+		// an error — it is a successful instruction to remove every peer. A strip that
+		// failed would therefore report success and silently tear the mesh down. The
+		// command substitution puts the failure where `set -e` sees it, and the
+		// emptiness check covers a strip that exits 0 with nothing to say.
+		`  stripped="$(sudo wg-quick strip ` + q(MeshInterface) + `)"`,
+		`  [ -n "$stripped" ] || { echo "wg-quick strip ` + MeshInterface +
+			` produced nothing; refusing to sync an empty peer set" >&2; exit 1; }`,
+		`  printf '%s\n' "$stripped" | sudo wg syncconf ` + q(MeshInterface) + ` /dev/stdin`,
+		// And then the private key goes back, because `strip` just removed the only
+		// thing that carries it.
+		//
+		// SC never holds this key — it is generated on the host and only its PUBLIC
+		// half is read back, which is the property that makes a compromised SC state
+		// file not a compromised mesh. So the config cannot contain `PrivateKey = …`
+		// and instead carries `PostUp = wg set %i private-key <path>`. `wg-quick
+		// strip` removes PostUp along with every other wg-quick directive, so the
+		// stripped config has NO private key — and `wg syncconf` given a config with
+		// no private key does not leave the running one alone, it CLEARS it.
+		//
+		// The result is the nastiest shape of failure in this file: the sync reports
+		// success, every peer and endpoint survives in `wg show`, and the interface is
+		// keyless, so no handshake can ever complete again. `wg show <if> public-key`
+		// answers `(none)` and nothing else in the output says anything is wrong.
+		// Live-caught on the 3-host stand 2026-11-10 by the store-reach gate, which is
+		// the only reason the provision failed rather than passing with a dead mesh.
+		//
+		// `wg set … private-key <path>` takes a PATH, so the key never reaches argv
+		// and never appears in a process list — the same reason PostUp is written this
+		// way.
+		`  sudo wg set ` + q(MeshInterface) + ` private-key ` + MeshPrivateKeyPath,
 		`  echo "mesh ` + MeshInterface + ` updated in place (peers synced, sessions kept)"`,
 		`elif [ -n "$have" ]; then`,
 		`  echo "mesh ` + MeshInterface + ` is addressed $have and should be $want; restarting it" >&2`,
@@ -484,6 +523,19 @@ func MeshUpScript(conf string) string {
 		`  sudo wg-quick up ` + q(MeshInterface) + ` >&2`,
 		`  echo "mesh ` + MeshInterface + ` is up on $want"`,
 		`fi`,
+		// Whichever branch ran, the interface must be holding the key this host
+		// generated. A keyless interface is the one failure mode that every other
+		// signal here calls success — `wg show` lists the peers, the unit is enabled,
+		// the address is right, and not one packet can ever be decrypted. Comparing
+		// against the key file rather than merely checking for "not (none)" also
+		// catches the case where something else on the machine has loaded a DIFFERENT
+		// key onto SC's interface.
+		`have_pub="$(sudo wg show ` + q(MeshInterface) + ` public-key)"`,
+		`want_pub="$(sudo wg pubkey < ` + MeshPrivateKeyPath + `)"`,
+		`[ "$have_pub" = "$want_pub" ] || { echo "mesh ` + MeshInterface +
+			` is not holding the key this host generated, so no handshake can complete; ` +
+			`re-run the provision and if it persists, remove ` + MeshConfigPath + ` and ` +
+			MeshPrivateKeyPath + ` to rebuild the interface from scratch" >&2; exit 1; }`,
 		// Survives a reboot. Best effort, like the docker install's: a machine with
 		// no systemd still has a working interface for this provision's lifetime, and
 		// failing the provision over the unit would be refusing a mesh that works.

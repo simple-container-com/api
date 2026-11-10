@@ -358,12 +358,41 @@ func RenderAcmeStoreCompose(cfg *VmConfig) (string, error) {
 	f.Services["store"] = composeService{
 		Image:         cfg.AcmeStoreImage(),
 		ContainerName: AcmeStoreContainer,
+		// The image's own `/entrypoint.sh` is BYPASSED, and that is what lets the
+		// credential file stay 0600 root-only. Live-caught on the 3-host stand
+		// 2026-11-10: the entrypoint ends with `exec su-exec seaweed "$0" "$@"`
+		// whenever it starts as root — unconditionally, with no env knob — so `weed`
+		// runs as uid 1000 and the S3 gateway dies on every restart with
+		//
+		//	F auth_credentials.go:389 fail to load config file /etc/sc/s3.json:
+		//	  open /etc/sc/s3.json: permission denied
+		//
+		// while master, volume server and filer come up fine. The container is
+		// `running` and answers nothing, which is why the provisioning tier's health
+		// gate is the thing that catches it.
+		//
+		// The alternative was to chown the credential to the image's uid 1000. That
+		// hardcodes an image-internal detail into SC, and on any host where uid 1000
+		// is a real login account it hands that account ownership of the fleet's
+		// certificate-store credential — protected then only by the 0750 on the
+		// parent directory. Running this one single-purpose container as root instead
+		// is the same trade SC already makes for Caddy, whose env file holds the same
+		// credential at the same 0600.
+		//
+		// Both values below are what the entrypoint's own `server` case passes, minus
+		// the drop: `-logtostderr=true`, and the GODEBUG it exports before dispatch.
+		// Keeping them means this runs the configuration the image is tested in.
+		Entrypoint:  []string{"/usr/bin/weed", "-logtostderr=true"},
+		Environment: map[string]string{"GODEBUG": "fips140=on"},
 		// `server -s3` is the whole of SeaweedFS in one process: master, volume
 		// server, filer and S3 gateway. A fleet's certificates are kilobytes; the
 		// distributed modes this project exists for are not what is being used.
 		Command: []string{
 			"server",
 			"-dir=" + acmeStoreContainerDataDir,
+			// Also from the entrypoint's `server` case: volumes are created on
+			// demand rather than capped at the binary's default of 8.
+			"-volume.max=0",
 			"-s3",
 			"-s3.config=" + acmeStoreContainerConfigPath,
 			fmt.Sprintf("-master.volumeSizeLimitMB=%d", acmeStoreVolumeSizeLimitMB),
