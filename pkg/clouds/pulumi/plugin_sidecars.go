@@ -328,24 +328,74 @@ var provisionDrainBuffer = 10 * time.Second
 // belongs to another registrar (e.g. Cloudflare in front of a YC container) is left
 // for the plugin to refuse with its own error, and core does not construct a
 // registrar the deploy would otherwise never have touched.
+// Every `return nil` below says WHY, at DEBUG. That is not decoration: this
+// function has four of them, none of them used to say anything, and the only
+// thing an operator saw was the downstream plugin's refusal naming a
+// CONSEQUENCE ("no yc-dns registrar initialised that serves X"). Finding which
+// of the four had fired took three releases and two misaimed fixes on
+// 2026-11-09. One run with these lines would have ended it in minutes.
+//
+// DEBUG rather than INFO because the no-op cases are the common ones — most
+// dispatches legitimately take an early return — so this is for `sc -v` when
+// something is wrong, not for every deploy log.
 func (b *preEnginePluginBundle) provisionDomainRegistrar(ctx *sdk.Context, pluginName string, input api.ResourceInput, params pApi.ProvisionParams) error {
+	log := func(format string, args ...any) {
+		if b.log == nil {
+			return
+		}
+		b.log.Debug(ctx.Context(), "registrar dispatch for plugin %q: "+format, append([]any{pluginName}, args...)...)
+	}
 	multi, ok := params.Registrar.(*multiRegistrar)
 	if !ok {
-		// A single registrar is built eagerly by initRegistrar, so the plugin already has it.
+		// A single registrar is built eagerly by initRegistrar, so the plugin
+		// already has it — true when the stack declares one registrar, and the
+		// reason this is a no-op rather than a failure.
+		log("stack has a single registrar (%T), which initRegistrar already built and handed over — nothing to dispatch", params.Registrar)
 		return nil
 	}
 	domain := stackConfigDomain(input.Descriptor.Config.Config)
 	if domain == "" {
+		// A worker-only stack publishes nothing and needs no registrar. It is
+		// ALSO what a domain core failed to read looks like, which is why the
+		// Go type is logged: `*api.PluginPreparedInput` with no domain means
+		// the value never reached core, not that the operator omitted it.
+		log("no domain on resource %q (config is %T) — worker-only stack, or the domain did not reach core", input.Descriptor.Name, input.Descriptor.Config.Config)
 		return nil
 	}
 	regType, err := multi.RegistrarTypeFor(domain)
-	if err != nil || !b.pluginServesRegistrarType(pluginName, regType) {
+	if err != nil {
+		log("no registrar resolves domain %q: %v", domain, err)
 		return nil
 	}
+	if !b.pluginServesRegistrarType(pluginName, regType) {
+		// The gate that fired on 2026-11-09: the domain resolved to
+		// Cloudflare's registrar while the dispatch was to the yandex plugin,
+		// so core correctly declined to hand yandex a registrar it does not
+		// serve — and said nothing, leaving the plugin to refuse later with an
+		// error about a registrar it had never been offered.
+		log("domain %q resolves to registrar type %q, which this plugin does not serve (it serves %v) — not dispatching",
+			domain, regType, b.registrarTypesOf(pluginName))
+		return nil
+	}
+	log("dispatching registrar type %q for domain %q", regType, domain)
 	if _, err := multi.RegistrarFor(ctx, domain); err != nil {
 		return errors.Wrapf(err, "failed to provision registrar %q for domain %q to plugin %q", regType, domain, pluginName)
 	}
 	return nil
+}
+
+// registrarTypesOf is the diagnostic counterpart of
+// pluginServesRegistrarType: when the answer is "no", the operator needs to
+// see what the plugin DOES serve to tell a misconfiguration from a routing
+// fault.
+func (b *preEnginePluginBundle) registrarTypesOf(pluginName string) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	schema, ok := b.schemas[pluginName]
+	if !ok {
+		return nil
+	}
+	return schema.GetRegistrarTypes()
 }
 
 func (b *preEnginePluginBundle) pluginServesRegistrarType(pluginName, regType string) bool {

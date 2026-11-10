@@ -4,6 +4,7 @@
 package pulumi
 
 import (
+	"context"
 	"sort"
 	"strings"
 	"sync"
@@ -113,19 +114,41 @@ func (m *multiRegistrar) forDomain(domain string) (*registrarDelegate, error) {
 		for i := range m.delegates {
 			if m.delegates[i].isDefault {
 				best = i
+				// SAY SO. Choosing the default for a domain no zone claims is
+				// correct and is what the marker exists for — but it is also
+				// indistinguishable, from the outside, from a zone that SHOULD
+				// have matched and did not. On 2026-11-09 every domain in the
+				// fleet took this branch (no registrar could report its zones)
+				// and the only visible symptom was the default provider failing
+				// to find a zone it was never meant to serve.
+				if m.log != nil {
+					m.log.Info(context.TODO(),
+						"registrar routing: no declared zone matches %q, falling back to the default registrar %q (type %q). "+
+							"Declared: %s. If that domain was meant to be served by another registrar, its `zoneName:`/`zones:` is not being read.",
+						domain, m.delegates[i].name, m.delegates[i].desc.Type, strings.Join(m.declaredSummary(), "; "))
+				}
 				break
 			}
 		}
 	}
 	if best < 0 {
-		var declared []string
-		for i := range m.delegates {
-			declared = append(declared, m.delegates[i].name+" ("+strings.Join(m.delegates[i].zones, ", ")+")")
-		}
 		return nil, errors.Errorf("no registrar of stack %q handles domain %q and none is marked `default: true`, "+
-			"declared registrars: %s", m.stackName, domain, strings.Join(declared, "; "))
+			"declared registrars: %s", m.stackName, domain, strings.Join(m.declaredSummary(), "; "))
 	}
 	return &m.delegates[best], nil
+}
+
+// declaredSummary renders "name (zone, zone)" per delegate — the operator-
+// facing inventory both the no-registrar error and the default-fallback notice
+// need. A delegate with NO zones renders as `name ()`, which is itself the
+// useful signal: it means that registrar's config could not report a zone, so
+// it can never win a domain on merit.
+func (m *multiRegistrar) declaredSummary() []string {
+	var declared []string
+	for i := range m.delegates {
+		declared = append(declared, m.delegates[i].name+" ("+strings.Join(m.delegates[i].zones, ", ")+")")
+	}
+	return declared
 }
 
 func (m *multiRegistrar) build(ctx *sdk.Context, delegate *registrarDelegate) (pApi.Registrar, error) {

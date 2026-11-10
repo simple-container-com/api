@@ -56,6 +56,29 @@ type TopologySpreadConstraint struct {
 	WhenUnsatisfiable string         `json:"whenUnsatisfiable" yaml:"whenUnsatisfiable"`
 	LabelSelector     *LabelSelector `json:"labelSelector" yaml:"labelSelector"`
 	MinDomains        *int           `json:"minDomains" yaml:"minDomains"`
+	// MatchLabelKeys narrows the pods a spread constraint counts, by merging
+	// the incoming pod's own values for these label keys into the selector.
+	//
+	// SC defaults it to `["pod-template-hash"]`, which is almost always what
+	// you want and is NOT what Kubernetes defaults to (empty). Without it the
+	// selector counts pods of EVERY revision, so during a rolling update the
+	// old ReplicaSet's terminating pods and the new one's pods are weighed
+	// together: a placement that satisfies maxSkew at scheduling time can end
+	// up skewed once the old pods are gone, and nothing rebalances afterwards
+	// because a scheduling constraint is only ever evaluated at scheduling
+	// time.
+	//
+	// Live-caught on the 3-VPS fleet stand (2026-11-09): a three-replica Caddy
+	// edge on three nodes with maxSkew 1, DoNotSchedule and a correct
+	// hostname topologyKey settled at 2/1/0 after a rollout — one node serving
+	// no TLS at all while still holding a live A record. Verified by deleting
+	// one of the doubled pods and watching the replacement land on the empty
+	// node, which is what a correctly-scoped constraint would have done first
+	// time.
+	//
+	// Set it explicitly to override; set it to an empty (non-nil) slice to opt
+	// out and get Kubernetes' own behaviour back.
+	MatchLabelKeys []string `json:"matchLabelKeys,omitempty" yaml:"matchLabelKeys,omitempty"`
 }
 
 // AffinityRules defines pod affinity and anti-affinity rules for node pool isolation

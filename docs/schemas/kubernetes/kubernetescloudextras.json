@@ -888,6 +888,12 @@
               ],
               "type": "object"
             },
+            "matchLabelKeys": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "maxSkew": {
               "type": "integer"
             },

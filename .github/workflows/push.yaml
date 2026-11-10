@@ -168,6 +168,18 @@ jobs:
           go build -o bin/schema-gen ./cmd/schema-gen
           bin/schema-gen docs/schemas
           echo "Successfully generated JSON Schema files in docs/schemas/"
+          # Drift gate. A config-struct change in Go that did not come with a
+          # matching docs/schemas/ commit leaves the committed schemas
+          # describing a shape that no longer exists — and nothing noticed,
+          # because this step regenerated them correctly and then threw the
+          # result away. That is how api#579 found schemas missing every field
+          # of an inlined struct: the generator had been right all along and
+          # unchecked. Build Setup's clean already does `rm -fR docs/schemas/*`,
+          # so a deleted type's file disappears and the diff catches that too.
+          git diff --exit-code docs/schemas/ || {
+            echo "::error::docs/schemas/ has drifted from what schema-gen produces. Regenerate with 'go build -o bin/schema-gen ./cmd/schema-gen && bin/schema-gen docs/schemas' and commit the result."
+            exit 1
+          }
       - name: fmt
         run: |
           go mod tidy
