@@ -93,11 +93,10 @@ func TestComponentConfig_SigningKeyRef(t *testing.T) {
 		wantErr string
 	}{
 		{"absent is ok", map[string]any{}, "", ""},
-		{"valid secret ref", map[string]any{"signingKey": "${secret:dummy-key}"}, "${secret:dummy-key}", ""},
-		{"valid with dots and dashes", map[string]any{"signingKey": "${secret:staging.forge-storage.api_key}"}, "${secret:staging.forge-storage.api_key}", ""},
-		{"plaintext rejected", map[string]any{"signingKey": "plaintext-should-fail"}, "", "is not a ${secret:...} reference"},
+		{"resolved secret value is accepted (SC resolves before validation)", map[string]any{"signingKey": "a-resolved-base64-string"}, "a-resolved-base64-string", ""},
+		{"unresolved secret ref is accepted (test harness bypasses resolution)", map[string]any{"signingKey": "${secret:dummy-key}"}, "${secret:dummy-key}", ""},
 		{"wrong type rejected", map[string]any{"signingKey": 123}, "", "want string"},
-		{"empty ref rejected", map[string]any{"signingKey": "${secret:}"}, "", "is not a ${secret:...} reference"},
+		{"empty string rejected", map[string]any{"signingKey": ""}, "", "empty string"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

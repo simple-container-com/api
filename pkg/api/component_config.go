@@ -103,11 +103,18 @@ func (c *ComponentConfig) Image() (string, error) {
 	return c.readString("image", true /*required*/)
 }
 
-// SigningKeyRef reads `.Raw["signingKey"]`, validates it matches the
-// `${secret:...}` reference shape. Absent key returns "" + nil (a
-// component without a signingKey is a valid shape; the plugin's
+// SigningKeyRef reads `.Raw["signingKey"]`. Absent key returns "" + nil
+// (a component without a signingKey is a valid shape; the plugin's
 // ComputeProcess will refuse to mint JWTs without it, but that's a
 // runtime concern).
+//
+// NOTE: a `${secret:...}` reference pattern check used to live here.
+// Removed 2026-11-11 after the first slice-1a smoke caught that SC core
+// resolves `${secret:...}` → value BEFORE ValidateComponentConfigs runs,
+// so the parse-time pattern check always sees the resolved value and can
+// never pass. Operators who want this field encrypted at rest should
+// declare `signingKey: ${secret:...}` — SC's secret-resolution handles
+// that; this accessor just validates presence + non-empty.
 func (c *ComponentConfig) SigningKeyRef() (string, error) {
 	v, present, err := c.readOptionalString("signingKey")
 	if err != nil {
@@ -116,8 +123,8 @@ func (c *ComponentConfig) SigningKeyRef() (string, error) {
 	if !present {
 		return "", nil
 	}
-	if !secretRefPattern.MatchString(v) {
-		return "", errors.Errorf("component config: signingKey %q is not a ${secret:...} reference", v)
+	if v == "" {
+		return "", errors.New("component config: signingKey is an empty string")
 	}
 	return v, nil
 }

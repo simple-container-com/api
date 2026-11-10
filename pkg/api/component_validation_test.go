@@ -129,10 +129,15 @@ func TestValidateComponentConfigs_BadSigningKey(t *testing.T) {
 	t.Parallel()
 	desc := newValidDescriptor()
 	raw := desc.Resources.Resources["smoke"].Resources["my-dummy"].Config.Config.(*PluginFieldConfig).Raw
-	raw["signingKey"] = "plaintext-should-fail"
+	// SigningKey validation post-secret-resolution only rejects shape
+	// problems: non-string or empty string. The `${secret:...}` pattern
+	// check was removed 2026-11-11 after the first slice-1a smoke caught
+	// that SC resolves ${secret:...} → value BEFORE validation runs, so
+	// the pattern check always saw a resolved value.
+	raw["signingKey"] = ""
 	err := ValidateComponentConfigs(desc, newFakeValidator())
-	if err == nil || !strings.Contains(err.Error(), "is not a ${secret:...} reference") {
-		t.Fatalf("expected signingKey shape error, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "empty string") {
+		t.Fatalf("expected empty-signingKey error, got: %v", err)
 	}
 }
 
