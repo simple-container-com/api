@@ -111,6 +111,27 @@
             ],
             "type": "object"
           },
+          "acmeStore": {
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "properties": {
+              "bucket": {
+                "type": "string"
+              },
+              "enable": {
+                "type": "boolean"
+              },
+              "image": {
+                "type": "string"
+              },
+              "port": {
+                "type": "integer"
+              }
+            },
+            "required": [
+              "enable"
+            ],
+            "type": "object"
+          },
           "email": {
             "type": "string"
           },
@@ -153,6 +174,24 @@
           "type": "object"
         },
         "type": "array"
+      },
+      "mesh": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "cidr": {
+            "type": "string"
+          },
+          "enable": {
+            "type": "boolean"
+          },
+          "port": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "enable"
+        ],
+        "type": "object"
       },
       "network": {
         "$schema": "https://json-schema.org/draft/2020-12/schema",

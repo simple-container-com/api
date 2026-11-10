@@ -87,7 +87,8 @@ func TestRenderCaddyfileKeepsTheEabMacKeyOutOfTheConfig(t *testing.T) {
 	Expect(got).To(ContainSubstring("mac_key {$" + EnvAcmeEabMacKey + "}"))
 	Expect(got).ToNot(ContainSubstring("s3cr3t-mac-key"))
 
-	env := RenderCaddyEnvFile(cfg)
+	env, err := RenderCaddyEnvFile(cfg, nil)
+	Expect(err).ToNot(HaveOccurred())
 	Expect(env).To(ContainSubstring(EnvAcmeEabKeyID + "=eab-key-id-value"))
 	Expect(env).To(ContainSubstring(EnvAcmeEabMacKey + "=s3cr3t-mac-key"))
 }
@@ -125,7 +126,8 @@ func TestRenderCaddyfileSharedAcmeStorage(t *testing.T) {
 	// at site level, so a misplaced block is a config-load failure on every machine.
 	Expect(strings.Index(got, "storage s3 {")).To(BeNumerically("<", strings.Index(got, "(gzip)")))
 
-	env := RenderCaddyEnvFile(cfg)
+	env, err := RenderCaddyEnvFile(cfg, nil)
+	Expect(err).ToNot(HaveOccurred())
 	Expect(env).To(ContainSubstring(EnvAcmeS3AccessKey + "=YCAJEaccesskey"))
 	Expect(env).To(ContainSubstring(EnvAcmeS3SecretKey + "=YCNsecretkeyvalue"))
 	Expect(env).ToNot(ContainSubstring(EnvAcmeS3EncryptionKey))
@@ -144,7 +146,9 @@ func TestRenderCaddyfileSharedAcmeStorage(t *testing.T) {
 	// than rendered as placeholders that expand to nothing.
 	Expect(got).ToNot(ContainSubstring("access_key"))
 	Expect(got).ToNot(ContainSubstring("secret_key"))
-	Expect(RenderCaddyEnvFile(aws)).ToNot(ContainSubstring(EnvAcmeS3AccessKey))
+	awsEnv, err := RenderCaddyEnvFile(aws, nil)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(awsEnv).ToNot(ContainSubstring(EnvAcmeS3AccessKey))
 
 	// minio on host 0, self-signed: the only shape in which `insecure` is rendered.
 	minio := ingressConfig()
@@ -162,7 +166,9 @@ func TestRenderCaddyfileSharedAcmeStorage(t *testing.T) {
 	Expect(got).To(ContainSubstring("insecure true"))
 	Expect(got).To(ContainSubstring("encryption_key {$" + EnvAcmeS3EncryptionKey + "}"))
 	Expect(got).ToNot(ContainSubstring(strings.Repeat("e", AcmeStorageEncryptionKeyLen)))
-	Expect(RenderCaddyEnvFile(minio)).To(ContainSubstring(
+	minioEnv, err := RenderCaddyEnvFile(minio, nil)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(minioEnv).To(ContainSubstring(
 		EnvAcmeS3EncryptionKey + "=" + strings.Repeat("e", AcmeStorageEncryptionKeyLen),
 	))
 
@@ -212,7 +218,8 @@ func TestRenderCaddyfileNeverRendersABareBoolean(t *testing.T) {
 func TestRenderCaddyEnvFileIsNeverEmpty(t *testing.T) {
 	RegisterTestingT(t)
 
-	got := RenderCaddyEnvFile(ingressConfig())
+	got, err := RenderCaddyEnvFile(ingressConfig(), nil)
+	Expect(err).ToNot(HaveOccurred())
 	Expect(got).ToNot(BeEmpty())
 	Expect(got).ToNot(ContainSubstring(EnvAcmeEabKeyID))
 }

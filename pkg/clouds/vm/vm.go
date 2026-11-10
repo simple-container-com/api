@@ -194,6 +194,14 @@ type VmIngress struct {
 	// a fleet either serves plain HTTP on the origin (see `domainProxied`) or walks
 	// into a rate-limit lockout.
 	AcmeStorage *VmAcmeStorage `json:"acmeStorage,omitempty" yaml:"acmeStorage,omitempty"`
+	// AcmeStore asks SC to RUN that store itself, on the fleet's first machine, and
+	// point every node at it. For a hoster that sells no bucket — Cloud.ru, MWS, a
+	// rented VPS — where `acmeStorage` has nothing to name.
+	//
+	// Mutually exclusive with AcmeStorage, and the weaker of the two wherever a
+	// managed bucket exists: see VmAcmeStore, which also says what it is not (it is
+	// one container on one machine, and losing that machine stops renewals).
+	AcmeStore *VmAcmeStore `json:"acmeStore,omitempty" yaml:"acmeStore,omitempty"`
 }
 
 // VmAcmeStorage is the vm resource's shared certificate store. The type and every
@@ -287,9 +295,12 @@ type VmHost struct {
 	// only shared state is the ACME store, reached outbound over HTTPS), so there is
 	// no node-to-node traffic to misdirect.
 	//
-	// Hosters without private networking have no value to put here. That case needs
-	// an SC-managed WireGuard mesh, which does not exist yet — see the roadmap item
-	// named in the error, and forge design 2026-11-07/multi-node-clusters §5.8.
+	// Hosters without private networking have no value to put here. That case is
+	// what `mesh.enable: true` is for (see VmMesh): SC builds a WireGuard overlay
+	// across the resource's machines and assigns each one an address on it, which
+	// lifts the requirement above entirely. Leave this empty there — the two are
+	// alternatives, and where a cloud has real private networking it is the cheaper
+	// one.
 	PrivateAddress string `json:"privateAddress,omitempty" yaml:"privateAddress,omitempty"`
 }
 
@@ -366,6 +377,11 @@ type VmConfig struct {
 	PublicIP bool       `json:"publicIP,omitempty" yaml:"publicIP,omitempty"`
 	Network  *VmNetwork `json:"network,omitempty" yaml:"network,omitempty"`
 	Ingress  *VmIngress `json:"ingress,omitempty" yaml:"ingress,omitempty"`
+
+	// Mesh builds an SC-managed WireGuard overlay across this resource's machines,
+	// giving each one an address its siblings can reach it on even when the hoster
+	// provides no private network. See VmMesh (mesh.go).
+	Mesh *VmMesh `json:"mesh,omitempty" yaml:"mesh,omitempty"`
 
 	// IngressPorts are additional ports SC opens in the machine's firewall, on top
 	// of SSH (and 80/443 when `ingress.enable` is on) and on top of what SC infers
@@ -547,6 +563,14 @@ func (r *VmConfig) validateIngress() error {
 					"plain HTTP behind an edge that terminates",
 			)
 		}
+		if r.Ingress.AcmeStore != nil {
+			return errors.Errorf(
+				"`ingress.acmeStore` is set together with `ingress.originTls: false`: SC would stand a " +
+					"certificate store up on the fleet's first machine and nothing would ever write to it, " +
+					"because no machine requests a certificate on this path. Drop `ingress.acmeStore`, or " +
+					"drop `originTls: false` and let the fleet terminate TLS itself",
+			)
+		}
 		return nil
 	}
 	if r.Ingress.Email == "" {
@@ -712,6 +736,12 @@ func (r *VmConfig) validateByo() error {
 		// `kubectl get nodes` and the cluster reports N-1 members for an N-host pool.
 		return errors.Errorf("`hosts` lists %q more than once; one entry per machine", dup)
 	}
+	if err := r.validateMesh(); err != nil {
+		return err
+	}
+	if err := r.validateAcmeStore(); err != nil {
+		return err
+	}
 	return r.validateIngress()
 }
 
@@ -804,7 +834,12 @@ func (r *VmConfig) validateHostRoles() error {
 	// overlay are on the public internet. See VmHost.PrivateAddress for why SC
 	// cannot infer the value — k3s picks the default-route interface and `HostFacts`
 	// carries no private address to override it with.
-	if len(r.Hosts) > 1 {
+	//
+	// `mesh.enable: true` lifts the requirement rather than loosening it: SC then
+	// builds the node-to-node network itself and gives every machine an address on
+	// it, so the value the operator had nowhere to get now exists and is SC's own
+	// (see VmMesh, and HostFacts.EffectiveMeshAddress for the precedence).
+	if len(r.Hosts) > 1 && !r.MeshEnabled() {
 		noPrivate := lo.FilterMap(r.Hosts, func(h VmHost, i int) (string, bool) {
 			return fmt.Sprintf("hosts[%d] (%s)", i, h.Address), h.PrivateAddress == ""
 		})
@@ -815,17 +850,21 @@ func (r *VmConfig) validateHostRoles() error {
 					"public one on a single-NIC VPS — so etcd peer traffic and flannel's unencrypted VXLAN "+
 					"overlay would cross the public internet, and `provider: %s` has no firewall to stop them. "+
 					"That deploy succeeds, which is why this is refused rather than warned about. Give each host "+
-					"the address its siblings reach it on; if these machines share no private network, this "+
-					"topology needs the WireGuard mesh of roadmap item sc-vm-multi-node-clusters, which is not "+
-					"built yet — declare a compose fleet instead, which needs no node-to-node traffic at all",
+					"the address its siblings reach it on — or, if these machines share no private network, set "+
+					"`mesh.enable: true` and SC builds one across them (a WireGuard overlay) and addresses the "+
+					"nodes on it",
 				strings.Join(noPrivate, ", "), lo.If(len(noPrivate) == 1, "names").Else("name"), DriverByo,
 			)
 		}
-		if dup, ok := firstDuplicatePrivateAddress(r.Hosts); ok {
-			// Same reasoning as the duplicate `address` check above, and the same
-			// late-and-confusing failure: two nodes claiming one node-ip.
-			return errors.Errorf("`hosts` gives %q as the `privateAddress` of more than one machine", dup)
-		}
+	}
+	// Outside the block above on purpose: two entries claiming one private address is
+	// wrong however the fleet got its node-to-node network, and a mesh does not make
+	// a collision in the operator's own values harmless — whatever else reads
+	// `privateAddress` still reads it.
+	if dup, ok := firstDuplicatePrivateAddress(r.Hosts); ok {
+		// Same reasoning as the duplicate `address` check above, and the same
+		// late-and-confusing failure: two nodes claiming one node-ip.
+		return errors.Errorf("`hosts` gives %q as the `privateAddress` of more than one machine", dup)
 	}
 	return nil
 }
@@ -1013,6 +1052,12 @@ func (r *VmConfig) validateCloud(drv DriverInfo) error {
 	// Shape of each entry, checked through the same function the drivers resolve the
 	// firewall with, so a config that validates is a config that expands.
 	if _, err := r.FirewallPorts(); err != nil {
+		return err
+	}
+	if err := r.validateMesh(); err != nil {
+		return err
+	}
+	if err := r.validateAcmeStore(); err != nil {
 		return err
 	}
 	return r.validateIngress()

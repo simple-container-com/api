@@ -11,6 +11,7 @@ package vm
 
 import (
 	"github.com/pkg/errors"
+
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -80,9 +81,62 @@ type HostFacts struct {
 	// zero Output, which has no OutputState and panics inside pulumi's own
 	// gatherJoinSet the moment it reaches sdk.All.
 	PrivateAddress sdk.StringOutput
+	// MeshAddress is this machine's address on the SC-managed WireGuard overlay,
+	// when the resource declares one (`mesh.enable: true`; see vm.VmMesh).
+	//
+	// A field of its own rather than a value written over PrivateAddress, and the
+	// distinction is load-bearing in both directions. `privateAddress` is an
+	// operator's assertion about their own network, which SC did not make and cannot
+	// check; this is a fact SC owns outright, assigned by index out of the mesh CIDR.
+	// Overwriting the operator's field with SC's value would make the config file and
+	// the running fleet disagree with nothing to show for it, and would make the
+	// precedence between the two unexpressible — which is exactly the question every
+	// consumer has to answer.
+	//
+	// Unlike every other address here it is NOT an Output in substance: it is a pure
+	// function of the CIDR and the host index (vm.VmConfig.MeshAddress), so nothing
+	// has to be created before it is known. It is typed as one anyway, so that the
+	// three addresses are interchangeable at every call site and a consumer picking
+	// between them does not also have to lift one into an Output.
+	//
+	// Read it through EffectiveMeshAddress, never directly — same zero-Output panic
+	// as PrivateAddress, and here it is the COMMON case rather than the legacy one,
+	// since most resources declare no mesh at all.
+	MeshAddress sdk.StringOutput
 	// DependsOn are the resources that must exist before anything connects. Empty
 	// for byo: the machine predates the stack.
 	DependsOn []sdk.Resource
+}
+
+// MeshAddressKnown reports whether this machine is on an SC-managed overlay.
+//
+// Separate from the address itself, and a plain bool for the same reason
+// HostKeyPinned is one: the question is asked while the graph is being built, to
+// decide WHICH address to use, and that decision cannot be made inside an ApplyT
+// after the value has resolved.
+func (h HostFacts) MeshAddressKnown() bool {
+	return h.MeshAddress != (sdk.StringOutput{})
+}
+
+// EffectiveMeshAddress is the address this machine's siblings should dial, with the
+// mesh preferred over the operator's private network and the public address last.
+//
+// The precedence is the policy, stated once: a resource that declares a mesh
+// declared it in order to be used, and a machine whose private address the operator
+// also supplied is not a reason to send node-to-node traffic outside the tunnel SC
+// just built. Where no mesh exists this is exactly EffectivePrivateAddress, so a
+// caller that switches to it changes nothing for every resource that predates the
+// mesh.
+//
+// Callers that specifically want the operator's own value — a diagnostic, or a
+// refusal that quotes `hosts[].privateAddress` — should keep calling
+// EffectivePrivateAddress. The two exist because the fleet has two different
+// questions, not as a fallback chain with one right answer.
+func (h HostFacts) EffectiveMeshAddress() sdk.StringOutput {
+	if h.MeshAddressKnown() {
+		return h.MeshAddress
+	}
+	return h.EffectivePrivateAddress()
 }
 
 // EffectivePrivateAddress is the address this machine's siblings should dial, with
