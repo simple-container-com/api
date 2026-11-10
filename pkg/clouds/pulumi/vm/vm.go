@@ -104,7 +104,28 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 		)
 	}
 
+	// The addresses of the SC-managed overlay, assigned before anything reads a host.
+	// A pure computation over the CIDR and the index, so it can run here rather than
+	// after the mesh exists — which is what lets the certificate store name host 0's
+	// address as a constant instead of threading an Output between machines.
+	if err := assignMeshAddresses(cfg, hosts); err != nil {
+		return nil, errors.Wrapf(err, "vm %q in stack %q", input.Descriptor.Name, stack.Name)
+	}
+
 	out := &VmOutput{Hosts: hosts, IngressEnabled: cfg.IngressEnabled()}
+
+	// THREE STAGES, and the split is the fleet. Everything that concerns one machine
+	// alone runs in the first loop; everything that needs the whole fleet to exist
+	// runs between the loops; and the ingress — which on a fleet needs both the mesh
+	// and the shared certificate store — moved out of the first loop into the second.
+	//
+	// It was one loop until the fleet had a front door. The reason it cannot stay one
+	// is the mesh: a machine's peer list names its siblings' public keys, so no
+	// machine can be configured until every machine has generated one. A per-host
+	// loop cannot express that, and the way it fails is the quiet way this package
+	// keeps guarding against — a green provision beside an interface that carries
+	// nothing.
+	dockerGates := make([]*remote.Command, len(hosts))
 	for i, h := range hosts {
 		ready, err := ensureReady(ctx, input, cfg, h, drv, params)
 		if err != nil {
@@ -121,36 +142,19 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 		// `ready` stays the gate exported in out.Ready. The docker gate orders the
 		// ingress and nothing else — a k3s install on the same host has no reason to
 		// wait behind a docker download.
-		dockerReady, err := ensureDocker(ctx, input, cfg, h, drv, params, ready)
+		dockerGates[i], err = ensureDocker(ctx, input, cfg, h, drv, params, ready)
 		if err != nil {
 			return nil, err
 		}
 
-		// The ingress, if the machine runs one. Installed by the RESOURCE rather than
-		// by any stack's template, and that is the decision the whole TLS path rests
-		// on: one machine has one port 443, so a Caddy inside a stack's compose
-		// project would fail to bind the moment a second stack was deployed onto the
-		// same host — and would be destroyed and recreated by every blue-green flip
-		// it is supposed to be performing (compose-on-vm.md §3, D15).
-		if cfg.IngressEnabled() {
-			gate := ready
-			if dockerReady != nil {
-				gate = dockerReady
-			}
-			if err := ensureIngress(ctx, input, cfg, h, params, gate); err != nil {
-				return nil, err
-			}
-		} else if h.Role == vm.RoleCompose {
-			// Said once, here. Without the ingress a stack is reachable only on a
-			// host port, which is a supported mode (`ingress.enable: false`) but not
-			// one anybody chooses by accident.
-			params.Log.Info(ctx.Context(),
-				"vm %q host %q has no ingress: stacks deployed onto it publish a host port and are served over "+
-					"plain HTTP. Set `ingress.enable: true` and `ingress.email` for HTTPS",
-				input.Descriptor.Name, h.Name)
-		}
-
 		ctx.Export(ToHostAddressExport(input.Descriptor.Name, i), h.Address)
+		if h.MeshAddressKnown() {
+			// Only when there is a mesh, so that the absence of the output is itself
+			// the answer to "is this fleet on an overlay?" — and so a stack
+			// provisioned before the mesh existed does not grow an empty output that
+			// a reader could mistake for one.
+			ctx.Export(ToHostMeshAddressExport(input.Descriptor.Name, i), h.MeshAddress)
+		}
 		ctx.Export(ToHostUserExport(input.Descriptor.Name, i), sdk.String(h.User))
 		ctx.Export(ToHostPortExport(input.Descriptor.Name, i), sdk.Int(h.Port))
 		// The deploy key has to cross the stack boundary: the machine is described in
@@ -178,6 +182,68 @@ func Vm(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.
 				input.Descriptor.Name, h.Name)
 		}
 	}
+
+	// Stage 2 — the fleet-wide things, between the loops because each one needs every
+	// machine of the resource to be ready and none of them is per-host.
+	meshGates, err := ensureMesh(ctx, input, cfg, hosts, out.Ready, params)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to build the mesh of vm %q in stack %q",
+			input.Descriptor.Name, stack.Name)
+	}
+
+	// Then the shared certificate store, on host 0 and over the overlay the mesh just
+	// built — in that order and not the other way round, because the address the store
+	// binds to does not exist as an interface until `wg-quick up` has run. Both are nil
+	// unless `ingress.acmeStore` asked SC to run the store itself.
+	storeCreds, storeGates, err := ensureAcmeStore(ctx, input, cfg, hosts, dockerGates, meshGates, params)
+	if err != nil {
+		return nil, errors.Wrapf(err, "failed to stand up the certificate store of vm %q in stack %q",
+			input.Descriptor.Name, stack.Name)
+	}
+
+	// Stage 3 — the ingress, now that the fleet can talk to itself.
+	for i, h := range hosts {
+		// The ingress, if the machine runs one. Installed by the RESOURCE rather than
+		// by any stack's template, and that is the decision the whole TLS path rests
+		// on: one machine has one port 443, so a Caddy inside a stack's compose
+		// project would fail to bind the moment a second stack was deployed onto the
+		// same host — and would be destroyed and recreated by every blue-green flip
+		// it is supposed to be performing (compose-on-vm.md §3, D15).
+		if !cfg.IngressEnabled() {
+			if h.Role == vm.RoleCompose {
+				// Said once, here. Without the ingress a stack is reachable only on a
+				// host port, which is a supported mode (`ingress.enable: false`) but
+				// not one anybody chooses by accident.
+				params.Log.Info(ctx.Context(),
+					"vm %q host %q has no ingress: stacks deployed onto it publish a host port and are served "+
+						"over plain HTTP. Set `ingress.enable: true` and `ingress.email` for HTTPS",
+					input.Descriptor.Name, h.Name)
+			}
+			continue
+		}
+		gates := []sdk.Resource{out.Ready[i]}
+		if dockerGates[i] != nil {
+			// Supersedes readiness rather than joining it: the docker install already
+			// waits on it.
+			gates = []sdk.Resource{dockerGates[i]}
+		}
+		if meshGates != nil {
+			// A fleet's Caddy must not start before the overlay carrying the shared
+			// certificate store is up — see ensureIngress's `gates` parameter.
+			gates = append(gates, meshGates[i])
+		}
+		if storeGates != nil {
+			// This host's own proof that it can reach the store. Per-host rather than
+			// fleet-wide on purpose: host 3 having no route is host 3's problem, and
+			// gating every Caddy on it would turn one broken machine into no TLS
+			// anywhere.
+			gates = append(gates, storeGates[i])
+		}
+		if err := ensureIngress(ctx, input, cfg, h, params, gates, storeCreds); err != nil {
+			return nil, err
+		}
+	}
+
 	ctx.Export(ToHostCountExport(input.Descriptor.Name), sdk.Int(len(hosts)))
 	ctx.Export(ToIngressEnabledExport(input.Descriptor.Name), sdk.Bool(cfg.IngressEnabled()))
 	// The NEGATION of cfg.OriginTlsEnabled(), and that is deliberate. A child stack
@@ -205,6 +271,16 @@ func ToHostCountExport(vmName string) string {
 
 func ToHostAddressExport(vmName string, idx int) string {
 	return fmt.Sprintf("%s-vm-host-%d-address", vmName, idx)
+}
+
+// ToHostMeshAddressExport is the machine's address on the SC-managed overlay, and is
+// exported only for a resource that declares one. Diagnostic rather than load-bearing:
+// everything inside the parent stack reads HostFacts.EffectiveMeshAddress directly, and
+// the certificate store's endpoint is a constant computed from the CIDR. It exists so
+// that an operator reading `sc stack outputs` has the value to compare against
+// `wg show sc-mesh` on the machine.
+func ToHostMeshAddressExport(vmName string, idx int) string {
+	return fmt.Sprintf("%s-vm-host-%d-mesh-address", vmName, idx)
 }
 
 func ToHostUserExport(vmName string, idx int) string {

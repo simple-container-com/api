@@ -57,7 +57,20 @@ func ensureIngress(
 	cfg *vm.VmConfig,
 	h HostFacts,
 	params pApi.ProvisionParams,
-	ready *remote.Command,
+	// gates is everything that must exist before this machine's Caddy is configured:
+	// its own readiness, its docker install, and — on a fleet — the WireGuard mesh and
+	// the shared certificate store, because a Caddy that starts before the store is
+	// reachable issues its own certificate from its own ACME account and the fleet is
+	// then N clients racing one rate limit. A slice rather than one command for that
+	// reason: the set grew, and every member of it is a hard ordering rather than a
+	// preference.
+	gates []sdk.Resource,
+	// managed is non-nil exactly when SC runs the fleet's certificate store itself
+	// (`ingress.acmeStore`), and carries the three credentials it generated for it. A
+	// POINTER rather than a struct with a Known() method, because every field in it is
+	// an sdk.StringOutput and the zero Output panics inside sdk.All — see
+	// HostFacts.EffectiveMeshAddress for the same hazard and the same reasoning.
+	managed *AcmeStoreCredentials,
 ) error {
 	caddyfile, err := vm.RenderCaddyfile(cfg)
 	if err != nil {
@@ -85,7 +98,10 @@ func ensureIngress(
 		// fails by hanging until the connect times out.
 		Pull: !cfg.ShipsIngressImage(),
 	})
-	envContent := vm.RenderCaddyEnvFile(cfg)
+	envContent, err := renderIngressEnv(cfg, managed)
+	if err != nil {
+		return errors.Wrapf(err, "failed to render the ingress env file of vm %q", input.Descriptor.Name)
+	}
 
 	base := func(a *remote.CommandArgs) *remote.CommandArgs {
 		a.Connection = ConnectionArgs(h)
@@ -105,18 +121,24 @@ func ensureIngress(
 		Create:   sdk.String(configScript),
 		Update:   sdk.String(configScript),
 		Triggers: TriggersForGuardedChange(h.Address, sdk.String(hashOf(configScript))),
-	}), sdk.DependsOn([]sdk.Resource{ready}))
+	}), sdk.DependsOn(gates))
 	if err != nil {
 		return errors.Wrapf(err, "failed to write the ingress configuration of vm %q", input.Descriptor.Name)
 	}
 
-	// The env file carries the ACME External Account Binding MAC key when there is
-	// one: stdin, Logging off, and a hash rather than the content in Triggers.
+	// The env file carries the ACME External Account Binding MAC key when there is one,
+	// and the shared store's access/secret/encryption keys when SC runs the store: stdin,
+	// Logging off, and a HASH rather than the content in Triggers. The hash is computed
+	// inside an apply because the managed credentials are Outputs — it inherits their
+	// secretness, which is harmless (a hash is not reversible) and keeps the one rule
+	// that matters: no credential is ever a command-line argument, where it would land
+	// in the remote shell's process table and in pulumi's own resource inputs.
+	envHash := envContent.ApplyT(func(s string) string { return hashOf(s) }).(sdk.StringOutput)
 	env, err := remote.NewCommand(ctx, input.ToResName(h.Name+"-ingress-env"), base(&remote.CommandArgs{
 		Create:   sdk.String(writeFileScript(vm.CaddyEnvPath(), vm.EnvFileMode)),
 		Update:   sdk.String(writeFileScript(vm.CaddyEnvPath(), vm.EnvFileMode)),
-		Stdin:    secretString(envContent).ToStringPtrOutput(),
-		Triggers: TriggersForGuardedChange(h.Address, sdk.String(hashOf(envContent))),
+		Stdin:    sdk.ToSecret(envContent).(sdk.StringOutput).ToStringPtrOutput(),
+		Triggers: TriggersForGuardedChange(h.Address, envHash),
 		Logging:  remote.LoggingNone.ToLoggingPtrOutput(),
 	}), sdk.DependsOn([]sdk.Resource{config}))
 	if err != nil {
@@ -126,7 +148,7 @@ func ensureIngress(
 	// The up waits on the env file always, and on the ship when there is one.
 	upDeps := []sdk.Resource{env}
 	if cfg.ShipsIngressImage() {
-		ship, err := shipIngressImage(ctx, input, cfg, h, params, ready)
+		ship, err := shipIngressImage(ctx, input, cfg, h, params, gates)
 		if err != nil {
 			return err
 		}
@@ -178,6 +200,36 @@ func ensureIngress(
 			input.Descriptor.Name, cfg.Ingress.AcmeCa, vm.CaddyContainer)
 	}
 	return nil
+}
+
+// renderIngressEnv is the ingress env file as an Output, which it has to be on exactly
+// one path: when SC runs the fleet's certificate store itself, the three credentials in
+// that file are generated during the provision and are therefore not knowable at render
+// time.
+//
+// Both branches end in the same vm.RenderCaddyEnvFile, and that function refuses to emit
+// the managed-credential sentinel — so the failure mode of forgetting to plumb this is a
+// refusal naming an SC bug, not a Caddy that cannot read the store.
+func renderIngressEnv(cfg *vm.VmConfig, managed *AcmeStoreCredentials) (sdk.StringOutput, error) {
+	if managed == nil {
+		content, err := vm.RenderCaddyEnvFile(cfg, nil)
+		if err != nil {
+			return sdk.StringOutput{}, err
+		}
+		return sdk.String(content).ToStringOutput(), nil
+	}
+	return sdk.All(managed.AccessKey, managed.SecretKey, managed.EncryptionKey).
+		ApplyT(func(vals []any) (string, error) {
+			str := func(i int) string {
+				s, _ := vals[i].(string)
+				return s
+			}
+			return vm.RenderCaddyEnvFile(cfg, map[string]string{
+				vm.EnvAcmeS3AccessKey:     str(0),
+				vm.EnvAcmeS3SecretKey:     str(1),
+				vm.EnvAcmeS3EncryptionKey: str(2),
+			})
+		}).(sdk.StringOutput), nil
 }
 
 // ingressConfigSpec is the non-secret half of the ingress: everything that can go into
@@ -247,7 +299,7 @@ func shipIngressImage(
 	cfg *vm.VmConfig,
 	h HostFacts,
 	params pApi.ProvisionParams,
-	ready *remote.Command,
+	gates []sdk.Resource,
 ) (*local.Command, error) {
 	image := cfg.IngressImage()
 	if err := security.ValidateImageRef(image); err != nil {
@@ -292,7 +344,7 @@ func shipIngressImage(
 		Environment:            sdk.StringMap{"SC_SSH_KEY_PASSWORD": h.PrivateKeyPassword},
 		Logging:                local.LoggingNone.ToLoggingPtrOutput(),
 		AddPreviousOutputInEnv: sdk.Bool(false),
-	}, sdk.DependsOn([]sdk.Resource{ready}))
+	}, sdk.DependsOn(gates))
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to ship the ingress image of vm %q", input.Descriptor.Name)
 	}

@@ -29,10 +29,21 @@ import (
 // advertises Alt-Svc, so every browser spends a connection attempt on a port that
 // black-holes before falling back to TCP, and Chrome remembers the broken alt-svc.
 const (
-	PortLabelSsh      = "ssh"
-	PortLabelHttp     = "http"
-	PortLabelHttps    = "https"
-	PortLabelHttpsH3  = "https-h3"
+	PortLabelSsh     = "ssh"
+	PortLabelHttp    = "http"
+	PortLabelHttps   = "https"
+	PortLabelHttpsH3 = "https-h3"
+	// PortLabelMesh is the WireGuard overlay's listen port (see VmMesh).
+	//
+	// Opened to the INTERNET and not marked Internal, which looks like a mistake
+	// next to the kubelet and etcd rules below and is not: a peer's endpoint is its
+	// PUBLIC address — building the inner network is what the mesh is for, so there
+	// is no inner network for this one hole to be scoped to. It is safe because
+	// WireGuard answers a packet that does not authenticate against a known peer's
+	// key with nothing at all: no reset, no error, no response. The port does not
+	// appear in a scan and cannot be spoken to without a key from the fleet's own
+	// config.
+	PortLabelMesh     = "mesh"
 	ProtocolTcp       = "tcp"
 	ProtocolUdp       = "udp"
 	maxPort           = 65535
@@ -284,11 +295,19 @@ func KnownIngressPresets() []string {
 func (r *VmConfig) FirewallPorts(inferredPresets ...string) ([]PortRange, error) {
 	ports := []PortRange{{Label: PortLabelSsh, Protocol: ProtocolTcp, From: DefaultSshPort, To: DefaultSshPort}}
 	if r.IngressEnabled() {
-		ports = append(ports,
+		ports = append(
+			ports,
 			PortRange{Label: PortLabelHttp, Protocol: ProtocolTcp, From: 80, To: 80},
 			PortRange{Label: PortLabelHttps, Protocol: ProtocolTcp, From: 443, To: 443},
 			PortRange{Label: PortLabelHttpsH3, Protocol: ProtocolUdp, From: 443, To: 443},
 		)
+	}
+	if r.MeshEnabled() {
+		// Public by design — see PortLabelMesh. Added before the presets so that a
+		// preset or a declared entry covering the same port can still widen it, which
+		// dedupePorts resolves the same way it does for every other overlap.
+		p := r.MeshPort()
+		ports = append(ports, PortRange{Label: PortLabelMesh, Protocol: ProtocolUdp, From: p, To: p})
 	}
 	for _, preset := range inferredPresets {
 		resolved := presetPorts(preset)
