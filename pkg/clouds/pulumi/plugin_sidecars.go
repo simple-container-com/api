@@ -87,6 +87,36 @@ func (b *preEnginePluginBundle) makeSecretsProviderSidecar(cli *scPlugin.Client,
 
 func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, pluginName, typeToken string) pApi.ProvisionFunc {
 	return func(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, params pApi.ProvisionParams) (*api.ResourceOutput, error) {
+		// SC Components dispatch — slice 1a of the sc-components-platform
+		// milestone. If this resource type is in ComponentResourceTypes
+		// (the plugin advertised it via SchemaResponse.component_resource_types),
+		// its config carries `deployTo:` naming one of the parent's templates:
+		// core dispatches that template's own ProvisionFunc here, THEN falls
+		// through so the plugin's Provision RPC runs and sees the dispatched
+		// service URL on its dependency outputs. See
+		// forge/docs/design/2026-11-10/sc-components-platform/README.md §P1.
+		//
+		// Dispatch is set-membership on a Schema-advertised string, NOT a
+		// Go-interface assertion on the config value — the production sc
+		// binary can't link plugin /api modules, so plugin-owned configs
+		// arrive as opaque *api.PluginFieldConfig and no core-defined
+		// interface could ever match. See the operator memory
+		// `interface_assertion_against_plugin_owned_value_fails_in_prod`.
+		if pApi.IsComponentResourceType(input.Descriptor.Type) {
+			dispatched, err := b.dispatchComponentTemplate(ctx, stack, input, params)
+			if err != nil {
+				return nil, errors.Wrapf(err, "component %q (%s)", input.Descriptor.Name, input.Descriptor.Type)
+			}
+			// Inject the dispatched template's output as a synthetic sibling
+			// dependency so the existing dependency-outputs packer below
+			// serializes it to DependencyOutputsJson._deployed_service for the
+			// plugin's Provision RPC. The plugin then republishes the URL as
+			// its own component-URL output for `uses:` consumers.
+			if params.ResourceOutputs == nil {
+				params.ResourceOutputs = map[string]*api.ResourceOutput{}
+			}
+			params.ResourceOutputs[componentDispatchOutputKey] = dispatched
+		}
 		addr, err := requireMonitorAddr(input.Descriptor.Type)
 		if err != nil {
 			return nil, err
@@ -1165,4 +1195,128 @@ func newPluginProviderResource(_ *sdk.Context, urn string) sdk.ProviderResource 
 	// via its URN; the ResourceState embedding keeps type-checks happy without
 	// needing to actually construct a Pulumi provider resource in SC core.
 	return &pluginProviderResource{urn: urn}
+}
+
+// componentDispatchOutputKey is the synthetic key the SC Components dispatch
+// (slice 1a) writes into params.ResourceOutputs after invoking the operator-
+// chosen template's ProvisionFunc. The component plugin's Provision RPC reads
+// it back off DependencyOutputsJson to learn its deployed service's URL.
+const componentDispatchOutputKey = "_deployed_service"
+
+// ComponentTemplateMergeFunc produces the ResourceInput the template's own
+// ProvisionFunc consumes, given (a) the operator-declared template descriptor
+// and (b) the Component plugin's own config. Keyed by template.Type in
+// componentTemplateMergeFuncs — a template with no registered merge func
+// falls through to the pass-through merge, which uses the operator's template
+// config verbatim and only renames the dispatched resource to the component's
+// own name (slice 1a scope). Future components that need plugin-supplied
+// image / env overrides register a template-type-specific merge func that
+// reads them off cfg.
+//
+// The merge func returns the new descriptor and optionally a sanity error
+// (e.g. plugin asked to override a key not in ComponentAllowedOverrides).
+type ComponentTemplateMergeFunc func(
+	template api.StackDescriptor,
+	componentResourceName string,
+	cfg *api.ComponentConfig,
+) (*api.ResourceDescriptor, error)
+
+var componentTemplateMergeFuncs = map[string]ComponentTemplateMergeFunc{}
+
+// RegisterComponentTemplateMergeFunc registers a per-template-type merge
+// function for the SC Components dispatch. Thread-safety matches the
+// ProvisionFuncByType pattern — populated once at startup, not mutex-guarded.
+func RegisterComponentTemplateMergeFunc(templateType string, fnc ComponentTemplateMergeFunc) {
+	if templateType == "" || fnc == nil {
+		return
+	}
+	componentTemplateMergeFuncs[templateType] = fnc
+}
+
+// dispatchComponentTemplate runs the operator-chosen template's ProvisionFunc
+// with the component plugin's config overlaid (slice 1a: pass-through merge
+// by default; per-template-type merges opt in via RegisterComponentTemplateMergeFunc).
+//
+// Preconditions: called only when input.Descriptor.Type is in ComponentResourceTypes.
+// Returns the template's ResourceOutput; the caller wraps it into params.ResourceOutputs
+// so the plugin's own Provision RPC sees it as a sibling-published dependency output.
+func (b *preEnginePluginBundle) dispatchComponentTemplate(
+	ctx *sdk.Context,
+	stack api.Stack,
+	input api.ResourceInput,
+	params pApi.ProvisionParams,
+) (*api.ResourceOutput, error) {
+	cfg, err := api.NewComponentConfig(input.Descriptor.Config.Config)
+	if err != nil {
+		return nil, errors.Wrap(err, "wrapping component config")
+	}
+	tplName, err := cfg.DeployTo()
+	if err != nil {
+		return nil, err
+	}
+	tpl, ok := stack.Server.Templates[tplName]
+	if !ok {
+		return nil, errors.Errorf("deployTo template %q not declared in parent `templates:` block", tplName)
+	}
+	tplFn, ok := pApi.ProvisionFuncByType[tpl.Type]
+	if !ok {
+		return nil, errors.Errorf("template %q (type %q) has no registered ProvisionFunc", tplName, tpl.Type)
+	}
+
+	// Defense-in-depth: if the plugin's .Raw map carries any top-level key
+	// that's neither in the Component's well-known keys nor in the plugin's
+	// own allowlist, refuse. Parse-time validation catches this first; this
+	// guard protects a code path where the dispatch runs against a config
+	// that bypassed parse-time (e.g. test fixtures, future direct callers).
+	if raw := cfg.Raw(); raw != nil {
+		for k := range raw {
+			if api.IsComponentConfigTopLevelKey(k) {
+				continue
+			}
+			if pApi.IsComponentOverrideAllowed(input.Descriptor.Type, k) {
+				continue
+			}
+			return nil, errors.Errorf("plugin override %q is not in the allowlist for component type %q", k, input.Descriptor.Type)
+		}
+	}
+
+	merged, err := mergeComponentIntoTemplate(tpl, input.Descriptor.Name, cfg)
+	if err != nil {
+		return nil, errors.Wrap(err, "merging component config into template")
+	}
+
+	dispatchedInput := api.ResourceInput{
+		Descriptor:  merged,
+		StackParams: input.StackParams,
+	}
+	return tplFn(ctx, stack, dispatchedInput, params)
+}
+
+// mergeComponentIntoTemplate produces the ResourceDescriptor the template's
+// ProvisionFunc consumes. Pass-through semantics for slice 1a: the operator's
+// template config is used verbatim; only the resource's Name is rewritten to
+// the component's own name so the template's Pulumi URN carries the component's
+// identity (URN parity invariant — same component declaration produces the
+// same URN across re-provisions).
+//
+// Per-template-type merge funcs (registered via RegisterComponentTemplateMergeFunc)
+// can opt into plugin-side image / env / ingressRoutes overrides. Slice 1a
+// registers no per-type merge func by default; the pass-through covers the
+// first smoke's compose-on-vm shape (operator provides the compose file, the
+// plugin's image lands via its own compute processor at consumer deploy time).
+func mergeComponentIntoTemplate(
+	template api.StackDescriptor,
+	componentResourceName string,
+	cfg *api.ComponentConfig,
+) (*api.ResourceDescriptor, error) {
+	if fnc, ok := componentTemplateMergeFuncs[template.Type]; ok {
+		return fnc(template, componentResourceName, cfg)
+	}
+	// Pass-through default — the template config is used unchanged.
+	return &api.ResourceDescriptor{
+		Type:    template.Type,
+		Name:    componentResourceName,
+		Config:  template.Config,
+		Inherit: template.Inherit,
+	}, nil
 }

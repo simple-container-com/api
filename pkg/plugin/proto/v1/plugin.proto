@@ -250,6 +250,54 @@ message SchemaResponse {
   // keeps covering aws/yandex/cloudflare/cloudru/mongodb exactly as
   // today — additive by construction.
   repeated string auth_types = 11;
+
+  // Resource types this plugin owns that are SC Components — SC core's sidecar
+  // wrapper (pkg/clouds/pulumi/plugin_sidecars.go `makeResourceSidecar`)
+  // dispatches these into the template named by their `config.deployTo:`
+  // field, rather than running the plugin's Provision RPC directly in
+  // isolation. The plugin's Provision still fires afterwards, and reads the
+  // dispatched service's URL from `DependencyOutputsJson._deployed_service`.
+  //
+  // Same addressing pattern as `safe_to_replace_types` + `auth_types` above:
+  // core builds a fleet-wide set at plugin-load time, dispatch is
+  // set-membership. Older plugins omit this field + present as zero component
+  // types + keep working — additive by construction.
+  //
+  // Why this is a Schema-advertised string set rather than a Go interface
+  // assertion on the config value: SC core cannot import plugin `/api`
+  // modules, so plugin-owned configs arrive as opaque `*api.PluginFieldConfig`
+  // in production. A core-defined Go interface can never match a plugin-owned
+  // type. See the operator memory
+  // `interface_assertion_against_plugin_owned_value_fails_in_prod` + the
+  // generic parent `local_shape_not_production_shape`. 7+ exposures of this
+  // trap in the first fortnight of the plugin-split work; this design avoids
+  // the 8th.
+  //
+  // See forge/docs/design/2026-11-10/sc-components-platform/README.md §P1
+  // (Path A — Schema-advertised + .Raw-reading) for the full shape.
+  repeated string component_resource_types = 12;
+
+  // Per-component-resource-type, the `.Raw` keys a plugin MAY set when
+  // overriding its dispatched template's config. Core refuses any override
+  // not on this list at parse time (defense-in-depth is also enforced at
+  // merge time in plugin_sidecars.go).
+  //
+  // Starter allowlist for most components: `image` + `env` + `ingressRoutes`
+  // + `imagePullSecretRef`. Operator-locked by omission: `vpc` / `subnets` /
+  // `iam` / anything that would let a plugin point an operator's Lambda at
+  // an attacker-controlled network.
+  //
+  // Keyed by component resource type (one of the strings in
+  // `component_resource_types`). Absent key means the plugin allows no
+  // overrides (dispatched template runs with operator config verbatim).
+  map<string, StringList> component_allowed_overrides = 13;
+}
+
+// StringList is a repeated-string wrapper so `component_allowed_overrides`
+// can be a `map<string, repeated string>` (proto3 forbids repeated values
+// inside maps directly).
+message StringList {
+  repeated string values = 1;
 }
 
 // VmDriverSpec is one row of the VM driver table, as advertised by a plugin.

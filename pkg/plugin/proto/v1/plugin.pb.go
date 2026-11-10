@@ -767,9 +767,48 @@ type SchemaResponse struct {
 	// the stackread loop runs zero times, and the bootstrap-table seed
 	// keeps covering aws/yandex/cloudflare/cloudru/mongodb exactly as
 	// today — additive by construction.
-	AuthTypes     []string `protobuf:"bytes,11,rep,name=auth_types,json=authTypes,proto3" json:"auth_types,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	AuthTypes []string `protobuf:"bytes,11,rep,name=auth_types,json=authTypes,proto3" json:"auth_types,omitempty"`
+	// Resource types this plugin owns that are SC Components — SC core's sidecar
+	// wrapper (pkg/clouds/pulumi/plugin_sidecars.go `makeResourceSidecar`)
+	// dispatches these into the template named by their `config.deployTo:`
+	// field, rather than running the plugin's Provision RPC directly in
+	// isolation. The plugin's Provision still fires afterwards, and reads the
+	// dispatched service's URL from `DependencyOutputsJson._deployed_service`.
+	//
+	// Same addressing pattern as `safe_to_replace_types` + `auth_types` above:
+	// core builds a fleet-wide set at plugin-load time, dispatch is
+	// set-membership. Older plugins omit this field + present as zero component
+	// types + keep working — additive by construction.
+	//
+	// Why this is a Schema-advertised string set rather than a Go interface
+	// assertion on the config value: SC core cannot import plugin `/api`
+	// modules, so plugin-owned configs arrive as opaque `*api.PluginFieldConfig`
+	// in production. A core-defined Go interface can never match a plugin-owned
+	// type. See the operator memory
+	// `interface_assertion_against_plugin_owned_value_fails_in_prod` + the
+	// generic parent `local_shape_not_production_shape`. 7+ exposures of this
+	// trap in the first fortnight of the plugin-split work; this design avoids
+	// the 8th.
+	//
+	// See forge/docs/design/2026-11-10/sc-components-platform/README.md §P1
+	// (Path A — Schema-advertised + .Raw-reading) for the full shape.
+	ComponentResourceTypes []string `protobuf:"bytes,12,rep,name=component_resource_types,json=componentResourceTypes,proto3" json:"component_resource_types,omitempty"`
+	// Per-component-resource-type, the `.Raw` keys a plugin MAY set when
+	// overriding its dispatched template's config. Core refuses any override
+	// not on this list at parse time (defense-in-depth is also enforced at
+	// merge time in plugin_sidecars.go).
+	//
+	// Starter allowlist for most components: `image` + `env` + `ingressRoutes`
+	// + `imagePullSecretRef`. Operator-locked by omission: `vpc` / `subnets` /
+	// `iam` / anything that would let a plugin point an operator's Lambda at
+	// an attacker-controlled network.
+	//
+	// Keyed by component resource type (one of the strings in
+	// `component_resource_types`). Absent key means the plugin allows no
+	// overrides (dispatched template runs with operator config verbatim).
+	ComponentAllowedOverrides map[string]*StringList `protobuf:"bytes,13,rep,name=component_allowed_overrides,json=componentAllowedOverrides,proto3" json:"component_allowed_overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields             protoimpl.UnknownFields
+	sizeCache                 protoimpl.SizeCache
 }
 
 func (x *SchemaResponse) Reset() {
@@ -879,6 +918,67 @@ func (x *SchemaResponse) GetAuthTypes() []string {
 	return nil
 }
 
+func (x *SchemaResponse) GetComponentResourceTypes() []string {
+	if x != nil {
+		return x.ComponentResourceTypes
+	}
+	return nil
+}
+
+func (x *SchemaResponse) GetComponentAllowedOverrides() map[string]*StringList {
+	if x != nil {
+		return x.ComponentAllowedOverrides
+	}
+	return nil
+}
+
+// StringList is a repeated-string wrapper so `component_allowed_overrides`
+// can be a `map<string, repeated string>` (proto3 forbids repeated values
+// inside maps directly).
+type StringList struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Values        []string               `protobuf:"bytes,1,rep,name=values,proto3" json:"values,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StringList) Reset() {
+	*x = StringList{}
+	mi := &file_v1_plugin_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StringList) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StringList) ProtoMessage() {}
+
+func (x *StringList) ProtoReflect() protoreflect.Message {
+	mi := &file_v1_plugin_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StringList.ProtoReflect.Descriptor instead.
+func (*StringList) Descriptor() ([]byte, []int) {
+	return file_v1_plugin_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *StringList) GetValues() []string {
+	if x != nil {
+		return x.Values
+	}
+	return nil
+}
+
 // VmDriverSpec is one row of the VM driver table, as advertised by a plugin.
 // Mirrors pkg/clouds/vm.DriverInfo; see its field comments for the semantics,
 // which are the contract and not restated here.
@@ -903,7 +1003,7 @@ type VmDriverSpec struct {
 
 func (x *VmDriverSpec) Reset() {
 	*x = VmDriverSpec{}
-	mi := &file_v1_plugin_proto_msgTypes[6]
+	mi := &file_v1_plugin_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -915,7 +1015,7 @@ func (x *VmDriverSpec) String() string {
 func (*VmDriverSpec) ProtoMessage() {}
 
 func (x *VmDriverSpec) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[6]
+	mi := &file_v1_plugin_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -928,7 +1028,7 @@ func (x *VmDriverSpec) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VmDriverSpec.ProtoReflect.Descriptor instead.
 func (*VmDriverSpec) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{6}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *VmDriverSpec) GetDriver() string {
@@ -992,7 +1092,7 @@ type VmCapabilities struct {
 
 func (x *VmCapabilities) Reset() {
 	*x = VmCapabilities{}
-	mi := &file_v1_plugin_proto_msgTypes[7]
+	mi := &file_v1_plugin_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1004,7 +1104,7 @@ func (x *VmCapabilities) String() string {
 func (*VmCapabilities) ProtoMessage() {}
 
 func (x *VmCapabilities) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[7]
+	mi := &file_v1_plugin_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1017,7 +1117,7 @@ func (x *VmCapabilities) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VmCapabilities.ProtoReflect.Descriptor instead.
 func (*VmCapabilities) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{7}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *VmCapabilities) GetCloudInit() bool {
@@ -1101,7 +1201,7 @@ type PulumiPluginRequirement struct {
 
 func (x *PulumiPluginRequirement) Reset() {
 	*x = PulumiPluginRequirement{}
-	mi := &file_v1_plugin_proto_msgTypes[8]
+	mi := &file_v1_plugin_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1113,7 +1213,7 @@ func (x *PulumiPluginRequirement) String() string {
 func (*PulumiPluginRequirement) ProtoMessage() {}
 
 func (x *PulumiPluginRequirement) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[8]
+	mi := &file_v1_plugin_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1126,7 +1226,7 @@ func (x *PulumiPluginRequirement) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PulumiPluginRequirement.ProtoReflect.Descriptor instead.
 func (*PulumiPluginRequirement) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{8}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *PulumiPluginRequirement) GetPackage() string {
@@ -1161,7 +1261,7 @@ type InitStateStoreRequest struct {
 
 func (x *InitStateStoreRequest) Reset() {
 	*x = InitStateStoreRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[9]
+	mi := &file_v1_plugin_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1173,7 +1273,7 @@ func (x *InitStateStoreRequest) String() string {
 func (*InitStateStoreRequest) ProtoMessage() {}
 
 func (x *InitStateStoreRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[9]
+	mi := &file_v1_plugin_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1186,7 +1286,7 @@ func (x *InitStateStoreRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitStateStoreRequest.ProtoReflect.Descriptor instead.
 func (*InitStateStoreRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{9}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *InitStateStoreRequest) GetHeader() *RequestHeader {
@@ -1224,7 +1324,7 @@ type InitStateStoreResponse struct {
 
 func (x *InitStateStoreResponse) Reset() {
 	*x = InitStateStoreResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[10]
+	mi := &file_v1_plugin_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1236,7 +1336,7 @@ func (x *InitStateStoreResponse) String() string {
 func (*InitStateStoreResponse) ProtoMessage() {}
 
 func (x *InitStateStoreResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[10]
+	mi := &file_v1_plugin_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1249,7 +1349,7 @@ func (x *InitStateStoreResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitStateStoreResponse.ProtoReflect.Descriptor instead.
 func (*InitStateStoreResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{10}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *InitStateStoreResponse) GetBackendUrl() string {
@@ -1277,7 +1377,7 @@ type InitSecretsProviderRequest struct {
 
 func (x *InitSecretsProviderRequest) Reset() {
 	*x = InitSecretsProviderRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[11]
+	mi := &file_v1_plugin_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1289,7 +1389,7 @@ func (x *InitSecretsProviderRequest) String() string {
 func (*InitSecretsProviderRequest) ProtoMessage() {}
 
 func (x *InitSecretsProviderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[11]
+	mi := &file_v1_plugin_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1302,7 +1402,7 @@ func (x *InitSecretsProviderRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitSecretsProviderRequest.ProtoReflect.Descriptor instead.
 func (*InitSecretsProviderRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{11}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *InitSecretsProviderRequest) GetHeader() *RequestHeader {
@@ -1343,7 +1443,7 @@ type InitSecretsProviderResponse struct {
 
 func (x *InitSecretsProviderResponse) Reset() {
 	*x = InitSecretsProviderResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[12]
+	mi := &file_v1_plugin_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1355,7 +1455,7 @@ func (x *InitSecretsProviderResponse) String() string {
 func (*InitSecretsProviderResponse) ProtoMessage() {}
 
 func (x *InitSecretsProviderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[12]
+	mi := &file_v1_plugin_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1368,7 +1468,7 @@ func (x *InitSecretsProviderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InitSecretsProviderResponse.ProtoReflect.Descriptor instead.
 func (*InitSecretsProviderResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{12}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *InitSecretsProviderResponse) GetProviderUrl() string {
@@ -1404,7 +1504,7 @@ type ProviderRequest struct {
 
 func (x *ProviderRequest) Reset() {
 	*x = ProviderRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[13]
+	mi := &file_v1_plugin_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1416,7 +1516,7 @@ func (x *ProviderRequest) String() string {
 func (*ProviderRequest) ProtoMessage() {}
 
 func (x *ProviderRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[13]
+	mi := &file_v1_plugin_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1429,7 +1529,7 @@ func (x *ProviderRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderRequest.ProtoReflect.Descriptor instead.
 func (*ProviderRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{13}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *ProviderRequest) GetHeader() *RequestHeader {
@@ -1471,7 +1571,7 @@ type ProviderResponse struct {
 
 func (x *ProviderResponse) Reset() {
 	*x = ProviderResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[14]
+	mi := &file_v1_plugin_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1483,7 +1583,7 @@ func (x *ProviderResponse) String() string {
 func (*ProviderResponse) ProtoMessage() {}
 
 func (x *ProviderResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[14]
+	mi := &file_v1_plugin_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1496,7 +1596,7 @@ func (x *ProviderResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProviderResponse.ProtoReflect.Descriptor instead.
 func (*ProviderResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{14}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *ProviderResponse) GetProviderUrn() string {
@@ -1530,7 +1630,7 @@ type ComputeProcessRequest struct {
 
 func (x *ComputeProcessRequest) Reset() {
 	*x = ComputeProcessRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[15]
+	mi := &file_v1_plugin_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1542,7 +1642,7 @@ func (x *ComputeProcessRequest) String() string {
 func (*ComputeProcessRequest) ProtoMessage() {}
 
 func (x *ComputeProcessRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[15]
+	mi := &file_v1_plugin_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1555,7 +1655,7 @@ func (x *ComputeProcessRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComputeProcessRequest.ProtoReflect.Descriptor instead.
 func (*ComputeProcessRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{15}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *ComputeProcessRequest) GetHeader() *RequestHeader {
@@ -1640,7 +1740,7 @@ type ComputeProcessResponse struct {
 
 func (x *ComputeProcessResponse) Reset() {
 	*x = ComputeProcessResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[16]
+	mi := &file_v1_plugin_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1652,7 +1752,7 @@ func (x *ComputeProcessResponse) String() string {
 func (*ComputeProcessResponse) ProtoMessage() {}
 
 func (x *ComputeProcessResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[16]
+	mi := &file_v1_plugin_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1665,7 +1765,7 @@ func (x *ComputeProcessResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComputeProcessResponse.ProtoReflect.Descriptor instead.
 func (*ComputeProcessResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{16}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{17}
 }
 
 // Deprecated: Marked as deprecated in v1/plugin.proto.
@@ -1749,7 +1849,7 @@ type ConvertStackConfigRequest struct {
 
 func (x *ConvertStackConfigRequest) Reset() {
 	*x = ConvertStackConfigRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[17]
+	mi := &file_v1_plugin_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1761,7 +1861,7 @@ func (x *ConvertStackConfigRequest) String() string {
 func (*ConvertStackConfigRequest) ProtoMessage() {}
 
 func (x *ConvertStackConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[17]
+	mi := &file_v1_plugin_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1774,7 +1874,7 @@ func (x *ConvertStackConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConvertStackConfigRequest.ProtoReflect.Descriptor instead.
 func (*ConvertStackConfigRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{17}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *ConvertStackConfigRequest) GetHeader() *RequestHeader {
@@ -1854,7 +1954,7 @@ type ConvertStackConfigResponse struct {
 
 func (x *ConvertStackConfigResponse) Reset() {
 	*x = ConvertStackConfigResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[18]
+	mi := &file_v1_plugin_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1866,7 +1966,7 @@ func (x *ConvertStackConfigResponse) String() string {
 func (*ConvertStackConfigResponse) ProtoMessage() {}
 
 func (x *ConvertStackConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[18]
+	mi := &file_v1_plugin_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1879,7 +1979,7 @@ func (x *ConvertStackConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConvertStackConfigResponse.ProtoReflect.Descriptor instead.
 func (*ConvertStackConfigResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{18}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *ConvertStackConfigResponse) GetInput() map[string]*InputValue {
@@ -1927,7 +2027,7 @@ type ComputeEnvVariable struct {
 
 func (x *ComputeEnvVariable) Reset() {
 	*x = ComputeEnvVariable{}
-	mi := &file_v1_plugin_proto_msgTypes[19]
+	mi := &file_v1_plugin_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1939,7 +2039,7 @@ func (x *ComputeEnvVariable) String() string {
 func (*ComputeEnvVariable) ProtoMessage() {}
 
 func (x *ComputeEnvVariable) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[19]
+	mi := &file_v1_plugin_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1952,7 +2052,7 @@ func (x *ComputeEnvVariable) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ComputeEnvVariable.ProtoReflect.Descriptor instead.
 func (*ComputeEnvVariable) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{19}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *ComputeEnvVariable) GetName() string {
@@ -2009,7 +2109,7 @@ type TemplateExtension struct {
 
 func (x *TemplateExtension) Reset() {
 	*x = TemplateExtension{}
-	mi := &file_v1_plugin_proto_msgTypes[20]
+	mi := &file_v1_plugin_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2021,7 +2121,7 @@ func (x *TemplateExtension) String() string {
 func (*TemplateExtension) ProtoMessage() {}
 
 func (x *TemplateExtension) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[20]
+	mi := &file_v1_plugin_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2034,7 +2134,7 @@ func (x *TemplateExtension) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TemplateExtension.ProtoReflect.Descriptor instead.
 func (*TemplateExtension) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{20}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *TemplateExtension) GetKind() TemplateExtensionKind {
@@ -2091,7 +2191,7 @@ type ProvisionRegistrarRequest struct {
 
 func (x *ProvisionRegistrarRequest) Reset() {
 	*x = ProvisionRegistrarRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[21]
+	mi := &file_v1_plugin_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2103,7 +2203,7 @@ func (x *ProvisionRegistrarRequest) String() string {
 func (*ProvisionRegistrarRequest) ProtoMessage() {}
 
 func (x *ProvisionRegistrarRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[21]
+	mi := &file_v1_plugin_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2116,7 +2216,7 @@ func (x *ProvisionRegistrarRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionRegistrarRequest.ProtoReflect.Descriptor instead.
 func (*ProvisionRegistrarRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{21}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ProvisionRegistrarRequest) GetHeader() *RequestHeader {
@@ -2161,7 +2261,7 @@ type ProvisionRegistrarResponse struct {
 
 func (x *ProvisionRegistrarResponse) Reset() {
 	*x = ProvisionRegistrarResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[22]
+	mi := &file_v1_plugin_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2173,7 +2273,7 @@ func (x *ProvisionRegistrarResponse) String() string {
 func (*ProvisionRegistrarResponse) ProtoMessage() {}
 
 func (x *ProvisionRegistrarResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[22]
+	mi := &file_v1_plugin_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2186,7 +2286,7 @@ func (x *ProvisionRegistrarResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionRegistrarResponse.ProtoReflect.Descriptor instead.
 func (*ProvisionRegistrarResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{22}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *ProvisionRegistrarResponse) GetMainDomain() string {
@@ -2229,7 +2329,7 @@ type NewDnsRecordRequest struct {
 
 func (x *NewDnsRecordRequest) Reset() {
 	*x = NewDnsRecordRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[23]
+	mi := &file_v1_plugin_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2241,7 +2341,7 @@ func (x *NewDnsRecordRequest) String() string {
 func (*NewDnsRecordRequest) ProtoMessage() {}
 
 func (x *NewDnsRecordRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[23]
+	mi := &file_v1_plugin_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2254,7 +2354,7 @@ func (x *NewDnsRecordRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewDnsRecordRequest.ProtoReflect.Descriptor instead.
 func (*NewDnsRecordRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{23}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *NewDnsRecordRequest) GetHeader() *RequestHeader {
@@ -2315,7 +2415,7 @@ type NewDnsRecordResponse struct {
 
 func (x *NewDnsRecordResponse) Reset() {
 	*x = NewDnsRecordResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[24]
+	mi := &file_v1_plugin_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2327,7 +2427,7 @@ func (x *NewDnsRecordResponse) String() string {
 func (*NewDnsRecordResponse) ProtoMessage() {}
 
 func (x *NewDnsRecordResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[24]
+	mi := &file_v1_plugin_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2340,7 +2440,7 @@ func (x *NewDnsRecordResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewDnsRecordResponse.ProtoReflect.Descriptor instead.
 func (*NewDnsRecordResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{24}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *NewDnsRecordResponse) GetUrn() string {
@@ -2368,7 +2468,7 @@ type NewOverrideHeaderRuleRequest struct {
 
 func (x *NewOverrideHeaderRuleRequest) Reset() {
 	*x = NewOverrideHeaderRuleRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[25]
+	mi := &file_v1_plugin_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2380,7 +2480,7 @@ func (x *NewOverrideHeaderRuleRequest) String() string {
 func (*NewOverrideHeaderRuleRequest) ProtoMessage() {}
 
 func (x *NewOverrideHeaderRuleRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[25]
+	mi := &file_v1_plugin_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2393,7 +2493,7 @@ func (x *NewOverrideHeaderRuleRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewOverrideHeaderRuleRequest.ProtoReflect.Descriptor instead.
 func (*NewOverrideHeaderRuleRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{25}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *NewOverrideHeaderRuleRequest) GetHeader() *RequestHeader {
@@ -2470,7 +2570,7 @@ type BasicAuthMsg struct {
 
 func (x *BasicAuthMsg) Reset() {
 	*x = BasicAuthMsg{}
-	mi := &file_v1_plugin_proto_msgTypes[26]
+	mi := &file_v1_plugin_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2482,7 +2582,7 @@ func (x *BasicAuthMsg) String() string {
 func (*BasicAuthMsg) ProtoMessage() {}
 
 func (x *BasicAuthMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[26]
+	mi := &file_v1_plugin_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2495,7 +2595,7 @@ func (x *BasicAuthMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BasicAuthMsg.ProtoReflect.Descriptor instead.
 func (*BasicAuthMsg) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{26}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *BasicAuthMsg) GetUsername() string {
@@ -2529,7 +2629,7 @@ type OverridePagesMsg struct {
 
 func (x *OverridePagesMsg) Reset() {
 	*x = OverridePagesMsg{}
-	mi := &file_v1_plugin_proto_msgTypes[27]
+	mi := &file_v1_plugin_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2541,7 +2641,7 @@ func (x *OverridePagesMsg) String() string {
 func (*OverridePagesMsg) ProtoMessage() {}
 
 func (x *OverridePagesMsg) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[27]
+	mi := &file_v1_plugin_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2554,7 +2654,7 @@ func (x *OverridePagesMsg) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OverridePagesMsg.ProtoReflect.Descriptor instead.
 func (*OverridePagesMsg) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{27}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *OverridePagesMsg) GetIndexPage() string {
@@ -2580,7 +2680,7 @@ type NewOverrideHeaderRuleResponse struct {
 
 func (x *NewOverrideHeaderRuleResponse) Reset() {
 	*x = NewOverrideHeaderRuleResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[28]
+	mi := &file_v1_plugin_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2592,7 +2692,7 @@ func (x *NewOverrideHeaderRuleResponse) String() string {
 func (*NewOverrideHeaderRuleResponse) ProtoMessage() {}
 
 func (x *NewOverrideHeaderRuleResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[28]
+	mi := &file_v1_plugin_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2605,7 +2705,7 @@ func (x *NewOverrideHeaderRuleResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NewOverrideHeaderRuleResponse.ProtoReflect.Descriptor instead.
 func (*NewOverrideHeaderRuleResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{28}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *NewOverrideHeaderRuleResponse) GetUrn() string {
@@ -2631,7 +2731,7 @@ type ProvisionDomainForEndpointRequest struct {
 
 func (x *ProvisionDomainForEndpointRequest) Reset() {
 	*x = ProvisionDomainForEndpointRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[29]
+	mi := &file_v1_plugin_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2643,7 +2743,7 @@ func (x *ProvisionDomainForEndpointRequest) String() string {
 func (*ProvisionDomainForEndpointRequest) ProtoMessage() {}
 
 func (x *ProvisionDomainForEndpointRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[29]
+	mi := &file_v1_plugin_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2656,7 +2756,7 @@ func (x *ProvisionDomainForEndpointRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use ProvisionDomainForEndpointRequest.ProtoReflect.Descriptor instead.
 func (*ProvisionDomainForEndpointRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{29}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ProvisionDomainForEndpointRequest) GetHeader() *RequestHeader {
@@ -2717,7 +2817,7 @@ type ProvisionDomainForEndpointResponse struct {
 
 func (x *ProvisionDomainForEndpointResponse) Reset() {
 	*x = ProvisionDomainForEndpointResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[30]
+	mi := &file_v1_plugin_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2729,7 +2829,7 @@ func (x *ProvisionDomainForEndpointResponse) String() string {
 func (*ProvisionDomainForEndpointResponse) ProtoMessage() {}
 
 func (x *ProvisionDomainForEndpointResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[30]
+	mi := &file_v1_plugin_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2742,7 +2842,7 @@ func (x *ProvisionDomainForEndpointResponse) ProtoReflect() protoreflect.Message
 
 // Deprecated: Use ProvisionDomainForEndpointResponse.ProtoReflect.Descriptor instead.
 func (*ProvisionDomainForEndpointResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{30}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ProvisionDomainForEndpointResponse) GetUrn() string {
@@ -2782,7 +2882,7 @@ type PreDestroyRequest struct {
 
 func (x *PreDestroyRequest) Reset() {
 	*x = PreDestroyRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[31]
+	mi := &file_v1_plugin_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2794,7 +2894,7 @@ func (x *PreDestroyRequest) String() string {
 func (*PreDestroyRequest) ProtoMessage() {}
 
 func (x *PreDestroyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[31]
+	mi := &file_v1_plugin_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2807,7 +2907,7 @@ func (x *PreDestroyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PreDestroyRequest.ProtoReflect.Descriptor instead.
 func (*PreDestroyRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{31}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *PreDestroyRequest) GetHeader() *RequestHeader {
@@ -2853,7 +2953,7 @@ type PreDestroyResponse struct {
 
 func (x *PreDestroyResponse) Reset() {
 	*x = PreDestroyResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[32]
+	mi := &file_v1_plugin_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2865,7 +2965,7 @@ func (x *PreDestroyResponse) String() string {
 func (*PreDestroyResponse) ProtoMessage() {}
 
 func (x *PreDestroyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[32]
+	mi := &file_v1_plugin_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2878,7 +2978,7 @@ func (x *PreDestroyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PreDestroyResponse.ProtoReflect.Descriptor instead.
 func (*PreDestroyResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{32}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{33}
 }
 
 type ProvisionRequest struct {
@@ -2957,7 +3057,7 @@ type ProvisionRequest struct {
 
 func (x *ProvisionRequest) Reset() {
 	*x = ProvisionRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[33]
+	mi := &file_v1_plugin_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2969,7 +3069,7 @@ func (x *ProvisionRequest) String() string {
 func (*ProvisionRequest) ProtoMessage() {}
 
 func (x *ProvisionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[33]
+	mi := &file_v1_plugin_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2982,7 +3082,7 @@ func (x *ProvisionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionRequest.ProtoReflect.Descriptor instead.
 func (*ProvisionRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{33}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *ProvisionRequest) GetHeader() *RequestHeader {
@@ -3085,7 +3185,7 @@ type ProvisionResponse struct {
 
 func (x *ProvisionResponse) Reset() {
 	*x = ProvisionResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[34]
+	mi := &file_v1_plugin_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3097,7 +3197,7 @@ func (x *ProvisionResponse) String() string {
 func (*ProvisionResponse) ProtoMessage() {}
 
 func (x *ProvisionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[34]
+	mi := &file_v1_plugin_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3110,7 +3210,7 @@ func (x *ProvisionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProvisionResponse.ProtoReflect.Descriptor instead.
 func (*ProvisionResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{34}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ProvisionResponse) GetUrn() string {
@@ -3192,7 +3292,7 @@ type VmHostsRequest struct {
 
 func (x *VmHostsRequest) Reset() {
 	*x = VmHostsRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[35]
+	mi := &file_v1_plugin_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3204,7 +3304,7 @@ func (x *VmHostsRequest) String() string {
 func (*VmHostsRequest) ProtoMessage() {}
 
 func (x *VmHostsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[35]
+	mi := &file_v1_plugin_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3217,7 +3317,7 @@ func (x *VmHostsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VmHostsRequest.ProtoReflect.Descriptor instead.
 func (*VmHostsRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{35}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *VmHostsRequest) GetHeader() *RequestHeader {
@@ -3292,7 +3392,7 @@ type VmPortRange struct {
 
 func (x *VmPortRange) Reset() {
 	*x = VmPortRange{}
-	mi := &file_v1_plugin_proto_msgTypes[36]
+	mi := &file_v1_plugin_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3304,7 +3404,7 @@ func (x *VmPortRange) String() string {
 func (*VmPortRange) ProtoMessage() {}
 
 func (x *VmPortRange) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[36]
+	mi := &file_v1_plugin_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3317,7 +3417,7 @@ func (x *VmPortRange) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VmPortRange.ProtoReflect.Descriptor instead.
 func (*VmPortRange) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{36}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *VmPortRange) GetLabel() string {
@@ -3364,7 +3464,7 @@ type VmHostsResponse struct {
 
 func (x *VmHostsResponse) Reset() {
 	*x = VmHostsResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[37]
+	mi := &file_v1_plugin_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3376,7 +3476,7 @@ func (x *VmHostsResponse) String() string {
 func (*VmHostsResponse) ProtoMessage() {}
 
 func (x *VmHostsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[37]
+	mi := &file_v1_plugin_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3389,7 +3489,7 @@ func (x *VmHostsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VmHostsResponse.ProtoReflect.Descriptor instead.
 func (*VmHostsResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{37}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *VmHostsResponse) GetHosts() []*VmHostFacts {
@@ -3446,7 +3546,7 @@ type VmHostFacts struct {
 
 func (x *VmHostFacts) Reset() {
 	*x = VmHostFacts{}
-	mi := &file_v1_plugin_proto_msgTypes[38]
+	mi := &file_v1_plugin_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3458,7 +3558,7 @@ func (x *VmHostFacts) String() string {
 func (*VmHostFacts) ProtoMessage() {}
 
 func (x *VmHostFacts) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[38]
+	mi := &file_v1_plugin_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3471,7 +3571,7 @@ func (x *VmHostFacts) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VmHostFacts.ProtoReflect.Descriptor instead.
 func (*VmHostFacts) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{38}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *VmHostFacts) GetName() string {
@@ -3566,7 +3666,7 @@ type OutputValue struct {
 
 func (x *OutputValue) Reset() {
 	*x = OutputValue{}
-	mi := &file_v1_plugin_proto_msgTypes[39]
+	mi := &file_v1_plugin_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3578,7 +3678,7 @@ func (x *OutputValue) String() string {
 func (*OutputValue) ProtoMessage() {}
 
 func (x *OutputValue) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[39]
+	mi := &file_v1_plugin_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3591,7 +3691,7 @@ func (x *OutputValue) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutputValue.ProtoReflect.Descriptor instead.
 func (*OutputValue) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{39}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *OutputValue) GetFrom() isOutputValue_From {
@@ -3665,7 +3765,7 @@ type ResourcePropertyRef struct {
 
 func (x *ResourcePropertyRef) Reset() {
 	*x = ResourcePropertyRef{}
-	mi := &file_v1_plugin_proto_msgTypes[40]
+	mi := &file_v1_plugin_proto_msgTypes[41]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3677,7 +3777,7 @@ func (x *ResourcePropertyRef) String() string {
 func (*ResourcePropertyRef) ProtoMessage() {}
 
 func (x *ResourcePropertyRef) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[40]
+	mi := &file_v1_plugin_proto_msgTypes[41]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3690,7 +3790,7 @@ func (x *ResourcePropertyRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResourcePropertyRef.ProtoReflect.Descriptor instead.
 func (*ResourcePropertyRef) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{40}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *ResourcePropertyRef) GetUrn() string {
@@ -3717,7 +3817,7 @@ type ResolveSecretRequest struct {
 
 func (x *ResolveSecretRequest) Reset() {
 	*x = ResolveSecretRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[41]
+	mi := &file_v1_plugin_proto_msgTypes[42]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3729,7 +3829,7 @@ func (x *ResolveSecretRequest) String() string {
 func (*ResolveSecretRequest) ProtoMessage() {}
 
 func (x *ResolveSecretRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[41]
+	mi := &file_v1_plugin_proto_msgTypes[42]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3742,7 +3842,7 @@ func (x *ResolveSecretRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveSecretRequest.ProtoReflect.Descriptor instead.
 func (*ResolveSecretRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{41}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *ResolveSecretRequest) GetRunToken() string {
@@ -3770,7 +3870,7 @@ type ResolveSecretResponse struct {
 
 func (x *ResolveSecretResponse) Reset() {
 	*x = ResolveSecretResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[42]
+	mi := &file_v1_plugin_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3782,7 +3882,7 @@ func (x *ResolveSecretResponse) String() string {
 func (*ResolveSecretResponse) ProtoMessage() {}
 
 func (x *ResolveSecretResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[42]
+	mi := &file_v1_plugin_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3795,7 +3895,7 @@ func (x *ResolveSecretResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveSecretResponse.ProtoReflect.Descriptor instead.
 func (*ResolveSecretResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{42}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ResolveSecretResponse) GetValue() string {
@@ -3815,7 +3915,7 @@ type ResolveCredentialRequest struct {
 
 func (x *ResolveCredentialRequest) Reset() {
 	*x = ResolveCredentialRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[43]
+	mi := &file_v1_plugin_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3827,7 +3927,7 @@ func (x *ResolveCredentialRequest) String() string {
 func (*ResolveCredentialRequest) ProtoMessage() {}
 
 func (x *ResolveCredentialRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[43]
+	mi := &file_v1_plugin_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3840,7 +3940,7 @@ func (x *ResolveCredentialRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveCredentialRequest.ProtoReflect.Descriptor instead.
 func (*ResolveCredentialRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{43}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *ResolveCredentialRequest) GetRunToken() string {
@@ -3866,7 +3966,7 @@ type ResolveCredentialResponse struct {
 
 func (x *ResolveCredentialResponse) Reset() {
 	*x = ResolveCredentialResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[44]
+	mi := &file_v1_plugin_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3878,7 +3978,7 @@ func (x *ResolveCredentialResponse) String() string {
 func (*ResolveCredentialResponse) ProtoMessage() {}
 
 func (x *ResolveCredentialResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[44]
+	mi := &file_v1_plugin_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3891,7 +3991,7 @@ func (x *ResolveCredentialResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ResolveCredentialResponse.ProtoReflect.Descriptor instead.
 func (*ResolveCredentialResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{44}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *ResolveCredentialResponse) GetValue() string {
@@ -3913,7 +4013,7 @@ type LogStreamRequest struct {
 
 func (x *LogStreamRequest) Reset() {
 	*x = LogStreamRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[45]
+	mi := &file_v1_plugin_proto_msgTypes[46]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3925,7 +4025,7 @@ func (x *LogStreamRequest) String() string {
 func (*LogStreamRequest) ProtoMessage() {}
 
 func (x *LogStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[45]
+	mi := &file_v1_plugin_proto_msgTypes[46]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3938,7 +4038,7 @@ func (x *LogStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogStreamRequest.ProtoReflect.Descriptor instead.
 func (*LogStreamRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{45}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *LogStreamRequest) GetPluginName() string {
@@ -3968,7 +4068,7 @@ type PluginLogEvent struct {
 
 func (x *PluginLogEvent) Reset() {
 	*x = PluginLogEvent{}
-	mi := &file_v1_plugin_proto_msgTypes[46]
+	mi := &file_v1_plugin_proto_msgTypes[47]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3980,7 +4080,7 @@ func (x *PluginLogEvent) String() string {
 func (*PluginLogEvent) ProtoMessage() {}
 
 func (x *PluginLogEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[46]
+	mi := &file_v1_plugin_proto_msgTypes[47]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3993,7 +4093,7 @@ func (x *PluginLogEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginLogEvent.ProtoReflect.Descriptor instead.
 func (*PluginLogEvent) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{46}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *PluginLogEvent) GetSeverity() LogSeverity {
@@ -4067,7 +4167,7 @@ type PeerInvokeRequest struct {
 
 func (x *PeerInvokeRequest) Reset() {
 	*x = PeerInvokeRequest{}
-	mi := &file_v1_plugin_proto_msgTypes[47]
+	mi := &file_v1_plugin_proto_msgTypes[48]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4079,7 +4179,7 @@ func (x *PeerInvokeRequest) String() string {
 func (*PeerInvokeRequest) ProtoMessage() {}
 
 func (x *PeerInvokeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[47]
+	mi := &file_v1_plugin_proto_msgTypes[48]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4092,7 +4192,7 @@ func (x *PeerInvokeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerInvokeRequest.ProtoReflect.Descriptor instead.
 func (*PeerInvokeRequest) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{47}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *PeerInvokeRequest) GetRunToken() string {
@@ -4137,7 +4237,7 @@ type PeerInvokeResponse struct {
 
 func (x *PeerInvokeResponse) Reset() {
 	*x = PeerInvokeResponse{}
-	mi := &file_v1_plugin_proto_msgTypes[48]
+	mi := &file_v1_plugin_proto_msgTypes[49]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4149,7 +4249,7 @@ func (x *PeerInvokeResponse) String() string {
 func (*PeerInvokeResponse) ProtoMessage() {}
 
 func (x *PeerInvokeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_v1_plugin_proto_msgTypes[48]
+	mi := &file_v1_plugin_proto_msgTypes[49]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4162,7 +4262,7 @@ func (x *PeerInvokeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PeerInvokeResponse.ProtoReflect.Descriptor instead.
 func (*PeerInvokeResponse) Descriptor() ([]byte, []int) {
-	return file_v1_plugin_proto_rawDescGZIP(), []int{48}
+	return file_v1_plugin_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *PeerInvokeResponse) GetPayload() []byte {
@@ -4229,7 +4329,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\"D\n" +
 	"\rSchemaRequest\x123\n" +
-	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\"\xa3\x04\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\"\xc2\x06\n" +
 	"\x0eSchemaResponse\x12%\n" +
 	"\x0eplugin_version\x18\x01 \x01(\tR\rpluginVersion\x12%\n" +
 	"\x0eprovider_types\x18\x02 \x03(\tR\rproviderTypes\x12%\n" +
@@ -4244,7 +4344,15 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x15safe_to_replace_types\x18\n" +
 	" \x03(\tR\x12safeToReplaceTypes\x12\x1d\n" +
 	"\n" +
-	"auth_types\x18\v \x03(\tR\tauthTypes\"\xcd\x01\n" +
+	"auth_types\x18\v \x03(\tR\tauthTypes\x128\n" +
+	"\x18component_resource_types\x18\f \x03(\tR\x16componentResourceTypes\x12{\n" +
+	"\x1bcomponent_allowed_overrides\x18\r \x03(\v2;.sc.plugin.v1.SchemaResponse.ComponentAllowedOverridesEntryR\x19componentAllowedOverrides\x1af\n" +
+	"\x1eComponentAllowedOverridesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
+	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.StringListR\x05value:\x028\x01\"$\n" +
+	"\n" +
+	"StringList\x12\x16\n" +
+	"\x06values\x18\x01 \x03(\tR\x06values\"\xcd\x01\n" +
 	"\fVmDriverSpec\x12\x16\n" +
 	"\x06driver\x18\x01 \x01(\tR\x06driver\x12 \n" +
 	"\vimplemented\x18\x02 \x01(\bR\vimplemented\x12\x1e\n" +
@@ -4595,7 +4703,7 @@ func file_v1_plugin_proto_rawDescGZIP() []byte {
 }
 
 var file_v1_plugin_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_v1_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 70)
+var file_v1_plugin_proto_msgTypes = make([]protoimpl.MessageInfo, 72)
 var file_v1_plugin_proto_goTypes = []any{
 	(TemplateExtensionKind)(0),                 // 0: sc.plugin.v1.TemplateExtensionKind
 	(LogSeverity)(0),                           // 1: sc.plugin.v1.LogSeverity
@@ -4605,180 +4713,184 @@ var file_v1_plugin_proto_goTypes = []any{
 	(*InputMap)(nil),                           // 5: sc.plugin.v1.InputMap
 	(*SchemaRequest)(nil),                      // 6: sc.plugin.v1.SchemaRequest
 	(*SchemaResponse)(nil),                     // 7: sc.plugin.v1.SchemaResponse
-	(*VmDriverSpec)(nil),                       // 8: sc.plugin.v1.VmDriverSpec
-	(*VmCapabilities)(nil),                     // 9: sc.plugin.v1.VmCapabilities
-	(*PulumiPluginRequirement)(nil),            // 10: sc.plugin.v1.PulumiPluginRequirement
-	(*InitStateStoreRequest)(nil),              // 11: sc.plugin.v1.InitStateStoreRequest
-	(*InitStateStoreResponse)(nil),             // 12: sc.plugin.v1.InitStateStoreResponse
-	(*InitSecretsProviderRequest)(nil),         // 13: sc.plugin.v1.InitSecretsProviderRequest
-	(*InitSecretsProviderResponse)(nil),        // 14: sc.plugin.v1.InitSecretsProviderResponse
-	(*ProviderRequest)(nil),                    // 15: sc.plugin.v1.ProviderRequest
-	(*ProviderResponse)(nil),                   // 16: sc.plugin.v1.ProviderResponse
-	(*ComputeProcessRequest)(nil),              // 17: sc.plugin.v1.ComputeProcessRequest
-	(*ComputeProcessResponse)(nil),             // 18: sc.plugin.v1.ComputeProcessResponse
-	(*ConvertStackConfigRequest)(nil),          // 19: sc.plugin.v1.ConvertStackConfigRequest
-	(*ConvertStackConfigResponse)(nil),         // 20: sc.plugin.v1.ConvertStackConfigResponse
-	(*ComputeEnvVariable)(nil),                 // 21: sc.plugin.v1.ComputeEnvVariable
-	(*TemplateExtension)(nil),                  // 22: sc.plugin.v1.TemplateExtension
-	(*ProvisionRegistrarRequest)(nil),          // 23: sc.plugin.v1.ProvisionRegistrarRequest
-	(*ProvisionRegistrarResponse)(nil),         // 24: sc.plugin.v1.ProvisionRegistrarResponse
-	(*NewDnsRecordRequest)(nil),                // 25: sc.plugin.v1.NewDnsRecordRequest
-	(*NewDnsRecordResponse)(nil),               // 26: sc.plugin.v1.NewDnsRecordResponse
-	(*NewOverrideHeaderRuleRequest)(nil),       // 27: sc.plugin.v1.NewOverrideHeaderRuleRequest
-	(*BasicAuthMsg)(nil),                       // 28: sc.plugin.v1.BasicAuthMsg
-	(*OverridePagesMsg)(nil),                   // 29: sc.plugin.v1.OverridePagesMsg
-	(*NewOverrideHeaderRuleResponse)(nil),      // 30: sc.plugin.v1.NewOverrideHeaderRuleResponse
-	(*ProvisionDomainForEndpointRequest)(nil),  // 31: sc.plugin.v1.ProvisionDomainForEndpointRequest
-	(*ProvisionDomainForEndpointResponse)(nil), // 32: sc.plugin.v1.ProvisionDomainForEndpointResponse
-	(*PreDestroyRequest)(nil),                  // 33: sc.plugin.v1.PreDestroyRequest
-	(*PreDestroyResponse)(nil),                 // 34: sc.plugin.v1.PreDestroyResponse
-	(*ProvisionRequest)(nil),                   // 35: sc.plugin.v1.ProvisionRequest
-	(*ProvisionResponse)(nil),                  // 36: sc.plugin.v1.ProvisionResponse
-	(*VmHostsRequest)(nil),                     // 37: sc.plugin.v1.VmHostsRequest
-	(*VmPortRange)(nil),                        // 38: sc.plugin.v1.VmPortRange
-	(*VmHostsResponse)(nil),                    // 39: sc.plugin.v1.VmHostsResponse
-	(*VmHostFacts)(nil),                        // 40: sc.plugin.v1.VmHostFacts
-	(*OutputValue)(nil),                        // 41: sc.plugin.v1.OutputValue
-	(*ResourcePropertyRef)(nil),                // 42: sc.plugin.v1.ResourcePropertyRef
-	(*ResolveSecretRequest)(nil),               // 43: sc.plugin.v1.ResolveSecretRequest
-	(*ResolveSecretResponse)(nil),              // 44: sc.plugin.v1.ResolveSecretResponse
-	(*ResolveCredentialRequest)(nil),           // 45: sc.plugin.v1.ResolveCredentialRequest
-	(*ResolveCredentialResponse)(nil),          // 46: sc.plugin.v1.ResolveCredentialResponse
-	(*LogStreamRequest)(nil),                   // 47: sc.plugin.v1.LogStreamRequest
-	(*PluginLogEvent)(nil),                     // 48: sc.plugin.v1.PluginLogEvent
-	(*PeerInvokeRequest)(nil),                  // 49: sc.plugin.v1.PeerInvokeRequest
-	(*PeerInvokeResponse)(nil),                 // 50: sc.plugin.v1.PeerInvokeResponse
-	nil,                                        // 51: sc.plugin.v1.RequestHeader.ProviderUrnsEntry
-	nil,                                        // 52: sc.plugin.v1.InputMap.FieldsEntry
-	nil,                                        // 53: sc.plugin.v1.InitStateStoreRequest.ConfigEntry
-	nil,                                        // 54: sc.plugin.v1.InitStateStoreResponse.EnvEntry
-	nil,                                        // 55: sc.plugin.v1.InitSecretsProviderRequest.ConfigEntry
-	nil,                                        // 56: sc.plugin.v1.InitSecretsProviderResponse.EnvEntry
-	nil,                                        // 57: sc.plugin.v1.ProviderRequest.InputsEntry
-	nil,                                        // 58: sc.plugin.v1.ComputeProcessRequest.InputsEntry
-	nil,                                        // 59: sc.plugin.v1.ComputeProcessRequest.DependencyOutputsEntry
-	nil,                                        // 60: sc.plugin.v1.ComputeProcessResponse.EnvEntry
-	nil,                                        // 61: sc.plugin.v1.ComputeProcessResponse.PlaceholdersEntry
-	nil,                                        // 62: sc.plugin.v1.ConvertStackConfigRequest.StackConfigEntry
-	nil,                                        // 63: sc.plugin.v1.ConvertStackConfigRequest.TemplateConfigEntry
-	nil,                                        // 64: sc.plugin.v1.ConvertStackConfigResponse.InputEntry
-	nil,                                        // 65: sc.plugin.v1.TemplateExtension.ValuesEntry
-	nil,                                        // 66: sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry
-	nil,                                        // 67: sc.plugin.v1.PreDestroyRequest.StackOutputsEntry
-	nil,                                        // 68: sc.plugin.v1.ProvisionRequest.InputsEntry
-	nil,                                        // 69: sc.plugin.v1.ProvisionRequest.DependencyOutputsEntry
-	nil,                                        // 70: sc.plugin.v1.ProvisionResponse.OutputsEntry
-	nil,                                        // 71: sc.plugin.v1.ProvisionResponse.EnvEntry
+	(*StringList)(nil),                         // 8: sc.plugin.v1.StringList
+	(*VmDriverSpec)(nil),                       // 9: sc.plugin.v1.VmDriverSpec
+	(*VmCapabilities)(nil),                     // 10: sc.plugin.v1.VmCapabilities
+	(*PulumiPluginRequirement)(nil),            // 11: sc.plugin.v1.PulumiPluginRequirement
+	(*InitStateStoreRequest)(nil),              // 12: sc.plugin.v1.InitStateStoreRequest
+	(*InitStateStoreResponse)(nil),             // 13: sc.plugin.v1.InitStateStoreResponse
+	(*InitSecretsProviderRequest)(nil),         // 14: sc.plugin.v1.InitSecretsProviderRequest
+	(*InitSecretsProviderResponse)(nil),        // 15: sc.plugin.v1.InitSecretsProviderResponse
+	(*ProviderRequest)(nil),                    // 16: sc.plugin.v1.ProviderRequest
+	(*ProviderResponse)(nil),                   // 17: sc.plugin.v1.ProviderResponse
+	(*ComputeProcessRequest)(nil),              // 18: sc.plugin.v1.ComputeProcessRequest
+	(*ComputeProcessResponse)(nil),             // 19: sc.plugin.v1.ComputeProcessResponse
+	(*ConvertStackConfigRequest)(nil),          // 20: sc.plugin.v1.ConvertStackConfigRequest
+	(*ConvertStackConfigResponse)(nil),         // 21: sc.plugin.v1.ConvertStackConfigResponse
+	(*ComputeEnvVariable)(nil),                 // 22: sc.plugin.v1.ComputeEnvVariable
+	(*TemplateExtension)(nil),                  // 23: sc.plugin.v1.TemplateExtension
+	(*ProvisionRegistrarRequest)(nil),          // 24: sc.plugin.v1.ProvisionRegistrarRequest
+	(*ProvisionRegistrarResponse)(nil),         // 25: sc.plugin.v1.ProvisionRegistrarResponse
+	(*NewDnsRecordRequest)(nil),                // 26: sc.plugin.v1.NewDnsRecordRequest
+	(*NewDnsRecordResponse)(nil),               // 27: sc.plugin.v1.NewDnsRecordResponse
+	(*NewOverrideHeaderRuleRequest)(nil),       // 28: sc.plugin.v1.NewOverrideHeaderRuleRequest
+	(*BasicAuthMsg)(nil),                       // 29: sc.plugin.v1.BasicAuthMsg
+	(*OverridePagesMsg)(nil),                   // 30: sc.plugin.v1.OverridePagesMsg
+	(*NewOverrideHeaderRuleResponse)(nil),      // 31: sc.plugin.v1.NewOverrideHeaderRuleResponse
+	(*ProvisionDomainForEndpointRequest)(nil),  // 32: sc.plugin.v1.ProvisionDomainForEndpointRequest
+	(*ProvisionDomainForEndpointResponse)(nil), // 33: sc.plugin.v1.ProvisionDomainForEndpointResponse
+	(*PreDestroyRequest)(nil),                  // 34: sc.plugin.v1.PreDestroyRequest
+	(*PreDestroyResponse)(nil),                 // 35: sc.plugin.v1.PreDestroyResponse
+	(*ProvisionRequest)(nil),                   // 36: sc.plugin.v1.ProvisionRequest
+	(*ProvisionResponse)(nil),                  // 37: sc.plugin.v1.ProvisionResponse
+	(*VmHostsRequest)(nil),                     // 38: sc.plugin.v1.VmHostsRequest
+	(*VmPortRange)(nil),                        // 39: sc.plugin.v1.VmPortRange
+	(*VmHostsResponse)(nil),                    // 40: sc.plugin.v1.VmHostsResponse
+	(*VmHostFacts)(nil),                        // 41: sc.plugin.v1.VmHostFacts
+	(*OutputValue)(nil),                        // 42: sc.plugin.v1.OutputValue
+	(*ResourcePropertyRef)(nil),                // 43: sc.plugin.v1.ResourcePropertyRef
+	(*ResolveSecretRequest)(nil),               // 44: sc.plugin.v1.ResolveSecretRequest
+	(*ResolveSecretResponse)(nil),              // 45: sc.plugin.v1.ResolveSecretResponse
+	(*ResolveCredentialRequest)(nil),           // 46: sc.plugin.v1.ResolveCredentialRequest
+	(*ResolveCredentialResponse)(nil),          // 47: sc.plugin.v1.ResolveCredentialResponse
+	(*LogStreamRequest)(nil),                   // 48: sc.plugin.v1.LogStreamRequest
+	(*PluginLogEvent)(nil),                     // 49: sc.plugin.v1.PluginLogEvent
+	(*PeerInvokeRequest)(nil),                  // 50: sc.plugin.v1.PeerInvokeRequest
+	(*PeerInvokeResponse)(nil),                 // 51: sc.plugin.v1.PeerInvokeResponse
+	nil,                                        // 52: sc.plugin.v1.RequestHeader.ProviderUrnsEntry
+	nil,                                        // 53: sc.plugin.v1.InputMap.FieldsEntry
+	nil,                                        // 54: sc.plugin.v1.SchemaResponse.ComponentAllowedOverridesEntry
+	nil,                                        // 55: sc.plugin.v1.InitStateStoreRequest.ConfigEntry
+	nil,                                        // 56: sc.plugin.v1.InitStateStoreResponse.EnvEntry
+	nil,                                        // 57: sc.plugin.v1.InitSecretsProviderRequest.ConfigEntry
+	nil,                                        // 58: sc.plugin.v1.InitSecretsProviderResponse.EnvEntry
+	nil,                                        // 59: sc.plugin.v1.ProviderRequest.InputsEntry
+	nil,                                        // 60: sc.plugin.v1.ComputeProcessRequest.InputsEntry
+	nil,                                        // 61: sc.plugin.v1.ComputeProcessRequest.DependencyOutputsEntry
+	nil,                                        // 62: sc.plugin.v1.ComputeProcessResponse.EnvEntry
+	nil,                                        // 63: sc.plugin.v1.ComputeProcessResponse.PlaceholdersEntry
+	nil,                                        // 64: sc.plugin.v1.ConvertStackConfigRequest.StackConfigEntry
+	nil,                                        // 65: sc.plugin.v1.ConvertStackConfigRequest.TemplateConfigEntry
+	nil,                                        // 66: sc.plugin.v1.ConvertStackConfigResponse.InputEntry
+	nil,                                        // 67: sc.plugin.v1.TemplateExtension.ValuesEntry
+	nil,                                        // 68: sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry
+	nil,                                        // 69: sc.plugin.v1.PreDestroyRequest.StackOutputsEntry
+	nil,                                        // 70: sc.plugin.v1.ProvisionRequest.InputsEntry
+	nil,                                        // 71: sc.plugin.v1.ProvisionRequest.DependencyOutputsEntry
+	nil,                                        // 72: sc.plugin.v1.ProvisionResponse.OutputsEntry
+	nil,                                        // 73: sc.plugin.v1.ProvisionResponse.EnvEntry
 }
 var file_v1_plugin_proto_depIdxs = []int32{
-	51, // 0: sc.plugin.v1.RequestHeader.provider_urns:type_name -> sc.plugin.v1.RequestHeader.ProviderUrnsEntry
+	52, // 0: sc.plugin.v1.RequestHeader.provider_urns:type_name -> sc.plugin.v1.RequestHeader.ProviderUrnsEntry
 	4,  // 1: sc.plugin.v1.InputValue.list_value:type_name -> sc.plugin.v1.InputList
 	5,  // 2: sc.plugin.v1.InputValue.map_value:type_name -> sc.plugin.v1.InputMap
 	3,  // 3: sc.plugin.v1.InputList.items:type_name -> sc.plugin.v1.InputValue
-	52, // 4: sc.plugin.v1.InputMap.fields:type_name -> sc.plugin.v1.InputMap.FieldsEntry
+	53, // 4: sc.plugin.v1.InputMap.fields:type_name -> sc.plugin.v1.InputMap.FieldsEntry
 	2,  // 5: sc.plugin.v1.SchemaRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	10, // 6: sc.plugin.v1.SchemaResponse.pulumi_plugins:type_name -> sc.plugin.v1.PulumiPluginRequirement
-	8,  // 7: sc.plugin.v1.SchemaResponse.vm_drivers:type_name -> sc.plugin.v1.VmDriverSpec
-	9,  // 8: sc.plugin.v1.VmDriverSpec.capabilities:type_name -> sc.plugin.v1.VmCapabilities
-	2,  // 9: sc.plugin.v1.InitStateStoreRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	53, // 10: sc.plugin.v1.InitStateStoreRequest.config:type_name -> sc.plugin.v1.InitStateStoreRequest.ConfigEntry
-	54, // 11: sc.plugin.v1.InitStateStoreResponse.env:type_name -> sc.plugin.v1.InitStateStoreResponse.EnvEntry
-	2,  // 12: sc.plugin.v1.InitSecretsProviderRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	55, // 13: sc.plugin.v1.InitSecretsProviderRequest.config:type_name -> sc.plugin.v1.InitSecretsProviderRequest.ConfigEntry
-	56, // 14: sc.plugin.v1.InitSecretsProviderResponse.env:type_name -> sc.plugin.v1.InitSecretsProviderResponse.EnvEntry
-	2,  // 15: sc.plugin.v1.ProviderRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	57, // 16: sc.plugin.v1.ProviderRequest.inputs:type_name -> sc.plugin.v1.ProviderRequest.InputsEntry
-	2,  // 17: sc.plugin.v1.ComputeProcessRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	58, // 18: sc.plugin.v1.ComputeProcessRequest.inputs:type_name -> sc.plugin.v1.ComputeProcessRequest.InputsEntry
-	59, // 19: sc.plugin.v1.ComputeProcessRequest.dependency_outputs:type_name -> sc.plugin.v1.ComputeProcessRequest.DependencyOutputsEntry
-	60, // 20: sc.plugin.v1.ComputeProcessResponse.env:type_name -> sc.plugin.v1.ComputeProcessResponse.EnvEntry
-	61, // 21: sc.plugin.v1.ComputeProcessResponse.placeholders:type_name -> sc.plugin.v1.ComputeProcessResponse.PlaceholdersEntry
-	21, // 22: sc.plugin.v1.ComputeProcessResponse.env_vars:type_name -> sc.plugin.v1.ComputeEnvVariable
-	22, // 23: sc.plugin.v1.ComputeProcessResponse.tpl_extensions:type_name -> sc.plugin.v1.TemplateExtension
-	2,  // 24: sc.plugin.v1.ConvertStackConfigRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	62, // 25: sc.plugin.v1.ConvertStackConfigRequest.stack_config:type_name -> sc.plugin.v1.ConvertStackConfigRequest.StackConfigEntry
-	63, // 26: sc.plugin.v1.ConvertStackConfigRequest.template_config:type_name -> sc.plugin.v1.ConvertStackConfigRequest.TemplateConfigEntry
-	64, // 27: sc.plugin.v1.ConvertStackConfigResponse.input:type_name -> sc.plugin.v1.ConvertStackConfigResponse.InputEntry
-	0,  // 28: sc.plugin.v1.TemplateExtension.kind:type_name -> sc.plugin.v1.TemplateExtensionKind
-	65, // 29: sc.plugin.v1.TemplateExtension.values:type_name -> sc.plugin.v1.TemplateExtension.ValuesEntry
-	2,  // 30: sc.plugin.v1.ProvisionRegistrarRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	66, // 31: sc.plugin.v1.ProvisionRegistrarRequest.config:type_name -> sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry
-	2,  // 32: sc.plugin.v1.NewDnsRecordRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	2,  // 33: sc.plugin.v1.NewOverrideHeaderRuleRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	28, // 34: sc.plugin.v1.NewOverrideHeaderRuleRequest.basic_auth:type_name -> sc.plugin.v1.BasicAuthMsg
-	29, // 35: sc.plugin.v1.NewOverrideHeaderRuleRequest.override_pages:type_name -> sc.plugin.v1.OverridePagesMsg
-	2,  // 36: sc.plugin.v1.ProvisionDomainForEndpointRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	2,  // 37: sc.plugin.v1.PreDestroyRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	67, // 38: sc.plugin.v1.PreDestroyRequest.stack_outputs:type_name -> sc.plugin.v1.PreDestroyRequest.StackOutputsEntry
-	2,  // 39: sc.plugin.v1.ProvisionRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	68, // 40: sc.plugin.v1.ProvisionRequest.inputs:type_name -> sc.plugin.v1.ProvisionRequest.InputsEntry
-	69, // 41: sc.plugin.v1.ProvisionRequest.dependency_outputs:type_name -> sc.plugin.v1.ProvisionRequest.DependencyOutputsEntry
-	21, // 42: sc.plugin.v1.ProvisionRequest.compute_env_vars:type_name -> sc.plugin.v1.ComputeEnvVariable
-	70, // 43: sc.plugin.v1.ProvisionResponse.outputs:type_name -> sc.plugin.v1.ProvisionResponse.OutputsEntry
-	71, // 44: sc.plugin.v1.ProvisionResponse.env:type_name -> sc.plugin.v1.ProvisionResponse.EnvEntry
-	2,  // 45: sc.plugin.v1.VmHostsRequest.header:type_name -> sc.plugin.v1.RequestHeader
-	38, // 46: sc.plugin.v1.VmHostsRequest.ports:type_name -> sc.plugin.v1.VmPortRange
-	40, // 47: sc.plugin.v1.VmHostsResponse.hosts:type_name -> sc.plugin.v1.VmHostFacts
-	41, // 48: sc.plugin.v1.VmHostFacts.address:type_name -> sc.plugin.v1.OutputValue
-	41, // 49: sc.plugin.v1.VmHostFacts.private_key:type_name -> sc.plugin.v1.OutputValue
-	41, // 50: sc.plugin.v1.VmHostFacts.private_key_password:type_name -> sc.plugin.v1.OutputValue
-	41, // 51: sc.plugin.v1.VmHostFacts.host_key:type_name -> sc.plugin.v1.OutputValue
-	42, // 52: sc.plugin.v1.OutputValue.ref:type_name -> sc.plugin.v1.ResourcePropertyRef
-	1,  // 53: sc.plugin.v1.PluginLogEvent.severity:type_name -> sc.plugin.v1.LogSeverity
-	3,  // 54: sc.plugin.v1.InputMap.FieldsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 55: sc.plugin.v1.InitStateStoreRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 56: sc.plugin.v1.InitStateStoreResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 57: sc.plugin.v1.InitSecretsProviderRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 58: sc.plugin.v1.InitSecretsProviderResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 59: sc.plugin.v1.ProviderRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 60: sc.plugin.v1.ComputeProcessRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 61: sc.plugin.v1.ComputeProcessResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 62: sc.plugin.v1.ConvertStackConfigRequest.StackConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 63: sc.plugin.v1.ConvertStackConfigRequest.TemplateConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 64: sc.plugin.v1.ConvertStackConfigResponse.InputEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 65: sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 66: sc.plugin.v1.ProvisionRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 67: sc.plugin.v1.ProvisionResponse.OutputsEntry.value:type_name -> sc.plugin.v1.InputValue
-	3,  // 68: sc.plugin.v1.ProvisionResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
-	6,  // 69: sc.plugin.v1.SCCloudPlugin.Schema:input_type -> sc.plugin.v1.SchemaRequest
-	11, // 70: sc.plugin.v1.SCCloudPlugin.InitStateStore:input_type -> sc.plugin.v1.InitStateStoreRequest
-	13, // 71: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:input_type -> sc.plugin.v1.InitSecretsProviderRequest
-	15, // 72: sc.plugin.v1.SCCloudPlugin.Provider:input_type -> sc.plugin.v1.ProviderRequest
-	35, // 73: sc.plugin.v1.SCCloudPlugin.Provision:input_type -> sc.plugin.v1.ProvisionRequest
-	17, // 74: sc.plugin.v1.SCCloudPlugin.ComputeProcess:input_type -> sc.plugin.v1.ComputeProcessRequest
-	19, // 75: sc.plugin.v1.SCCloudPlugin.ConvertStackConfig:input_type -> sc.plugin.v1.ConvertStackConfigRequest
-	23, // 76: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:input_type -> sc.plugin.v1.ProvisionRegistrarRequest
-	25, // 77: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:input_type -> sc.plugin.v1.NewDnsRecordRequest
-	27, // 78: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:input_type -> sc.plugin.v1.NewOverrideHeaderRuleRequest
-	31, // 79: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:input_type -> sc.plugin.v1.ProvisionDomainForEndpointRequest
-	33, // 80: sc.plugin.v1.SCCloudPlugin.PreDestroy:input_type -> sc.plugin.v1.PreDestroyRequest
-	37, // 81: sc.plugin.v1.SCCloudPlugin.VmHosts:input_type -> sc.plugin.v1.VmHostsRequest
-	47, // 82: sc.plugin.v1.SCCloudPlugin.LogStream:input_type -> sc.plugin.v1.LogStreamRequest
-	43, // 83: sc.plugin.v1.SCCore.ResolveSecret:input_type -> sc.plugin.v1.ResolveSecretRequest
-	45, // 84: sc.plugin.v1.SCCore.ResolveCredential:input_type -> sc.plugin.v1.ResolveCredentialRequest
-	49, // 85: sc.plugin.v1.SCCore.PeerInvoke:input_type -> sc.plugin.v1.PeerInvokeRequest
-	7,  // 86: sc.plugin.v1.SCCloudPlugin.Schema:output_type -> sc.plugin.v1.SchemaResponse
-	12, // 87: sc.plugin.v1.SCCloudPlugin.InitStateStore:output_type -> sc.plugin.v1.InitStateStoreResponse
-	14, // 88: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:output_type -> sc.plugin.v1.InitSecretsProviderResponse
-	16, // 89: sc.plugin.v1.SCCloudPlugin.Provider:output_type -> sc.plugin.v1.ProviderResponse
-	36, // 90: sc.plugin.v1.SCCloudPlugin.Provision:output_type -> sc.plugin.v1.ProvisionResponse
-	18, // 91: sc.plugin.v1.SCCloudPlugin.ComputeProcess:output_type -> sc.plugin.v1.ComputeProcessResponse
-	20, // 92: sc.plugin.v1.SCCloudPlugin.ConvertStackConfig:output_type -> sc.plugin.v1.ConvertStackConfigResponse
-	24, // 93: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:output_type -> sc.plugin.v1.ProvisionRegistrarResponse
-	26, // 94: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:output_type -> sc.plugin.v1.NewDnsRecordResponse
-	30, // 95: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:output_type -> sc.plugin.v1.NewOverrideHeaderRuleResponse
-	32, // 96: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:output_type -> sc.plugin.v1.ProvisionDomainForEndpointResponse
-	34, // 97: sc.plugin.v1.SCCloudPlugin.PreDestroy:output_type -> sc.plugin.v1.PreDestroyResponse
-	39, // 98: sc.plugin.v1.SCCloudPlugin.VmHosts:output_type -> sc.plugin.v1.VmHostsResponse
-	48, // 99: sc.plugin.v1.SCCloudPlugin.LogStream:output_type -> sc.plugin.v1.PluginLogEvent
-	44, // 100: sc.plugin.v1.SCCore.ResolveSecret:output_type -> sc.plugin.v1.ResolveSecretResponse
-	46, // 101: sc.plugin.v1.SCCore.ResolveCredential:output_type -> sc.plugin.v1.ResolveCredentialResponse
-	50, // 102: sc.plugin.v1.SCCore.PeerInvoke:output_type -> sc.plugin.v1.PeerInvokeResponse
-	86, // [86:103] is the sub-list for method output_type
-	69, // [69:86] is the sub-list for method input_type
-	69, // [69:69] is the sub-list for extension type_name
-	69, // [69:69] is the sub-list for extension extendee
-	0,  // [0:69] is the sub-list for field type_name
+	11, // 6: sc.plugin.v1.SchemaResponse.pulumi_plugins:type_name -> sc.plugin.v1.PulumiPluginRequirement
+	9,  // 7: sc.plugin.v1.SchemaResponse.vm_drivers:type_name -> sc.plugin.v1.VmDriverSpec
+	54, // 8: sc.plugin.v1.SchemaResponse.component_allowed_overrides:type_name -> sc.plugin.v1.SchemaResponse.ComponentAllowedOverridesEntry
+	10, // 9: sc.plugin.v1.VmDriverSpec.capabilities:type_name -> sc.plugin.v1.VmCapabilities
+	2,  // 10: sc.plugin.v1.InitStateStoreRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	55, // 11: sc.plugin.v1.InitStateStoreRequest.config:type_name -> sc.plugin.v1.InitStateStoreRequest.ConfigEntry
+	56, // 12: sc.plugin.v1.InitStateStoreResponse.env:type_name -> sc.plugin.v1.InitStateStoreResponse.EnvEntry
+	2,  // 13: sc.plugin.v1.InitSecretsProviderRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	57, // 14: sc.plugin.v1.InitSecretsProviderRequest.config:type_name -> sc.plugin.v1.InitSecretsProviderRequest.ConfigEntry
+	58, // 15: sc.plugin.v1.InitSecretsProviderResponse.env:type_name -> sc.plugin.v1.InitSecretsProviderResponse.EnvEntry
+	2,  // 16: sc.plugin.v1.ProviderRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	59, // 17: sc.plugin.v1.ProviderRequest.inputs:type_name -> sc.plugin.v1.ProviderRequest.InputsEntry
+	2,  // 18: sc.plugin.v1.ComputeProcessRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	60, // 19: sc.plugin.v1.ComputeProcessRequest.inputs:type_name -> sc.plugin.v1.ComputeProcessRequest.InputsEntry
+	61, // 20: sc.plugin.v1.ComputeProcessRequest.dependency_outputs:type_name -> sc.plugin.v1.ComputeProcessRequest.DependencyOutputsEntry
+	62, // 21: sc.plugin.v1.ComputeProcessResponse.env:type_name -> sc.plugin.v1.ComputeProcessResponse.EnvEntry
+	63, // 22: sc.plugin.v1.ComputeProcessResponse.placeholders:type_name -> sc.plugin.v1.ComputeProcessResponse.PlaceholdersEntry
+	22, // 23: sc.plugin.v1.ComputeProcessResponse.env_vars:type_name -> sc.plugin.v1.ComputeEnvVariable
+	23, // 24: sc.plugin.v1.ComputeProcessResponse.tpl_extensions:type_name -> sc.plugin.v1.TemplateExtension
+	2,  // 25: sc.plugin.v1.ConvertStackConfigRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	64, // 26: sc.plugin.v1.ConvertStackConfigRequest.stack_config:type_name -> sc.plugin.v1.ConvertStackConfigRequest.StackConfigEntry
+	65, // 27: sc.plugin.v1.ConvertStackConfigRequest.template_config:type_name -> sc.plugin.v1.ConvertStackConfigRequest.TemplateConfigEntry
+	66, // 28: sc.plugin.v1.ConvertStackConfigResponse.input:type_name -> sc.plugin.v1.ConvertStackConfigResponse.InputEntry
+	0,  // 29: sc.plugin.v1.TemplateExtension.kind:type_name -> sc.plugin.v1.TemplateExtensionKind
+	67, // 30: sc.plugin.v1.TemplateExtension.values:type_name -> sc.plugin.v1.TemplateExtension.ValuesEntry
+	2,  // 31: sc.plugin.v1.ProvisionRegistrarRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	68, // 32: sc.plugin.v1.ProvisionRegistrarRequest.config:type_name -> sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry
+	2,  // 33: sc.plugin.v1.NewDnsRecordRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	2,  // 34: sc.plugin.v1.NewOverrideHeaderRuleRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	29, // 35: sc.plugin.v1.NewOverrideHeaderRuleRequest.basic_auth:type_name -> sc.plugin.v1.BasicAuthMsg
+	30, // 36: sc.plugin.v1.NewOverrideHeaderRuleRequest.override_pages:type_name -> sc.plugin.v1.OverridePagesMsg
+	2,  // 37: sc.plugin.v1.ProvisionDomainForEndpointRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	2,  // 38: sc.plugin.v1.PreDestroyRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	69, // 39: sc.plugin.v1.PreDestroyRequest.stack_outputs:type_name -> sc.plugin.v1.PreDestroyRequest.StackOutputsEntry
+	2,  // 40: sc.plugin.v1.ProvisionRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	70, // 41: sc.plugin.v1.ProvisionRequest.inputs:type_name -> sc.plugin.v1.ProvisionRequest.InputsEntry
+	71, // 42: sc.plugin.v1.ProvisionRequest.dependency_outputs:type_name -> sc.plugin.v1.ProvisionRequest.DependencyOutputsEntry
+	22, // 43: sc.plugin.v1.ProvisionRequest.compute_env_vars:type_name -> sc.plugin.v1.ComputeEnvVariable
+	72, // 44: sc.plugin.v1.ProvisionResponse.outputs:type_name -> sc.plugin.v1.ProvisionResponse.OutputsEntry
+	73, // 45: sc.plugin.v1.ProvisionResponse.env:type_name -> sc.plugin.v1.ProvisionResponse.EnvEntry
+	2,  // 46: sc.plugin.v1.VmHostsRequest.header:type_name -> sc.plugin.v1.RequestHeader
+	39, // 47: sc.plugin.v1.VmHostsRequest.ports:type_name -> sc.plugin.v1.VmPortRange
+	41, // 48: sc.plugin.v1.VmHostsResponse.hosts:type_name -> sc.plugin.v1.VmHostFacts
+	42, // 49: sc.plugin.v1.VmHostFacts.address:type_name -> sc.plugin.v1.OutputValue
+	42, // 50: sc.plugin.v1.VmHostFacts.private_key:type_name -> sc.plugin.v1.OutputValue
+	42, // 51: sc.plugin.v1.VmHostFacts.private_key_password:type_name -> sc.plugin.v1.OutputValue
+	42, // 52: sc.plugin.v1.VmHostFacts.host_key:type_name -> sc.plugin.v1.OutputValue
+	43, // 53: sc.plugin.v1.OutputValue.ref:type_name -> sc.plugin.v1.ResourcePropertyRef
+	1,  // 54: sc.plugin.v1.PluginLogEvent.severity:type_name -> sc.plugin.v1.LogSeverity
+	3,  // 55: sc.plugin.v1.InputMap.FieldsEntry.value:type_name -> sc.plugin.v1.InputValue
+	8,  // 56: sc.plugin.v1.SchemaResponse.ComponentAllowedOverridesEntry.value:type_name -> sc.plugin.v1.StringList
+	3,  // 57: sc.plugin.v1.InitStateStoreRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 58: sc.plugin.v1.InitStateStoreResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 59: sc.plugin.v1.InitSecretsProviderRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 60: sc.plugin.v1.InitSecretsProviderResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 61: sc.plugin.v1.ProviderRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 62: sc.plugin.v1.ComputeProcessRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 63: sc.plugin.v1.ComputeProcessResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 64: sc.plugin.v1.ConvertStackConfigRequest.StackConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 65: sc.plugin.v1.ConvertStackConfigRequest.TemplateConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 66: sc.plugin.v1.ConvertStackConfigResponse.InputEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 67: sc.plugin.v1.ProvisionRegistrarRequest.ConfigEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 68: sc.plugin.v1.ProvisionRequest.InputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 69: sc.plugin.v1.ProvisionResponse.OutputsEntry.value:type_name -> sc.plugin.v1.InputValue
+	3,  // 70: sc.plugin.v1.ProvisionResponse.EnvEntry.value:type_name -> sc.plugin.v1.InputValue
+	6,  // 71: sc.plugin.v1.SCCloudPlugin.Schema:input_type -> sc.plugin.v1.SchemaRequest
+	12, // 72: sc.plugin.v1.SCCloudPlugin.InitStateStore:input_type -> sc.plugin.v1.InitStateStoreRequest
+	14, // 73: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:input_type -> sc.plugin.v1.InitSecretsProviderRequest
+	16, // 74: sc.plugin.v1.SCCloudPlugin.Provider:input_type -> sc.plugin.v1.ProviderRequest
+	36, // 75: sc.plugin.v1.SCCloudPlugin.Provision:input_type -> sc.plugin.v1.ProvisionRequest
+	18, // 76: sc.plugin.v1.SCCloudPlugin.ComputeProcess:input_type -> sc.plugin.v1.ComputeProcessRequest
+	20, // 77: sc.plugin.v1.SCCloudPlugin.ConvertStackConfig:input_type -> sc.plugin.v1.ConvertStackConfigRequest
+	24, // 78: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:input_type -> sc.plugin.v1.ProvisionRegistrarRequest
+	26, // 79: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:input_type -> sc.plugin.v1.NewDnsRecordRequest
+	28, // 80: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:input_type -> sc.plugin.v1.NewOverrideHeaderRuleRequest
+	32, // 81: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:input_type -> sc.plugin.v1.ProvisionDomainForEndpointRequest
+	34, // 82: sc.plugin.v1.SCCloudPlugin.PreDestroy:input_type -> sc.plugin.v1.PreDestroyRequest
+	38, // 83: sc.plugin.v1.SCCloudPlugin.VmHosts:input_type -> sc.plugin.v1.VmHostsRequest
+	48, // 84: sc.plugin.v1.SCCloudPlugin.LogStream:input_type -> sc.plugin.v1.LogStreamRequest
+	44, // 85: sc.plugin.v1.SCCore.ResolveSecret:input_type -> sc.plugin.v1.ResolveSecretRequest
+	46, // 86: sc.plugin.v1.SCCore.ResolveCredential:input_type -> sc.plugin.v1.ResolveCredentialRequest
+	50, // 87: sc.plugin.v1.SCCore.PeerInvoke:input_type -> sc.plugin.v1.PeerInvokeRequest
+	7,  // 88: sc.plugin.v1.SCCloudPlugin.Schema:output_type -> sc.plugin.v1.SchemaResponse
+	13, // 89: sc.plugin.v1.SCCloudPlugin.InitStateStore:output_type -> sc.plugin.v1.InitStateStoreResponse
+	15, // 90: sc.plugin.v1.SCCloudPlugin.InitSecretsProvider:output_type -> sc.plugin.v1.InitSecretsProviderResponse
+	17, // 91: sc.plugin.v1.SCCloudPlugin.Provider:output_type -> sc.plugin.v1.ProviderResponse
+	37, // 92: sc.plugin.v1.SCCloudPlugin.Provision:output_type -> sc.plugin.v1.ProvisionResponse
+	19, // 93: sc.plugin.v1.SCCloudPlugin.ComputeProcess:output_type -> sc.plugin.v1.ComputeProcessResponse
+	21, // 94: sc.plugin.v1.SCCloudPlugin.ConvertStackConfig:output_type -> sc.plugin.v1.ConvertStackConfigResponse
+	25, // 95: sc.plugin.v1.SCCloudPlugin.ProvisionRegistrar:output_type -> sc.plugin.v1.ProvisionRegistrarResponse
+	27, // 96: sc.plugin.v1.SCCloudPlugin.NewDnsRecord:output_type -> sc.plugin.v1.NewDnsRecordResponse
+	31, // 97: sc.plugin.v1.SCCloudPlugin.NewOverrideHeaderRule:output_type -> sc.plugin.v1.NewOverrideHeaderRuleResponse
+	33, // 98: sc.plugin.v1.SCCloudPlugin.ProvisionDomainForEndpoint:output_type -> sc.plugin.v1.ProvisionDomainForEndpointResponse
+	35, // 99: sc.plugin.v1.SCCloudPlugin.PreDestroy:output_type -> sc.plugin.v1.PreDestroyResponse
+	40, // 100: sc.plugin.v1.SCCloudPlugin.VmHosts:output_type -> sc.plugin.v1.VmHostsResponse
+	49, // 101: sc.plugin.v1.SCCloudPlugin.LogStream:output_type -> sc.plugin.v1.PluginLogEvent
+	45, // 102: sc.plugin.v1.SCCore.ResolveSecret:output_type -> sc.plugin.v1.ResolveSecretResponse
+	47, // 103: sc.plugin.v1.SCCore.ResolveCredential:output_type -> sc.plugin.v1.ResolveCredentialResponse
+	51, // 104: sc.plugin.v1.SCCore.PeerInvoke:output_type -> sc.plugin.v1.PeerInvokeResponse
+	88, // [88:105] is the sub-list for method output_type
+	71, // [71:88] is the sub-list for method input_type
+	71, // [71:71] is the sub-list for extension type_name
+	71, // [71:71] is the sub-list for extension extendee
+	0,  // [0:71] is the sub-list for field type_name
 }
 
 func init() { file_v1_plugin_proto_init() }
@@ -4797,8 +4909,8 @@ func file_v1_plugin_proto_init() {
 		(*InputValue_OutputRef)(nil),
 		(*InputValue_SecretRef)(nil),
 	}
-	file_v1_plugin_proto_msgTypes[23].OneofWrappers = []any{}
-	file_v1_plugin_proto_msgTypes[39].OneofWrappers = []any{
+	file_v1_plugin_proto_msgTypes[24].OneofWrappers = []any{}
+	file_v1_plugin_proto_msgTypes[40].OneofWrappers = []any{
 		(*OutputValue_Literal)(nil),
 		(*OutputValue_Ref)(nil),
 	}
@@ -4808,7 +4920,7 @@ func file_v1_plugin_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_v1_plugin_proto_rawDesc), len(file_v1_plugin_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   70,
+			NumMessages:   72,
 			NumExtensions: 0,
 			NumServices:   2,
 		},
