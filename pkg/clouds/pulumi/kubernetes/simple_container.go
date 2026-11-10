@@ -1539,6 +1539,11 @@ func convertLabelSelector(labelSelector *k8s.LabelSelector) *metav1.LabelSelecto
 	return kubeLabelSelector
 }
 
+// podTemplateHashLabel is the label the Deployment controller stamps on every
+// pod with the hash of its template — i.e. a per-revision identity. Kubernetes
+// owns the name; it is not ours to choose.
+const podTemplateHashLabel = "pod-template-hash"
+
 func normalizeTopologySpreadConstraints(constraints []k8s.TopologySpreadConstraint, appLabels map[string]string) ([]k8s.TopologySpreadConstraint, error) {
 	if len(constraints) == 0 {
 		return nil, nil
@@ -1573,6 +1578,13 @@ func normalizeTopologySpreadConstraints(constraints []k8s.TopologySpreadConstrai
 		if n.LabelSelector == nil {
 			n.LabelSelector = &k8s.LabelSelector{MatchLabels: appLabels}
 		}
+		// Default to per-revision counting. nil means "unset" and gets the
+		// default; an explicitly empty slice is an opt-out and is left alone,
+		// which is why this tests for nil rather than for length. See the
+		// field's doc for what goes wrong without it.
+		if n.MatchLabelKeys == nil {
+			n.MatchLabelKeys = []string{podTemplateHashLabel}
+		}
 
 		out = append(out, n)
 	}
@@ -1591,6 +1603,11 @@ func convertTopologySpreadConstraints(constraints []k8s.TopologySpreadConstraint
 			TopologyKey:       sdk.String(c.TopologyKey),
 			WhenUnsatisfiable: sdk.String(c.WhenUnsatisfiable),
 			LabelSelector:     convertLabelSelector(c.LabelSelector),
+		}
+		// Only when non-empty: the API server rejects matchLabelKeys without a
+		// labelSelector, and an empty array is the operator's opt-out.
+		if len(c.MatchLabelKeys) > 0 {
+			constraint.MatchLabelKeys = sdk.ToStringArray(c.MatchLabelKeys)
 		}
 		if c.MinDomains != nil {
 			constraint.MinDomains = sdk.Int(*c.MinDomains)
