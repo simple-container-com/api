@@ -64,6 +64,36 @@
       "schema": {}
     },
     {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform pluginfield configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "gcp",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "resource",
+      "provider": "gcp",
+      "description": "Google Cloud Platform pluginfield configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "gcp-kms",
+      "schema": {}
+    },
+    {
+      "name": "PluginFieldConfig",
+      "type": "provisioner",
+      "provider": "gcp",
+      "description": "Google Cloud Platform secrets management configuration",
+      "goPackage": "pkg/clouds/gcp/",
+      "goStruct": "PluginFieldConfig",
+      "resourceType": "gcp-secrets-manager",
+      "schema": {}
+    },
+    {
       "name": "PostgresGcpCloudsqlConfig",
       "type": "resource",
       "provider": "gcp",

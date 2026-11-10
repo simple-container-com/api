@@ -22,7 +22,7 @@
       "description": "Fs cloud provider resources and templates"
     },
     "gcp": {
-      "count": 15,
+      "count": 18,
       "description": "Gcp cloud provider resources and templates"
     },
     "github": {

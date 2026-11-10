@@ -9,6 +9,42 @@
   "schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
+      "acmeStorage": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "accessKey": {
+            "type": "string"
+          },
+          "bucket": {
+            "type": "string"
+          },
+          "encryptionKey": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "insecure": {
+            "type": "boolean"
+          },
+          "pathStyle": {
+            "type": "boolean"
+          },
+          "prefix": {
+            "type": "string"
+          },
+          "region": {
+            "type": "string"
+          },
+          "secretKey": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket"
+        ],
+        "type": "object"
+      },
       "caddyfile": {
         "type": "string"
       },
@@ -140,6 +176,12 @@
                 "matchLabels"
               ],
               "type": "object"
+            },
+            "matchLabelKeys": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
             },
             "maxSkew": {
               "type": "integer"
