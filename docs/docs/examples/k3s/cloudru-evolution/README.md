@@ -295,8 +295,11 @@ Stated plainly, because `scale:` will happily let you believe otherwise:
   VM create takes no `subnet_id`, so each machine lands on its own zone's default subnet
   and the node-to-node firewall rules SC writes (flannel, kubelet, etcd) are scoped to
   the subnet the machine landed on — which does not cover its siblings in other zones.
-  Keep a k3s pool in one zone here. A compose fleet is unaffected: those machines never
-  talk to each other.
+  `mesh: {enable: true}` addresses (2) by moving node-to-node traffic onto one overlay
+  CIDR regardless of zone, but it cannot do anything about (1), so keep a k3s pool in
+  one zone here for now. A compose fleet is unaffected: those machines never talk to
+  each other. Multi-node k3s **is** usable today on `provider: byo` — see
+  [that example](../byo-host/README.md).
 - **`local-storage` is the default storage class.** A PersistentVolume is a directory on
   that one machine, and it does not survive the machine. Cloud.ru's own block storage is
   not wired to a CSI driver here, and nothing replicates a volume across a pool.
