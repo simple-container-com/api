@@ -83,6 +83,24 @@ func BuildAndPushImage(ctx *sdk.Context, stack api.Stack, params pApi.ProvisionP
 
 	platform := lo.If(image.Platform != nil, lo.FromPtr(image.Platform)).Else(string(api.ImagePlatformLinuxAmd64))
 	args := sdk.StringMap{"VERSION": sdk.String(image.Version)}
+	// Auto-inject the two Git identity build-args. Precedence per variable:
+	//   1. GitHub Actions env (`$GITHUB_SHA` / `$GITHUB_REPOSITORY`) if set
+	//      — the CI happy path with no local git ops.
+	//   2. Local git worktree at `image.Context` — `git rev-parse HEAD` for
+	//      the SHA, `git config --get remote.origin.url` parsed to
+	//      `<owner>/<repo>` for the repository. Covers `sc deploy` from a
+	//      developer workstation off a cloned repo, regardless of host
+	//      (github, gitlab, bitbucket, self-hosted).
+	//   3. Omitted — the Dockerfile's `ARG X=dev` default fires honestly.
+	// Operator-supplied `image.Args` below still overrides either value when
+	// set explicitly. forge-roadmap item:
+	// sc-auto-inject-github-sha-and-repository-build-args.
+	if v := resolveGitSHA(image.Context); v != "" {
+		args["GITHUB_SHA"] = sdk.String(v)
+	}
+	if v := resolveGitRepository(image.Context); v != "" {
+		args["GITHUB_REPOSITORY"] = sdk.String(v)
+	}
 	for k, v := range image.Args {
 		args[k] = sdk.String(v)
 	}
