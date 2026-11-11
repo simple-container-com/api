@@ -101,10 +101,11 @@ resources:
             # machine lands on its own zone's default subnet — and the node-to-node
             # firewall rules SC writes (flannel, kubelet, etcd) are scoped to "the
             # subnet this machine landed on", which does not cover its siblings in
-            # other zones. Keep a k3s pool in ONE zone here until the SC-managed
-            # WireGuard mesh lands, which makes the rules one mesh CIDR regardless of
-            # zone. A compose fleet is unaffected: those machines never talk to each
-            # other.
+            # other zones. `mesh: {enable: true}` is the answer to that half — it
+            # moves node-to-node traffic onto one overlay CIDR regardless of zone —
+            # but it cannot help until this driver creates more than one machine, so
+            # keep a k3s pool in ONE zone here for now. A compose fleet is unaffected:
+            # those machines never talk to each other.
 
             # Required on every cloud driver. The kubeconfig SC exports points at this
             # address, and `sc deploy` connects to it from wherever it runs.

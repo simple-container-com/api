@@ -153,12 +153,19 @@ func K3sCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	sanInputs := []any{endpoint}
 	for i, h := range vmOut.Hosts {
 		if roles[i] == vm.RoleK3sServer {
-			// Both addresses of every server. The public one is what an operator and
-			// the kubeconfig dial; the private one is what peers dial, because that is
-			// what `--advertise-address` makes the API server advertise. Omitting the
-			// private one is an x509 failure on every server-to-server call, and it
+			// EVERY address of every server. The public one is what an operator and
+			// the kubeconfig dial; the node-to-node one is what peers dial, because
+			// that is what `--advertise-address` makes the API server advertise.
+			// Omitting it is an x509 failure on every server-to-server call, and it
 			// presents as a cluster that forms and then cannot elect a leader.
-			sanInputs = append(sanInputs, h.Address, h.EffectivePrivateAddress())
+			//
+			// Both accessors, not just the one this cluster will advertise on, and
+			// `lo.Uniq` below collapses the overlap. A SAN is free; working out
+			// which of the two is in play would duplicate the precedence rule that
+			// EffectiveMeshAddress already owns, and get it wrong the next time the
+			// precedence changes. Where there is no mesh the two are equal and this
+			// list is byte-identical to what it was before the mesh existed.
+			sanInputs = append(sanInputs, h.Address, h.EffectivePrivateAddress(), h.EffectiveMeshAddress())
 		}
 	}
 	sans := sdk.All(sanInputs...).ApplyT(func(args []any) []string {
@@ -170,16 +177,19 @@ func K3sCluster(ctx *sdk.Context, stack api.Stack, input api.ResourceInput, para
 	// the same provision) or a load balancer whose health checks only pass once the
 	// nodes it balances are up — either way a join that waits for it deadlocks.
 	//
-	// Its PRIVATE address, because a join is node-to-node traffic. Equal to the
-	// public one whenever the distinction does not apply (see HostFacts).
-	joinURL := host.EffectivePrivateAddress().ApplyT(func(addr string) string {
+	// Its NODE-TO-NODE address, because a join is node-to-node traffic: the mesh
+	// address where the resource declares a mesh, the operator's `privateAddress`
+	// where it does not, and the public address where neither exists (see
+	// HostFacts.EffectiveMeshAddress for the precedence and why it is a policy
+	// rather than a fallback chain).
+	joinURL := host.EffectiveMeshAddress().ApplyT(func(addr string) string {
 		return fmt.Sprintf("https://%s:%d", addr, k3s.APIPort)
 	}).(sdk.StringOutput)
 
 	// Only on a multi-node cluster: a single node has no peers to advertise to, and
 	// pinning `--node-ip` there would change the args marker of every existing
 	// single-node cluster and reinstall its control plane for no behaviour change.
-	nodeIP := lo.If(len(vmOut.Hosts) > 1, host.EffectivePrivateAddress()).Else(sdk.String("").ToStringOutput())
+	nodeIP := lo.If(len(vmOut.Hosts) > 1, host.EffectiveMeshAddress()).Else(sdk.String("").ToStringOutput())
 
 	installScript := sdk.All(sans, nodeIP).ApplyT(func(args []any) string {
 		// `--cluster-init` only when this cluster has more than one server: embedded
@@ -553,8 +563,8 @@ func installNode(
 	// set holding it would put a cluster credential in every preview diff.
 	// Every node reached here is part of a multi-node cluster by construction — a
 	// single-node cluster has no node to join — so `--node-ip` is always set, to
-	// THIS host's private address rather than host 0's.
-	nodeArgs := sdk.All(a.sans, a.joinURL, host.EffectivePrivateAddress()).ApplyT(func(args []any) string {
+	// THIS host's node-to-node address rather than host 0's.
+	nodeArgs := sdk.All(a.sans, a.joinURL, host.EffectiveMeshAddress()).ApplyT(func(args []any) string {
 		sans := args[0].([]string)
 		join := JoinSpec{ServerURL: args[1].(string), NodeIP: args[2].(string)}
 		if role == vm.RoleK3sAgent {

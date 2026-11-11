@@ -4,6 +4,7 @@
 package k3s
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +20,7 @@ import (
 	cfgK3s "github.com/simple-container-com/api/pkg/clouds/k3s"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	pulumiVm "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
+	"github.com/simple-container-com/api/pkg/clouds/vm"
 )
 
 const (
@@ -189,6 +191,132 @@ func TestK3sCluster_NoCommandLogsOrForwardsOutput(t *testing.T) {
 			"command %q forwards the previous command's output into its environment, which "+
 				"pulumi-command inlines into the command string", name)
 	}
+}
+
+// provisionFleet is provisionCluster for more than one machine: n servers, each with
+// the public address 203.0.113.1<i> and, when withMesh, the overlay address SC would
+// assign it out of the default CIDR (10.88.0.<i+1> — a pure function of the CIDR and
+// the index, which is why a fixture can know it).
+func provisionFleet(cfg *cfgK3s.K3sClusterConfig, mocks *clusterMocks, n int, withMesh bool) error {
+	return sdk.RunErr(func(ctx *sdk.Context) error {
+		input := api.ResourceInput{
+			Descriptor: &api.ResourceDescriptor{
+				Type:   cfgK3s.ResourceTypeK3sCluster,
+				Name:   testClusterName,
+				Config: api.Config{Config: cfg},
+			},
+			StackParams: &api.StackParams{Environment: "test"},
+		}
+
+		vmOut := &pulumiVm.VmOutput{}
+		for i := 0; i < n; i++ {
+			host := pulumiVm.HostFacts{
+				Name:               fmt.Sprintf("node-%d", i),
+				Address:            sdk.String(fmt.Sprintf("203.0.113.1%d", i)).ToStringOutput(),
+				User:               "root",
+				Port:               22,
+				Role:               vm.RoleK3sServer,
+				PrivateKey:         sdk.ToSecret(sdk.String("KEY")).(sdk.StringOutput),
+				PrivateKeyPassword: sdk.ToSecret(sdk.String("")).(sdk.StringOutput),
+			}
+			if withMesh {
+				host.MeshAddress = sdk.String(fmt.Sprintf("10.88.0.%d", i+1)).ToStringOutput()
+			}
+			gate, err := remote.NewCommand(ctx, fmt.Sprintf("host-%d-ready", i), &remote.CommandArgs{
+				Connection: pulumiVm.ConnectionArgs(host),
+				Create:     sdk.String("true"),
+			})
+			if err != nil {
+				return err
+			}
+			vmOut.Hosts = append(vmOut.Hosts, host)
+			vmOut.Ready = append(vmOut.Ready, gate)
+		}
+
+		params := pApi.ProvisionParams{
+			Log:             logger.New(),
+			ResourceOutputs: map[string]*api.ResourceOutput{cfg.VmResource: {Ref: vmOut}},
+		}
+		_, err := K3sCluster(ctx, api.Stack{Name: "test-stack"}, input, params)
+		return err
+	}, sdk.WithMocks("project", "stack", mocks))
+}
+
+// Node-to-node traffic rides the mesh when the resource has one — and this is a
+// REFUSAL made good, not a preference.
+//
+// `validateHostRoles` refuses a multi-host k3s pool whose hosts name no
+// `privateAddress`, because k3s would then advertise whichever address the default
+// route uses — the public one on a single-NIC VPS — and put etcd peer traffic and
+// flannel's unencrypted VXLAN on the public internet. `mesh.enable: true` LIFTS that
+// refusal, in those words, on the grounds that "SC builds one across them and
+// addresses the nodes on it". If the provisioning tier then addresses them on their
+// public interfaces anyway, the refusal has been bypassed and the exact failure it
+// exists to prevent happens — as a green deploy, which is why the validator refuses
+// rather than warns.
+//
+// Live-caught 2026-11-11 in the preview of the first `servers: 3` run (Run E): the
+// mesh came up on 10.88.0.{1,2,3} and every k3s argument named 203.0.113.x, because
+// all four call sites here were written before HostFacts.MeshAddress existed and
+// Caddy was the only consumer that had been switched over.
+func TestK3sNodeToNodeTrafficRidesTheMeshWhenThereIsOne(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := clusterConfig()
+	cfg.Servers = 3
+	mocks := &clusterMocks{}
+	Expect(provisionFleet(cfg, mocks, 3, true)).To(BeNil())
+
+	cmds := mocks.commands()
+	for _, name := range []string{"install-1", "install-2"} {
+		Expect(cmds).To(HaveKey(name))
+		// The arg vector, which is trigger[0] on a joining node and deliberately
+		// token-free (see installNode).
+		triggers, _ := unwrapSecret(cmds[name]["triggers"])
+		args := triggers.ArrayValue()[0].StringValue()
+
+		// Where this node registers: host 0 ON THE OVERLAY.
+		Expect(args).To(ContainSubstring("--server https://10.88.0.1:6443"),
+			"%q joins over the public internet while an overlay exists", name)
+		// And what it advertises itself as, which is what peers — including etcd —
+		// will dial it on.
+		Expect(args).To(MatchRegexp(`--node-ip 10\.88\.0\.[23]\b`))
+		Expect(args).To(MatchRegexp(`--advertise-address 10\.88\.0\.[23]\b`))
+		Expect(args).NotTo(ContainSubstring("--node-ip 203.0.113."))
+		Expect(args).NotTo(ContainSubstring("--advertise-address 203.0.113."))
+
+		// Every server's overlay address has to be a SAN, or the join above is an
+		// x509 failure: a cluster that forms and then cannot elect a leader.
+		for _, san := range []string{"10.88.0.1", "10.88.0.2", "10.88.0.3"} {
+			Expect(args).To(ContainSubstring("--tls-san " + san))
+		}
+		// The public ones stay too. An operator and the kubeconfig dial those, and
+		// a SAN dropped later costs a certificate re-issue and an API server restart.
+		for _, san := range []string{"203.0.113.10", "203.0.113.11", "203.0.113.12"} {
+			Expect(args).To(ContainSubstring("--tls-san " + san))
+		}
+	}
+}
+
+// The other half of the same contract: a fleet with no mesh is addressed exactly as
+// it was before the mesh existed. EffectiveMeshAddress falls back through
+// EffectivePrivateAddress to Address, so this fixture — public addresses only — is
+// the shape every k3s stack that predates the mesh has, and it must not move.
+func TestK3sWithoutAMeshIsAddressedExactlyAsBefore(t *testing.T) {
+	RegisterTestingT(t)
+
+	cfg := clusterConfig()
+	cfg.Servers = 3
+	mocks := &clusterMocks{}
+	Expect(provisionFleet(cfg, mocks, 3, false)).To(BeNil())
+
+	cmds := mocks.commands()
+	triggers, _ := unwrapSecret(cmds["install-1"]["triggers"])
+	args := triggers.ArrayValue()[0].StringValue()
+	Expect(args).To(ContainSubstring("--server https://203.0.113.10:6443"))
+	Expect(args).To(ContainSubstring("--node-ip 203.0.113.11"))
+	Expect(args).To(ContainSubstring("--advertise-address 203.0.113.11"))
+	Expect(args).NotTo(ContainSubstring("10.88.0."))
 }
 
 // unwrapSecret peels secret and output wrappers off a property. Same helper as the vm

@@ -1768,6 +1768,13 @@ resources:
                 privateKey: "${secret:PORTAL_VM_DEPLOY_KEY}"
                 # `ssh-keyscan -t ed25519 203.0.113.10` output pastes in verbatim
                 hostKey: "203.0.113.10 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAA..."
+            # An SC-managed WireGuard overlay across this resource's machines, for
+            # fleets whose hosting provides no private network. See the mesh
+            # section below; the alternative is a per-host `privateAddress`.
+            # mesh:
+            #   enable: true
+            #   # cidr: 10.88.0.0/24   # default; machine i gets host address i+1
+            #   # port: 51820          # default; UDP, open to the internet by design
             # Optional: the Caddy container that owns ports 80/443 on the machine.
             ingress:
               enable: true
@@ -1802,7 +1809,8 @@ resources:
 Per-host keys (`hosts[]`): `address` (**required**), `user`, `port`,
 `privateKey` (**required** — write it as `${secret:...}`; password and
 ssh-agent authentication are not supported), `privateKeyPassword`, `hostKey`,
-`role`, `privateAddress`.
+`role`, `privateAddress`. `mesh` is a `config:` key rather than a per-host one —
+an overlay is a property of the whole pool.
 
 `hostKey` is optional and is the one optional field whose absence has a real
 cost. A deploy onto a VM carries the stack's entire env file, every
@@ -1832,7 +1840,7 @@ shapes refused below each produce a deploy that half-works:
 | Field | Rule |
 |---|---|
 | `role` | one of `compose`, `k3s-server`, `k3s-agent`. **All-or-none** across the pool — SC will not guess which machine runs etcd, and the guess decides whether a machine joins the cluster at all. No roles declared means a compose fleet, exactly as before the field existed. Mixing `compose` with a `k3s-*` role in one resource is refused: one machine has one port 443, so declare the fleet and the cluster as two resources |
-| `privateAddress` | the address a machine's **siblings** reach it on. **Required on every host of a multi-node k3s pool**, all-or-none, duplicates refused. Unused on a single host and on a compose fleet, neither of which has node-to-node traffic |
+| `privateAddress` | the address a machine's **siblings** reach it on. **Required on every host of a multi-node k3s pool unless the resource sets `mesh.enable: true`** (the two are alternatives, see below), all-or-none, duplicates refused. Unused on a single host and on a compose fleet, neither of which has node-to-node traffic |
 
 `privateAddress` is a refusal and not a warning because the failure mode is a
 **success**. SC passes it to k3s as `--node-ip`, and to servers also as
@@ -1845,9 +1853,55 @@ Secret, and flannel's unencrypted VXLAN overlay cross the public internet, on a
 node `Ready`, nothing in the output saying the overlay is exposed.
 
 If the machines share no private network — a lot of cheap VPS hosting has none —
-there is nothing honest to put there yet. Run a **compose fleet** instead: it
-needs no node-to-node traffic at all. An SC-managed WireGuard mesh is the planned
-answer for the k3s half and is not built.
+set **`mesh.enable: true`** on the vm resource instead. SC then builds a WireGuard
+overlay across the machines and addresses the nodes on it, which satisfies the same
+requirement without a private network to point at.
+
+##### `mesh` — an SC-managed WireGuard overlay
+
+```yaml
+mesh:
+  enable: true
+  # cidr: 10.88.0.0/24   # the overlay's range; machine i gets host address i+1
+  # port: 51820          # the UDP port every machine listens on
+```
+
+| Field | Default | Notes |
+|---|---|---|
+| `enable` | `false` | builds the overlay across every host of this resource |
+| `cidr` | `10.88.0.0/24` | a `/24` holds 254 machines. Addresses are a pure function of (cidr, index), so host 0/1/2 are always `.1`/`.2`/`.3`. Override it only on a collision — changing it later re-addresses every node and flaps the mesh once |
+| `port` | `51820` | UDP |
+
+The default range is a deliberately unfashionable corner of RFC 1918: it has to miss
+the clouds' own private networking (`10.0.x`, `10.13–10.15.x`, `172.31.x`,
+`192.168.x`), docker's default bridge (`172.17.0.0/16`) and compose networks
+(`172.18+`), and k3s's pod and service CIDRs (`10.42.0.0/16`, `10.43.0.0/16` — the
+two that would be a genuinely confusing outage). A collision is the one failure here
+SC cannot detect, which is why the field is overridable.
+
+Three properties worth knowing before you rely on it:
+
+- **The interface is `sc-mesh`, not `wg0`.** A byo machine may already have a
+  hand-written `wg0`; an SC-managed interface that took that name would drop your
+  access to the box it is provisioning, and the teardown would do it deliberately.
+  SC's teardown can only ever remove SC's own.
+- **The private key is generated on the machine and never leaves it.** The
+  provisioning step's stdout is the public key only, so no private key enters the
+  Pulumi checkpoint, a command's input set, or a preview diff. A re-imaged machine
+  generates a new key on the next provision and its peers learn it in the same run.
+- **`port` is open to the internet, not to the fleet** — a peer's endpoint is its
+  public address, so there is no inner network to scope the hole to. That is sound
+  rather than an oversight: WireGuard sends no reply at all to a packet that does not
+  authenticate against a known peer's key, so the port is invisible to a scan and
+  unreachable without a key in the fleet's own config.
+
+**`privateAddress` and `mesh` are alternatives, and the mesh wins where both exist.**
+Node-to-node addressing resolves in one order — mesh address, then `privateAddress`,
+then the public address — and it is the same order for every consumer (k3s's
+`--node-ip` and `--advertise-address`, the join URL, and the certificate store).
+Where a cloud *does* provide a private network, prefer `privateAddress`: it is
+cheaper, faster, and already trusted by that cloud's firewall. The mesh is for
+machines that have no such thing, and for machines in different clouds entirely.
 
 A compose fleet needs two things a single machine does not: `ingress.acmeStorage`
 (below), and more than one A record for the name — which SC writes itself, one
@@ -2002,13 +2056,18 @@ resources:
 | `installScriptUrl` | `https://get.k3s.io` | for a network that cannot reach Rancher's |
 
 **A multi-node cluster** is a `vm` resource whose `hosts` each name a `role` of
-`k3s-server` or `k3s-agent`, and a `privateAddress` — see
+`k3s-server` or `k3s-agent`, and whose node-to-node address comes from either a
+per-host `privateAddress` or an SC-managed `mesh` — see
 [the `vm` resource](#virtual-machine-vm) for both rules and for why the second
-is a refusal rather than a warning. Servers are installed in sequence so etcd
-forms in a defined order and agents in parallel; the join token is read off the
-first host and passed as `K3S_TOKEN` rather than on a command line; `--tls-san`
-covers the servers; and the readiness gate counts the whole fleet rather than
-one node. Destroying the stack uninstalls k3s from every host.
+is a refusal rather than a warning. Every node-to-node value k3s is given — the
+join URL, `--node-ip`, `--advertise-address` and the SANs — resolves the same
+way: the mesh address if there is a mesh, else `privateAddress`, else the public
+address. Servers are installed in sequence so etcd forms in a defined order and
+agents in parallel; the join token is read off the first host and passed as
+`K3S_TOKEN` rather than on a command line; `--tls-san` covers every server on
+both address families, so the kubeconfig works from outside the overlay while
+the nodes talk to each other inside it; and the readiness gate counts the whole
+fleet rather than one node. Destroying the stack uninstalls k3s from every host.
 
 **One machine has one port 443.** The `vm` resource's `ingress` and k3s's own
 load-balancer implementation (klipper-lb, k3s's `servicelb`) both want 80/443,
