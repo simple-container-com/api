@@ -4,8 +4,6 @@
 package api
 
 import (
-	"regexp"
-
 	"github.com/pkg/errors"
 )
 
@@ -31,11 +29,6 @@ import (
 type ComponentConfig struct {
 	raw *PluginFieldConfig
 }
-
-// secretRefPattern matches the `${secret:<alias>}` shape SC core resolves
-// at config-read time. Permissive enough to allow any alias characters
-// SC itself accepts.
-var secretRefPattern = regexp.MustCompile(`^\$\{secret:[A-Za-z0-9._-]+\}$`)
 
 // NewComponentConfig wraps cfg as a ComponentConfig.
 //
