@@ -326,6 +326,26 @@ func (b *preEnginePluginBundle) RegisterSidecars() error {
 			pApi.RegisterResources(resMap)
 		}
 
+		// Component resource types: a SUBSET of resource_types the plugin
+		// also declares as SC Components (slice 1a of sc-components-platform).
+		// The sidecar wrapper (makeResourceSidecar) checks set-membership
+		// against ComponentResourceTypes to decide whether to run its
+		// template-dispatch pre-step before the plugin's Provision RPC.
+		// Allowed-overrides allowlist is per-type; absent or empty means
+		// the plugin advertises no overrides (template config consumed
+		// verbatim). See pkg/clouds/pulumi/api/mapping.go + the operator
+		// memory interface_assertion_against_plugin_owned_value_fails_in_prod.
+		for _, t := range schema.GetComponentResourceTypes() {
+			typeToken := t
+			var allowed []string
+			if m := schema.GetComponentAllowedOverrides(); m != nil {
+				if lst, ok := m[typeToken]; ok && lst != nil {
+					allowed = append([]string(nil), lst.GetValues()...)
+				}
+			}
+			pApi.RegisterComponentResourceType(typeToken, allowed)
+		}
+
 		// Provider types: in-engine, needs monitor address.
 		for _, t := range schema.GetProviderTypes() {
 			typeToken := t

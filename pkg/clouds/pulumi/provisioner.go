@@ -169,6 +169,18 @@ func (p *pulumi) loadPreEnginePluginsVariant(ctx context.Context, stack api.Stac
 	}
 	p.preEnginePlugins = b
 
+	// SC Components parse-time validation (slice 1a of sc-components-platform).
+	// Runs AFTER RegisterSidecars so ComponentResourceTypes +
+	// ComponentAllowedOverrides reflect every loaded plugin's Schema. Validates
+	// every resource declared as a Component (deployTo points at a real
+	// template, image is a string, signingKey is ${secret:…}, no disallowed
+	// override keys). Louder + earlier than failing at makeResourceSidecar
+	// dispatch mid-provision.
+	if err := api.ValidateComponentConfigs(&stack.Server, pApi.NewComponentConfigValidator()); err != nil {
+		b.Close()
+		return errors.Wrap(err, "validate SC component configs")
+	}
+
 	// If the provisioner's secrets-provider type is now owned by a plugin
 	// sidecar, invoke it to resolve the pulumi provider URL / passphrase.
 	// Sets p.secretsProviderUrl + p.secretsProviderPassphrase which
