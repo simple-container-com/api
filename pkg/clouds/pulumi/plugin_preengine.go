@@ -346,6 +346,20 @@ func (b *preEnginePluginBundle) RegisterSidecars() error {
 			pApi.RegisterComponentResourceType(typeToken, allowed)
 		}
 
+		// SupportsComponent: a SUBSET of resource_types the plugin's own
+		// Provision RPC accepts Components dispatch for — i.e. its
+		// ProvisionFunc knows how to read ProvisionRequest.component_raw +
+		// overlay the component's operator-declared fields on its typed
+		// input (slice 1a.1 of sc-components-platform; design doc §#19
+		// path (b)). Parse-time validation refuses dispatch when no
+		// plugin has opted in a template's type here (unless the type has
+		// an in-tree componentTemplateMergeFuncs entry, vm-compose).
+		// Additive opt-in: older plugin binaries omit the field and are
+		// not valid deployTo: targets until operator re-releases them.
+		for _, t := range schema.GetSupportsComponent() {
+			pApi.RegisterSupportsComponent(pluginName, t)
+		}
+
 		// Provider types: in-engine, needs monitor address.
 		for _, t := range schema.GetProviderTypes() {
 			typeToken := t

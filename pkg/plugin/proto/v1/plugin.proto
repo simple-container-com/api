@@ -291,6 +291,38 @@ message SchemaResponse {
   // `component_resource_types`). Absent key means the plugin allows no
   // overrides (dispatched template runs with operator config verbatim).
   map<string, StringList> component_allowed_overrides = 13;
+
+  // Resource types this plugin's Provision RPC accepts SC Components
+  // dispatch for — i.e. its ProvisionFunc knows how to read
+  // `ProvisionRequest.component_raw` and overlay the component's
+  // operator-declared fields (`image`, `env`, `ingress`, `signingKey`, …)
+  // onto its typed input struct before building the cloud resource.
+  //
+  // Slice 1a.1 of sc-components-platform (operator path (b) in design
+  // doc §#19): advertising opt-in so a plugin that has NOT been updated
+  // to honour the ComponentRaw side-channel is NOT a valid `deployTo:`
+  // target. Parse-time validation in `pkg/api/component_validation.go`
+  // refuses a component resource whose `deployTo:` names a template
+  // whose owning plugin has not advertised the template type here,
+  // unless the template has an in-tree `componentTemplateMergeFuncs`
+  // entry (vm-compose).
+  //
+  // Mechanism documented at
+  // forge/docs/design/2026-11-10/sc-components-platform/ §#19 "path
+  // (b) side-channel ComponentRaw on `api.ResourceInput`". Why core
+  // can't just overlay the fields on the plugin's behalf: the typed
+  // input struct (`*aws.LambdaInput`, etc.) lives in the plugin's
+  // `/api` module; a core-side overlay would need to link that
+  // module, which is the same import-cycle trap
+  // `interface_assertion_against_plugin_owned_value_fails_in_prod`
+  // names.
+  //
+  // Older plugin binaries that pre-date this field send no
+  // `supports_component`, the fleet-wide `SupportsComponent` map
+  // stays empty for that plugin, and the parse-time validator refuses
+  // any dispatch targeting one of its template types. Additive by
+  // construction.
+  repeated string supports_component = 14;
 }
 
 // StringList is a repeated-string wrapper so `component_allowed_overrides`
@@ -789,6 +821,33 @@ message ProvisionRequest {
   // outputs`). See
   // forge/docs/roadmap/items/sc-plugin-dependency-outputs-not-populated.md.
   bytes dependency_outputs_json = 12;
+
+  // JSON of the component's `.Raw` map when SC core dispatches this
+  // resource via a Component plugin's `deployTo:` sidecar pre-step
+  // (slice 1a.1 of sc-components-platform; operator path (b) in design
+  // doc §#19). Carries operator-declared `image`/`env`/`ingress`/
+  // `signingKey`/etc. so the dispatched template's ProvisionFunc can
+  // overlay them on its typed input struct before building the cloud
+  // resource. nil/empty when the resource is NOT dispatched via a
+  // Component plugin — every non-component Provision call sees this
+  // unset.
+  //
+  // Opt-in advertise via `SchemaResponse.supports_component`; absent
+  // advertise + non-empty `component_raw` is a plugin-side panic the
+  // operator sees on first smoke (per §#19's path-(b) foot-gun).
+  // Mitigation: parse-time validator refuses dispatch when
+  // `SupportsComponent` set is empty for the deployTo template's type,
+  // so this field only arrives at plugins that already opted in.
+  //
+  // Older plugin binaries that pre-date this field see no change —
+  // the field is unset, decoders skip it, and the Provision RPC
+  // behaves as it did before slice 1a.1. Additive by construction;
+  // mechanism documented at forge/docs/design/2026-11-10/
+  // sc-components-platform/README.md §#19 + the generic
+  // `interface_assertion_against_plugin_owned_value_fails_in_prod`
+  // memory (cross-ref: why core can't overlay plugin-typed fields
+  // itself and must hand the raw map to the plugin).
+  bytes component_raw = 13;
 }
 
 message ProvisionResponse {

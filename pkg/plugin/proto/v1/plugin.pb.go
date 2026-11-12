@@ -807,8 +807,39 @@ type SchemaResponse struct {
 	// `component_resource_types`). Absent key means the plugin allows no
 	// overrides (dispatched template runs with operator config verbatim).
 	ComponentAllowedOverrides map[string]*StringList `protobuf:"bytes,13,rep,name=component_allowed_overrides,json=componentAllowedOverrides,proto3" json:"component_allowed_overrides,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	// Resource types this plugin's Provision RPC accepts SC Components
+	// dispatch for — i.e. its ProvisionFunc knows how to read
+	// `ProvisionRequest.component_raw` and overlay the component's
+	// operator-declared fields (`image`, `env`, `ingress`, `signingKey`, …)
+	// onto its typed input struct before building the cloud resource.
+	//
+	// Slice 1a.1 of sc-components-platform (operator path (b) in design
+	// doc §#19): advertising opt-in so a plugin that has NOT been updated
+	// to honour the ComponentRaw side-channel is NOT a valid `deployTo:`
+	// target. Parse-time validation in `pkg/api/component_validation.go`
+	// refuses a component resource whose `deployTo:` names a template
+	// whose owning plugin has not advertised the template type here,
+	// unless the template has an in-tree `componentTemplateMergeFuncs`
+	// entry (vm-compose).
+	//
+	// Mechanism documented at
+	// forge/docs/design/2026-11-10/sc-components-platform/ §#19 "path
+	// (b) side-channel ComponentRaw on `api.ResourceInput`". Why core
+	// can't just overlay the fields on the plugin's behalf: the typed
+	// input struct (`*aws.LambdaInput`, etc.) lives in the plugin's
+	// `/api` module; a core-side overlay would need to link that
+	// module, which is the same import-cycle trap
+	// `interface_assertion_against_plugin_owned_value_fails_in_prod`
+	// names.
+	//
+	// Older plugin binaries that pre-date this field send no
+	// `supports_component`, the fleet-wide `SupportsComponent` map
+	// stays empty for that plugin, and the parse-time validator refuses
+	// any dispatch targeting one of its template types. Additive by
+	// construction.
+	SupportsComponent []string `protobuf:"bytes,14,rep,name=supports_component,json=supportsComponent,proto3" json:"supports_component,omitempty"`
+	unknownFields     protoimpl.UnknownFields
+	sizeCache         protoimpl.SizeCache
 }
 
 func (x *SchemaResponse) Reset() {
@@ -928,6 +959,13 @@ func (x *SchemaResponse) GetComponentResourceTypes() []string {
 func (x *SchemaResponse) GetComponentAllowedOverrides() map[string]*StringList {
 	if x != nil {
 		return x.ComponentAllowedOverrides
+	}
+	return nil
+}
+
+func (x *SchemaResponse) GetSupportsComponent() []string {
+	if x != nil {
+		return x.SupportsComponent
 	}
 	return nil
 }
@@ -3051,8 +3089,34 @@ type ProvisionRequest struct {
 	// outputs`). See
 	// forge/docs/roadmap/items/sc-plugin-dependency-outputs-not-populated.md.
 	DependencyOutputsJson []byte `protobuf:"bytes,12,opt,name=dependency_outputs_json,json=dependencyOutputsJson,proto3" json:"dependency_outputs_json,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// JSON of the component's `.Raw` map when SC core dispatches this
+	// resource via a Component plugin's `deployTo:` sidecar pre-step
+	// (slice 1a.1 of sc-components-platform; operator path (b) in design
+	// doc §#19). Carries operator-declared `image`/`env`/`ingress`/
+	// `signingKey`/etc. so the dispatched template's ProvisionFunc can
+	// overlay them on its typed input struct before building the cloud
+	// resource. nil/empty when the resource is NOT dispatched via a
+	// Component plugin — every non-component Provision call sees this
+	// unset.
+	//
+	// Opt-in advertise via `SchemaResponse.supports_component`; absent
+	// advertise + non-empty `component_raw` is a plugin-side panic the
+	// operator sees on first smoke (per §#19's path-(b) foot-gun).
+	// Mitigation: parse-time validator refuses dispatch when
+	// `SupportsComponent` set is empty for the deployTo template's type,
+	// so this field only arrives at plugins that already opted in.
+	//
+	// Older plugin binaries that pre-date this field see no change —
+	// the field is unset, decoders skip it, and the Provision RPC
+	// behaves as it did before slice 1a.1. Additive by construction;
+	// mechanism documented at forge/docs/design/2026-11-10/
+	// sc-components-platform/README.md §#19 + the generic
+	// `interface_assertion_against_plugin_owned_value_fails_in_prod`
+	// memory (cross-ref: why core can't overlay plugin-typed fields
+	// itself and must hand the raw map to the plugin).
+	ComponentRaw  []byte `protobuf:"bytes,13,opt,name=component_raw,json=componentRaw,proto3" json:"component_raw,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ProvisionRequest) Reset() {
@@ -3165,6 +3229,13 @@ func (x *ProvisionRequest) GetParentInfoJson() []byte {
 func (x *ProvisionRequest) GetDependencyOutputsJson() []byte {
 	if x != nil {
 		return x.DependencyOutputsJson
+	}
+	return nil
+}
+
+func (x *ProvisionRequest) GetComponentRaw() []byte {
+	if x != nil {
+		return x.ComponentRaw
 	}
 	return nil
 }
@@ -4329,7 +4400,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\"D\n" +
 	"\rSchemaRequest\x123\n" +
-	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\"\xc2\x06\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\"\xf1\x06\n" +
 	"\x0eSchemaResponse\x12%\n" +
 	"\x0eplugin_version\x18\x01 \x01(\tR\rpluginVersion\x12%\n" +
 	"\x0eprovider_types\x18\x02 \x03(\tR\rproviderTypes\x12%\n" +
@@ -4346,7 +4417,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\n" +
 	"auth_types\x18\v \x03(\tR\tauthTypes\x128\n" +
 	"\x18component_resource_types\x18\f \x03(\tR\x16componentResourceTypes\x12{\n" +
-	"\x1bcomponent_allowed_overrides\x18\r \x03(\v2;.sc.plugin.v1.SchemaResponse.ComponentAllowedOverridesEntryR\x19componentAllowedOverrides\x1af\n" +
+	"\x1bcomponent_allowed_overrides\x18\r \x03(\v2;.sc.plugin.v1.SchemaResponse.ComponentAllowedOverridesEntryR\x19componentAllowedOverrides\x12-\n" +
+	"\x12supports_component\x18\x0e \x03(\tR\x11supportsComponent\x1af\n" +
 	"\x1eComponentAllowedOverridesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.StringListR\x05value:\x028\x01\"$\n" +
@@ -4556,7 +4628,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x11StackOutputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x14\n" +
-	"\x12PreDestroyResponse\"\xb2\x06\n" +
+	"\x12PreDestroyResponse\"\xd7\x06\n" +
 	"\x10ProvisionRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12#\n" +
@@ -4571,7 +4643,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x15registrar_main_domain\x18\n" +
 	" \x01(\tR\x13registrarMainDomain\x12(\n" +
 	"\x10parent_info_json\x18\v \x01(\fR\x0eparentInfoJson\x126\n" +
-	"\x17dependency_outputs_json\x18\f \x01(\fR\x15dependencyOutputsJson\x1aS\n" +
+	"\x17dependency_outputs_json\x18\f \x01(\fR\x15dependencyOutputsJson\x12#\n" +
+	"\rcomponent_raw\x18\r \x01(\fR\fcomponentRaw\x1aS\n" +
 	"\vInputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\x1aD\n" +

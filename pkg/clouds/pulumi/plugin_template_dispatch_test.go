@@ -6,9 +6,8 @@ package pulumi
 import (
 	"testing"
 
-	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-
 	. "github.com/onsi/gomega"
+	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
 	"github.com/simple-container-com/api/pkg/api/logger"
@@ -126,6 +125,73 @@ func TestComponentTemplateDispatch_PassThrough(t *testing.T) {
 	Expect(ok).To(BeTrue(), "expected *PluginResourceOutput as Ref")
 	Expect(ref.Urn).To(Equal("urn:pulumi:test::proj::test-fake-template::fake-lambda"))
 	Expect(ref.Outputs["url"].Value).To(Equal("https://fake.test"))
+}
+
+// TestComponentTemplateDispatch_ComponentRawForwarded — slice 1a.1
+// (design doc §#19 path (b)): the dispatched template's ResourceInput
+// MUST carry a ComponentRaw map holding the operator's declared
+// component config. This is what SC core then JSON-marshals into
+// ProvisionRequest.component_raw for the plugin's Provision RPC, so a
+// plugin that opted in via SchemaResponse.supports_component can overlay
+// component fields onto its typed input struct.
+//
+// Regression guard: an empty/nil ComponentRaw here would collapse the
+// aws-lambda dispatch path back to silent pass-through (the §#19
+// foot-gun the operator picked path (b) to close).
+func TestComponentTemplateDispatch_ComponentRawForwarded(t *testing.T) {
+	RegisterTestingT(t)
+
+	const (
+		componentType = "test-sc-dummy-raw"
+		templateType  = "test-fake-template-raw"
+		templateName  = "fake-lambda-raw"
+	)
+	var capturedInput api.ResourceInput
+	pApi.ProvisionFuncByType[templateType] = func(_ *sdk.Context, _ api.Stack, input api.ResourceInput, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+		capturedInput = input
+		return &api.ResourceOutput{}, nil
+	}
+	t.Cleanup(func() { delete(pApi.ProvisionFuncByType, templateType) })
+	pApi.RegisterComponentResourceType(componentType, []string{"image", "env"})
+	t.Cleanup(func() {
+		delete(pApi.ComponentResourceTypes, componentType)
+		delete(pApi.ComponentAllowedOverrides, componentType)
+	})
+
+	stack := api.Stack{
+		Server: api.ServerDescriptor{
+			Templates: map[string]api.StackDescriptor{
+				templateName: {Type: templateType, Config: api.Config{Config: map[string]any{"memory": 128}}},
+			},
+		},
+	}
+	input := api.ResourceInput{
+		Descriptor: &api.ResourceDescriptor{
+			Type: componentType,
+			Name: "my-dummy",
+			Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+				"deployTo":   templateName,
+				"image":      "simplecontainer/sc-component-dummy:v2",
+				"signingKey": "${secret:k}",
+				"env":        map[string]any{"ENV": "smoke", "REGION": "eu-west-1"},
+			}}},
+		},
+		StackParams: &api.StackParams{StackName: "smoke", Environment: "staging"},
+	}
+
+	bundle := &preEnginePluginBundle{log: logger.New()}
+	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	Expect(err).ToNot(HaveOccurred())
+
+	// ComponentRaw is populated on the merged input the template saw.
+	Expect(capturedInput.ComponentRaw).ToNot(BeNil(), "ComponentRaw must be forwarded to the dispatched template")
+	Expect(capturedInput.ComponentRaw["image"]).To(Equal("simplecontainer/sc-component-dummy:v2"))
+	Expect(capturedInput.ComponentRaw["deployTo"]).To(Equal(templateName))
+	Expect(capturedInput.ComponentRaw["signingKey"]).To(Equal("${secret:k}"))
+	envMap, ok := capturedInput.ComponentRaw["env"].(map[string]any)
+	Expect(ok).To(BeTrue(), "env must be a map[string]any")
+	Expect(envMap["ENV"]).To(Equal("smoke"))
+	Expect(envMap["REGION"]).To(Equal("eu-west-1"))
 }
 
 // TestComponentTemplateDispatch_DeployToTemplateMissing — a config
