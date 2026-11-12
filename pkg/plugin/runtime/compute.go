@@ -107,6 +107,41 @@ func DependencyOutputsFromProvisionRequest(req *scpluginv1.ProvisionRequest) (ma
 	return result, nil
 }
 
+// DependencyOutputsFromComputeProcessRequest unmarshals the
+// DependencyOutputsJson field a ComputeProcess request carries into the
+// shape a plugin's ComputeProcessor reads. Mirrors
+// DependencyOutputsFromProvisionRequest (same JSON shape, same decoding
+// semantics) — different request side, same wire contract.
+//
+// Added as the ComputeProcess-side symmetry of the Provision-side
+// dep-outputs fix. Lights up sc-component-backup's slice 1d scoped-user
+// plumbing (sc-component-backup 06721b1, design doc §5.2) end-to-end: a
+// ComputeProcessor can now see the consumer's sibling-resource outputs
+// (mongo-uri, database name, etc.) at `uses:` time + mint per-consumer
+// scoped credentials.
+//
+// Returns a nil map when the request carries no dependencies (older SC
+// core, or a resource whose consumers don't opt in).
+func DependencyOutputsFromComputeProcessRequest(req *scpluginv1.ComputeProcessRequest) (map[string]*api.ResourceOutput, error) {
+	raw := req.GetDependencyOutputsJson()
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var decoded map[string]*api.PluginResourceOutput
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, errors.Wrap(err, "decode DependencyOutputs from compute-process request")
+	}
+	result := make(map[string]*api.ResourceOutput, len(decoded))
+	for name, plOut := range decoded {
+		if plOut == nil {
+			continue
+		}
+		plOutCopy := *plOut
+		result[name] = &api.ResourceOutput{Ref: &plOutCopy}
+	}
+	return result, nil
+}
+
 // ComponentRawFromProvisionRequest unmarshals the ComponentRaw bytes a
 // ProvisionRequest carries when SC core dispatched this plugin's template
 // via a Component resource's `deployTo:` (slice 1a.1 of

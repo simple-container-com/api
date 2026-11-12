@@ -121,6 +121,69 @@ func TestDependencyOutputsFromProvisionRequest_RoundTrips(t *testing.T) {
 	Expect(plOut.Outputs["admin-sa-key"].Secret).To(BeTrue())
 }
 
+// TestDependencyOutputsFromComputeProcessRequest_RoundTrips — the
+// ComputeProcess-side symmetry of the Provision-side test above. Same
+// JSON shape, same round-trip semantics; just a different request type.
+// Lights up slice 1d scoped-user mint (sc-component-backup 06721b1,
+// design doc §5.2) end-to-end at ComputeProcess time.
+func TestDependencyOutputsFromComputeProcessRequest_RoundTrips(t *testing.T) {
+	RegisterTestingT(t)
+
+	want := map[string]*api.PluginResourceOutput{
+		"the-mongo": {
+			PluginName: "mongodb",
+			Urn:        "urn:pulumi:parent::stack::mongodbatlas:Cluster::the-mongo",
+			Outputs: map[string]api.PluginOutputValue{
+				"mongo-uri": {Value: "mongodb+srv://u:p@host/", Secret: true},
+				"database":  {Value: "forge_conductor", Secret: false},
+			},
+		},
+	}
+	b, err := json.Marshal(want)
+	Expect(err).ToNot(HaveOccurred())
+
+	req := &scpluginv1.ComputeProcessRequest{
+		DependencyOutputsJson: b,
+	}
+	got, err := DependencyOutputsFromComputeProcessRequest(req)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(got).To(HaveLen(1))
+	Expect(got["the-mongo"]).ToNot(BeNil())
+
+	plOut, ok := got["the-mongo"].Ref.(*api.PluginResourceOutput)
+	Expect(ok).To(BeTrue())
+	Expect(plOut.PluginName).To(Equal("mongodb"))
+	Expect(plOut.Outputs).To(HaveLen(2))
+	Expect(plOut.Outputs["mongo-uri"].Secret).To(BeTrue())
+	Expect(plOut.Outputs["database"].Value).To(Equal("forge_conductor"))
+}
+
+// TestDependencyOutputsFromComputeProcessRequest_EmptyMeansNil — older
+// SC core, or a ComputeProcess call whose consumer carries no plugin-owned
+// sibling outputs, returns (nil, nil). The plugin's ComputeProcessor reads
+// nil and skips the scoped-user mint path (backward-compat).
+func TestDependencyOutputsFromComputeProcessRequest_EmptyMeansNil(t *testing.T) {
+	RegisterTestingT(t)
+
+	req := &scpluginv1.ComputeProcessRequest{}
+	got, err := DependencyOutputsFromComputeProcessRequest(req)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(got).To(BeNil())
+}
+
+// TestDependencyOutputsFromComputeProcessRequest_RejectsMalformedJson —
+// if SC core packs garbage, surface it rather than silent-continue.
+func TestDependencyOutputsFromComputeProcessRequest_RejectsMalformedJson(t *testing.T) {
+	RegisterTestingT(t)
+
+	req := &scpluginv1.ComputeProcessRequest{
+		DependencyOutputsJson: []byte("{not valid json"),
+	}
+	_, err := DependencyOutputsFromComputeProcessRequest(req)
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("decode DependencyOutputs from compute-process request"))
+}
+
 // TestDependencyOutputsFromProvisionRequest_EmptyMeansNil — a request
 // that carries no dependencies (either the resource's config doesn't
 // implement api.WithParentDependencies, or an older SC core pre-dates

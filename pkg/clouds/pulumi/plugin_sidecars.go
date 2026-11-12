@@ -673,12 +673,44 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 			}
 		}
 
+		// Dependency outputs — pack the same way Provision does so the
+		// ComputeProcessor can read the consumer's sibling plugin-owned
+		// outputs (mongo-uri, db name, etc.). Lights up sc-component-backup's
+		// slice 1d scoped-user plumbing (sc-component-backup 06721b1,
+		// design doc §5.2) end-to-end — a `uses: [the-mongo, the-backup]`
+		// consumer's deploy walks `MatchConsumerToDatabase` against the
+		// outputs below and mints a scoped Atlas user on the fly.
+		//
+		// Same shape as the Provision-side packer at :216 — only plugin-
+		// owned Refs (*api.PluginResourceOutput) cross; in-tree struct
+		// Refs stay in-process.
+		var depOutsJSON []byte
+		if len(params.ResourceOutputs) > 0 {
+			depOuts := map[string]*api.PluginResourceOutput{}
+			for name, rOut := range params.ResourceOutputs {
+				if rOut == nil {
+					continue
+				}
+				if plOut, ok := rOut.Ref.(*api.PluginResourceOutput); ok && plOut != nil {
+					depOuts[name] = plOut
+				}
+			}
+			if len(depOuts) > 0 {
+				b, err := json.Marshal(depOuts)
+				if err != nil {
+					return nil, errors.Wrapf(err, "plugin %q ComputeProcess(%q): marshal dependency outputs", pluginName, typeToken)
+				}
+				depOutsJSON = b
+			}
+		}
+
 		resp, err := cli.ComputeProcess(ctx.Context(), &scpluginv1.ComputeProcessRequest{
-			Header:         &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
-			ResourceType:   typeToken,
-			ResourceName:   input.Descriptor.Name,
-			Inputs:         serializeConfigToInputs(input.Descriptor.Config.Config),
-			ParentInfoJson: parentInfoJSON,
+			Header:                &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
+			ResourceType:          typeToken,
+			ResourceName:          input.Descriptor.Name,
+			Inputs:                serializeConfigToInputs(input.Descriptor.Config.Config),
+			ParentInfoJson:        parentInfoJSON,
+			DependencyOutputsJson: depOutsJSON,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q ComputeProcess(%q)", pluginName, typeToken)

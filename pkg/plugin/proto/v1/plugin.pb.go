@@ -1662,8 +1662,31 @@ type ComputeProcessRequest struct {
 	// 1e (ComputeProcess v2) for mongodb and the remaining extractions —
 	// older plugins ignore the field and get the same v1 behaviour.
 	ParentInfoJson []byte `protobuf:"bytes,7,opt,name=parent_info_json,json=parentInfoJson,proto3" json:"parent_info_json,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Dependency-outputs JSON — same shape as ProvisionRequest.dependency_outputs_json
+	// (:823): a `map[string]*api.PluginResourceOutput` keyed by the sibling
+	// resource's SC-level Name. SC core packs this from `params.ResourceOutputs`
+	// the same way it packs the Provision side, so a `ComputeProcessor` on a
+	// `uses: [sibling]` can read the sibling's plugin-owned outputs via
+	// `runtime.DependencyOutputsFromComputeProcessRequest`.
+	//
+	// Mirrors the Provision-side JSON blob for symmetry. The flat
+	// `dependency_outputs = 5` field is left in place for wire-compat but is
+	// not populated by any current sidecar (same shape gap documented on the
+	// Provision field).
+	//
+	// Lights up sc-component-backup's slice 1d scoped-user plumbing
+	// (sc-component-backup commit 06721b1, design doc §5.2) end-to-end:
+	// `MatchConsumerToDatabase` reads this JSON to find the consumer's
+	// sibling-DB resource name + its target database, then the plugin's
+	// ComputeProcess mints a scoped Atlas user and embeds its creds in
+	// the push-registered tenant record.
+	//
+	// Older plugins ignore the field: the fallback is nil, which is the same
+	// silent-drop shape the Provision side was before #571. Backwards-compat
+	// additive.
+	DependencyOutputsJson []byte `protobuf:"bytes,8,opt,name=dependency_outputs_json,json=dependencyOutputsJson,proto3" json:"dependency_outputs_json,omitempty"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
 }
 
 func (x *ComputeProcessRequest) Reset() {
@@ -1741,6 +1764,13 @@ func (x *ComputeProcessRequest) GetParentUrn() string {
 func (x *ComputeProcessRequest) GetParentInfoJson() []byte {
 	if x != nil {
 		return x.ParentInfoJson
+	}
+	return nil
+}
+
+func (x *ComputeProcessRequest) GetDependencyOutputsJson() []byte {
+	if x != nil {
+		return x.DependencyOutputsJson
 	}
 	return nil
 }
@@ -4493,7 +4523,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\"5\n" +
 	"\x10ProviderResponse\x12!\n" +
-	"\fprovider_urn\x18\x01 \x01(\tR\vproviderUrn\"\xae\x04\n" +
+	"\fprovider_urn\x18\x01 \x01(\tR\vproviderUrn\"\xe6\x04\n" +
 	"\x15ComputeProcessRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12#\n" +
@@ -4502,7 +4532,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x12dependency_outputs\x18\x05 \x03(\v2:.sc.plugin.v1.ComputeProcessRequest.DependencyOutputsEntryR\x11dependencyOutputs\x12\x1d\n" +
 	"\n" +
 	"parent_urn\x18\x06 \x01(\tR\tparentUrn\x12(\n" +
-	"\x10parent_info_json\x18\a \x01(\fR\x0eparentInfoJson\x1aS\n" +
+	"\x10parent_info_json\x18\a \x01(\fR\x0eparentInfoJson\x126\n" +
+	"\x17dependency_outputs_json\x18\b \x01(\fR\x15dependencyOutputsJson\x1aS\n" +
 	"\vInputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\x1aD\n" +
