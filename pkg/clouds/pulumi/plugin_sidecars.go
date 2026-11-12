@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -231,6 +230,21 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 				}
 				req.DependencyOutputsJson = b
 			}
+		}
+		// ComponentRaw side-channel (slice 1a.1 of sc-components-platform;
+		// design doc §#19 path (b)): when SC core's sidecar wrapper
+		// dispatched this plugin's template via a Component resource's
+		// `deployTo:`, input.ComponentRaw carries the component's
+		// operator-declared .Raw map. Pack it as JSON so the plugin's
+		// ProvisionFunc can overlay image/env/ingress on its typed input
+		// before building the cloud resource. Absent on every
+		// non-component Provision — plugin sees nil + runs as before.
+		if len(input.ComponentRaw) > 0 {
+			b, err := json.Marshal(input.ComponentRaw)
+			if err != nil {
+				return nil, errors.Wrapf(err, "plugin %q Provision(%q): marshal ComponentRaw", pluginName, typeToken)
+			}
+			req.ComponentRaw = b
 		}
 		resp, err := cli.Provision(ctx.Context(), req)
 		if err != nil {
@@ -1267,9 +1281,21 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 		return nil, errors.Wrap(err, "merging component config into template")
 	}
 
+	// ComponentRaw side-channel (slice 1a.1 of sc-components-platform;
+	// design doc §#19 path (b)): pass the component's operator-declared
+	// .Raw map through to the dispatched template's ProvisionFunc. The
+	// dispatched template is typically plugin-owned (aws-lambda in
+	// sc-plugin-aws, ecs-fargate, yc-serverless-container, k8s-run); its
+	// ProvisionFunc reads ComponentRaw and overlays image/env/ingress on
+	// its typed input struct before building the cloud resource. In-tree
+	// templates with a per-type ComponentTemplateMergeFunc registration
+	// (vm-compose) have already consumed the fields in
+	// mergeComponentIntoTemplate above; ComponentRaw is harmless for them
+	// but still populated for consistency.
 	dispatchedInput := api.ResourceInput{
-		Descriptor:  merged,
-		StackParams: input.StackParams,
+		Descriptor:   merged,
+		StackParams:  input.StackParams,
+		ComponentRaw: cfg.RawCopy(),
 	}
 	return tplFn(ctx, stack, dispatchedInput, params)
 }

@@ -107,6 +107,35 @@ func DependencyOutputsFromProvisionRequest(req *scpluginv1.ProvisionRequest) (ma
 	return result, nil
 }
 
+// ComponentRawFromProvisionRequest unmarshals the ComponentRaw bytes a
+// ProvisionRequest carries when SC core dispatched this plugin's template
+// via a Component resource's `deployTo:` (slice 1a.1 of
+// sc-components-platform; design doc §#19 path (b)).
+//
+// The returned map carries the operator-declared component config
+// (image, env, ingress, signingKey, …) as it appeared in server.yaml.
+// Plugin's ProvisionFunc overlays these onto its typed input struct
+// before building the cloud resource. Returns nil when the resource was
+// NOT dispatched as a Component — every non-component Provision call
+// hits this + ignores it.
+//
+// Only plugins that advertise supports_component in Schema should call
+// this; absent advertise + non-empty ComponentRaw is a SC-core parse-time
+// refusal, so this helper is only reached after the plugin opted in.
+//
+// Memory cross-ref: interface_assertion_against_plugin_owned_value_fails_in_prod.
+func ComponentRawFromProvisionRequest(req *scpluginv1.ProvisionRequest) (map[string]any, error) {
+	raw := req.GetComponentRaw()
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, errors.Wrap(err, "decode ComponentRaw from provision request")
+	}
+	return decoded, nil
+}
+
 // ResourceInputForComputeProcess builds the api.ResourceInput a plugin
 // compute-process handler hands to the driver. Critically, it swaps the
 // child environment for the parent's when ParentInfo.ParentEnv is non-empty:

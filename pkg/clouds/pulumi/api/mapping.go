@@ -74,7 +74,55 @@ var (
 	// by omission: vpc, subnets, iam, anything that would let a plugin
 	// re-point the operator's compute at an attacker VPC.
 	ComponentAllowedOverrides = map[string][]string{}
+
+	// SupportsComponent records, per plugin name, which of its resource
+	// types the plugin's Provision RPC accepts SC Components dispatch
+	// for — i.e. its ProvisionFunc reads ProvisionRequest.component_raw
+	// and overlays operator-declared component fields onto its typed
+	// input struct before building the cloud resource.
+	//
+	// Populated at plugin-load time by preEnginePluginBundle.RegisterSidecars
+	// from SchemaResponse.supports_component (slice 1a.1 of
+	// sc-components-platform; design doc §#19 path (b)).
+	//
+	// Parse-time validation (pkg/api/component_validation.go) refuses a
+	// Component resource whose deployTo:-target template type is not in
+	// SupportsComponent for any loaded plugin — unless the type has an
+	// in-tree componentTemplateMergeFuncs entry (vm-compose). This
+	// mitigates the path-(b) foot-gun: a plugin that forgets to honour
+	// ComponentRaw silently behaving as pass-through; the parse-time
+	// refusal forces the plugin's Schema to opt in before any dispatch
+	// can reach the plugin.
+	SupportsComponent = map[string]map[string]struct{}{}
 )
+
+// RegisterSupportsComponent marks a (pluginName, resourceType) pair as
+// opted into the SC Components dispatch surface via the ComponentRaw
+// side-channel. Called by preEnginePluginBundle.RegisterSidecars for
+// every entry in the plugin's SchemaResponse.supports_component.
+func RegisterSupportsComponent(pluginName, resourceType string) {
+	if pluginName == "" || resourceType == "" {
+		return
+	}
+	if SupportsComponent[pluginName] == nil {
+		SupportsComponent[pluginName] = map[string]struct{}{}
+	}
+	SupportsComponent[pluginName][resourceType] = struct{}{}
+}
+
+// AnyPluginSupportsComponent reports whether any loaded plugin has
+// advertised supports_component for the given resource type. Used by
+// parse-time validation to refuse a Component resource whose deployTo:
+// template type no plugin has opted into (unless the type has an
+// in-tree merge func).
+func AnyPluginSupportsComponent(resourceType string) bool {
+	for _, perPlugin := range SupportsComponent {
+		if _, ok := perPlugin[resourceType]; ok {
+			return true
+		}
+	}
+	return false
+}
 
 // RegisterComponentResourceType marks a resource type as an SC Component.
 // Called by preEnginePluginBundle.RegisterSidecars for every entry in

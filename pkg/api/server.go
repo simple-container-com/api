@@ -203,6 +203,20 @@ type ResourceDescriptor struct {
 type ResourceInput struct {
 	Descriptor  *ResourceDescriptor `json:"descriptor" yaml:"descriptor"`
 	StackParams *StackParams        `json:"deployParams" yaml:"deployParams"`
+
+	// ComponentRaw carries the operator-declared `.Raw` map of a Component
+	// resource when SC core's sidecar wrapper dispatches this input into a
+	// `deployTo:` template (slice 1a.1 of sc-components-platform; design doc
+	// §#19 path (b)). The dispatched template's ProvisionFunc checks for a
+	// non-nil ComponentRaw and overlays the component's fields (image, env,
+	// ingress, signingKey, …) onto its typed input struct before building
+	// the cloud resource. nil for non-component dispatches — every existing
+	// ProvisionFunc on main sees this unset and keeps working. See
+	// forge/docs/design/2026-11-10/sc-components-platform/README.md §#19 for
+	// the shape + the memory
+	// `interface_assertion_against_plugin_owned_value_fails_in_prod` for why
+	// SC core cannot type-overlay plugin-owned fields itself.
+	ComponentRaw map[string]any `json:"component_raw,omitempty" yaml:"component_raw,omitempty"`
 }
 
 // ToResName adds environment suffix if environment is specified in the resource input

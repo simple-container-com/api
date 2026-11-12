@@ -15,6 +15,8 @@ type fakeValidator struct {
 	componentTypes map[string]struct{}
 	allowed        map[string]map[string]struct{}
 	templates      map[string]struct{}
+	inTreeMerge    map[string]struct{}
+	pluginSupports map[string]struct{}
 }
 
 func (f fakeValidator) IsComponentType(t string) bool {
@@ -36,11 +38,25 @@ func (f fakeValidator) TemplateTypeExists(templateType string) bool {
 	return ok
 }
 
+func (f fakeValidator) HasInTreeMerge(templateType string) bool {
+	_, ok := f.inTreeMerge[templateType]
+	return ok
+}
+
+func (f fakeValidator) AnyPluginSupportsComponent(templateType string) bool {
+	_, ok := f.pluginSupports[templateType]
+	return ok
+}
+
 func newFakeValidator() fakeValidator {
 	return fakeValidator{
 		componentTypes: map[string]struct{}{"sc-dummy": {}},
 		allowed:        map[string]map[string]struct{}{"sc-dummy": {"storage": {}}},
 		templates:      map[string]struct{}{"vm-compose": {}},
+		// vm-compose has an in-tree merge func → bypasses the
+		// plugin-supports_component opt-in check.
+		inTreeMerge:    map[string]struct{}{"vm-compose": {}},
+		pluginSupports: map[string]struct{}{},
 	}
 }
 
@@ -160,6 +176,69 @@ func TestValidateComponentConfigs_AllowedOverride(t *testing.T) {
 	raw["storage"] = "some-bucket"
 	if err := ValidateComponentConfigs(desc, newFakeValidator()); err != nil {
 		t.Fatalf("allowed override rejected: %v", err)
+	}
+}
+
+// TestValidateComponentConfigs_PluginOptedIn covers the slice-1a.1 path (b)
+// happy case: the dispatched template's type has no in-tree merge func but
+// SOME plugin has advertised supports_component for it. Validation passes.
+func TestValidateComponentConfigs_PluginOptedIn(t *testing.T) {
+	t.Parallel()
+	desc := newValidDescriptor()
+	// Repoint the template at a plugin-owned type.
+	desc.Templates["compose-on-vm"] = StackDescriptor{Type: "aws-lambda"}
+	v := newFakeValidator()
+	v.templates = map[string]struct{}{"aws-lambda": {}}
+	// Plugin opted in via SchemaResponse.supports_component.
+	v.pluginSupports = map[string]struct{}{"aws-lambda": {}}
+	// NOT in the in-tree merge set.
+	v.inTreeMerge = map[string]struct{}{"vm-compose": {}}
+	if err := ValidateComponentConfigs(desc, v); err != nil {
+		t.Fatalf("plugin-opted-in template rejected: %v", err)
+	}
+}
+
+// TestValidateComponentConfigs_PluginNotOptedIn covers the slice-1a.1 path (b)
+// foot-gun guard: template type is registered but NO plugin has advertised
+// supports_component for it, and no in-tree merge func exists. Validation
+// refuses with a descriptive error.
+func TestValidateComponentConfigs_PluginNotOptedIn(t *testing.T) {
+	t.Parallel()
+	desc := newValidDescriptor()
+	desc.Templates["compose-on-vm"] = StackDescriptor{Type: "aws-lambda"}
+	v := newFakeValidator()
+	v.templates = map[string]struct{}{"aws-lambda": {}}
+	// Neither in-tree merge nor plugin-opted-in.
+	v.inTreeMerge = map[string]struct{}{}
+	v.pluginSupports = map[string]struct{}{}
+	err := ValidateComponentConfigs(desc, v)
+	if err == nil {
+		t.Fatal("expected error for plugin-not-opted-in template")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "not accepted by any loaded plugin") {
+		t.Fatalf("error does not mention opt-in gap: %v", err)
+	}
+	if !strings.Contains(msg, "supports_component") {
+		t.Fatalf("error does not point at Schema.supports_component: %v", err)
+	}
+	if !strings.Contains(msg, "aws-lambda") {
+		t.Fatalf("error does not name the template type: %v", err)
+	}
+}
+
+// TestValidateComponentConfigs_InTreeMergeBypasses covers the slice-1a.1
+// bypass: vm-compose (in-tree merge) is accepted even though NO plugin
+// advertises supports_component — the merge happens inside core before
+// the template's ProvisionFunc runs, so the plugin-opt-in check is moot.
+func TestValidateComponentConfigs_InTreeMergeBypasses(t *testing.T) {
+	t.Parallel()
+	v := newFakeValidator()
+	// Explicitly ensure NO plugin advertises support for vm-compose.
+	v.pluginSupports = map[string]struct{}{}
+	// vm-compose stays in the in-tree merge set.
+	if err := ValidateComponentConfigs(newValidDescriptor(), v); err != nil {
+		t.Fatalf("in-tree merge template rejected: %v", err)
 	}
 }
 
