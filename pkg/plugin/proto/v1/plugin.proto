@@ -469,6 +469,30 @@ message ComputeProcessRequest {
   // 1e (ComputeProcess v2) for mongodb and the remaining extractions —
   // older plugins ignore the field and get the same v1 behaviour.
   bytes parent_info_json = 7;
+
+  // Dependency-outputs JSON — same shape as ProvisionRequest.dependency_outputs_json
+  // (:823): a `map[string]*api.PluginResourceOutput` keyed by the sibling
+  // resource's SC-level Name. SC core packs this from `params.ResourceOutputs`
+  // the same way it packs the Provision side, so a `ComputeProcessor` on a
+  // `uses: [sibling]` can read the sibling's plugin-owned outputs via
+  // `runtime.DependencyOutputsFromComputeProcessRequest`.
+  //
+  // Mirrors the Provision-side JSON blob for symmetry. The flat
+  // `dependency_outputs = 5` field is left in place for wire-compat but is
+  // not populated by any current sidecar (same shape gap documented on the
+  // Provision field).
+  //
+  // Lights up sc-component-backup's slice 1d scoped-user plumbing
+  // (sc-component-backup commit 06721b1, design doc §5.2) end-to-end:
+  // `MatchConsumerToDatabase` reads this JSON to find the consumer's
+  // sibling-DB resource name + its target database, then the plugin's
+  // ComputeProcess mints a scoped Atlas user and embeds its creds in
+  // the push-registered tenant record.
+  //
+  // Older plugins ignore the field: the fallback is nil, which is the same
+  // silent-drop shape the Provision side was before #571. Backwards-compat
+  // additive.
+  bytes dependency_outputs_json = 8;
 }
 
 message ComputeProcessResponse {
