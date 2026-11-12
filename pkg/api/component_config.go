@@ -91,9 +91,65 @@ func (c *ComponentConfig) DeployTo() (string, error) {
 	return c.readString("deployTo", true /*required*/)
 }
 
-// Image reads `.Raw["image"]` as a non-empty string.
+// Image reads `.Raw["image"]` as EITHER a non-empty string reference
+// (`"registry/repo:tag"`) OR a build-spec map (`{dockerfile: ..., build: {args: ...}}`).
+// Both shapes are fleet-canonical:
+//
+//   - **String** — `image: simplecontainer/sc-backup:v1.2.3`. Component plugin
+//     pre-built the image + published it (or it's a public image). The
+//     dispatched template consumes the reference verbatim.
+//   - **Map** — `image: {dockerfile: ${git:root}/Dockerfile, build: {args: {...}}}`.
+//     SC's own image-build-and-push flow builds the image at provision time
+//     and pushes to the operator's ECR under the fleet AWS account. This is
+//     the shape every forge-* service uses today.
+//
+// Returns the string reference when `image` is a string. Returns an empty
+// string when `image` is a map — the dispatched template reads the map
+// shape directly from the merged config, and the empty return signals
+// "no pre-built reference; template does the build." Required: `image` must
+// be present and either shape; missing or wrong type → typed error naming
+// the resource.
+//
+// This replaces the string-only variant that shipped in slice 1a; caught
+// at the first fleet smoke 2026-11-12 when the smoke-sc-components stack
+// used the map shape per forge-notifier's template.
 func (c *ComponentConfig) Image() (string, error) {
-	return c.readString("image", true /*required*/)
+	v, ok := c.raw.Raw["image"]
+	if !ok || v == nil {
+		return "", errors.New("component config: image is required (expected string reference or map with dockerfile+build)")
+	}
+	switch img := v.(type) {
+	case string:
+		if img == "" {
+			return "", errors.New("component config: image is empty; expected non-empty reference or map with dockerfile+build")
+		}
+		return img, nil
+	case map[string]any:
+		// Build-spec map — the dispatched template reads it directly. Here
+		// we just validate the shape has at least one of the keys the
+		// template consumes.
+		if _, ok := img["dockerfile"]; !ok {
+			if _, ok := img["context"]; !ok {
+				return "", errors.New("component config: image is a map but has neither `dockerfile` nor `context` — expected {dockerfile|context: ..., build: {args: ...}}")
+			}
+		}
+		return "", nil
+	default:
+		return "", errors.Errorf("component config: image is %T, want string reference or {dockerfile|context: ..., build: {args: ...}} map", v)
+	}
+}
+
+// ImageIsBuildSpec returns true when `.Raw["image"]` is a map (the
+// build-at-deploy-time shape), false when it's a string reference.
+// The sidecar wrapper uses this to decide whether to pass `image` through
+// to the dispatched template as a reference or as a build spec.
+func (c *ComponentConfig) ImageIsBuildSpec() bool {
+	v, ok := c.raw.Raw["image"]
+	if !ok || v == nil {
+		return false
+	}
+	_, isMap := v.(map[string]any)
+	return isMap
 }
 
 // SigningKeyRef reads `.Raw["signingKey"]`. Absent key returns "" + nil
