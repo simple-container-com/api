@@ -182,6 +182,12 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		}
 		p.secretsStackRef = secretsStackRef
 		if secretsProviderStackSource, err := p.prepareStackForOperations(ctx, secretsStackRef, cfg, func(ctx *sdk.Context) error {
+			// A plugin-owned secrets provider (gcp-kms, aws-kms) is provisioned
+			// through the plugin's Provision RPC, which needs the in-engine
+			// session like any other plugin resource.
+			if err := p.startPluginSession(ctx); err != nil {
+				return err
+			}
 			return p.provisionSecretsProvider(ctx, provisionerCfg, stack, secretsProviderUrlExportName)
 		}); err != nil {
 			return errors.Wrapf(err, "failed to prepare secrets stack for operations for stack %q", stackRefString)
@@ -190,6 +196,9 @@ func (p *pulumi) login(ctx context.Context, cfg *api.ConfigFile, stack api.Stack
 		} else if e, ok := out[secretsProviderUrlExportName]; !ok || e.Value == nil {
 			p.logger.Info(ctx, "%s", color.GreenFmt("init secrets provider for stack %q...", stackRefString))
 			upRes, err := secretsProviderStackSource.Up(ctx, optup.EventStreams(p.watchEvents(WithContextAction(ctx, ActionContextInit))))
+			// The session belongs to the secrets stack's run only; the stack's
+			// own program starts a fresh one.
+			closePluginSessions()
 			if err != nil {
 				return errors.Wrapf(err, "failed to provision secrets provider stack %q", secretsProviderStackSource.Name())
 			}
