@@ -19,6 +19,14 @@ import (
 type Context struct {
 	Pulumi *sdk.Context
 	done   func() error
+
+	// key is the stack name the request header carried: the rendezvous between
+	// a ComputeProcess and the Provision that consumes what it parked. retained
+	// is set, under the bridge lock, when this context's owner parked a
+	// pre-processor closure, which makes the consuming Provision responsible
+	// for draining it. See preprocessors.go.
+	key      string
+	retained bool
 }
 
 // Done returns the deferred teardown Settle expects. Also exposed for the
@@ -82,7 +90,7 @@ func NewContext(ctx context.Context, h *scpluginv1.RequestHeader, opts ...Contex
 		if err != nil {
 			return nil, err
 		}
-		return &Context{Pulumi: pctx, done: func() error { return finishPulumiContext(pctx) }}, nil
+		return &Context{Pulumi: pctx, key: h.GetStackName(), done: func() error { return finishPulumiContext(pctx) }}, nil
 	}
 
 	if h.GetMonitorAddress() == "" {
@@ -113,7 +121,7 @@ func NewContext(ctx context.Context, h *scpluginv1.RequestHeader, opts ...Contex
 	if err != nil {
 		return nil, errors.Wrap(err, "open pulumi context from monitor address")
 	}
-	return &Context{Pulumi: pctx, done: func() error { return finishPulumiContext(pctx) }}, nil
+	return &Context{Pulumi: pctx, key: h.GetStackName(), done: func() error { return finishPulumiContext(pctx) }}, nil
 }
 
 // Settle runs a handler's deferred context teardown and folds its error into
@@ -134,7 +142,20 @@ func Settle[T any](rctx *Context, resp **T, err *error) {
 	if rctx == nil || rctx.done == nil {
 		return
 	}
-	if doneErr := rctx.done(); doneErr != nil && *err == nil {
+	if rctx.isRetained() {
+		if *err == nil {
+			// A ComputeProcess that parked a pre-processor closure: the closure
+			// needs this context open, and the Provision that consumes it
+			// drains and closes it. See preprocessors.go.
+			return
+		}
+		bridgeDiscard(rctx)
+	}
+	doneErr := rctx.done()
+	if finishErr := bridgeFinish(rctx.key); finishErr != nil && doneErr == nil {
+		doneErr = finishErr
+	}
+	if doneErr != nil && *err == nil {
 		*resp = nil
 		*err = doneErr
 	}
