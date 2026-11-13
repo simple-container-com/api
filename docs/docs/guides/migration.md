@@ -19,6 +19,15 @@ This tutorial guides **DevOps teams and developers** on how to migrate from **Te
 - **Reduces complexity** (high-level YAML configuration instead of Terraform HCL or Pulumi code).
 - **Cloud-agnostic** (migrate across AWS, GCP, and Kubernetes **without modifying service configurations**).
 
+!!! info "Cloud integrations ship as out-of-tree plugins"
+    The `aws-*` / `cloudflare` / `mongodb-atlas` / `ecs-fargate` /
+    `s3-bucket` / `aws-kms` tokens used in the migration examples below
+    are plugin-owned. The `server.yaml` snippets omit the `plugins:`
+    block for brevity, but a complete fleet-production shape needs one
+    pinning each plugin release — see
+    [Upgrading to SC plugins](upgrading-to-plugins.md) and
+    [parent-ecs-fargate](parent-ecs-fargate.md) for the pin shape.
+
 ---
 
 # **Understanding the Migration Approach**

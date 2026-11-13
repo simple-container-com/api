@@ -108,10 +108,42 @@ Encrypts both to every registered recipient so the file is safe to commit.
 Now, define **`.sc/stacks/devops/server.yaml`** to provision **GKE Autopilot, CloudSQL, Redis, and Pub/Sub**.
 
 ## **Step 2: Define `server.yaml`**
+!!! info "GCP, Cloudflare, and MongoDB Atlas support ship as out-of-tree plugins"
+    Since 2026-11-09 (api #568), the `gcp-*` resources, templates, and
+    `gcp-service-account` auth live in [`sc-plugin-gcp`](https://github.com/simple-container-com/sc-plugin-gcp)
+    rather than inside `sc`. The `cloudflare` registrar and `mongodb-atlas`
+    resources have been plugin-owned since the earlier plugin split
+    (see [Upgrading to SC plugins](upgrading-to-plugins.md)).
+
+    A `server.yaml` using those tokens needs a `plugins:` block declaring
+    which release of each plugin to download. Without it, `sc` resolves
+    the plugin's **latest** release from GitHub at parse time — convenient
+    but not reproducible. Pin for stability.
+
 ```yaml
 ---
 # File: "myproject/.sc/stacks/devops/server.yaml"
 schemaVersion: 1.0
+
+# Out-of-tree plugin pins. SC does NOT resolve "latest" — bumping a plugin
+# version is an explicit commit. Picked here against known-good fleet-infra
+# pins; replace with the current release from each repo's /releases page.
+plugins:
+  gcp:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-gcp
+      version: v2026.11.09-640c8ee
+  cloudflare:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-cloudflare
+      version: v2026.11.02-8b9eb75
+  mongodb:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-mongodb
+      version: v2026.11.12-a19e018
 
 # Provisioning state management
 provisioner:

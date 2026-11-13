@@ -130,10 +130,28 @@ sc secrets hide                                 # encrypt in place
 
 ## **Step 2: Define `server.yaml`**
 
+!!! info "Yandex Cloud support ships as an out-of-tree plugin"
+    The `yandex`/`yc-*` tokens (`yc-dns`, `yc-bucket`, `yc-serverless-container`,
+    `yc-object-storage`, `yc-kms`, `yc-lockbox`, `yc-service-account`) live in
+    [`sc-plugin-yandex`](https://github.com/simple-container-com/sc-plugin-yandex).
+    Declare a `plugins:` block pinning the release — without it, `sc` resolves
+    "latest" at parse time (convenient but not reproducible). See
+    [Upgrading to SC plugins](upgrading-to-plugins.md).
+
 ```yaml
 ---
 # File: "myproject/.sc/stacks/devops/server.yaml"
 schemaVersion: 1.0
+
+# Out-of-tree plugin pins. SC does NOT resolve "latest" — bumping a plugin
+# version is an explicit commit. Picked against the known-good fleet-infra
+# pin; replace with the current release from the repo's /releases page.
+plugins:
+  yandex:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-yandex
+      version: v2026.11.09-54be858
 
 # Provisioning state management
 provisioner:

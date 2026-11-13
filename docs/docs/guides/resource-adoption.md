@@ -2,6 +2,16 @@
 
 Adopt existing cloud infrastructure into Simple Container without downtime or modifications. This guide shows how to import existing resources and immediately gain access to Simple Container's deployment and management capabilities.
 
+!!! info "GCP + MongoDB Atlas support ships as out-of-tree plugins"
+    The `gcp-*` and `mongodb-atlas` adoption shapes shown below are
+    plugin-owned (sc-plugin-gcp since 2026-11-09 via api #568;
+    sc-plugin-mongodb since the earlier plugin split). The snippets
+    below show `resources:` fragments; a complete `server.yaml` also
+    needs a `plugins:` block pinning each plugin release. See
+    [Upgrading to SC plugins](upgrading-to-plugins.md) for the pin shape
+    + [parent-gcp-gke-autopilot](parent-gcp-gke-autopilot.md) for a
+    complete server.yaml example.
+
 ## **What is Resource Adoption?**
 
 Resource adoption allows you to **import existing cloud resources** into Simple Container's management without creating new resources or modifying existing ones. Your applications continue running unchanged while gaining access to Simple Container's features.

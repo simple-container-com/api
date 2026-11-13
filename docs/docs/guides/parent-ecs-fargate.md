@@ -114,10 +114,39 @@ Encrypts both to every registered recipient so the file is safe to commit.
 Now, define `.sc/stacks/devops/server.yaml` to provision **ECS Fargate & MongoDB Atlas**.
 
 ## **Step 2: Define `server.yaml`**
+
+!!! info "AWS, Cloudflare, and MongoDB Atlas support ship as out-of-tree plugins"
+    The `aws`/`aws-token`/`ecs-fargate`/`s3-bucket`/`aws-kms` tokens, the
+    `cloudflare` registrar, and the `mongodb-atlas` resource have been
+    plugin-owned since the plugin split (see
+    [Upgrading to SC plugins](upgrading-to-plugins.md)). Declare a
+    `plugins:` block pinning each release — without it, `sc` resolves
+    "latest" at parse time (convenient but not reproducible).
+
 ```yaml
 ---
 # File: "myproject/.sc/stacks/devops/server.yaml"
 schemaVersion: 1.0
+
+# Out-of-tree plugin pins. SC does NOT resolve "latest" — bumping a plugin
+# version is an explicit commit. Picked against known-good fleet-infra pins;
+# replace with the current release from each repo's /releases page.
+plugins:
+  aws:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-aws
+      version: v2026.11.09-50d9ed0
+  cloudflare:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-cloudflare
+      version: v2026.11.02-8b9eb75
+  mongodb:
+    source:
+      type: github-release
+      repository: simple-container-com/sc-plugin-mongodb
+      version: v2026.11.12-a19e018
 
 # Provisioning state management
 provisioner:
