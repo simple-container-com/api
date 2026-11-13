@@ -19,6 +19,9 @@ import (
 type SyftGenerator struct {
 	// Timeout for syft commands (default: 5 minutes for large images)
 	Timeout time.Duration
+
+	// localImageExists overrides the local Docker daemon lookup in tests.
+	localImageExists func(ctx context.Context, image string) bool
 }
 
 // NewSyftGenerator creates a new SyftGenerator
@@ -38,9 +41,8 @@ func (g *SyftGenerator) Generate(ctx context.Context, image string, format Forma
 	timeoutCtx, cancel := context.WithTimeout(ctx, g.Timeout)
 	defer cancel()
 
-	// Build syft command: syft registry:IMAGE -o FORMAT
 	args := []string{
-		fmt.Sprintf("registry:%s", image),
+		g.source(timeoutCtx, image),
 		"-o", string(format),
 	}
 
@@ -83,6 +85,25 @@ func (g *SyftGenerator) Generate(ctx context.Context, image string, format Forma
 	imageDigest := g.extractImageDigest(image, stderr.String())
 
 	return NewSBOM(format, content, imageDigest, metadata), nil
+}
+
+// source picks where syft reads the image from. A digest reference the local
+// Docker daemon already holds (the image was just built and pushed from this
+// machine) is read from the daemon: the digest pins the content, so the SBOM
+// is the same and the image is not downloaded again from the registry.
+// Anything else is read from the registry.
+func (g *SyftGenerator) source(ctx context.Context, image string) string {
+	if strings.Contains(image, "@sha256:") && g.inLocalDaemon(ctx, image) {
+		return "docker:" + image
+	}
+	return "registry:" + image
+}
+
+func (g *SyftGenerator) inLocalDaemon(ctx context.Context, image string) bool {
+	if g.localImageExists != nil {
+		return g.localImageExists(ctx, image)
+	}
+	return exec.CommandContext(ctx, "docker", "image", "inspect", "--format", "{{.Id}}", image).Run() == nil
 }
 
 // SupportsFormat checks if Syft supports the given format
