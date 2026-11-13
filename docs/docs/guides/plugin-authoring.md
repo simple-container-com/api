@@ -18,10 +18,13 @@ a local gRPC bus. Plugins own:
 - the **provisioning logic** behind those types — the plugin registers
   Pulumi resources against the engine SC core already set up.
 
-Three plugins ship today — `sc-plugin-cloudflare`, `sc-plugin-yandex`,
-`sc-plugin-cloudru` — and the design calls for seven more
-(`mws`, `selectel`, `vkcs`, `timeweb`, `mongodb`, `aws`, `gcloud`,
-`k8s`). The template every new plugin starts from is
+Eight plugins ship today (as of 2026-11-13) — `sc-plugin-aws`,
+`sc-plugin-cloudflare`, `sc-plugin-cloudru`, `sc-plugin-gcp`,
+`sc-plugin-mongodb`, `sc-plugin-mws`, `sc-plugin-yandex`, plus
+`sc-plugin-echo` as the template. The still-planned clouds in
+the original seed list are `selectel`, `vkcs`, `timeweb`, and
+`k8s` (Kubernetes stays in-tree pending its own extraction slice).
+The template every new plugin starts from is
 [`simple-container-com/sc-plugin-echo`](https://github.com/simple-container-com/sc-plugin-echo).
 
 !!! info "What this page is not"
