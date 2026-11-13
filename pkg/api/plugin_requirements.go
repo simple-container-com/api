@@ -116,6 +116,11 @@ func currentResolver() func(repo string) (string, error) {
 }
 
 func resolveLatestVersionFromGitHub(repo string) (string, error) {
+	// TEST BUILD ONLY, never merge: use the unmerged sc-plugin-gcp PR #7
+	// prerelease instead of the latest release.
+	if repo == "simple-container-com/sc-plugin-gcp" {
+		return "pr7-1b12310", nil
+	}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
