@@ -704,6 +704,28 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 			}
 		}
 
+		// ComponentRaw side-channel on the compute-process side — mirrors the
+		// Provision-side packer at :242 so a Component plugin's ComputeProcessor
+		// sees its own operator-declared `.Raw` map (`databases:` + `atlasAdmin:`
+		// + ...) the same way the Provision call already does. Without this,
+		// the compute handler receives no config at all beyond what crosses
+		// as `Inputs` + typed Config.Config, and features that key off the
+		// raw map (sc-component-backup's `maybeProvisionScopedUser`) are a
+		// silent no-op on the live path.
+		//
+		// Carried only when non-empty: every non-component ComputeProcess
+		// sees this unset and keeps working.
+		var componentRawJSON []byte
+		if cfg, errWrap := api.NewComponentConfig(input.Descriptor.Config.Config); errWrap == nil {
+			if raw := cfg.RawCopy(); len(raw) > 0 {
+				b, err := json.Marshal(raw)
+				if err != nil {
+					return nil, errors.Wrapf(err, "plugin %q ComputeProcess(%q): marshal ComponentRaw", pluginName, typeToken)
+				}
+				componentRawJSON = b
+			}
+		}
+
 		resp, err := cli.ComputeProcess(ctx.Context(), &scpluginv1.ComputeProcessRequest{
 			Header:                &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
 			ResourceType:          typeToken,
@@ -711,6 +733,7 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 			Inputs:                serializeConfigToInputs(input.Descriptor.Config.Config),
 			ParentInfoJson:        parentInfoJSON,
 			DependencyOutputsJson: depOutsJSON,
+			ComponentRaw:          componentRawJSON,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q ComputeProcess(%q)", pluginName, typeToken)
