@@ -124,9 +124,26 @@ var (
 	// The genuinely correct fix is content-addressed names, which makes
 	// the change additive and satisfies rule 1 instead; it also leaves
 	// orphans to collect. Not done here.
+	//
+	// `kubernetes:batch/v1:Job` is the third entry. A Job's pod template is
+	// immutable, so ANY change to what it runs (a proxy container moving from a
+	// sidecar to a native init container, a script edit) is an `OpReplace`.
+	// Everything in the Job comes from SC's config on every apply, and what a
+	// replace costs is that the Job runs again. The Jobs SC creates are the
+	// per-stack init Jobs (the Cloud SQL `db-user-init`: GRANT statements, idempotent
+	// by construction), so running again is the point, not a loss. Found on a
+	// preview of a deployed fleet: the stacks last deployed before that Job changed
+	// shape were refused, while the SC before the guard replaced the Job without
+	// comment and the stacks deployed fine.
+	//
+	// What the exemption accepts, knowingly: a Job someone ELSE adds to a client
+	// stack through the same path would also be allowed to re-run on a change. SC
+	// has no such path today; if one appears and its Job is not idempotent, it
+	// belongs on its own type or name, not on this entry.
 	configRegeneratedTypes = map[string]struct{}{
 		"kubernetes:core/v1:Secret":    {},
 		"kubernetes:core/v1:ConfigMap": {},
+		"kubernetes:batch/v1:Job":      {},
 	}
 
 	// engineOnlyTypePrefixes is rule 3, and the only prefix-matched
