@@ -99,6 +99,17 @@ type Collector struct {
 	// resource's password Output. `awaitOutputs` drains this list
 	// before `toResponse` or the mutations are lost silently.
 	outputs []sdk.Output
+
+	// Pre- and post-processors: see processors.go. owner is the ComputeProcess
+	// context a closure added here is parked under; key is the stack a Provision
+	// collector takes parked closures back out for; local are closures added and
+	// run inside one RPC.
+	owner *Context
+	key   string
+	local []procEntry
+
+	// Resources a consumer must wait on: see AddDependency in processors.go.
+	localDeps []sdk.Resource
 }
 
 type resourceTplEntry struct {
@@ -128,6 +139,10 @@ func NewProvisionCollector(req *scpluginv1.ProvisionRequest) *Collector {
 	c := &Collector{}
 	if req == nil {
 		return c
+	}
+	if key := req.GetHeader().GetStackName(); key != "" {
+		c.key = key
+		bridgeMarkConsumer(key)
 	}
 	for _, v := range req.GetComputeEnvVars() {
 		// Defensive: a nil entry or one with no name is a wire artefact
@@ -237,21 +252,14 @@ func (c *Collector) Outputs() []sdk.Output {
 	return append([]sdk.Output(nil), c.outputs...)
 }
 
-// The pApi.ComputeContextCollector methods below carry Pulumi
-// sdk.Resource handles or Go closures that do not cross the plugin
-// bus. A plugin that needs them applies them against its own
-// sdk.Context before Build. See api/pkg/plugin/compute.go for the
-// general rule.
-func (c *Collector) AddDependency(sdk.Resource)                         {}
-func (c *Collector) Dependencies() []sdk.Resource                       { return nil }
-func (c *Collector) ResolvePlaceholders(any) error                      { return nil }
-func (c *Collector) AddPreProcessor(any, pApi.PreProcessor)             {}
-func (c *Collector) AddPostProcessor(any, pApi.PostProcessor)           {}
-func (c *Collector) GetPreProcessors(any) ([]pApi.PreProcessor, bool)   { return nil, false }
-func (c *Collector) GetPostProcessors(any) ([]pApi.PostProcessor, bool) { return nil, false }
-func (c *Collector) RunPreProcessors(any, any) error                    { return nil }
-func (c *Collector) RunPostProcessors(any, any) error                   { return nil }
-func (c *Collector) ResourceOutputs() pApi.ResourcesOutputs             { return nil }
+// The pApi.ComputeContextCollector methods below are the ones that do not
+// cross the plugin bus. AddDependency and the pre- and post-processors DO move
+// from a ComputeProcess to the consuming template's Provision, inside the one
+// plugin process (see processors.go); what stays in one RPC is a resource handle
+// used any other way. A plugin that needs it applies it against its own
+// sdk.Context before Build. See api/pkg/plugin/compute.go for the general rule.
+func (c *Collector) ResolvePlaceholders(any) error          { return nil }
+func (c *Collector) ResourceOutputs() pApi.ResourcesOutputs { return nil }
 
 // --- Internal drain + marshal (unexported by design) ------------------
 
@@ -374,7 +382,7 @@ func RunComputeProcess(
 		return nil, nil, errors.New("runtime.RunComputeProcess: nil handler")
 	}
 
-	collector := &Collector{}
+	collector := &Collector{owner: rctx}
 	out, err := handler(rctx.Pulumi, stack, input, collector, params)
 	if err != nil {
 		return nil, nil, err

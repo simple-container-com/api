@@ -313,12 +313,36 @@ projectId := ref.GetOutput(sdk.String(parent.StackName + "-project-id"))
 
 !!! warning "What does NOT cross the bus"
     `pApi.ComputeContextCollector` has methods for `AddDependency(sdk.Resource)`,
-    `AddOutput(sdk.Output)`, `AddPreProcessor`, `AddPostProcessor`. **None of
-    these are serialisable** — Pulumi resource handles and Go closures stay
-    in the plugin's own process. Apply them against the plugin's own
-    `sdk.Context` BEFORE returning from Build; the sidecar's response-
-    handling only reaches the env vars + tpl extensions. Document the
-    semantic for any helper you build on top.
+    `AddOutput(sdk.Output)`, `AddPreProcessor`, `AddPostProcessor`. Pulumi
+    resource handles and Go closures are not serialisable, so the sidecar's
+    response-handling only reaches the env vars + tpl extensions. Apply resource
+    handles against the plugin's own `sdk.Context` BEFORE returning from Build.
+
+    **`AddPreProcessor`, `AddPostProcessor` and `AddDependency` are the
+    exception, and only between the two RPCs of one deploy.** A dependency's
+    ComputeProcess and the consuming template's Provision run in the same plugin
+    process, so `runtime.Collector` parks the closure (or the resource) keyed by
+    the stack name both headers carry, and the template takes it back out:
+    `RunPreProcessors` / `RunPostProcessors` (which `kubernetes.NewSimpleContainer`
+    calls on its container args, before the Deployment and once the
+    SimpleContainer exists) and `Dependencies()` (which the Deployment waits on).
+    That is how the Cloud SQL proxy becomes a sidecar of the app using the
+    database (pre-processor), how its init proxy and `db-user-init` Job get
+    created (post-processor), and how the Deployment waits for the proxy's
+    service account and credentials Secret (dependencies). Consequences for the
+    closure:
+
+    - It runs with the `sdk.Context` and providers it captured in ComputeProcess,
+      so that RPC's context is NOT drained when the handler returns, and it is
+      kept alive past the request's own cancellation; the template's
+      `runtime.Settle` drains it. A handler that does not use `runtime.Settle`
+      loses this.
+    - It still cannot reach anything the template builds in its own RPC except
+      through the argument it is given (`NamespaceNameOutput` and `Namespace` on
+      the container args are how it learns the namespace).
+
+    Before this, all three were empty functions: a stack deployed with no proxy
+    sidecar and no init Job, and the deploy stayed green.
 
 **Reference**: [`sc-plugin-echo/plugin/internal/compute.go`](https://github.com/simple-container-com/sc-plugin-echo/blob/main/plugin/internal/compute.go)
 — minimal stub exercising every builder method.
