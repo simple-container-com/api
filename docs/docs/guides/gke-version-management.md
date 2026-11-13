@@ -2,6 +2,16 @@
 
 This guide helps you manage GKE (Google Kubernetes Engine) versions correctly in Simple Container to avoid deployment failures.
 
+!!! info "GKE support ships as an out-of-tree plugin"
+    The `gcp-gke-autopilot-cluster` resource and `gcp-gke-autopilot`
+    template this guide uses are owned by
+    [`sc-plugin-gcp`](https://github.com/simple-container-com/sc-plugin-gcp)
+    since 2026-11-09 (api #568). A complete `server.yaml` using these
+    tokens also needs a `plugins:` block pinning the plugin release. See
+    [parent-gcp-gke-autopilot](parent-gcp-gke-autopilot.md) for the full
+    shape + [Upgrading to SC plugins](upgrading-to-plugins.md) for the
+    pin mechanics.
+
 ## ⚠️ Critical Issue: Outdated GKE Versions
 
 **Common Error**:
