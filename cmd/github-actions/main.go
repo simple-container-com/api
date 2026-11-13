@@ -108,6 +108,7 @@ func main() {
 		// Cloning replaces the workspace's contents, and with them any credential
 		// file an earlier step wrote there, such as a Workload Identity Federation
 		// config from google-github-actions/auth.
+		snapshot := actions.SnapshotWorkspaceCredentialFiles()
 		preserved, failed := actions.PreserveWorkspaceCredentialFiles()
 		for name, path := range preserved {
 			log.Info(ctx, "%s preserved outside the workspace at %s", name, path)
@@ -121,6 +122,13 @@ func main() {
 		if err := cloneRepository(ctx, log, workDir); err != nil {
 			log.Error(ctx, "Failed to clone repository: %v", err)
 			os.Exit(1)
+		}
+		restored, notRestored := snapshot.Restore()
+		for _, path := range restored {
+			log.Info(ctx, "%s restored in the workspace for later steps", filepath.Base(path))
+		}
+		for path, err := range notRestored {
+			log.Warn(ctx, "%s could not be restored in the workspace; later steps lose this identity: %v", filepath.Base(path), err)
 		}
 
 		// Try to initialize git repo again after cloning

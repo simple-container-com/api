@@ -46,22 +46,8 @@ func PreserveWorkspaceCredentialFiles() (map[string]string, map[string]error) {
 	var dir string
 	var err error
 	for _, name := range credentialFileVars {
-		p := os.Getenv(name)
-		if p == "" {
-			continue
-		}
-		src := p
-		if abs, err := filepath.Abs(p); err == nil {
-			src = abs
-		}
-		if _, err := os.Stat(src); err == nil {
-			if !insideDir(src, workspace) {
-				continue
-			}
-		} else {
-			src = filepath.Join(workspace, filepath.Base(p))
-		}
-		if st, err := os.Stat(src); err != nil || !st.Mode().IsRegular() {
+		src, ok := workspaceCredentialFile(name, workspace)
+		if !ok {
 			continue
 		}
 		if dir == "" {
@@ -83,6 +69,91 @@ func PreserveWorkspaceCredentialFiles() (map[string]string, map[string]error) {
 		changed[name] = dst
 	}
 	return changed, failed
+}
+
+// workspaceCredentialFile resolves the file a credential variable names to a
+// regular file in the workspace, as PreserveWorkspaceCredentialFiles describes.
+func workspaceCredentialFile(name, workspace string) (string, bool) {
+	p := os.Getenv(name)
+	if p == "" {
+		return "", false
+	}
+	src := p
+	if abs, err := filepath.Abs(p); err == nil {
+		src = abs
+	}
+	if _, err := os.Stat(src); err == nil {
+		if !insideDir(src, workspace) {
+			return "", false
+		}
+	} else {
+		src = filepath.Join(workspace, filepath.Base(p))
+	}
+	if st, err := os.Stat(src); err != nil || !st.Mode().IsRegular() {
+		return "", false
+	}
+	return src, true
+}
+
+// WorkspaceCredentials is a copy of the credential files in the workspace,
+// taken before a clone replaces the workspace's contents.
+type WorkspaceCredentials map[string][]byte
+
+// SnapshotWorkspaceCredentialFiles reads the workspace files that credential
+// variables name. Call it before PreserveWorkspaceCredentialFiles repoints the
+// variables. A file that cannot be read is left out: preserving it fails too,
+// and that failure is reported.
+func SnapshotWorkspaceCredentialFiles() WorkspaceCredentials {
+	snap := WorkspaceCredentials{}
+	workspace := os.Getenv("GITHUB_WORKSPACE")
+	if workspace == "" {
+		return snap
+	}
+	for _, name := range credentialFileVars {
+		src, ok := workspaceCredentialFile(name, workspace)
+		if !ok {
+			continue
+		}
+		if _, seen := snap[src]; seen {
+			continue
+		}
+		if data, err := os.ReadFile(src); err == nil {
+			snap[src] = data
+		}
+	}
+	return snap
+}
+
+// Restore writes back each file the clone removed, at the same path. The clone
+// empties the workspace, which is shared by every later step of the job: the
+// cancel-stack step, any gcloud step, and the auth action's own cleanup expect
+// the file where the auth action wrote it. A file still present is left as it
+// is, and a path is only ever created, never followed or truncated. It returns
+// the paths restored and, per path, why one was not.
+func (w WorkspaceCredentials) Restore() ([]string, map[string]error) {
+	var restored []string
+	failed := map[string]error{}
+	for path, data := range w {
+		f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		if err != nil {
+			failed[path] = errors.Wrapf(err, "failed to recreate %s", path)
+			continue
+		}
+		if _, err := f.Write(data); err != nil {
+			_ = f.Close()
+			failed[path] = errors.Wrapf(err, "failed to write %s", path)
+			continue
+		}
+		if err := f.Close(); err != nil {
+			failed[path] = errors.Wrapf(err, "failed to close %s", path)
+			continue
+		}
+		restored = append(restored, path)
+	}
+	return restored, failed
 }
 
 // preserveCredentialFile copies src into dir, a directory this call created
