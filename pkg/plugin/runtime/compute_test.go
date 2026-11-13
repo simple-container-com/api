@@ -212,3 +212,60 @@ func TestDependencyOutputsFromProvisionRequest_RejectsMalformedJson(t *testing.T
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("provision request"))
 }
+
+// TestComponentRawFromComputeProcessRequest_RoundTrips — mirrors the
+// Provision-side ComponentRaw test on the ComputeProcess side. Same JSON
+// shape (a flat map[string]any of the operator's component `.Raw`), same
+// decoding semantics, different RPC carrier. Lights up a component
+// plugin's compute path reading its own `databases:` / `atlasAdmin:` /
+// ... config — the symmetric gap that kept sc-component-backup's
+// `maybeProvisionScopedUser` a no-op on the live path.
+func TestComponentRawFromComputeProcessRequest_RoundTrips(t *testing.T) {
+	RegisterTestingT(t)
+
+	want := map[string]any{
+		"databases": []any{
+			map[string]any{"resource": "the-mongo", "driver": "mongodb"},
+		},
+		"atlasAdmin": map[string]any{
+			"publicKey":  "pub",
+			"privateKey": "priv",
+			"projectId":  "pid",
+		},
+	}
+	b, err := json.Marshal(want)
+	Expect(err).ToNot(HaveOccurred())
+
+	req := &scpluginv1.ComputeProcessRequest{ComponentRaw: b}
+	got, err := ComponentRawFromComputeProcessRequest(req)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(got).ToNot(BeNil())
+	Expect(got["databases"]).To(HaveLen(1))
+	admin, ok := got["atlasAdmin"].(map[string]any)
+	Expect(ok).To(BeTrue())
+	Expect(admin["projectId"]).To(Equal("pid"))
+}
+
+// TestComponentRawFromComputeProcessRequest_EmptyMeansNil — a request
+// with no ComponentRaw (every non-component ComputeProcess call, or an
+// older SC core) returns (nil, nil). Plugins fall back to an empty
+// Config.Raw and compute-process behaves as it did before the field.
+func TestComponentRawFromComputeProcessRequest_EmptyMeansNil(t *testing.T) {
+	RegisterTestingT(t)
+
+	got, err := ComponentRawFromComputeProcessRequest(&scpluginv1.ComputeProcessRequest{})
+	Expect(err).ToNot(HaveOccurred())
+	Expect(got).To(BeNil())
+}
+
+// TestComponentRawFromComputeProcessRequest_RejectsMalformedJson — a
+// corrupted field surfaces as a wrapped error naming the compute-process
+// request.
+func TestComponentRawFromComputeProcessRequest_RejectsMalformedJson(t *testing.T) {
+	RegisterTestingT(t)
+
+	req := &scpluginv1.ComputeProcessRequest{ComponentRaw: []byte("{not valid json")}
+	_, err := ComponentRawFromComputeProcessRequest(req)
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("decode ComponentRaw from compute-process request"))
+}

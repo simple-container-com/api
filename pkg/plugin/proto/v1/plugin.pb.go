@@ -1685,8 +1685,32 @@ type ComputeProcessRequest struct {
 	// silent-drop shape the Provision side was before #571. Backwards-compat
 	// additive.
 	DependencyOutputsJson []byte `protobuf:"bytes,8,opt,name=dependency_outputs_json,json=dependencyOutputsJson,proto3" json:"dependency_outputs_json,omitempty"`
-	unknownFields         protoimpl.UnknownFields
-	sizeCache             protoimpl.SizeCache
+	// JSON of the component's `.Raw` map when the ComputeProcess call fires
+	// on an SC Component resource (`type: sc-<name>` whose plugin advertises
+	// `SchemaResponse.supports_component`). Mirrors
+	// `ProvisionRequest.component_raw = 13`: SC core packs
+	// `cfg.RawCopy()` the same way on both sides so a component plugin's
+	// compute path can read its own operator-declared `databases:` +
+	// `atlasAdmin:` + ... config — the same data the Provision side already
+	// sees — without a second config carrier.
+	//
+	// Live-caught 2026-11-13 on sc-component-backup's slice 1d live-smoke
+	// prep: the compute path's `maybeProvisionScopedUser` reads config via
+	// `extractConfigRaw(input.Descriptor)`, but the ComputeProcess RPC
+	// handler fed `input.Descriptor.Config` with `map[string]any{}` because
+	// no proto carrier existed yet. Without this field,
+	// `maybeProvisionScopedUser` has always been a no-op in production —
+	// only reachable through the plugin's unit-test fixtures.
+	//
+	// Older plugin binaries that pre-date this field see no change: the
+	// field is unset, decoders skip it, and ComputeProcess behaves as it
+	// did before. Additive by construction; opt-in is the same
+	// `SchemaResponse.supports_component` advertise as on the Provision
+	// side. Decoded plugin-side with
+	// `runtime.ComponentRawFromComputeProcessRequest`.
+	ComponentRaw  []byte `protobuf:"bytes,9,opt,name=component_raw,json=componentRaw,proto3" json:"component_raw,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ComputeProcessRequest) Reset() {
@@ -1771,6 +1795,13 @@ func (x *ComputeProcessRequest) GetParentInfoJson() []byte {
 func (x *ComputeProcessRequest) GetDependencyOutputsJson() []byte {
 	if x != nil {
 		return x.DependencyOutputsJson
+	}
+	return nil
+}
+
+func (x *ComputeProcessRequest) GetComponentRaw() []byte {
+	if x != nil {
+		return x.ComponentRaw
 	}
 	return nil
 }
@@ -4523,7 +4554,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\"5\n" +
 	"\x10ProviderResponse\x12!\n" +
-	"\fprovider_urn\x18\x01 \x01(\tR\vproviderUrn\"\xe6\x04\n" +
+	"\fprovider_urn\x18\x01 \x01(\tR\vproviderUrn\"\x8b\x05\n" +
 	"\x15ComputeProcessRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12#\n" +
@@ -4533,7 +4564,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\n" +
 	"parent_urn\x18\x06 \x01(\tR\tparentUrn\x12(\n" +
 	"\x10parent_info_json\x18\a \x01(\fR\x0eparentInfoJson\x126\n" +
-	"\x17dependency_outputs_json\x18\b \x01(\fR\x15dependencyOutputsJson\x1aS\n" +
+	"\x17dependency_outputs_json\x18\b \x01(\fR\x15dependencyOutputsJson\x12#\n" +
+	"\rcomponent_raw\x18\t \x01(\fR\fcomponentRaw\x1aS\n" +
 	"\vInputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\x1aD\n" +

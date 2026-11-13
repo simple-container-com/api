@@ -142,6 +142,35 @@ func DependencyOutputsFromComputeProcessRequest(req *scpluginv1.ComputeProcessRe
 	return result, nil
 }
 
+// ComponentRawFromComputeProcessRequest unmarshals the ComponentRaw bytes
+// a ComputeProcessRequest carries when the ComputeProcess call fires on
+// an SC Component resource (whose plugin advertises
+// SchemaResponse.supports_component). Mirrors ComponentRawFromProvisionRequest:
+// same JSON shape, same decoding semantics, different RPC side.
+//
+// Lights up the component plugin's compute path: a Component's
+// `databases:` + `atlasAdmin:` + ... config was already reachable from
+// its Provision via the Provision-side side-channel; the ComputeProcess
+// side had no equivalent carrier until the companion proto field landed
+// on ComputeProcessRequest. Without this, sc-component-backup's
+// `maybeProvisionScopedUser` was a no-op in production because the
+// compute processor received an empty Config.Raw.
+//
+// Opt-in via `SchemaResponse.supports_component` advertise. Nil/empty
+// bytes return `(nil, nil)`; that's every non-component ComputeProcess
+// call.
+func ComponentRawFromComputeProcessRequest(req *scpluginv1.ComputeProcessRequest) (map[string]any, error) {
+	raw := req.GetComponentRaw()
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, errors.Wrap(err, "decode ComponentRaw from compute-process request")
+	}
+	return decoded, nil
+}
+
 // ComponentRawFromProvisionRequest unmarshals the ComponentRaw bytes a
 // ProvisionRequest carries when SC core dispatched this plugin's template
 // via a Component resource's `deployTo:` (slice 1a.1 of

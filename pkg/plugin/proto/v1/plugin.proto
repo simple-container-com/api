@@ -493,6 +493,31 @@ message ComputeProcessRequest {
   // silent-drop shape the Provision side was before #571. Backwards-compat
   // additive.
   bytes dependency_outputs_json = 8;
+
+  // JSON of the component's `.Raw` map when the ComputeProcess call fires
+  // on an SC Component resource (`type: sc-<name>` whose plugin advertises
+  // `SchemaResponse.supports_component`). Mirrors
+  // `ProvisionRequest.component_raw = 13`: SC core packs
+  // `cfg.RawCopy()` the same way on both sides so a component plugin's
+  // compute path can read its own operator-declared `databases:` +
+  // `atlasAdmin:` + ... config — the same data the Provision side already
+  // sees — without a second config carrier.
+  //
+  // Live-caught 2026-11-13 on sc-component-backup's slice 1d live-smoke
+  // prep: the compute path's `maybeProvisionScopedUser` reads config via
+  // `extractConfigRaw(input.Descriptor)`, but the ComputeProcess RPC
+  // handler fed `input.Descriptor.Config` with `map[string]any{}` because
+  // no proto carrier existed yet. Without this field,
+  // `maybeProvisionScopedUser` has always been a no-op in production —
+  // only reachable through the plugin's unit-test fixtures.
+  //
+  // Older plugin binaries that pre-date this field see no change: the
+  // field is unset, decoders skip it, and ComputeProcess behaves as it
+  // did before. Additive by construction; opt-in is the same
+  // `SchemaResponse.supports_component` advertise as on the Provision
+  // side. Decoded plugin-side with
+  // `runtime.ComponentRawFromComputeProcessRequest`.
+  bytes component_raw = 9;
 }
 
 message ComputeProcessResponse {
