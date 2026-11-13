@@ -24,4 +24,4 @@ urllib3>=2.8.0
 click>=8.3.3
 pymdown-extensions>=11.0.0
 setuptools>=83.0.0
-soupsieve>=2.8.4
+soupsieve>=4.0
