@@ -19,6 +19,14 @@ import (
 type Context struct {
 	Pulumi *sdk.Context
 	done   func() error
+
+	// key is the stack name the request header carried: the rendezvous between
+	// a ComputeProcess and the Provision that consumes what it parked. retained
+	// is set, under the bridge lock, when this context's owner parked a
+	// pre-processor closure, which makes the consuming Provision responsible
+	// for draining it. See preprocessors.go.
+	key      string
+	retained bool
 }
 
 // Done returns the deferred teardown Settle expects. Also exposed for the
@@ -82,7 +90,7 @@ func NewContext(ctx context.Context, h *scpluginv1.RequestHeader, opts ...Contex
 		if err != nil {
 			return nil, err
 		}
-		return &Context{Pulumi: pctx, done: func() error { return finishPulumiContext(pctx) }}, nil
+		return &Context{Pulumi: pctx, key: h.GetStackName(), done: func() error { return finishPulumiContext(pctx) }}, nil
 	}
 
 	if h.GetMonitorAddress() == "" {
@@ -103,7 +111,9 @@ func NewContext(ctx context.Context, h *scpluginv1.RequestHeader, opts ...Contex
 		dryRun = *o.dryRunOverride
 	}
 
-	pctx, err := sdk.NewContext(ctx, sdk.RunInfo{
+	rctx := &Context{key: h.GetStackName()}
+	base, cancel := detachedContext(ctx, rctx.isRetained)
+	pctx, err := sdk.NewContext(base, sdk.RunInfo{
 		MonitorAddr: h.GetMonitorAddress(),
 		EngineAddr:  engineAddr,
 		Project:     h.GetProjectName(),
@@ -111,9 +121,45 @@ func NewContext(ctx context.Context, h *scpluginv1.RequestHeader, opts ...Contex
 		DryRun:      dryRun,
 	})
 	if err != nil {
+		cancel()
 		return nil, errors.Wrap(err, "open pulumi context from monitor address")
 	}
-	return &Context{Pulumi: pctx, done: func() error { return finishPulumiContext(pctx) }}, nil
+	rctx.Pulumi = pctx
+	rctx.done = func() error {
+		err := finishPulumiContext(pctx)
+		cancel()
+		return err
+	}
+	return rctx, nil
+}
+
+// detachedContext returns the Go context a Pulumi SDK context is built on.
+//
+// The SDK uses it for every RPC it makes, and gRPC cancels the request context
+// of a plugin RPC the moment the handler returns. For almost every handler that
+// is fine: Settle has drained and closed the Pulumi context by then. A
+// ComputeProcess that parked a pre-processor closure (see preprocessors.go) is
+// the exception: its Pulumi context has to outlive the RPC, because the closure
+// registers resources through it while the consuming template's Provision runs,
+// and a context built directly on the request's would fail every one of those
+// with "context canceled".
+//
+// So the returned context ignores the request's cancellation when retained
+// reports true at that moment, and follows it otherwise, which is the behaviour
+// before this existed. cancel releases it and must run once the Pulumi context is
+// closed.
+func detachedContext(parent context.Context, retained func() bool) (context.Context, context.CancelFunc) {
+	base, cancel := context.WithCancel(context.WithoutCancel(parent))
+	go func() {
+		select {
+		case <-parent.Done():
+			if !retained() {
+				cancel()
+			}
+		case <-base.Done():
+		}
+	}()
+	return base, cancel
 }
 
 // Settle runs a handler's deferred context teardown and folds its error into
@@ -134,7 +180,20 @@ func Settle[T any](rctx *Context, resp **T, err *error) {
 	if rctx == nil || rctx.done == nil {
 		return
 	}
-	if doneErr := rctx.done(); doneErr != nil && *err == nil {
+	if rctx.isRetained() {
+		if *err == nil {
+			// A ComputeProcess that parked a pre-processor closure: the closure
+			// needs this context open, and the Provision that consumes it
+			// drains and closes it. See preprocessors.go.
+			return
+		}
+		bridgeDiscard(rctx)
+	}
+	doneErr := rctx.done()
+	if finishErr := bridgeFinish(rctx.key); finishErr != nil && doneErr == nil {
+		doneErr = finishErr
+	}
+	if doneErr != nil && *err == nil {
 		*resp = nil
 		*err = doneErr
 	}

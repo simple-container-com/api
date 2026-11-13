@@ -99,6 +99,14 @@ type Collector struct {
 	// resource's password Output. `awaitOutputs` drains this list
 	// before `toResponse` or the mutations are lost silently.
 	outputs []sdk.Output
+
+	// Pre-processors: see preprocessors.go. owner is the ComputeProcess context a
+	// closure added here is parked under; key is the stack a Provision collector
+	// takes parked closures back out for; localPre are closures added and run
+	// inside one RPC.
+	owner    *Context
+	key      string
+	localPre []preEntry
 }
 
 type resourceTplEntry struct {
@@ -128,6 +136,10 @@ func NewProvisionCollector(req *scpluginv1.ProvisionRequest) *Collector {
 	c := &Collector{}
 	if req == nil {
 		return c
+	}
+	if key := req.GetHeader().GetStackName(); key != "" {
+		c.key = key
+		bridgeMarkConsumer(key)
 	}
 	for _, v := range req.GetComputeEnvVars() {
 		// Defensive: a nil entry or one with no name is a wire artefact
@@ -245,11 +257,8 @@ func (c *Collector) Outputs() []sdk.Output {
 func (c *Collector) AddDependency(sdk.Resource)                         {}
 func (c *Collector) Dependencies() []sdk.Resource                       { return nil }
 func (c *Collector) ResolvePlaceholders(any) error                      { return nil }
-func (c *Collector) AddPreProcessor(any, pApi.PreProcessor)             {}
 func (c *Collector) AddPostProcessor(any, pApi.PostProcessor)           {}
-func (c *Collector) GetPreProcessors(any) ([]pApi.PreProcessor, bool)   { return nil, false }
 func (c *Collector) GetPostProcessors(any) ([]pApi.PostProcessor, bool) { return nil, false }
-func (c *Collector) RunPreProcessors(any, any) error                    { return nil }
 func (c *Collector) RunPostProcessors(any, any) error                   { return nil }
 func (c *Collector) ResourceOutputs() pApi.ResourcesOutputs             { return nil }
 
@@ -374,7 +383,7 @@ func RunComputeProcess(
 		return nil, nil, errors.New("runtime.RunComputeProcess: nil handler")
 	}
 
-	collector := &Collector{}
+	collector := &Collector{owner: rctx}
 	out, err := handler(rctx.Pulumi, stack, input, collector, params)
 	if err != nil {
 		return nil, nil, err

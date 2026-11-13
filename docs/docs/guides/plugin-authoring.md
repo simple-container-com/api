@@ -313,12 +313,31 @@ projectId := ref.GetOutput(sdk.String(parent.StackName + "-project-id"))
 
 !!! warning "What does NOT cross the bus"
     `pApi.ComputeContextCollector` has methods for `AddDependency(sdk.Resource)`,
-    `AddOutput(sdk.Output)`, `AddPreProcessor`, `AddPostProcessor`. **None of
-    these are serialisable** — Pulumi resource handles and Go closures stay
-    in the plugin's own process. Apply them against the plugin's own
-    `sdk.Context` BEFORE returning from Build; the sidecar's response-
-    handling only reaches the env vars + tpl extensions. Document the
-    semantic for any helper you build on top.
+    `AddOutput(sdk.Output)`, `AddPreProcessor`, `AddPostProcessor`. Pulumi
+    resource handles and Go closures are not serialisable and stay in the
+    plugin's own process, so the sidecar's response-handling only reaches the
+    env vars + tpl extensions. Apply `AddDependency`, `AddPostProcessor` and
+    resource handles against the plugin's own `sdk.Context` BEFORE returning
+    from Build.
+
+    **`AddPreProcessor` is the exception, and only between the two RPCs of one
+    deploy.** A dependency's ComputeProcess and the consuming template's
+    Provision run in the same plugin process, so `runtime.Collector` parks the
+    closure keyed by the stack name both headers carry, and the template's
+    `RunPreProcessors` (which `kubernetes.NewSimpleContainer` calls on its
+    container args) takes it back out. That is how the Cloud SQL proxy becomes a
+    sidecar of the app using the database. Two consequences for the closure:
+
+    - It runs with the `sdk.Context` and providers it captured in ComputeProcess,
+      so that RPC's context is NOT drained when the handler returns; the
+      template's `runtime.Settle` drains it. A handler that does not use
+      `runtime.Settle` loses this.
+    - It still cannot reach anything the template builds in its own RPC except
+      through the argument it is given (`NamespaceNameOutput` on the container
+      args is how it learns the namespace).
+
+    Before this, `AddPreProcessor` was an empty function: a stack deployed with
+    no proxy sidecar and the deploy stayed green.
 
 **Reference**: [`sc-plugin-echo/plugin/internal/compute.go`](https://github.com/simple-container-com/sc-plugin-echo/blob/main/plugin/internal/compute.go)
 — minimal stub exercising every builder method.
