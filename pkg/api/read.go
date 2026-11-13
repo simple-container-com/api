@@ -734,8 +734,18 @@ func (p *PluginFieldConfig) ProjectIdValue() string {
 	return stringFromMap(p.Raw, "account")
 }
 
-func (p *PluginFieldConfig) StorageUrl() string       { return p.URL }
-func (p *PluginFieldConfig) KeyUrl() string           { return p.URL } // secrets-provider interface
+func (p *PluginFieldConfig) StorageUrl() string { return p.URL }
+
+// KeyUrl is the secrets-provider key reference. A plugin-owned provider used
+// with `provision: false` names its key in `keyName` (the typed gcp-kms and
+// aws-kms configs returned it from KeyUrl), so fall back to it when no `url`
+// is set; otherwise login fails with "secrets provider key url is empty".
+func (p *PluginFieldConfig) KeyUrl() string {
+	if p.URL != "" {
+		return p.URL
+	}
+	return stringFromMap(p.Raw, "keyName")
+}
 func (p *PluginFieldConfig) IsProvisionEnabled() bool { return p.Provision }
 func (p *PluginFieldConfig) UsesAmbientCredentials() bool {
 	return p.Credentials == "" && len(p.Raw) == 0
