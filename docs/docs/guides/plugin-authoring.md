@@ -971,6 +971,37 @@ was reverted, and re-derives it — the same failure mode the
 
 ---
 
+### 6.11 A plugin's `api.Stack` has only a name: ask for what the template reads
+
+In-tree, a template received the whole `api.Stack`. A plugin builds its own from
+`RequestHeader.stack_name` alone, so `stack.Client`, `stack.Server` and
+`stack.Secrets` are empty. Anything a template body reads off them silently
+takes its zero value, and nothing fails.
+
+The one that bit a fleet (2026-11-13): `docker.BuildAndPushImage` reads
+`stack.Client.Security` to decide whether to scan, sign, attach an SBOM and
+attest provenance. In a plugin it was always `nil`, so a plugin-owned template
+planned every one of those `command:local:Command` resources as deleted and
+would have deployed every image unsigned, with a green deploy.
+
+`ProvisionRequest.client_config_json` carries the part of the client descriptor
+the image build reads (`security`, `imageBuild`). Rebuild it before calling a
+helper that takes a `Stack`:
+
+```go
+client, err := api.ClientDescriptorFromPluginConfig(req.GetClientConfigJson())
+if err != nil {
+    return nil, errors.Wrap(err, "decode client config")
+}
+stack := api.Stack{Name: req.GetHeader().GetStackName(), Client: client}
+```
+
+An older core sends the field empty, which gives the zero descriptor: the
+behaviour before the field existed. If your template reads another part of
+`stack.Client`, `stack.Server` or `stack.Secrets`, it needs its own field; check
+by grepping the in-tree body you lifted for `stack.Client`, `stack.Server` and
+`stack.Secrets`.
+
 ## 7. Prior art
 
 Five plugin repos live today, each highlighting a different pattern:

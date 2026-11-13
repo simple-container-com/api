@@ -3144,9 +3144,22 @@ type ProvisionRequest struct {
 	// `interface_assertion_against_plugin_owned_value_fails_in_prod`
 	// memory (cross-ref: why core can't overlay plugin-typed fields
 	// itself and must hand the raw map to the plugin).
-	ComponentRaw  []byte `protobuf:"bytes,13,opt,name=component_raw,json=componentRaw,proto3" json:"component_raw,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	ComponentRaw []byte `protobuf:"bytes,13,opt,name=component_raw,json=componentRaw,proto3" json:"component_raw,omitempty"`
+	// JSON of the client-level configuration a template's image build reads,
+	// which the plugin cannot rebuild from the request: the client.yaml
+	// `security:` block (image scan, signing, SBOM, provenance) and `imageBuild:`
+	// (reuseExistingCommitTag). In-tree, the template received the whole
+	// api.Stack and docker.BuildAndPushImage read stack.Client.Security off it;
+	// a plugin builds its api.Stack from the request header alone, so without
+	// this field a plugin-owned template deploys every image unsigned, unscanned
+	// and without an SBOM, with a green deploy.
+	//
+	// Shape: api.PluginClientConfig. Empty when the client descriptor sets
+	// neither (a parent-stack resource has no client descriptor at all). Older
+	// plugins ignore the field, which is the behaviour before it existed.
+	ClientConfigJson []byte `protobuf:"bytes,14,opt,name=client_config_json,json=clientConfigJson,proto3" json:"client_config_json,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *ProvisionRequest) Reset() {
@@ -3266,6 +3279,13 @@ func (x *ProvisionRequest) GetDependencyOutputsJson() []byte {
 func (x *ProvisionRequest) GetComponentRaw() []byte {
 	if x != nil {
 		return x.ComponentRaw
+	}
+	return nil
+}
+
+func (x *ProvisionRequest) GetClientConfigJson() []byte {
+	if x != nil {
+		return x.ClientConfigJson
 	}
 	return nil
 }
@@ -4659,7 +4679,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x11StackOutputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x14\n" +
-	"\x12PreDestroyResponse\"\xd7\x06\n" +
+	"\x12PreDestroyResponse\"\x85\a\n" +
 	"\x10ProvisionRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12#\n" +
@@ -4675,7 +4695,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	" \x01(\tR\x13registrarMainDomain\x12(\n" +
 	"\x10parent_info_json\x18\v \x01(\fR\x0eparentInfoJson\x126\n" +
 	"\x17dependency_outputs_json\x18\f \x01(\fR\x15dependencyOutputsJson\x12#\n" +
-	"\rcomponent_raw\x18\r \x01(\fR\fcomponentRaw\x1aS\n" +
+	"\rcomponent_raw\x18\r \x01(\fR\fcomponentRaw\x12,\n" +
+	"\x12client_config_json\x18\x0e \x01(\fR\x10clientConfigJson\x1aS\n" +
 	"\vInputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\x1aD\n" +

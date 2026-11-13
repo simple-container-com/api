@@ -872,6 +872,20 @@ message ProvisionRequest {
   // memory (cross-ref: why core can't overlay plugin-typed fields
   // itself and must hand the raw map to the plugin).
   bytes component_raw = 13;
+
+  // JSON of the client-level configuration a template's image build reads,
+  // which the plugin cannot rebuild from the request: the client.yaml
+  // `security:` block (image scan, signing, SBOM, provenance) and `imageBuild:`
+  // (reuseExistingCommitTag). In-tree, the template received the whole
+  // api.Stack and docker.BuildAndPushImage read stack.Client.Security off it;
+  // a plugin builds its api.Stack from the request header alone, so without
+  // this field a plugin-owned template deploys every image unsigned, unscanned
+  // and without an SBOM, with a green deploy.
+  //
+  // Shape: api.PluginClientConfig. Empty when the client descriptor sets
+  // neither (a parent-stack resource has no client descriptor at all). Older
+  // plugins ignore the field, which is the behaviour before it existed.
+  bytes client_config_json = 14;
 }
 
 message ProvisionResponse {

@@ -173,6 +173,15 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 			// this a plugin template got none of it — no MONGO_*, no bucket env.
 			ComputeEnvVars: computeContextToProto(params.ComputeContext),
 		}
+		// A plugin builds its api.Stack from the request header alone, so the
+		// client-level security and imageBuild blocks the image build reads
+		// off stack.Client have to travel with the request. Without them a
+		// plugin-owned template deploys every image unsigned and unscanned.
+		clientCfg, err := stack.Client.PluginClientConfigJSON()
+		if err != nil {
+			return nil, errors.Wrapf(err, "plugin %q Provision(%q): marshal client config", pluginName, typeToken)
+		}
+		req.ClientConfigJson = clientCfg
 		// If the deploying stack has an active registrar backed by a plugin,
 		// pack its coordinates so the receiving plugin can proxy DNS back via
 		// SCCore.PeerInvoke (D8). pApi.Registrar is a cross-plugin service;

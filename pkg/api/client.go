@@ -32,6 +32,37 @@ type ClientDescriptor struct {
 	// Any other user-defined root-level sections will be preserved via our text manipulation approach
 }
 
+// PluginClientConfig is the part of the client descriptor that crosses the
+// plugin bus with a template's Provision request: what docker.BuildAndPushImage
+// reads off stack.Client. A plugin cannot rebuild it, because it builds its
+// api.Stack from the request header alone.
+type PluginClientConfig struct {
+	Security   *SecurityDescriptor   `json:"security,omitempty"`
+	ImageBuild *ImageBuildDescriptor `json:"imageBuild,omitempty"`
+}
+
+// PluginClientConfigJSON serialises the client-level configuration a plugin's
+// template needs, or nil when the descriptor sets none of it.
+func (c *ClientDescriptor) PluginClientConfigJSON() ([]byte, error) {
+	if c == nil || (c.Security == nil && c.ImageBuild == nil) {
+		return nil, nil
+	}
+	return json.Marshal(PluginClientConfig{Security: c.Security, ImageBuild: c.ImageBuild})
+}
+
+// ClientDescriptorFromPluginConfig rebuilds the client descriptor a plugin's
+// template reads from the JSON PluginClientConfigJSON wrote. Empty input is the
+// zero descriptor: an older core sends none, and a plugin must run as it did.
+func ClientDescriptorFromPluginConfig(raw []byte) (ClientDescriptor, error) {
+	var cfg PluginClientConfig
+	if len(raw) > 0 {
+		if err := json.Unmarshal(raw, &cfg); err != nil {
+			return ClientDescriptor{}, err
+		}
+	}
+	return ClientDescriptor{Security: cfg.Security, ImageBuild: cfg.ImageBuild}, nil
+}
+
 // HasDefaults checks if the client configuration has a defaults section
 func (c *ClientDescriptor) HasDefaults() bool {
 	return len(c.Defaults) > 0
