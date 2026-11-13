@@ -205,3 +205,121 @@ func TestPreserveWorkspaceCredentialFiles_ReportsUnreadableSource(t *testing.T) 
 		t.Error("a variable whose copy failed was changed")
 	}
 }
+
+// The clone empties the workspace, which every later step of the job shares.
+// A cancel-stack step after a cancelled deploy found no identity because of it
+// and could not clear the stack's lock.
+func TestWorkspaceCredentialsSurviveTheClone(t *testing.T) {
+	workspace := t.TempDir()
+	t.Setenv("TMPDIR", t.TempDir())
+	creds := filepath.Join(workspace, "gha-creds-1.json")
+	mustWrite(t, creds, `{"type":"external_account"}`)
+	outside := filepath.Join(t.TempDir(), "adc.json")
+	mustWrite(t, outside, `{"outside":true}`)
+	t.Setenv("GITHUB_WORKSPACE", workspace)
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", "/home/runner/work/app/app/gha-creds-1.json")
+	t.Setenv("GOOGLE_GHA_CREDS_PATH", "/home/runner/work/app/app/gha-creds-1.json") // same file twice
+	t.Setenv("CLOUDSDK_AUTH_CREDENTIAL_FILE_OVERRIDE", outside)
+
+	snap := SnapshotWorkspaceCredentialFiles()
+	if _, failed := PreserveWorkspaceCredentialFiles(); len(failed) != 0 {
+		t.Fatalf("preserve failed: %v", failed)
+	}
+	// What copyRepositoryContents does: remove everything but .git.
+	entries, err := os.ReadDir(workspace)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if err := os.RemoveAll(filepath.Join(workspace, e.Name())); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	restored, failed := snap.Restore()
+
+	if len(failed) != 0 || len(restored) != 1 || restored[0] != creds {
+		t.Fatalf("restored %v, failed %v; want exactly %s", restored, failed, creds)
+	}
+	data, err := os.ReadFile(creds)
+	if err != nil || string(data) != `{"type":"external_account"}` {
+		t.Errorf("restored file = %q, %v", data, err)
+	}
+	if st, err := os.Stat(creds); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("restored file mode: %v, %v; want 0600", st.Mode().Perm(), err)
+	}
+	if got := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS"); insideDir(got, workspace) {
+		t.Errorf("this process must keep using its private copy, got %q", got)
+	}
+	if _, seen := snap[outside]; seen {
+		t.Error("a file outside the workspace was snapshotted")
+	}
+}
+
+func TestWorkspaceCredentialsRestoreNeverOverwrites(t *testing.T) {
+	workspace := t.TempDir()
+	creds := filepath.Join(workspace, "gha-creds-1.json")
+	mustWrite(t, creds, `{"old":true}`)
+	t.Setenv("GITHUB_WORKSPACE", workspace)
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", creds)
+
+	snap := SnapshotWorkspaceCredentialFiles()
+	// The repository itself ships a file at that path, or something replaced it.
+	mustWrite(t, creds, `{"repo":true}`)
+
+	restored, failed := snap.Restore()
+
+	if len(restored) != 0 || len(failed) != 0 {
+		t.Fatalf("restored %v, failed %v; want nothing touched", restored, failed)
+	}
+	if data, _ := os.ReadFile(creds); string(data) != `{"repo":true}` {
+		t.Errorf("an existing file was overwritten: %q", data)
+	}
+}
+
+func TestWorkspaceCredentialsRestoreDoesNotFollowSymlinks(t *testing.T) {
+	workspace := t.TempDir()
+	creds := filepath.Join(workspace, "gha-creds-1.json")
+	mustWrite(t, creds, `{"secret":true}`)
+	t.Setenv("GITHUB_WORKSPACE", workspace)
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", creds)
+
+	snap := SnapshotWorkspaceCredentialFiles()
+	if err := os.Remove(creds); err != nil {
+		t.Fatal(err)
+	}
+	// A checked-out repository plants a dangling symlink at the path.
+	target := filepath.Join(t.TempDir(), "elsewhere.json")
+	if err := os.Symlink(target, creds); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, _ := snap.Restore()
+
+	if len(restored) != 0 {
+		t.Errorf("restored through a symlink: %v", restored)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Errorf("the credentials were written to the symlink's target: %v", err)
+	}
+}
+
+func TestWorkspaceCredentialsRestoreReportsFailure(t *testing.T) {
+	workspace := t.TempDir()
+	sub := filepath.Join(workspace, "sub")
+	creds := filepath.Join(sub, "gha-creds-1.json")
+	mustWrite(t, creds, `{}`)
+	t.Setenv("GITHUB_WORKSPACE", workspace)
+	t.Setenv("GOOGLE_APPLICATION_CREDENTIALS", creds)
+
+	snap := SnapshotWorkspaceCredentialFiles()
+	if err := os.RemoveAll(sub); err != nil {
+		t.Fatal(err)
+	}
+
+	restored, failed := snap.Restore()
+
+	if len(restored) != 0 || failed[creds] == nil {
+		t.Errorf("restored %v, failed %v; want the missing directory reported", restored, failed)
+	}
+}
