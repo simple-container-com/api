@@ -33,7 +33,7 @@ What changes is that a `server.yaml` using a plugin-owned type should now say
 Grep your stacks for the type tokens that moved out of tree:
 
 ```bash
-grep -rnE 'type:[[:space:]]*(cloudflare|yandex|yc-dns|yc-bucket|yc-serverless-container|yc-object-storage|yc-kms|yc-lockbox|yc-service-account|cloudru|cloudru-container|cloudru-postgres|mongodb-atlas|aws|aws-token|aws-lambda|aws-static-website|ecs-fargate|s3-bucket|ecr-repository|aws-rds-postgres|aws-rds-mysql|aws-cloudtrail-security-alerts|aws-kms)' .sc/stacks/
+grep -rnE 'type:[[:space:]]*(cloudflare|yandex|yc-dns|yc-bucket|yc-serverless-container|yc-object-storage|yc-kms|yc-lockbox|yc-service-account|cloudru|cloudru-container|cloudru-postgres|mongodb-atlas|aws|aws-token|aws-lambda|aws-static-website|ecs-fargate|s3-bucket|ecr-repository|aws-rds-postgres|aws-rds-mysql|aws-cloudtrail-security-alerts|aws-kms|gcp|gcp-service-account|cloudrun|gcp-static-website|gcp-gke-autopilot|gcp-gke-autopilot-cluster|gcp-bucket|gcp-redis|gcp-pubsub|gcp-cloudsql-postgres|gcp-docker-image-push|gcp-kms|gcp-secrets-manager|mws|mws-service-account)' .sc/stacks/
 ```
 
 | Plugin | Repository | Type tokens it now owns |
@@ -43,8 +43,10 @@ grep -rnE 'type:[[:space:]]*(cloudflare|yandex|yc-dns|yc-bucket|yc-serverless-co
 | **`cloudru`** | [`simple-container-com/sc-plugin-cloudru`](https://github.com/simple-container-com/sc-plugin-cloudru) | `cloudru` (provider), `cloudru-container`, `cloudru-postgres` |
 | **`mongodb`** | [`simple-container-com/sc-plugin-mongodb`](https://github.com/simple-container-com/sc-plugin-mongodb) | `mongodb-atlas` (provider + ComputeProcessor for the `uses:` env fan-out) |
 | **`aws`** | [`simple-container-com/sc-plugin-aws`](https://github.com/simple-container-com/sc-plugin-aws) | `aws` (provider), `aws-token`, state-store `s3-bucket`, secrets-provider `aws-kms`, templates `aws-lambda` / `ecs-fargate` / `aws-static-website`, resources `s3-bucket` / `ecr-repository` / `aws-rds-postgres` / `aws-rds-mysql` / `aws-cloudtrail-security-alerts`, and the `cloud-helpers` Lambda for CloudWatch alerts + health events |
+| **`gcp`** | [`simple-container-com/sc-plugin-gcp`](https://github.com/simple-container-com/sc-plugin-gcp) | `gcp` (provider), `gcp-service-account` (auth), state-store `gcp-bucket`, secrets-providers `gcp-kms` + `gcp-secrets-manager`, templates `cloudrun` / `gcp-static-website` / `gcp-gke-autopilot`, resources `gcp-bucket` / `gcp-redis` / `gcp-pubsub` / `gcp-cloudsql-postgres` / `gcp-gke-autopilot-cluster` / `gcp-docker-image-push`. Shipped 2026-11-09 via api #568 — `sc` version `2026.11.44` and older still had GCP built in and ignore the plugin pin. |
+| **`mws`** | [`simple-container-com/sc-plugin-mws`](https://github.com/simple-container-com/sc-plugin-mws) | `mws` (provider), `mws-service-account` (auth). |
 
-Everything else — GCP, Kubernetes, `k3s`, `vm` — is still built into `sc`. No
+Everything else — Kubernetes, `k3s`, `vm` — is still built into `sc`. No
 action needed for those.
 
 No hits? You are done; stop reading.
@@ -567,7 +569,7 @@ If you are starting fresh, these are the floors that make the four traps in
 | sc-plugin-cloudru | `v2026.11.01-b5e5ae4` | cascade fix (dry-run uptake deferred until the plugin's `api` dep catches up to v2026.10.60) |
 | sc-plugin-yandex | `v2026.10.29-e6833cd` | PR #8 `await-pending-registrations` — the `settle()`/`finishPulumiContext()` pattern mongodb+aws now mimic (packaged in `api/pkg/plugin/runtime` since v2026.11.01) |
 
-Grepping job logs: all five plugins print `pre-engine loaded plugin "<name>"
+Grepping job logs: every shipped plugin prints `pre-engine loaded plugin "<name>"
 <version>` on startup (see §4). A version below the floor is the fastest
 thing to check when a trap shape looks familiar.
 

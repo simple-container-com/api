@@ -2,6 +2,15 @@
 
 This comprehensive guide covers how to configure and manage DNS records and domain routing using Simple Container's integrated DNS management capabilities. Simple Container provides seamless domain management through Cloudflare integration with full DNS record control and security features.
 
+!!! info "DNS registrars ship as out-of-tree plugins"
+    The `cloudflare` (DNS registrar), `yc-dns` (Yandex Cloud DNS), and
+    `cloudru` (Cloud.ru DNS) types this guide uses are plugin-owned.
+    The snippets below show `resources:` fragments; a complete
+    `server.yaml` also needs a `plugins:` block pinning each plugin
+    release. See [Upgrading to SC plugins](upgrading-to-plugins.md) for
+    the pin shape, and the matching
+    [parent-* guides](index.md) for complete server.yaml examples.
+
 ## Overview
 
 Simple Container's DNS management provides:

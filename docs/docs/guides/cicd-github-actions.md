@@ -2,6 +2,16 @@
 
 This comprehensive guide covers how to set up continuous integration and deployment (CI/CD) pipelines using Simple Container's built-in GitHub Actions integration. Simple Container automatically generates optimized workflow files from your infrastructure configuration, providing seamless deployment automation.
 
+!!! info "Cloud integrations ship as out-of-tree plugins"
+    The `aws-token` / `aws-*` / `gcp-*` / `yc-*` / `cloudru-*` /
+    `mongodb-atlas` / `cloudflare` tokens referenced in CI/CD-targeting
+    `server.yaml` snippets are plugin-owned. A complete `server.yaml`
+    needs a `plugins:` block pinning each plugin release. See
+    [Upgrading to SC plugins](upgrading-to-plugins.md) for the pin
+    mechanics + the matching [parent-* guides](index.md) for complete
+    server.yaml examples. Snippets below focus on the CI/CD wiring and
+    omit the `plugins:` block for brevity.
+
 !!! info "Driving this guide with an AI agent"
     An agent (Claude Code / Cursor / [Simple Forge](https://simple-forge.com))
     can scaffold the entire GitHub Actions wiring described below via

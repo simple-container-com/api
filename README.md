@@ -81,11 +81,13 @@ downloads and talks to over a local gRPC bus. Everything about an operator's
 | `aws` | [simple-container-com/sc-plugin-aws](https://github.com/simple-container-com/sc-plugin-aws) | `aws` provider, `aws-lambda` / `ecs-fargate` / `aws-static-website` templates, `s3-bucket` / `ecr-repository` / `aws-rds-postgres` / `aws-rds-mysql` / `aws-cloudtrail-security-alerts` resources, `aws-kms` secrets-provider, `s3-bucket` state-store, `cloud-helpers` Lambda |
 | `cloudflare` | [simple-container-com/sc-plugin-cloudflare](https://github.com/simple-container-com/sc-plugin-cloudflare) | `cloudflare` DNS registrar, Workers overrides, Pages Direct Upload |
 | `cloudru` | [simple-container-com/sc-plugin-cloudru](https://github.com/simple-container-com/sc-plugin-cloudru) | `cloudru` provider, `cloudru-container`, `cloudru-postgres`, `cloudru-evolution-vm` |
+| `gcp` | [simple-container-com/sc-plugin-gcp](https://github.com/simple-container-com/sc-plugin-gcp) | `gcp` provider, `cloudrun` / `gcp-static-website` / `gcp-gke-autopilot` templates, `gcp-bucket` / `gcp-redis` / `gcp-pubsub` / `gcp-cloudsql-postgres` / `gcp-gke-autopilot-cluster` / `gcp-docker-image-push` resources, `gcp-kms` + `gcp-secrets-manager` secrets-providers, `gcp-bucket` state-store, `gcp-service-account` auth |
 | `mongodb` | [simple-container-com/sc-plugin-mongodb](https://github.com/simple-container-com/sc-plugin-mongodb) | `mongodb-atlas` provider + ComputeProcessor for `uses:` env fan-out, PreDestroy database-drop hook |
+| `mws` | [simple-container-com/sc-plugin-mws](https://github.com/simple-container-com/sc-plugin-mws) | `mws` provider + `mws-service-account` auth |
 | `yandex` | [simple-container-com/sc-plugin-yandex](https://github.com/simple-container-com/sc-plugin-yandex) | `yandex` provider, `yc-dns`, `yc-serverless-container`, `yc-object-storage`, `yc-kms`, `yc-lockbox`, `yc-service-account`, `yandex-vm` |
 | `echo` (template) | [simple-container-com/sc-plugin-echo](https://github.com/simple-container-com/sc-plugin-echo) | Template every new plugin starts from — `gh repo create --template` and swap in your cloud |
 
-Everything else — GCP, Kubernetes, `k3s`, `vm` — is still built into `sc`.
+Everything else — Kubernetes, `k3s`, `vm` — is still built into `sc`.
 
 - **Operator guide**: [docs/docs/guides/upgrading-to-plugins.md](docs/docs/guides/upgrading-to-plugins.md)
   — nothing is required of you (plugins auto-resolve to the latest release), but

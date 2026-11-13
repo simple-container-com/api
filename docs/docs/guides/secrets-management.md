@@ -2,6 +2,17 @@
 
 This comprehensive guide covers how to manage secrets and confidential files using Simple Container's built-in secrets management system. Simple Container encrypts secrets to your team's SSH public keys (RSA and ed25519) so they can be stored and shared safely in your Git repository.
 
+!!! info "Cloud auth types ship as out-of-tree plugins"
+    The `gcp-service-account` auth type used in snippets below is
+    owned by [`sc-plugin-gcp`](https://github.com/simple-container-com/sc-plugin-gcp)
+    since 2026-11-09 (api #568). Other plugin-owned auth types
+    include `yc-service-account`, `aws-token`, `mws-service-account`.
+    The secret-storage shape in this guide is codec-agnostic — the
+    `auth:` block's `type:` discriminator is what names the plugin. If
+    your `server.yaml` uses these tokens, see
+    [Upgrading to SC plugins](upgrading-to-plugins.md) for the
+    `plugins:` pin shape.
+
 ## Overview
 
 Simple Container's secrets management provides:

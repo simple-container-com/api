@@ -234,16 +234,18 @@ For composite drivers (kubernetes, k3s, mongodb that compose other clouds), add:
 - [ ] **PeerInvoke RPC** (proto wiring pending — composite plugin asks SC core to
       invoke on another plugin, per [D8](https://github.com/simple-container-com/forge/blob/main/docs/design/2026-10-24/sc-plugin-architecture/06-decisions.md#d8)).
 
-## Shipped surfaces (what the five plugins actually use)
+## Shipped surfaces (what the shipped plugins actually use)
+
+As of 2026-11-13: `sc-plugin-{aws,cloudflare,cloudru,gcp,mongodb,mws,yandex}` plus `sc-plugin-echo` as the template.
 
 | Surface | Plugin RPC | Shipped example |
 |---|---|---|
-| State-store | `InitStateStore` | aws `s3-bucket`, yandex `yc-object-storage` |
-| Secrets-provider | `InitSecretsProvider` | aws `aws-kms`, yandex `yc-kms` |
-| Provider | `Provider` | aws, yandex, cloudru providers; mongodb Atlas provider |
+| State-store | `InitStateStore` | aws `s3-bucket`, yandex `yc-object-storage`, gcp `gcp-bucket` |
+| Secrets-provider | `InitSecretsProvider` | aws `aws-kms`, yandex `yc-kms`, gcp `gcp-kms` + `gcp-secrets-manager` |
+| Provider | `Provider` | aws, yandex, cloudru, gcp, mws providers; mongodb Atlas provider |
 | Resource / Template | `Provision` | every resource/template token in `supported-resources.md` tagged "plugin" |
-| Compute processor | `ComputeProcess` | mongodb `uses:` fan-out (MONGO_URI/USER/PASSWORD), aws `s3-bucket` consumer env |
-| Registrar | `ProvisionRegistrar`, `NewDnsRecord`, `NewOverrideHeaderRule`, `ProvisionDomainForEndpoint` | cloudflare; aws delegates DNS to the operator-configured registrar via `PeerInvoke` |
+| Compute processor | `ComputeProcess` | mongodb `uses:` fan-out (MONGO_URI/USER/PASSWORD), aws `s3-bucket` consumer env, gcp `gcp-bucket`/`gcp-redis`/`gcp-pubsub` consumer env |
+| Registrar | `ProvisionRegistrar`, `NewDnsRecord`, `NewOverrideHeaderRule`, `ProvisionDomainForEndpoint` | cloudflare; aws + gcp delegate DNS to the operator-configured registrar via `PeerInvoke` |
 | PreDestroy | `PreDestroy` | mongodb drops databases named in `-service-user` outputs before Pulumi destroys the cluster |
 | VM driver | `VmHosts` | yandex `yandex-vm`, cloudru `cloudru-evolution-vm` |
 | LogStream | `LogStream` (server-stream) | every plugin's `scPlugin.Publisher` routed to the engine's progress channel |
