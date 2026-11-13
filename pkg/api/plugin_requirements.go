@@ -116,6 +116,13 @@ func currentResolver() func(repo string) (string, error) {
 }
 
 func resolveLatestVersionFromGitHub(repo string) (string, error) {
+	// TEST BUILD ONLY, never merge: SC_TEST_PLUGIN_VERSIONS="repo=tag,repo=tag"
+	// overrides the latest release, to try unmerged plugin builds.
+	for _, kv := range strings.Split(os.Getenv("SC_TEST_PLUGIN_VERSIONS"), ",") {
+		if r, v, ok := strings.Cut(strings.TrimSpace(kv), "="); ok && r == repo && v != "" {
+			return v, nil
+		}
+	}
 	url := fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", repo)
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
