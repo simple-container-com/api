@@ -105,6 +105,15 @@ func (p *pulumi) OutputsStack(ctx context.Context, cfg *api.ConfigFile, stack ap
 	if err != nil {
 		return nil, err
 	}
+	// Pulumi's diy backend returns (nil, nil) from GetStack when the
+	// checkpoint blob is gone — the "missing stack" contract preserved at
+	// create_stack.go:76-78. For preview, returning empty outputs would
+	// be surprising (the operator is asking "show me the stack's state";
+	// "nothing to preview" is a config error from their perspective). An
+	// informative error is strictly more useful than a nil-deref.
+	if s == nil {
+		return nil, errors.Errorf("stack %q has no state — nothing to preview; has it been destroyed?", stack.Name)
+	}
 
 	stackSource, err := p.prepareStackForOperations(ctx, s.Ref(), cfg, nil)
 	if err != nil {
