@@ -213,6 +213,9 @@
         },
         "type": "array"
       },
+      "trustedProxiesStrict": {
+        "type": "boolean"
+      },
       "usePrefixes": {
         "type": "boolean"
       },

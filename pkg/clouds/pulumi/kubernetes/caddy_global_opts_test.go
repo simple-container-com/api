@@ -41,6 +41,27 @@ func TestBuildTrustedProxiesBlock(t *testing.T) {
 		g.Expect(block).To(ContainSubstring("10.0.0.1"))
 	})
 
+	t.Run("strict mode adds trusted_proxies_strict inside the servers block", func(t *testing.T) {
+		block, err := BuildTrustedProxiesBlock(k8s.CaddyConfig{
+			TrustedProxies:       []string{"10.0.0.0/8", "173.245.48.0/20"},
+			TrustedProxiesStrict: true,
+		})
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(block).To(Equal("  servers {\n    trusted_proxies static 10.0.0.0/8 173.245.48.0/20\n    trusted_proxies_strict\n  }"))
+	})
+
+	t.Run("without strict the block is unchanged", func(t *testing.T) {
+		block, err := BuildTrustedProxiesBlock(k8s.CaddyConfig{TrustedProxies: []string{"10.0.0.0/8"}})
+		g.Expect(err).ToNot(HaveOccurred())
+		g.Expect(block).ToNot(ContainSubstring("trusted_proxies_strict"))
+	})
+
+	t.Run("strict mode without trusted proxies is rejected", func(t *testing.T) {
+		_, err := BuildTrustedProxiesBlock(k8s.CaddyConfig{TrustedProxiesStrict: true})
+		g.Expect(err).To(HaveOccurred())
+		g.Expect(err.Error()).To(ContainSubstring("trustedProxiesStrict requires trustedProxies"))
+	})
+
 	t.Run("invalid CIDR returns error", func(t *testing.T) {
 		_, err := BuildTrustedProxiesBlock(k8s.CaddyConfig{
 			TrustedProxies: []string{"not-a-cidr"},
