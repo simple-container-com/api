@@ -276,3 +276,197 @@ func TestComponentTemplateDispatch_DisallowedOverride(t *testing.T) {
 	Expect(err.Error()).To(ContainSubstring("vpc"))
 	Expect(err.Error()).To(ContainSubstring("not in the allowlist"))
 }
+
+// TestComponentTemplateDispatch_ComponentDefaults_Applied — slice 1d.6:
+// a plugin's declared defaults are merged UNDER the operator's .Raw at
+// dispatch time. Operator fields win per-key. This is the shape the
+// operator UX ask is targeting — writing `my-backup: config: {deployTo,
+// signingKey, storage, metadata, atlasAdmin}` should produce an
+// effective config that includes the plugin's
+// cloudExtras.{lambdaRoutingType, awsRoles} even though the operator
+// didn't write it.
+func TestComponentTemplateDispatch_ComponentDefaults_Applied(t *testing.T) {
+	RegisterTestingT(t)
+
+	const (
+		componentType = "test-sc-backup-defaults"
+		templateType  = "test-fake-template-defaults"
+		templateName  = "fake-lambda-defaults"
+	)
+	var capturedInput api.ResourceInput
+	pApi.ProvisionFuncByType[templateType] = func(_ *sdk.Context, _ api.Stack, input api.ResourceInput, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+		capturedInput = input
+		return &api.ResourceOutput{}, nil
+	}
+	t.Cleanup(func() { delete(pApi.ProvisionFuncByType, templateType) })
+
+	pApi.RegisterComponentResourceType(componentType, []string{"image", "env"})
+	t.Cleanup(func() {
+		delete(pApi.ComponentResourceTypes, componentType)
+		delete(pApi.ComponentAllowedOverrides, componentType)
+	})
+
+	// Plugin advertises defaults for this component type: lambda routing
+	// + aws roles — the real sc-backup shape.
+	pApi.RegisterComponentDefaults(componentType, []byte(`{
+		"cloudExtras": {
+			"lambdaRoutingType": "function-url",
+			"awsRoles": ["s3:PutObject", "s3:GetObject", "iam:PassRole"]
+		}
+	}`))
+	t.Cleanup(func() { delete(pApi.ComponentDefaults, componentType) })
+
+	stack := api.Stack{
+		Server: api.ServerDescriptor{
+			Templates: map[string]api.StackDescriptor{
+				templateName: {Type: templateType, Config: api.Config{Config: map[string]any{"memory": 128}}},
+			},
+		},
+	}
+	// Operator writes a MINIMAL config — only the component-level fields,
+	// no cloudExtras. This is the UX win: operator doesn't spell out
+	// routing or awsRoles; plugin defaults fill them in.
+	input := api.ResourceInput{
+		Descriptor: &api.ResourceDescriptor{
+			Type: componentType,
+			Name: "my-backup",
+			Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+				"deployTo":   templateName,
+				"signingKey": "${secret:k}",
+			}}},
+		},
+		StackParams: &api.StackParams{StackName: "smoke", Environment: "staging"},
+	}
+
+	bundle := &preEnginePluginBundle{log: logger.New()}
+	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	Expect(err).ToNot(HaveOccurred())
+
+	// ComponentRaw on the dispatched input carries the MERGED map:
+	// plugin's cloudExtras is present even though the operator didn't
+	// write it.
+	Expect(capturedInput.ComponentRaw).ToNot(BeNil())
+	ce, ok := capturedInput.ComponentRaw["cloudExtras"].(map[string]any)
+	Expect(ok).To(BeTrue(), "cloudExtras must be a map after default merge")
+	Expect(ce["lambdaRoutingType"]).To(Equal("function-url"), "plugin default routing must apply")
+	roles, ok := ce["awsRoles"].([]any)
+	Expect(ok).To(BeTrue(), "awsRoles must be a []any")
+	Expect(roles).To(ConsistOf("s3:PutObject", "s3:GetObject", "iam:PassRole"))
+	// Operator fields still present verbatim.
+	Expect(capturedInput.ComponentRaw["deployTo"]).To(Equal(templateName))
+	Expect(capturedInput.ComponentRaw["signingKey"]).To(Equal("${secret:k}"))
+}
+
+// TestComponentTemplateDispatch_ComponentDefaults_OperatorWins — when
+// the operator writes a key that collides with a plugin default, the
+// operator wins. Prevents a plugin version bump from silently
+// rewriting operator-declared config.
+func TestComponentTemplateDispatch_ComponentDefaults_OperatorWins(t *testing.T) {
+	RegisterTestingT(t)
+
+	const (
+		componentType = "test-sc-backup-opwin"
+		templateType  = "test-fake-template-opwin"
+		templateName  = "fake-lambda-opwin"
+	)
+	var capturedInput api.ResourceInput
+	pApi.ProvisionFuncByType[templateType] = func(_ *sdk.Context, _ api.Stack, input api.ResourceInput, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+		capturedInput = input
+		return &api.ResourceOutput{}, nil
+	}
+	t.Cleanup(func() { delete(pApi.ProvisionFuncByType, templateType) })
+	// Operator wants to override cloudExtras, so cloudExtras must be in
+	// the allowlist — sc-component-backup opens it (plugin_main.go:145).
+	pApi.RegisterComponentResourceType(componentType, []string{"cloudExtras"})
+	t.Cleanup(func() {
+		delete(pApi.ComponentResourceTypes, componentType)
+		delete(pApi.ComponentAllowedOverrides, componentType)
+	})
+	pApi.RegisterComponentDefaults(componentType, []byte(`{
+		"cloudExtras": {
+			"lambdaRoutingType": "function-url",
+			"awsRoles": ["s3:PutObject", "iam:PassRole"]
+		}
+	}`))
+	t.Cleanup(func() { delete(pApi.ComponentDefaults, componentType) })
+
+	stack := api.Stack{
+		Server: api.ServerDescriptor{
+			Templates: map[string]api.StackDescriptor{
+				templateName: {Type: templateType},
+			},
+		},
+	}
+	// Operator overrides routing, provides a custom awsRoles list.
+	input := api.ResourceInput{
+		Descriptor: &api.ResourceDescriptor{
+			Type: componentType,
+			Name: "my-backup",
+			Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+				"deployTo": templateName,
+				"cloudExtras": map[string]any{
+					"lambdaRoutingType": "api-gateway",
+					"awsRoles":          []any{"custom-role"},
+				},
+			}}},
+		},
+		StackParams: &api.StackParams{},
+	}
+	bundle := &preEnginePluginBundle{log: logger.New()}
+	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	Expect(err).ToNot(HaveOccurred())
+
+	ce := capturedInput.ComponentRaw["cloudExtras"].(map[string]any)
+	Expect(ce["lambdaRoutingType"]).To(Equal("api-gateway"), "operator scalar must win")
+	Expect(ce["awsRoles"]).To(Equal([]any{"custom-role"}), "operator list REPLACES, no append")
+}
+
+// TestComponentTemplateDispatch_ComponentDefaults_NoneRegistered — the
+// older-plugin / unadvertised case: no defaults for this type means
+// dispatch behaves exactly as pre-1d.6 (operator config crosses verbatim).
+// Regression guard against the merge path mutating operator config when
+// there's no default to overlay.
+func TestComponentTemplateDispatch_ComponentDefaults_NoneRegistered(t *testing.T) {
+	RegisterTestingT(t)
+
+	const (
+		componentType = "test-sc-no-defaults"
+		templateType  = "test-fake-template-nodef"
+		templateName  = "fake-lambda-nodef"
+	)
+	var capturedInput api.ResourceInput
+	pApi.ProvisionFuncByType[templateType] = func(_ *sdk.Context, _ api.Stack, input api.ResourceInput, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+		capturedInput = input
+		return &api.ResourceOutput{}, nil
+	}
+	t.Cleanup(func() { delete(pApi.ProvisionFuncByType, templateType) })
+	pApi.RegisterComponentResourceType(componentType, nil)
+	t.Cleanup(func() { delete(pApi.ComponentResourceTypes, componentType) })
+	// Deliberately NOT registering defaults.
+
+	stack := api.Stack{
+		Server: api.ServerDescriptor{
+			Templates: map[string]api.StackDescriptor{templateName: {Type: templateType}},
+		},
+	}
+	input := api.ResourceInput{
+		Descriptor: &api.ResourceDescriptor{
+			Type: componentType,
+			Name: "my-dummy",
+			Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+				"deployTo":   templateName,
+				"signingKey": "${secret:k}",
+			}}},
+		},
+		StackParams: &api.StackParams{},
+	}
+	bundle := &preEnginePluginBundle{log: logger.New()}
+	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(capturedInput.ComponentRaw).ToNot(BeNil())
+	Expect(capturedInput.ComponentRaw["deployTo"]).To(Equal(templateName))
+	Expect(capturedInput.ComponentRaw["signingKey"]).To(Equal("${secret:k}"))
+	// No default-only keys appeared.
+	Expect(capturedInput.ComponentRaw).ToNot(HaveKey("cloudExtras"))
+}

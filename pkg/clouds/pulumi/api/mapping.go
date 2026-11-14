@@ -94,6 +94,21 @@ var (
 	// refusal forces the plugin's Schema to opt in before any dispatch
 	// can reach the plugin.
 	SupportsComponent = map[string]map[string]struct{}{}
+
+	// ComponentDefaults records, per SC Component resource type, the
+	// plugin-provided default `.Raw` map (as JSON bytes, as it crossed
+	// the plugin bus). SC core deep-merges the operator's declared
+	// `.Raw` ON TOP of this at dispatch time — operator keys win.
+	//
+	// Populated at plugin-load time by preEnginePluginBundle.RegisterSidecars
+	// from SchemaResponse.component_defaults (slice 1d.6 of
+	// sc-components-platform). Older plugin binaries that pre-date the
+	// field register no entry; dispatch merges onto nil → operator config
+	// used verbatim — i.e. today's behaviour.
+	//
+	// Keyed by resource type, not plugin name — one plugin owns one
+	// defaults blob per component type it advertises.
+	ComponentDefaults = map[string][]byte{}
 )
 
 // RegisterSupportsComponent marks a (pluginName, resourceType) pair as
@@ -154,6 +169,122 @@ func IsComponentOverrideAllowed(resourceType, key string) bool {
 		}
 	}
 	return false
+}
+
+// RegisterComponentDefaults records the plugin's default `.Raw` for a
+// Component resource type. Called by preEnginePluginBundle.RegisterSidecars
+// from SchemaResponse.component_defaults. Empty / nil input is a no-op so
+// a plugin advertising a component without defaults is fine.
+func RegisterComponentDefaults(resourceType string, defaultsJSON []byte) {
+	if resourceType == "" || len(defaultsJSON) == 0 {
+		return
+	}
+	ComponentDefaults[resourceType] = append([]byte(nil), defaultsJSON...)
+}
+
+// GetComponentDefaults returns a copy of the plugin's declared default
+// `.Raw` for a Component resource type. Nil when the plugin advertised
+// none (or hasn't loaded yet).
+func GetComponentDefaults(resourceType string) []byte {
+	b, ok := ComponentDefaults[resourceType]
+	if !ok {
+		return nil
+	}
+	return append([]byte(nil), b...)
+}
+
+// DeepMergeComponentRaw overlays an operator's `.Raw` map on top of a
+// plugin's defaults map, operator-wins:
+//
+//   - Nested maps are merged per-key: plugin keys the operator did NOT
+//     set stay; operator keys overwrite.
+//   - Lists are REPLACED by the operator's value (no append). Rationale:
+//     a list override should be a complete declaration so the operator
+//     can see the exact effective value. Matches the precedent set by
+//     the `ComponentAllowedOverrides` enforcement on `env:` + `secrets:`.
+//   - Scalars: operator wins.
+//
+// A nil defaults map returns the operator map unchanged (today's
+// behaviour for plugins that never declared defaults). A nil operator
+// map returns the defaults copy — all plugin defaults applied as-is.
+//
+// Both inputs are left unmutated; the returned map is freshly allocated
+// so the operator's own config (held by SC core elsewhere) is not
+// modified by the merge.
+func DeepMergeComponentRaw(defaults, operator map[string]any) map[string]any {
+	if len(defaults) == 0 {
+		return deepCopyAnyMap(operator)
+	}
+	out := deepCopyAnyMap(defaults)
+	if operator == nil {
+		return out
+	}
+	for k, opV := range operator {
+		// `IsComponentConfigTopLevelKey` keys (storage/metadata/databases/…)
+		// are structurally identical across operator and defaults; fall
+		// through to the per-value merge. We don't need to special-case
+		// them here because the per-value rules below handle every shape.
+		defV, inDefaults := out[k]
+		if !inDefaults {
+			out[k] = deepCopyAny(opV)
+			continue
+		}
+		out[k] = mergeValue(defV, opV)
+	}
+	return out
+}
+
+// mergeValue applies the merge rules for a single value pair. Factored
+// out of DeepMergeComponentRaw so recursion on nested maps reuses the
+// same logic.
+func mergeValue(defV, opV any) any {
+	// Nested map: recurse.
+	defMap, defOk := defV.(map[string]any)
+	opMap, opOk := opV.(map[string]any)
+	if defOk && opOk {
+		return DeepMergeComponentRaw(defMap, opMap)
+	}
+	// Any other shape: operator wins, including lists-vs-lists and
+	// scalar-vs-scalar. deepCopy so the returned map shares no
+	// slices with the operator's live config (future mutations
+	// would otherwise bleed back).
+	return deepCopyAny(opV)
+}
+
+// deepCopyAnyMap copies a map[string]any, recursively copying its
+// values. Used by DeepMergeComponentRaw so the merge result is safe to
+// mutate without touching either input.
+func deepCopyAnyMap(m map[string]any) map[string]any {
+	if m == nil {
+		return nil
+	}
+	out := make(map[string]any, len(m))
+	for k, v := range m {
+		out[k] = deepCopyAny(v)
+	}
+	return out
+}
+
+// deepCopyAny recursively copies an `any` tree rooted at a map / slice
+// / scalar. Preserves original scalar types (string / bool / float64 /
+// int / nil) — json.Unmarshal into `map[string]any` produces only these
+// plus map[string]any and []any, which is the universe this helper
+// handles. Any other concrete type is returned by value (fine for
+// immutable types; a shared pointer would be a hazard, but SC's
+// component raw path doesn't put those here).
+func deepCopyAny(v any) any {
+	switch x := v.(type) {
+	case map[string]any:
+		return deepCopyAnyMap(x)
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = deepCopyAny(e)
+		}
+		return out
+	default:
+		return v
+	}
 }
 
 // RegisterPluginType marks a resource type as plugin-dispatched. Called
