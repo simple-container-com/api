@@ -372,6 +372,16 @@ func (b *preEnginePluginBundle) RegisterSidecars() error {
 			pApi.RegisterSupportsComponent(pluginName, t)
 		}
 
+		// PeerCapabilities (sc-components-plugin-peer-invoke): what
+		// capability names this plugin exposes to peer plugins via the
+		// SCCloudPlugin.PluginInvoke RPC. SC core's peer dispatcher
+		// (plugin_peer_dispatch.go `"PluginInvoke"` case) refuses a
+		// capability not listed here, so a plugin that pre-dates the
+		// field has NO peer surface — operator-safe default.
+		for _, cap := range schema.GetPeerCapabilities() {
+			pApi.RegisterPeerCapability(pluginName, cap)
+		}
+
 		// Provider types: in-engine, needs monitor address.
 		for _, t := range schema.GetProviderTypes() {
 			typeToken := t

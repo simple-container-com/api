@@ -109,6 +109,19 @@ var (
 	// Keyed by resource type, not plugin name — one plugin owns one
 	// defaults blob per component type it advertises.
 	ComponentDefaults = map[string][]byte{}
+
+	// PeerCapabilities records, per loaded plugin NAME, the set of
+	// capability names the plugin advertised via
+	// `SchemaResponse.peer_capabilities`. SC core's peer dispatcher
+	// (plugin_peer_dispatch.go `"PluginInvoke"` case) refuses a
+	// cross-plugin call whose `capability` is not advertised on the
+	// target plugin — operator-safe default is "no peer surface".
+	//
+	// Populated at plugin-load time by preEnginePluginBundle.RegisterSidecars
+	// from SchemaResponse.peer_capabilities. Keyed by plugin name
+	// because capabilities are plugin-local tokens (two plugins may
+	// each expose `mint-scoped-user` with different semantics).
+	PeerCapabilities = map[string]map[string]struct{}{}
 )
 
 // RegisterSupportsComponent marks a (pluginName, resourceType) pair as
@@ -169,6 +182,32 @@ func IsComponentOverrideAllowed(resourceType, key string) bool {
 		}
 	}
 	return false
+}
+
+// RegisterPeerCapability marks a (pluginName, capability) pair as an
+// advertised peer-invoke surface. Called by
+// preEnginePluginBundle.RegisterSidecars for every entry in a plugin's
+// SchemaResponse.peer_capabilities. Empty inputs are a no-op.
+func RegisterPeerCapability(pluginName, capability string) {
+	if pluginName == "" || capability == "" {
+		return
+	}
+	if PeerCapabilities[pluginName] == nil {
+		PeerCapabilities[pluginName] = map[string]struct{}{}
+	}
+	PeerCapabilities[pluginName][capability] = struct{}{}
+}
+
+// HasPeerCapability reports whether the given target plugin has
+// advertised the capability. SC core's PluginInvoke dispatcher refuses
+// a call to an unadvertised capability — operator-safe default is "no
+// peer surface" for plugins that pre-date the field.
+func HasPeerCapability(pluginName, capability string) bool {
+	if _, ok := PeerCapabilities[pluginName]; !ok {
+		return false
+	}
+	_, ok := PeerCapabilities[pluginName][capability]
+	return ok
 }
 
 // RegisterComponentDefaults records the plugin's default `.Raw` for a

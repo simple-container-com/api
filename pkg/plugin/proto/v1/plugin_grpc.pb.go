@@ -54,6 +54,7 @@ const (
 	SCCloudPlugin_PreDestroy_FullMethodName                 = "/sc.plugin.v1.SCCloudPlugin/PreDestroy"
 	SCCloudPlugin_VmHosts_FullMethodName                    = "/sc.plugin.v1.SCCloudPlugin/VmHosts"
 	SCCloudPlugin_LogStream_FullMethodName                  = "/sc.plugin.v1.SCCloudPlugin/LogStream"
+	SCCloudPlugin_PluginInvoke_FullMethodName               = "/sc.plugin.v1.SCCloudPlugin/PluginInvoke"
 )
 
 // SCCloudPluginClient is the client API for SCCloudPlugin service.
@@ -95,6 +96,30 @@ type SCCloudPluginClient interface {
 	// bloating every unary RPC with a streaming variant. See
 	// forge/docs/design/2026-10-24/sc-plugin-architecture/ Addendum F.
 	LogStream(ctx context.Context, in *LogStreamRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[PluginLogEvent], error)
+	// PluginInvoke — capability dispatcher on the target plugin. SC
+	// core's existing broker (SCCore.PeerInvoke) forwards cross-plugin
+	// calls by SCCloudPlugin RPC name; a CALLING plugin dispatches a
+	// capability via PeerInvoke(rpc_name="PluginInvoke", payload=
+	// marshal(PluginInvokeRequest{capability: "..."})). Target plugin's
+	// handler switches on `capability` to its registered function.
+	//
+	// Eliminates cross-plugin credential duplication — first consumer
+	// pair is sc-component-backup → sc-plugin-mongodb for
+	// `mint-scoped-user` (backup plugin asks mongodb to mint an Atlas
+	// database user without holding its own Atlas admin credential).
+	// Pattern generalises to notifier → aws (SES/SNS), monitor →
+	// mongodb (metrics-only user), etc.
+	//
+	// See forge/docs/roadmap/items/sc-components-plugin-peer-invoke.md
+	// for the design (SC-core-as-broker, capability advertisement via
+	// SchemaResponse.peer_capabilities, first-consumer payload/reply
+	// shapes).
+	//
+	// Older plugin binaries that pre-date this RPC return the generated
+	// Unimplemented stub — the broker in SC core's PeerInvoke surfaces
+	// that as a "target plugin does not expose capability dispatch"
+	// error, distinct from capability-not-advertised.
+	PluginInvoke(ctx context.Context, in *PluginInvokeRequest, opts ...grpc.CallOption) (*PluginInvokeResponse, error)
 }
 
 type sCCloudPluginClient struct {
@@ -254,6 +279,16 @@ func (c *sCCloudPluginClient) LogStream(ctx context.Context, in *LogStreamReques
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SCCloudPlugin_LogStreamClient = grpc.ServerStreamingClient[PluginLogEvent]
 
+func (c *sCCloudPluginClient) PluginInvoke(ctx context.Context, in *PluginInvokeRequest, opts ...grpc.CallOption) (*PluginInvokeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PluginInvokeResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_PluginInvoke_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SCCloudPluginServer is the server API for SCCloudPlugin service.
 // All implementations must embed UnimplementedSCCloudPluginServer
 // for forward compatibility.
@@ -293,6 +328,30 @@ type SCCloudPluginServer interface {
 	// bloating every unary RPC with a streaming variant. See
 	// forge/docs/design/2026-10-24/sc-plugin-architecture/ Addendum F.
 	LogStream(*LogStreamRequest, grpc.ServerStreamingServer[PluginLogEvent]) error
+	// PluginInvoke — capability dispatcher on the target plugin. SC
+	// core's existing broker (SCCore.PeerInvoke) forwards cross-plugin
+	// calls by SCCloudPlugin RPC name; a CALLING plugin dispatches a
+	// capability via PeerInvoke(rpc_name="PluginInvoke", payload=
+	// marshal(PluginInvokeRequest{capability: "..."})). Target plugin's
+	// handler switches on `capability` to its registered function.
+	//
+	// Eliminates cross-plugin credential duplication — first consumer
+	// pair is sc-component-backup → sc-plugin-mongodb for
+	// `mint-scoped-user` (backup plugin asks mongodb to mint an Atlas
+	// database user without holding its own Atlas admin credential).
+	// Pattern generalises to notifier → aws (SES/SNS), monitor →
+	// mongodb (metrics-only user), etc.
+	//
+	// See forge/docs/roadmap/items/sc-components-plugin-peer-invoke.md
+	// for the design (SC-core-as-broker, capability advertisement via
+	// SchemaResponse.peer_capabilities, first-consumer payload/reply
+	// shapes).
+	//
+	// Older plugin binaries that pre-date this RPC return the generated
+	// Unimplemented stub — the broker in SC core's PeerInvoke surfaces
+	// that as a "target plugin does not expose capability dispatch"
+	// error, distinct from capability-not-advertised.
+	PluginInvoke(context.Context, *PluginInvokeRequest) (*PluginInvokeResponse, error)
 	mustEmbedUnimplementedSCCloudPluginServer()
 }
 
@@ -344,6 +403,9 @@ func (UnimplementedSCCloudPluginServer) VmHosts(context.Context, *VmHostsRequest
 }
 func (UnimplementedSCCloudPluginServer) LogStream(*LogStreamRequest, grpc.ServerStreamingServer[PluginLogEvent]) error {
 	return status.Error(codes.Unimplemented, "method LogStream not implemented")
+}
+func (UnimplementedSCCloudPluginServer) PluginInvoke(context.Context, *PluginInvokeRequest) (*PluginInvokeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PluginInvoke not implemented")
 }
 func (UnimplementedSCCloudPluginServer) mustEmbedUnimplementedSCCloudPluginServer() {}
 func (UnimplementedSCCloudPluginServer) testEmbeddedByValue()                       {}
@@ -611,6 +673,24 @@ func _SCCloudPlugin_LogStream_Handler(srv interface{}, stream grpc.ServerStream)
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type SCCloudPlugin_LogStreamServer = grpc.ServerStreamingServer[PluginLogEvent]
 
+func _SCCloudPlugin_PluginInvoke_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PluginInvokeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).PluginInvoke(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_PluginInvoke_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).PluginInvoke(ctx, req.(*PluginInvokeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // SCCloudPlugin_ServiceDesc is the grpc.ServiceDesc for SCCloudPlugin service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -669,6 +749,10 @@ var SCCloudPlugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "VmHosts",
 			Handler:    _SCCloudPlugin_VmHosts_Handler,
+		},
+		{
+			MethodName: "PluginInvoke",
+			Handler:    _SCCloudPlugin_PluginInvoke_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

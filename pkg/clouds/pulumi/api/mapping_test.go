@@ -168,6 +168,49 @@ func TestRegisterComponentDefaults_EmptyNoOps(t *testing.T) {
 	}
 }
 
+// TestRegisterPeerCapability_Lookup — advertised capability registered
+// and visible via HasPeerCapability.
+func TestRegisterPeerCapability_Lookup(t *testing.T) {
+	// Snapshot + restore so tests don't leak state.
+	t.Cleanup(func() { delete(PeerCapabilities, "test-peer-plugin") })
+
+	RegisterPeerCapability("test-peer-plugin", "mint-scoped-user")
+	RegisterPeerCapability("test-peer-plugin", "delete-scoped-user")
+
+	if !HasPeerCapability("test-peer-plugin", "mint-scoped-user") {
+		t.Error("mint-scoped-user not registered")
+	}
+	if !HasPeerCapability("test-peer-plugin", "delete-scoped-user") {
+		t.Error("delete-scoped-user not registered")
+	}
+	// Unadvertised capability refused.
+	if HasPeerCapability("test-peer-plugin", "orphan") {
+		t.Error("unadvertised capability must not be accepted")
+	}
+	// Unknown plugin refused.
+	if HasPeerCapability("unknown-plugin", "mint-scoped-user") {
+		t.Error("unknown plugin must not be accepted")
+	}
+}
+
+// TestRegisterPeerCapability_EmptyNoOp — empty inputs don't register
+// phantom entries.
+func TestRegisterPeerCapability_EmptyNoOp(t *testing.T) {
+	t.Cleanup(func() {
+		delete(PeerCapabilities, "")
+		delete(PeerCapabilities, "test-empty-cap")
+	})
+
+	RegisterPeerCapability("", "mint")
+	if _, ok := PeerCapabilities[""]; ok {
+		t.Error("empty plugin name registered an entry")
+	}
+	RegisterPeerCapability("test-empty-cap", "")
+	if _, ok := PeerCapabilities["test-empty-cap"]; ok {
+		t.Error("empty capability registered an entry")
+	}
+}
+
 // TestGetComponentDefaults_IsolatedCopy — a caller mutating the
 // returned bytes must not corrupt the shared registry entry. The
 // per-deploy sidecar unmarshals the returned bytes in a json.Unmarshal

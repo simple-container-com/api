@@ -364,6 +364,26 @@ message SchemaResponse {
   // S3-colocated metadata upsert (500); the plugin should carry that
   // default so the operator can't accidentally remove it.
   map<string, bytes> component_defaults = 15;
+
+  // Capability names this plugin exposes to peer plugins via the
+  // PeerInvoke RPC (see SCCloudPlugin service definition). Names are
+  // plugin-local; cross-plugin dispatch is identified by the pair
+  // (target_plugin, capability) where target_plugin is this plugin's
+  // name in SC core's loaded plugin map.
+  //
+  // SC core's broker refuses a PeerInvoke call whose `capability`
+  // is not in this list — operator-safe default is "this plugin
+  // exposes no peer surface". Older plugin binaries pre-dating
+  // the field advertise nothing; the broker treats them as having
+  // no capabilities.
+  //
+  // First adopters (slice `sc-components-plugin-peer-invoke`):
+  //   - sc-plugin-mongodb: `mint-scoped-user`, `delete-scoped-user`.
+  //
+  // Payload/reply schemas per capability are plugin-authored and
+  // documented in each plugin's README. SC core does not interpret
+  // the payload JSON beyond routing.
+  repeated string peer_capabilities = 16;
 }
 
 // StringList is a repeated-string wrapper so `component_allowed_overrides`
@@ -599,6 +619,56 @@ message ComputeProcessRequest {
   // incoming pool as it always has. Opt-in plugin-side by passing
   // `runtime.WithIncomingEnvVars(req)` to `RunComputeProcess`.
   repeated ComputeEnvVariable compute_env_vars = 10;
+}
+
+// PluginInvokeRequest is the capability-dispatch envelope on
+// SCCloudPlugin. A CALLING plugin dispatches a cross-plugin capability
+// via the existing SCCore.PeerInvoke(rpc_name="PluginInvoke",
+// payload=marshal(PluginInvokeRequest)) — SC core routes to the
+// target plugin's SCCloudPlugin.PluginInvoke, which switches on
+// `capability` to its registered handler.
+//
+// Why a separate RPC + capability name rather than one new SCCloudPlugin
+// RPC per capability: capability names are plugin-local and the set
+// grows with every new cross-plugin use case (sc-component-backup wants
+// `mint-scoped-user`/`delete-scoped-user` on mongodb; a future monitor
+// would want `mint-readonly-user`; a notifier would want
+// `send-ses-message`, `send-sns-message`). Adding a new SCCloudPlugin
+// RPC per capability churns the service surface; a single PluginInvoke
+// with a `capability` string + opaque JSON keeps the proto stable and
+// lets capabilities evolve plugin-side.
+//
+// Shape kept opaque — the (target_plugin, capability) pair defines
+// the payload/reply schema; those schemas are plugin-authored and
+// documented in each plugin's README. SC core does not interpret
+// the payload beyond routing.
+message PluginInvokeRequest {
+  RequestHeader header = 1;
+
+  // Named capability on the target plugin. Must appear in that
+  // plugin's `SchemaResponse.peer_capabilities`. Enforced by the
+  // broker — a call to an unadvertised capability is refused before
+  // the forward.
+  string capability = 2;
+
+  // Opaque JSON payload — schema is capability-specific. First
+  // consumer pair (sc-component-backup → sc-plugin-mongodb for
+  // `mint-scoped-user`): payload `{"database": string, "roleName":
+  // string, "consumerStack": string}`. Target plugin unmarshals
+  // into its own typed struct.
+  bytes payload_json = 3;
+
+  // Name of the calling plugin (filled in by SC core's broker
+  // before forwarding). Target plugin uses this for logging +
+  // optional per-caller policy. Callers MUST NOT set this; the
+  // broker overwrites.
+  string calling_plugin = 4;
+}
+
+message PluginInvokeResponse {
+  // Opaque JSON reply — schema is capability-specific. Target
+  // plugin marshals its typed reply struct here.
+  bytes reply_json = 1;
 }
 
 message ComputeProcessResponse {
@@ -1223,6 +1293,31 @@ service SCCloudPlugin {
   // bloating every unary RPC with a streaming variant. See
   // forge/docs/design/2026-10-24/sc-plugin-architecture/ Addendum F.
   rpc LogStream(LogStreamRequest) returns (stream PluginLogEvent);
+
+  // PluginInvoke — capability dispatcher on the target plugin. SC
+  // core's existing broker (SCCore.PeerInvoke) forwards cross-plugin
+  // calls by SCCloudPlugin RPC name; a CALLING plugin dispatches a
+  // capability via PeerInvoke(rpc_name="PluginInvoke", payload=
+  // marshal(PluginInvokeRequest{capability: "..."})). Target plugin's
+  // handler switches on `capability` to its registered function.
+  //
+  // Eliminates cross-plugin credential duplication — first consumer
+  // pair is sc-component-backup → sc-plugin-mongodb for
+  // `mint-scoped-user` (backup plugin asks mongodb to mint an Atlas
+  // database user without holding its own Atlas admin credential).
+  // Pattern generalises to notifier → aws (SES/SNS), monitor →
+  // mongodb (metrics-only user), etc.
+  //
+  // See forge/docs/roadmap/items/sc-components-plugin-peer-invoke.md
+  // for the design (SC-core-as-broker, capability advertisement via
+  // SchemaResponse.peer_capabilities, first-consumer payload/reply
+  // shapes).
+  //
+  // Older plugin binaries that pre-date this RPC return the generated
+  // Unimplemented stub — the broker in SC core's PeerInvoke surfaces
+  // that as a "target plugin does not expose capability dispatch"
+  // error, distinct from capability-not-advertised.
+  rpc PluginInvoke(PluginInvokeRequest) returns (PluginInvokeResponse);
 }
 
 message LogStreamRequest {
