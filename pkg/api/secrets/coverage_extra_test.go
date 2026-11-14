@@ -57,7 +57,7 @@ func TestGetAndDecryptFileContent(t *testing.T) {
 		c, wd, cleanup := newTestCryptor(t)
 		defer cleanup()
 
-		Expect(c.AddFile("stacks/common/secrets.yaml")).To(Succeed())
+		Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(Succeed())
 
 		original, err := os.ReadFile(path.Join(wd, "stacks/common/secrets.yaml"))
 		Expect(err).ToNot(HaveOccurred())
@@ -83,7 +83,7 @@ func TestGetAndDecryptFileContent(t *testing.T) {
 		c, _, cleanup := newTestCryptor(t)
 		defer cleanup()
 
-		Expect(c.AddFile("stacks/common/secrets.yaml")).To(Succeed())
+		Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(Succeed())
 
 		_, err := c.GetAndDecryptFileContent("stacks/refapp/secrets.yaml")
 		Expect(err).To(HaveOccurred())
@@ -95,7 +95,7 @@ func TestGetAndDecryptFileContent(t *testing.T) {
 		c, _, cleanup := newTestCryptor(t)
 		defer cleanup()
 
-		Expect(c.AddFile("stacks/common/secrets.yaml")).To(Succeed())
+		Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(Succeed())
 
 		// Swap in a private key that does not match the encryption public key.
 		ci := c.(*cryptor)
@@ -204,7 +204,7 @@ func TestWithConsoleWriterOption(t *testing.T) {
 
 	// Register this key + a file, then empty the registry so DecryptAll reaches
 	// the "no secret files to reveal" branch which prints via the writer.
-	Expect(c.AddFile("stacks/common/secrets.yaml")).To(Succeed())
+	Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(Succeed())
 	ci.secrets.Registry.Files = []string{}
 
 	Expect(c.DecryptAll(false)).To(Succeed())
@@ -494,7 +494,7 @@ func TestPersistenceFailures_Propagate(t *testing.T) {
 		defer cleanup()
 
 		clobberSecretsFile(t, wd)
-		err := c.AddFile("stacks/common/secrets.yaml")
+		err := c.AddFile("stacks/common/secrets.yaml", false)
 		Expect(err).To(HaveOccurred())
 	})
 
@@ -503,7 +503,7 @@ func TestPersistenceFailures_Propagate(t *testing.T) {
 		c, wd, cleanup := newTestCryptor(t)
 		defer cleanup()
 
-		Expect(c.AddFile("stacks/common/secrets.yaml")).To(Succeed())
+		Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(Succeed())
 		clobberSecretsFile(t, wd)
 		err := c.RemoveFile("stacks/common/secrets.yaml")
 		Expect(err).To(HaveOccurred())
@@ -715,7 +715,7 @@ func TestEncryptChanged_DiffRejectedPropagates(t *testing.T) {
 	Expect(err).ToNot(HaveOccurred())
 
 	// AddFile -> EncryptChanged(true,false) -> ensureDiffAcceptable(N) rejects.
-	err = c.AddFile("stacks/common/secrets.yaml")
+	err = c.AddFile("stacks/common/secrets.yaml", false)
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("diff is not acceptable"))
 }
@@ -728,8 +728,8 @@ func TestRemoveFile_NormalizesRegistry(t *testing.T) {
 	c, _, cleanup := newTestCryptor(t)
 	defer cleanup()
 
-	Expect(c.AddFile("stacks/common/secrets.yaml")).To(Succeed())
-	Expect(c.AddFile("stacks/refapp/secrets.yaml")).To(Succeed())
+	Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(Succeed())
+	Expect(c.AddFile("stacks/refapp/secrets.yaml", false)).To(Succeed())
 
 	Expect(c.RemoveFile("stacks/common/secrets.yaml")).To(Succeed())
 
@@ -767,7 +767,7 @@ func TestDecryptAll_DiffRejectedOnExistingFile(t *testing.T) {
 	)
 	Expect(err).ToNot(HaveOccurred())
 
-	Expect(c.AddFile("stacks/common/secrets.yaml")).To(Succeed())
+	Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(Succeed())
 
 	// Overwrite the on-disk file so the decrypted content differs from it.
 	secretPath := path.Join(workDir, "stacks/common/secrets.yaml")

@@ -64,7 +64,7 @@ func (c *cryptor) Options() []Option {
 	return c.options
 }
 
-func (c *cryptor) AddFile(filePath string) error {
+func (c *cryptor) AddFile(filePath string, forceChanged bool) error {
 	defer c.withWriteLock()()
 
 	if err := c.initData(); err != nil {
@@ -73,7 +73,7 @@ func (c *cryptor) AddFile(filePath string) error {
 	if lo.IndexOf(c.secrets.Registry.Files, filePath) < 0 {
 		c.secrets.Registry.Files = append(c.secrets.Registry.Files, filePath)
 	}
-	if err := c.EncryptChanged(true, false); err != nil {
+	if err := c.EncryptChanged(true, forceChanged); err != nil {
 		return errors.Wrapf(err, "failed to re-encrypt all secrets")
 	}
 	if err := c.MarshalSecretsFile(); err != nil {

@@ -41,8 +41,8 @@ func TestDecryptAll_Output(t *testing.T) {
 				consoleWriter.On("Println", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 
 				// Add two secret files
-				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
-				Expect(c.AddFile("stacks/refapp/secrets.yaml")).To(BeNil())
+				Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(BeNil())
+				Expect(c.AddFile("stacks/refapp/secrets.yaml", false)).To(BeNil())
 
 				// Remove the files to test decryption
 				commonPath := path.Join(wd, "stacks/common/secrets.yaml")
@@ -72,7 +72,7 @@ func TestDecryptAll_Output(t *testing.T) {
 				consoleWriter.On("Println", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 
 				// Add a file to initialize the secrets for this key
-				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+				Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(BeNil())
 
 				// Then remove the file from the registry (simulating no files to reveal)
 				cryptorInstance := c.(*cryptor)
@@ -95,7 +95,7 @@ func TestDecryptAll_Output(t *testing.T) {
 				consoleWriter.On("Println", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return()
 
 				// Add one secret file
-				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+				Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(BeNil())
 
 				// Remove the file to test decryption
 				commonPath := path.Join(wd, "stacks/common/secrets.yaml")
@@ -500,7 +500,7 @@ func TestDecryptAll_Integration(t *testing.T) {
 		RegisterTestingT(t)
 
 		// Add file to encrypt it
-		Expect(got.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+		Expect(got.AddFile("stacks/common/secrets.yaml", false)).To(BeNil())
 
 		// Remove the file
 		secretFile := path.Join(workDir, "stacks/common/secrets.yaml")

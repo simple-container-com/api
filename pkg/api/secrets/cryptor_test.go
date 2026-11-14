@@ -99,7 +99,7 @@ func TestNewCryptor(t *testing.T) {
 			prepareMocks: acceptAllChanges,
 			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
 				m.consoleReaderMock.On("ReadLine").Return("invalid-passphrase", nil)
-				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+				Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(BeNil())
 				Expect(c.EncryptChanged(true, false)).To(BeNil())
 				err := c.DecryptAll(false)
 				Expect(err).NotTo(BeNil())
@@ -116,7 +116,7 @@ func TestNewCryptor(t *testing.T) {
 			prepareMocks: acceptAllChanges,
 			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
 				m.consoleReaderMock.On("ReadLine").Return("test", nil)
-				Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+				Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(BeNil())
 				Expect(c.EncryptChanged(true, false)).To(BeNil())
 				err := c.DecryptAll(false)
 				Expect(err).To(BeNil())
@@ -164,7 +164,7 @@ func TestNewCryptor(t *testing.T) {
 			name:           "public key not configured",
 			testExampleDir: "testdata/repo",
 			actions: func(t *testing.T, c Cryptor, m *mocks, wd string) {
-				Expect(c.AddFile("stacks/common/secrets.yaml")).
+				Expect(c.AddFile("stacks/common/secrets.yaml", false)).
 					To(MatchError("public key is not configured"))
 			},
 		},
@@ -239,7 +239,7 @@ func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 	refappSecretsFilePath := path.Join(wd, "stacks/refapp/secrets.yaml")
 
 	t.Run("add file", func(t *testing.T) {
-		Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+		Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(BeNil())
 		secrets := c.GetSecretFiles().Secrets
 		Expect(secrets).NotTo(BeNil())
 		Expect(secrets).To(HaveKey(c.PublicKey()))
@@ -247,7 +247,7 @@ func happyPathScenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 		Expect(files).To(HaveLen(1))
 		Expect(files[0].Path).To(Equal("stacks/common/secrets.yaml"))
 		Expect(files[0].EncryptedData).NotTo(BeEmpty())
-		Expect(c.AddFile("stacks/refapp/secrets.yaml")).To(BeNil())
+		Expect(c.AddFile("stacks/refapp/secrets.yaml", false)).To(BeNil())
 	})
 	gitIgnoreFile := path.Join(wd, ".gitignore")
 	t.Run("secrets added to gitignore", func(t *testing.T) {
@@ -385,7 +385,7 @@ func happyPathEd25519Scenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 	refappSecretsFilePath := path.Join(wd, "stacks/refapp/secrets.yaml")
 
 	t.Run("add file", func(t *testing.T) {
-		Expect(c.AddFile("stacks/common/secrets.yaml")).To(BeNil())
+		Expect(c.AddFile("stacks/common/secrets.yaml", false)).To(BeNil())
 		secrets := c.GetSecretFiles().Secrets
 		Expect(secrets).NotTo(BeNil())
 		Expect(secrets).To(HaveKey(c.PublicKey()))
@@ -393,7 +393,7 @@ func happyPathEd25519Scenario(t *testing.T, c Cryptor, m *mocks, wd string) {
 		Expect(files).To(HaveLen(1))
 		Expect(files[0].Path).To(Equal("stacks/common/secrets.yaml"))
 		Expect(files[0].EncryptedData).NotTo(BeEmpty())
-		Expect(c.AddFile("stacks/refapp/secrets.yaml")).To(BeNil())
+		Expect(c.AddFile("stacks/refapp/secrets.yaml", false)).To(BeNil())
 	})
 
 	gitIgnoreFile := path.Join(wd, ".gitignore")

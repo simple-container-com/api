@@ -45,7 +45,10 @@ type Cryptor interface {
 	GenerateKeyPairWithProfile(projectName, profile string) error
 	GenerateEd25519KeyPairWithProfile(projectName, profile string) error
 	ReadProfileConfig() error
-	AddFile(path string) error
+	// AddFile registers path as a secret file and encrypts it. forceChanged
+	// skips the interactive diff+confirmation (see ensureDiffAcceptable), which
+	// would otherwise print the file's plaintext contents to the console.
+	AddFile(path string, forceChanged bool) error
 	RemoveFile(path string) error
 	DecryptAll(forceChanged bool) error
 	EncryptChanged(force bool, forceChanged bool) error
