@@ -66,6 +66,11 @@ type CaddyConfig struct {
 	// Inline, so the resource's yaml shape is unchanged and `cfg.UseSSL` keeps
 	// compiling through field promotion.
 	TlsConfig `json:",inline" yaml:",inline"`
+	// TrustedProxiesStrict makes Caddy read X-Forwarded-For from the right and take the first
+	// address that is not a trusted proxy. Without it Caddy takes the LEFTMOST value, which a
+	// visitor can set when the request arrives through a trusted proxy (a CDN appends the real
+	// address instead of replacing the header). Requires trustedProxies.
+	TrustedProxiesStrict bool `json:"trustedProxiesStrict,omitempty" yaml:"trustedProxiesStrict,omitempty"`
 	// Deployment name override for existing Caddy deployments (used when adopting clusters)
 	DeploymentName *string `json:"deploymentName,omitempty" yaml:"deploymentName,omitempty"` // override deployment name when adopting existing Caddy
 	// TerminationGracePeriodSeconds overrides the pod-level terminationGracePeriodSeconds for Caddy.

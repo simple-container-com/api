@@ -2405,6 +2405,10 @@ resources:
                                                     # `lbConfig.originTls`; a stack that says nothing gets plain
                                                     # HTTP, which is right behind Cloudflare or a cloud LB.
                                                     # This resource's value wins over the template's.
+            trustedProxies: ["10.0.0.0/8"]          # Proxies whose X-Forwarded-For Caddy trusts (optional)
+            trustedProxiesStrict: true              # Take the client address from the right-most X-Forwarded-For
+                                                    # entry that is NOT a trusted proxy, not the left-most one a
+                                                    # visitor can set (optional, default: false; needs trustedProxies)
             usePrefixes: false                      # Use prefixes instead of domains (optional, default: false)
             provisionIngress: false                 # Provision ingress for Caddy (optional, default: false)
             useResourceName: false                  # Name every object <resource>-<env> instead of caddy-<env>,

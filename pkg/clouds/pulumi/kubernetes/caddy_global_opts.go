@@ -38,8 +38,16 @@ func staticCaddyfilePrefix(caddy CaddyDeployment, namespace, deploymentName stri
 
 // BuildTrustedProxiesBlock builds the Caddy servers { trusted_proxies ... } block
 // from the CaddyConfig. Returns empty string if no trusted proxies are configured.
+//
+// With TrustedProxiesStrict the block also carries `trusted_proxies_strict`, so Caddy takes
+// the client address from the right-most X-Forwarded-For entry that is not a trusted proxy
+// instead of the left-most one. Strict mode without trusted proxies would silently do
+// nothing, so it is rejected.
 func BuildTrustedProxiesBlock(cfg k8s.CaddyConfig) (string, error) {
 	if len(cfg.TrustedProxies) == 0 {
+		if cfg.TrustedProxiesStrict {
+			return "", errors.New("trustedProxiesStrict requires trustedProxies: strict mode applies to the listed proxies")
+		}
 		return "", nil
 	}
 
@@ -52,7 +60,11 @@ func BuildTrustedProxiesBlock(cfg k8s.CaddyConfig) (string, error) {
 	}
 
 	cidrs := strings.Join(cfg.TrustedProxies, " ")
-	return fmt.Sprintf("  servers {\n    trusted_proxies static %s\n  }", cidrs), nil
+	strict := ""
+	if cfg.TrustedProxiesStrict {
+		strict = "\n    trusted_proxies_strict"
+	}
+	return fmt.Sprintf("  servers {\n    trusted_proxies static %s%s\n  }", cidrs, strict), nil
 }
 
 // BuildCaddyfileGlobalOptions assembles everything that goes above the first site block:
