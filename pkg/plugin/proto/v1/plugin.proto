@@ -323,6 +323,47 @@ message SchemaResponse {
   // any dispatch targeting one of its template types. Additive by
   // construction.
   repeated string supports_component = 14;
+
+  // Per-Component-resource-type defaults that SC core merges UNDER
+  // the operator's declared `.Raw` map at dispatch time (operator
+  // wins on every key). JSON-marshalled `map[string]any` per
+  // component resource type; keyed by the same token the plugin
+  // advertised in `component_resource_types`.
+  //
+  // Purpose: let a plugin declare the boilerplate its dispatched
+  // template needs (e.g. sc-backup wants `cloudExtras.awsRoles:
+  // [s3:*, ecs:RunTask, iam:PassRole]` + `cloudExtras.lambdaRoutingType:
+  // function-url` for its Lambda; sc-monitor will want log/metrics
+  // perms; sc-notifier will want SES/SNS perms) without forcing the
+  // operator to spell those out on every stack that uses the component.
+  //
+  // Merge semantics (documented in `pApi.DeepMergeComponentRaw`):
+  //   - Nested maps: per-key union. Plugin keys the operator did not
+  //     write stay; operator keys overwrite.
+  //   - Lists: operator REPLACES (not appends). Matches the
+  //     `ComponentAllowedOverrides` precedent for `env:` + `secrets:`.
+  //     Rationale: a list override should be a complete declaration
+  //     so the operator sees the exact effective value; an append
+  //     would silently pull in plugin defaults the operator might
+  //     have meant to remove.
+  //   - Scalars: operator wins.
+  //
+  // Operator-safe: fields the operator did not write get the plugin's
+  // default. Fields the operator DID write never silently change
+  // under a plugin version bump (operator-wins contract). A plugin
+  // that wants to remove a historical default must do it as an
+  // explicit migration, not as a silent config change.
+  //
+  // Opt-in: older plugin binaries omit the field; SC core sees an
+  // empty map and merges onto nothing — behaviour unchanged.
+  //
+  // Live-driver: sc-component-backup slice 1d.6 (roadmap item
+  // `sc-components-componentdefaults-operator-ux`). Live-caught trap
+  // during the 2026-11-14 minimal-shape smoke: dropping the
+  // `cloudExtras.awsRoles` block broke the backup service's own
+  // S3-colocated metadata upsert (500); the plugin should carry that
+  // default so the operator can't accidentally remove it.
+  map<string, bytes> component_defaults = 15;
 }
 
 // StringList is a repeated-string wrapper so `component_allowed_overrides`

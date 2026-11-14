@@ -344,6 +344,18 @@ func (b *preEnginePluginBundle) RegisterSidecars() error {
 				}
 			}
 			pApi.RegisterComponentResourceType(typeToken, allowed)
+			// ComponentDefaults (slice 1d.6 of sc-components-platform): the
+			// plugin's advertised default `.Raw` for this component type.
+			// SC core deep-merges the operator's declared `.Raw` on top at
+			// dispatch time (see dispatchComponentTemplate in
+			// plugin_sidecars.go). Empty / unset for plugins that pre-date
+			// the field; dispatch merges onto nil and operator config
+			// crosses verbatim — today's behaviour.
+			if m := schema.GetComponentDefaults(); m != nil {
+				if def, ok := m[typeToken]; ok && len(def) > 0 {
+					pApi.RegisterComponentDefaults(typeToken, def)
+				}
+			}
 		}
 
 		// SupportsComponent: a SUBSET of resource_types the plugin's own
