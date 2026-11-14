@@ -1352,6 +1352,15 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 		return nil, errors.Errorf("plugin override %q is not in the allowlist for component type %q", k, input.Descriptor.Type)
 	}
 
+	// Defense-in-depth: refuse an operator-written value with the
+	// DefaultsSentinel prefix. Parse-time validation catches this
+	// first; this guard protects the same code paths as the override
+	// allowlist above (test fixtures, future direct callers) from
+	// an operator string that would fake a plugin-authored default.
+	if err := pApi.RefuseSentinelInOperatorRaw(operatorRaw); err != nil {
+		return nil, errors.Wrapf(err, "component type %q", input.Descriptor.Type)
+	}
+
 	// ComponentDefaults merge (slice 1d.6 of sc-components-platform):
 	// overlay the operator's declared .Raw ON TOP of the plugin's
 	// defaults. Operator always wins — a plugin version bump that
@@ -1365,6 +1374,30 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// declare one for this type): merge is a no-op, operatorRaw crosses
 	// through — today's behaviour.
 	merged := mergeComponentDefaults(input.Descriptor.Type, operatorRaw)
+
+	// Defaults interpolation (sc-components-defaults-template-interpolation):
+	// substitute self-derived tokens (${name}/${env}/${stack}/
+	// ${template.*}) inside $$sc:-prefixed strings that came from the
+	// plugin's defaults. Operator-written strings pass through
+	// unchanged — the refuse check above guarantees they never
+	// carry the sentinel. `${parent:…}` tokens are deliberately left
+	// unresolved here; a follow-up slice adds the parent-output
+	// resolver on top.
+	//
+	// stackName may carry an env suffix (`forge-conductor--staging`)
+	// in child-stack contexts; the Env field strips that so
+	// `${env}` is the clean environment name.
+	envName := ""
+	if input.StackParams != nil {
+		envName = input.StackParams.Environment
+	}
+	merged = pApi.InterpolateDefaults(merged, pApi.DefaultsContext{
+		Name:           input.Descriptor.Name,
+		Env:            envName,
+		Stack:          stack.Name,
+		TemplateName:   tplName,
+		TemplateConfig: templateConfigMap(tpl),
+	})
 
 	// Rebuild cfg from the merged Raw so mergeComponentIntoTemplate
 	// (and any downstream read via cfg) sees defaulted values.
@@ -1408,6 +1441,22 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 // registers no per-type merge func by default; the pass-through covers the
 // first smoke's compose-on-vm shape (operator provides the compose file, the
 // plugin's image lands via its own compute processor at consumer deploy time).
+// templateConfigMap unwraps a parent-stack template's `config:` block
+// into a `map[string]any` the interpolation layer can read. The
+// template's `Config.Config` is `any` in the public type (operators
+// may supply typed plugin configs); interpolation only cares about
+// scalar string values keyed by name, so we check-cast and no-op the
+// non-map shapes. Returns nil if nothing is interpolatable — the
+// interpolation layer then can't resolve `${template.…}` tokens and
+// leaves them in place (fail-open contract).
+func templateConfigMap(tpl api.StackDescriptor) map[string]any {
+	m, ok := tpl.Config.Config.(map[string]any)
+	if !ok {
+		return nil
+	}
+	return m
+}
+
 // mergeComponentDefaults overlays an operator's .Raw map on top of the
 // plugin's declared defaults for a component resource type. Returns a
 // fresh map; operator-wins per `pApi.DeepMergeComponentRaw`. When no
