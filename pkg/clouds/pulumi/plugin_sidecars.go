@@ -1335,38 +1335,63 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// own allowlist, refuse. Parse-time validation catches this first; this
 	// guard protects a code path where the dispatch runs against a config
 	// that bypassed parse-time (e.g. test fixtures, future direct callers).
-	if raw := cfg.Raw(); raw != nil {
-		for k := range raw {
-			if api.IsComponentConfigTopLevelKey(k) {
-				continue
-			}
-			if pApi.IsComponentOverrideAllowed(input.Descriptor.Type, k) {
-				continue
-			}
-			return nil, errors.Errorf("plugin override %q is not in the allowlist for component type %q", k, input.Descriptor.Type)
+	//
+	// Enforced on the OPERATOR's raw (before merging plugin defaults). The
+	// plugin's defaults are self-declared and don't need to pass the
+	// allowlist — the allowlist is a guard against the plugin overriding
+	// dispatched-template internals, not a guard against the plugin
+	// setting its own documented defaults.
+	operatorRaw := cfg.RawCopy()
+	for k := range operatorRaw {
+		if api.IsComponentConfigTopLevelKey(k) {
+			continue
 		}
+		if pApi.IsComponentOverrideAllowed(input.Descriptor.Type, k) {
+			continue
+		}
+		return nil, errors.Errorf("plugin override %q is not in the allowlist for component type %q", k, input.Descriptor.Type)
 	}
 
-	merged, err := mergeComponentIntoTemplate(tpl, input.Descriptor.Name, cfg)
+	// ComponentDefaults merge (slice 1d.6 of sc-components-platform):
+	// overlay the operator's declared .Raw ON TOP of the plugin's
+	// defaults. Operator always wins — a plugin version bump that
+	// changes a default never silently rewrites a field the operator
+	// wrote. Keys the operator did NOT write get the plugin's default
+	// value, which is the whole point: an sc-backup component stack
+	// doesn't need to spell out `cloudExtras.{lambdaRoutingType,
+	// awsRoles}` because the backup plugin ships sane defaults.
+	//
+	// Nil-defaults case (older plugin binaries, or plugins that didn't
+	// declare one for this type): merge is a no-op, operatorRaw crosses
+	// through — today's behaviour.
+	merged := mergeComponentDefaults(input.Descriptor.Type, operatorRaw)
+
+	// Rebuild cfg from the merged Raw so mergeComponentIntoTemplate
+	// (and any downstream read via cfg) sees defaulted values.
+	mergedCfg, err := api.NewComponentConfig(merged)
+	if err != nil {
+		return nil, errors.Wrap(err, "wrapping merged component config")
+	}
+
+	mergedDesc, err := mergeComponentIntoTemplate(tpl, input.Descriptor.Name, mergedCfg)
 	if err != nil {
 		return nil, errors.Wrap(err, "merging component config into template")
 	}
 
 	// ComponentRaw side-channel (slice 1a.1 of sc-components-platform;
-	// design doc §#19 path (b)): pass the component's operator-declared
-	// .Raw map through to the dispatched template's ProvisionFunc. The
-	// dispatched template is typically plugin-owned (aws-lambda in
-	// sc-plugin-aws, ecs-fargate, yc-serverless-container, k8s-run); its
-	// ProvisionFunc reads ComponentRaw and overlays image/env/ingress on
-	// its typed input struct before building the cloud resource. In-tree
-	// templates with a per-type ComponentTemplateMergeFunc registration
-	// (vm-compose) have already consumed the fields in
-	// mergeComponentIntoTemplate above; ComponentRaw is harmless for them
-	// but still populated for consistency.
+	// design doc §#19 path (b)): pass the component's merged .Raw map
+	// through to the dispatched template's ProvisionFunc. The dispatched
+	// template is typically plugin-owned (aws-lambda in sc-plugin-aws,
+	// ecs-fargate, yc-serverless-container, k8s-run); its ProvisionFunc
+	// reads ComponentRaw and overlays image/env/ingress on its typed
+	// input struct before building the cloud resource. In-tree templates
+	// with a per-type ComponentTemplateMergeFunc registration (vm-compose)
+	// have already consumed the fields in mergeComponentIntoTemplate above;
+	// ComponentRaw is harmless for them but still populated for consistency.
 	dispatchedInput := api.ResourceInput{
-		Descriptor:   merged,
+		Descriptor:   mergedDesc,
 		StackParams:  input.StackParams,
-		ComponentRaw: cfg.RawCopy(),
+		ComponentRaw: merged,
 	}
 	return tplFn(ctx, stack, dispatchedInput, params)
 }
@@ -1383,6 +1408,33 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 // registers no per-type merge func by default; the pass-through covers the
 // first smoke's compose-on-vm shape (operator provides the compose file, the
 // plugin's image lands via its own compute processor at consumer deploy time).
+// mergeComponentDefaults overlays an operator's .Raw map on top of the
+// plugin's declared defaults for a component resource type. Returns a
+// fresh map; operator-wins per `pApi.DeepMergeComponentRaw`. When no
+// defaults are registered (plugin pre-dates slice 1d.6), the operator
+// map is returned as-is so today's behaviour is preserved.
+//
+// Unmarshal error on the stored defaults is logged (debug) and swallowed
+// — that path should be impossible because `RegisterComponentDefaults`
+// accepts the bytes verbatim from the plugin's SchemaResponse and the
+// plugin produced them via json.Marshal. A bogus defaults blob would
+// deterministically break every dispatch for that component type if we
+// returned an error here, so we fail-open to today's behaviour rather
+// than fail-closed on a plugin author's mistake.
+func mergeComponentDefaults(resourceType string, operatorRaw map[string]any) map[string]any {
+	defaultsJSON := pApi.GetComponentDefaults(resourceType)
+	if len(defaultsJSON) == 0 {
+		// No defaults registered — operator config crosses verbatim.
+		return operatorRaw
+	}
+	var defaults map[string]any
+	if err := json.Unmarshal(defaultsJSON, &defaults); err != nil {
+		// Fail-open — see function-level comment.
+		return operatorRaw
+	}
+	return pApi.DeepMergeComponentRaw(defaults, operatorRaw)
+}
+
 func mergeComponentIntoTemplate(
 	template api.StackDescriptor,
 	componentResourceName string,
