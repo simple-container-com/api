@@ -726,6 +726,21 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 			}
 		}
 
+		// compute_env_vars — mirror of the Provision-side packer at :174.
+		// The ComputeProcess sidecar receives the SAME shared collector SC
+		// core wires through `provisionParams.ComputeContext = collector`
+		// (deploy.go:218, :288), so a plugin's compute processor sees env
+		// vars that prior sibling compute processors in the consumer's
+		// `uses:` iteration have already emitted. Lights up
+		// sc-component-backup's slice 1d.7 auto-discover path — the backup
+		// plugin reads `MONGO_URI`/`MONGO_DATABASE` the mongodb plugin
+		// pushed in on its own compute call, and mints a scoped Atlas user
+		// without the operator spelling a `databases:` list.
+		//
+		// The collector interface satisfies `pApi.ComputeContext` by
+		// method-set superset (both embed EnvVariables + SecretEnvVariables
+		// + Dependencies + Outputs + the Pre/PostProcessor pair), so the
+		// cast below is free.
 		resp, err := cli.ComputeProcess(ctx.Context(), &scpluginv1.ComputeProcessRequest{
 			Header:                &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
 			ResourceType:          typeToken,
@@ -734,6 +749,7 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 			ParentInfoJson:        parentInfoJSON,
 			DependencyOutputsJson: depOutsJSON,
 			ComponentRaw:          componentRawJSON,
+			ComputeEnvVars:        computeContextToProto(collector),
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q ComputeProcess(%q)", pluginName, typeToken)

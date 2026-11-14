@@ -12,7 +12,6 @@ import (
 	"google.golang.org/grpc"
 
 	. "github.com/onsi/gomega"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -226,6 +225,115 @@ func TestComputeProcessorSidecar_HandlesNilParentStack(t *testing.T) {
 	}, sdk.WithMocks("project", "stack", &refMocks{}))
 	Expect(err).ToNot(HaveOccurred())
 	Expect(stub.gotReq.GetParentInfoJson()).To(BeEmpty())
+}
+
+// seededCollector is a capturingCollector that returns seeded env vars on
+// EnvVariables/SecretEnvVariables, so the sidecar-side `computeContextToProto`
+// can observe what the shared SC core collector has accumulated from prior
+// `uses:` siblings' compute processors.
+type seededCollector struct {
+	*capturingCollector
+	plain  []pApi.ComputeEnvVariable
+	secret []pApi.ComputeEnvVariable
+}
+
+func (s *seededCollector) EnvVariables() []pApi.ComputeEnvVariable       { return s.plain }
+func (s *seededCollector) SecretEnvVariables() []pApi.ComputeEnvVariable { return s.secret }
+
+// TestComputeProcessorSidecar_PacksComputeEnvVars — slice 1d.7 auto-discover:
+// SC core's ComputeProcess sidecar must pack the shared collector's env vars
+// (what prior sibling compute processors in the same consumer's `uses:` have
+// emitted) into `ComputeProcessRequest.compute_env_vars`. Without this, a
+// Component plugin's ComputeProcess sees an empty incoming pool and can't
+// react to sibling state (the backup component's auto-discover deploy green
+// but minted no scoped user, live-caught 2026-11-14).
+//
+// Mirror of TestResourceSidecar_ForwardsConfigAndComputeEnv on the
+// ComputeProcess side.
+func TestComputeProcessorSidecar_PacksComputeEnvVars(t *testing.T) {
+	RegisterTestingT(t)
+	withActiveSession(t)
+
+	stub := &stubComputeProcessClient{resp: &scpluginv1.ComputeProcessResponse{}}
+	sidecar := (&preEnginePluginBundle{}).makeComputeProcessorSidecar(
+		scPlugin.NewClientWithStub(stub), "sc-component-backup", "sc-backup",
+	)
+
+	collector := &seededCollector{
+		capturingCollector: newCapturingCollector(),
+		plain: []pApi.ComputeEnvVariable{
+			{Name: "MONGO_DATABASE", Value: "forge_app", ResourceName: "the-mongo", ResourceType: "mongodb-atlas", StackName: "consumer"},
+			{Name: "MONGO_USER", Value: "the-mongo-service-user", ResourceName: "the-mongo", ResourceType: "mongodb-atlas", StackName: "consumer"},
+		},
+		secret: []pApi.ComputeEnvVariable{
+			{Name: "MONGO_URI", Value: "mongodb+srv://u:p@h/", ResourceName: "the-mongo", ResourceType: "mongodb-atlas", StackName: "consumer"},
+			{Name: "MONGO_PASSWORD", Value: "p", ResourceName: "the-mongo", ResourceType: "mongodb-atlas", StackName: "consumer"},
+		},
+	}
+
+	err := sdk.RunErr(func(ctx *sdk.Context) error {
+		_, err := sidecar(
+			ctx,
+			api.Stack{Name: "consumer"},
+			api.ResourceInput{
+				Descriptor:  &api.ResourceDescriptor{Type: "sc-backup", Name: "my-backup"},
+				StackParams: &api.StackParams{Environment: "prod"},
+			},
+			collector,
+			pApi.ProvisionParams{Log: logger.New()},
+		)
+		return err
+	}, sdk.WithMocks("project", "stack", &refMocks{}))
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(stub.gotReq).ToNot(BeNil())
+	env := stub.gotReq.GetComputeEnvVars()
+	Expect(env).To(HaveLen(4), "sidecar must forward both plain and secret env vars")
+
+	byName := map[string]*scpluginv1.ComputeEnvVariable{}
+	for _, v := range env {
+		byName[v.GetName()] = v
+	}
+	Expect(byName).To(HaveKey("MONGO_DATABASE"))
+	Expect(byName["MONGO_DATABASE"].GetSecret()).To(BeFalse())
+	Expect(byName["MONGO_DATABASE"].GetValue()).To(Equal("forge_app"))
+
+	Expect(byName).To(HaveKey("MONGO_URI"))
+	Expect(byName["MONGO_URI"].GetSecret()).To(BeTrue(), "entries from SecretEnvVariables are secret even when the per-entry flag is unset")
+	Expect(byName["MONGO_URI"].GetResourceName()).To(Equal("the-mongo"))
+	Expect(byName["MONGO_URI"].GetResourceType()).To(Equal("mongodb-atlas"))
+}
+
+// TestComputeProcessorSidecar_EmptyComputeEnvVars_WhenCollectorEmpty —
+// pins the pre-1d.7 default: a ComputeProcess whose shared collector has
+// no accumulated env (first `uses:` sibling, or no DB siblings at all)
+// crosses the wire with an empty/nil compute_env_vars. Older plugins
+// that don't read the field see no change.
+func TestComputeProcessorSidecar_EmptyComputeEnvVars_WhenCollectorEmpty(t *testing.T) {
+	RegisterTestingT(t)
+	withActiveSession(t)
+
+	stub := &stubComputeProcessClient{resp: &scpluginv1.ComputeProcessResponse{}}
+	sidecar := (&preEnginePluginBundle{}).makeComputeProcessorSidecar(
+		scPlugin.NewClientWithStub(stub), "sc-plugin-aws", "aws-s3",
+	)
+
+	err := sdk.RunErr(func(ctx *sdk.Context) error {
+		_, err := sidecar(
+			ctx,
+			api.Stack{Name: "consumer"},
+			api.ResourceInput{
+				Descriptor:  &api.ResourceDescriptor{Type: "aws-s3", Name: "forge-storage"},
+				StackParams: &api.StackParams{Environment: "prod"},
+			},
+			newCapturingCollector(),
+			pApi.ProvisionParams{Log: logger.New()},
+		)
+		return err
+	}, sdk.WithMocks("project", "stack", &refMocks{}))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(stub.gotReq).ToNot(BeNil())
+	Expect(stub.gotReq.GetComputeEnvVars()).To(BeEmpty())
 }
 
 // dependingResource exists only so the test can register something that

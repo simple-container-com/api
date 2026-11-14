@@ -68,10 +68,16 @@ import (
 // forge/docs/design/2026-11-01/plugin-extraction-playbook/ trap 14 for
 // the forge-notifier incident that produced this split.
 //
-// `NewProvisionCollector(req)` seeds the incoming pool from the request;
-// `RunComputeProcess` constructs an empty one (ComputeProcess has no
-// incoming context — the consuming stack's env context arrives through
-// `ProvisionRequest`, not through `ComputeProcessRequest`).
+// `NewProvisionCollector(req)` seeds the incoming pool from the request.
+// `RunComputeProcess` constructs an empty one BY DEFAULT — a plugin that
+// wants a Component-style auto-discover (read env vars emitted by prior
+// sibling compute processors on the same consumer deploy) opts in with
+// `runtime.WithIncomingEnvVars(req)`, which seeds the incoming pool from
+// `ComputeProcessRequest.compute_env_vars` the same way the Provision
+// path seeds from its own compute_env_vars. Plugins that don't pass the
+// option keep today's empty-pool behaviour. See
+// sc-component-backup slice 1d.7 (roadmap:
+// sc-components-backup-auto-discover-databases) for the live caller.
 type Collector struct {
 	mu sync.Mutex
 
@@ -129,7 +135,17 @@ func NewProvisionCollector(req *scpluginv1.ProvisionRequest) *Collector {
 	if req == nil {
 		return c
 	}
-	for _, v := range req.GetComputeEnvVars() {
+	seedIncomingPools(c, req.GetComputeEnvVars())
+	return c
+}
+
+// seedIncomingPools is the shared implementation between
+// NewProvisionCollector and `WithIncomingEnvVars`. `ComputeEnvVariable`
+// is the same wire shape on both the Provision and ComputeProcess side
+// (`scpluginv1.ComputeEnvVariable`); the two call sites are different
+// proto messages, so pass the already-extracted slice.
+func seedIncomingPools(c *Collector, vars []*scpluginv1.ComputeEnvVariable) {
+	for _, v := range vars {
 		// Defensive: a nil entry or one with no name is a wire artefact
 		// (unset proto field, protobuf's nil-safe getters would otherwise
 		// synthesise an empty env var in the pool).
@@ -150,7 +166,6 @@ func NewProvisionCollector(req *scpluginv1.ProvisionRequest) *Collector {
 			c.incomingEnvVars = append(c.incomingEnvVars, entry)
 		}
 	}
-	return c
 }
 
 // --- pApi.ComputeContextCollector surface -----------------------------
@@ -328,6 +343,38 @@ func (c *Collector) toResponse() *scpluginv1.ComputeProcessResponse {
 	return resp
 }
 
+// --- RunComputeProcess options ----------------------------------------
+
+// RunComputeProcessOption configures `RunComputeProcess` at the call
+// site. The option set is small and additive; add a new one when a
+// plugin needs a capability that doesn't fit the handler signature.
+type RunComputeProcessOption func(*runComputeProcessOptions)
+
+type runComputeProcessOptions struct {
+	incomingEnvVars []*scpluginv1.ComputeEnvVariable
+}
+
+// WithIncomingEnvVars seeds the collector's incoming pool from a
+// ComputeProcessRequest. `collector.EnvVariables()` /
+// `SecretEnvVariables()` then return env vars that PRIOR sibling
+// compute processors in the same consumer deploy have emitted — the
+// mirror of `NewProvisionCollector`'s behaviour on the Provision side.
+//
+// Plugins that don't need auto-discover (every current plugin except
+// sc-component-backup slice 1d.7 and its successors) MUST NOT pass
+// this option — their compute processors write to the outgoing pool
+// only and today's empty incoming pool is the right default.
+//
+// Passing a nil req is a no-op (keeps the empty pool).
+func WithIncomingEnvVars(req *scpluginv1.ComputeProcessRequest) RunComputeProcessOption {
+	return func(o *runComputeProcessOptions) {
+		if req == nil {
+			return
+		}
+		o.incomingEnvVars = append(o.incomingEnvVars, req.GetComputeEnvVars()...)
+	}
+}
+
 // --- ComputeProcess wrapper (the only path to a response) -------------
 
 // ComputeProcessHandler is the signature every in-plugin compute
@@ -343,8 +390,9 @@ type ComputeProcessHandler func(
 
 // RunComputeProcess owns the ComputeProcess sequence end-to-end:
 //
-//  1. Build a fresh Collector (empty incoming pool — ComputeProcess
-//     has no `uses:` context on the wire).
+//  1. Build a fresh Collector. Incoming pool is empty by default;
+//     pass `WithIncomingEnvVars(req)` to seed it from the request
+//     (slice 1d.7 auto-discover, mirror of NewProvisionCollector).
 //  2. Call the plugin's handler, which emits via the collector's
 //     exported pApi.ComputeContextCollector methods.
 //  3. Drain the captured sdk.Output chains so every ApplyT-wrapped env
@@ -366,6 +414,7 @@ func RunComputeProcess(
 	input api.ResourceInput,
 	params pApi.ProvisionParams,
 	handler ComputeProcessHandler,
+	opts ...RunComputeProcessOption,
 ) (*scpluginv1.ComputeProcessResponse, *api.ResourceOutput, error) {
 	if rctx == nil || rctx.Pulumi == nil {
 		return nil, nil, errors.New("runtime.RunComputeProcess: nil Context — call runtime.NewContext first")
@@ -374,7 +423,14 @@ func RunComputeProcess(
 		return nil, nil, errors.New("runtime.RunComputeProcess: nil handler")
 	}
 
+	cfg := runComputeProcessOptions{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
 	collector := &Collector{}
+	seedIncomingPools(collector, cfg.incomingEnvVars)
+
 	out, err := handler(rctx.Pulumi, stack, input, collector, params)
 	if err != nil {
 		return nil, nil, err

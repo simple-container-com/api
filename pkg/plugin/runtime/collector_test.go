@@ -53,6 +53,104 @@ func TestNewProvisionCollector_NilRequest(t *testing.T) {
 	}
 }
 
+// TestRunComputeProcess_WithIncomingEnvVars_SeedsIncomingPools covers
+// slice 1d.7 auto-discover: SC core packs the shared collector's env
+// vars into ComputeProcessRequest.compute_env_vars; a plugin that opts
+// into `WithIncomingEnvVars(req)` sees them on `EnvVariables()` /
+// `SecretEnvVariables()` on the collector its handler receives.
+//
+// Mirrors TestNewProvisionCollector_SeedsIncomingPools — same wire
+// shape, same wire-artefact filtering, different proto message.
+func TestRunComputeProcess_WithIncomingEnvVars_SeedsIncomingPools(t *testing.T) {
+	t.Parallel()
+	req := &scpluginv1.ComputeProcessRequest{
+		ComputeEnvVars: []*scpluginv1.ComputeEnvVariable{
+			{Name: "MONGO_URI", Value: "mongodb+srv://u:p@h/", Secret: true, ResourceType: "mongodb", ResourceName: "the-mongo", StackName: "parent"},
+			{Name: "MONGO_DATABASE", Value: "forge_app", Secret: false, ResourceType: "mongodb", ResourceName: "the-mongo", StackName: "parent"},
+			{Name: "", Value: "wire-artefact-drops"},
+			nil,
+		},
+	}
+
+	rctx := &Context{Pulumi: &sdk.Context{}}
+	var got pApi.ComputeContextCollector
+	_, _, err := RunComputeProcess(
+		context.Background(), rctx,
+		api.Stack{Name: "consumer"},
+		api.ResourceInput{Descriptor: &api.ResourceDescriptor{Type: "sc-backup", Name: "my-backup"}},
+		pApi.ProvisionParams{},
+		func(_ *sdk.Context, _ api.Stack, _ api.ResourceInput, collector pApi.ComputeContextCollector, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+			got = collector
+			return &api.ResourceOutput{Ref: "ok"}, nil
+		},
+		WithIncomingEnvVars(req),
+	)
+	if err != nil {
+		t.Fatalf("RunComputeProcess: %v", err)
+	}
+	plain := got.EnvVariables()
+	if len(plain) != 1 || plain[0].Name != "MONGO_DATABASE" {
+		t.Fatalf("EnvVariables = %+v, want [MONGO_DATABASE]", plain)
+	}
+	secrets := got.SecretEnvVariables()
+	if len(secrets) != 1 || secrets[0].Name != "MONGO_URI" || !secrets[0].Secret {
+		t.Fatalf("SecretEnvVariables = %+v, want [MONGO_URI secret=true]", secrets)
+	}
+}
+
+// TestRunComputeProcess_WithIncomingEnvVars_NilRequest — defensive:
+// passing a nil request through the option keeps the empty-pool
+// default rather than panicking.
+func TestRunComputeProcess_WithIncomingEnvVars_NilRequest(t *testing.T) {
+	t.Parallel()
+	rctx := &Context{Pulumi: &sdk.Context{}}
+	var got pApi.ComputeContextCollector
+	_, _, err := RunComputeProcess(
+		context.Background(), rctx,
+		api.Stack{Name: "consumer"},
+		api.ResourceInput{Descriptor: &api.ResourceDescriptor{Type: "sc-backup", Name: "my-backup"}},
+		pApi.ProvisionParams{},
+		func(_ *sdk.Context, _ api.Stack, _ api.ResourceInput, collector pApi.ComputeContextCollector, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+			got = collector
+			return &api.ResourceOutput{Ref: "ok"}, nil
+		},
+		WithIncomingEnvVars(nil),
+	)
+	if err != nil {
+		t.Fatalf("RunComputeProcess with nil req: %v", err)
+	}
+	if n := len(got.EnvVariables()) + len(got.SecretEnvVariables()); n != 0 {
+		t.Fatalf("nil-req option should leave pools empty, got %d entries", n)
+	}
+}
+
+// TestRunComputeProcess_DefaultEmptyIncomingPool pins the pre-1d.7
+// default: a plugin that does NOT pass WithIncomingEnvVars gets the
+// empty incoming pool. Keeps today's plugins (aws, mongodb, yandex,
+// gcp, cloudru) on their verified behaviour.
+func TestRunComputeProcess_DefaultEmptyIncomingPool(t *testing.T) {
+	t.Parallel()
+	rctx := &Context{Pulumi: &sdk.Context{}}
+	var got pApi.ComputeContextCollector
+	_, _, err := RunComputeProcess(
+		context.Background(), rctx,
+		api.Stack{Name: "consumer"},
+		api.ResourceInput{Descriptor: &api.ResourceDescriptor{Type: "aws-s3", Name: "forge-storage"}},
+		pApi.ProvisionParams{},
+		func(_ *sdk.Context, _ api.Stack, _ api.ResourceInput, collector pApi.ComputeContextCollector, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+			got = collector
+			return &api.ResourceOutput{Ref: "ok"}, nil
+		},
+		// No WithIncomingEnvVars — the common case.
+	)
+	if err != nil {
+		t.Fatalf("RunComputeProcess: %v", err)
+	}
+	if n := len(got.EnvVariables()) + len(got.SecretEnvVariables()); n != 0 {
+		t.Fatalf("default should leave incoming pools empty, got %d entries", n)
+	}
+}
+
 // TestRunComputeProcess_SyncMutations covers the happy path: the handler
 // adds env/tpl mutations synchronously (no ApplyT) and they flow through
 // to the response unchanged. Also asserts the response has NO incoming

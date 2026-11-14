@@ -518,6 +518,46 @@ message ComputeProcessRequest {
   // side. Decoded plugin-side with
   // `runtime.ComponentRawFromComputeProcessRequest`.
   bytes component_raw = 9;
+
+  // Accumulated env vars from PRIOR sibling compute processors in the
+  // same consumer deploy's `uses:` iteration. Same shape and semantics
+  // as `ProvisionRequest.compute_env_vars = 7`, but populated on the
+  // ComputeProcess side so a Component plugin can auto-discover what
+  // sibling databases / buckets / brokers the consumer is wiring up
+  // without the operator duplicating that list in config.
+  //
+  // Populated by SC core's `makeComputeProcessorSidecar` from the
+  // shared `pApi.ComputeContextCollector` built in `deploy.go:218`
+  // before the plugin's ComputeProcess RPC fires. Empty on the first
+  // sibling's compute (nothing emitted yet); accumulates as subsequent
+  // sibling processors add entries via `AddEnvVariableIfNotExist` /
+  // `AddSecretEnvVariableIfNotExist`. Declaration order in the
+  // consumer's `uses:` list determines what a given ComputeProcess
+  // sees — a plugin that reads this field must be listed AFTER the
+  // siblings it depends on.
+  //
+  // Lights up sc-component-backup's slice 1d.7 auto-discover path
+  // (roadmap items/sc-components-backup-auto-discover-databases.md):
+  // the mongodb plugin emits `MONGO_URI`/`MONGO_DATABASE` into the
+  // shared collector; the backup plugin's ComputeProcess reads them
+  // from this field to mint a scoped Atlas user — no `databases:`
+  // config on the backup component.
+  //
+  // Live-caught 2026-11-14 on backup-smoke-1d: the design shipped
+  // without this field assumed the shared collector crossed the
+  // plugin bus (it doesn't — each plugin's ComputeProcess RPC gets
+  // a FRESH, empty `runtime.Collector` per
+  // api/pkg/plugin/runtime/collector.go:72-74). Deploy went green,
+  // tenant push-registered, but the Atlas scoped user was never
+  // minted because `collector.EnvVariables()` returned empty. See
+  // `plugin_bus_compute_process_collector_is_per_rpc_not_shared`
+  // in agent memory.
+  //
+  // Older plugin binaries that pre-date this field see no change:
+  // the field is unset; `runtime.RunComputeProcess` seeds an empty
+  // incoming pool as it always has. Opt-in plugin-side by passing
+  // `runtime.WithIncomingEnvVars(req)` to `RunComputeProcess`.
+  repeated ComputeEnvVariable compute_env_vars = 10;
 }
 
 message ComputeProcessResponse {
