@@ -14,6 +14,9 @@ func NewRevealCmd(sCmd *secretsCmd) *cobra.Command {
 		Use:   "reveal",
 		Short: "Reveal repository secrets",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := refuseInteractiveUnderAgent(cmd, "--force", forceReveal); err != nil {
+				return err
+			}
 			return sCmd.Root.Provisioner.Cryptor().DecryptAll(forceReveal)
 		},
 	}

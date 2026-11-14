@@ -239,6 +239,9 @@ sc secrets add --verbose database-password.txt
 
 # Add using specific profile
 sc secrets add --profile github database-password.txt
+
+# Skip the plaintext diff + confirmation (required under a coding agent)
+sc secrets add --force database-password.txt
 ```
 
 **What it does:**
@@ -320,6 +323,35 @@ sc secrets reveal --verbose
 - Decrypts encrypted secret files using your private key
 - Creates plaintext versions for local development
 - Updates .gitignore to prevent accidental commits
+
+### Running `add`/`reveal` from a coding agent
+
+Without `--force`, both `sc secrets add` and `sc secrets reveal` print a
+line-by-line diff of the **decrypted** file to the console and then wait for
+`do you accept changes [Y/N]?`. That is fine at a human terminal and wrong
+inside an AI coding agent: the diff puts the secret values into the agent's
+transcript, and no one is there to answer the prompt.
+
+So when `sc` detects a Claude Code session (`CLAUDECODE`,
+`CLAUDE_CODE_ENTRYPOINT` or `CLAUDE_CODE_SESSION_ID` in the environment) and
+`--force` was not passed, both commands refuse **before** decrypting anything:
+
+```
+$ sc secrets reveal
+Error: refusing to run "sc secrets reveal" in interactive mode: Claude Code
+session detected (CLAUDECODE is set). ... Re-run non-interactively:
+sc secrets reveal --force
+```
+
+Pass `-F`/`--force` to run non-interactively — the diff is never produced and
+the change is accepted as-is:
+
+```shell
+sc secrets reveal --force
+sc secrets add --force .sc/stacks/<stack>/secrets.yaml
+```
+
+Set `CLAUDECODE=0` to opt a wrapper out of the detection.
 
 ### `sc secrets allow`
 
