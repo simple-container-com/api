@@ -233,6 +233,17 @@ func (p *pulumi) DestroyParentStack(ctx context.Context, cfg *api.ConfigFile, pa
 	if err != nil {
 		return errors.Wrapf(err, "failed to get parent stack %q", parentStack.Name)
 	}
+	// Pulumi's diy backend returns (nil, nil) from GetStack when the
+	// checkpoint blob is gone — the "missing stack" contract preserved at
+	// create_stack.go:76-78. For destroy, that matches the user's
+	// "idempotent teardown" model: there is nothing to destroy, so log +
+	// return nil. Before this guard the caller's `destroyStack` nil-
+	// dereferenced `s.Ref()` at destroy.go:26 and panicked — live-caught
+	// by sc-components on v2026.11.59 (slice 1d.7 smoke on backup-smoke-1d).
+	if s == nil {
+		p.logger.Info(ctx, "parent stack %q has no state — nothing to destroy", parentStack.Name)
+		return nil
+	}
 	return p.destroyStack(ctx, cfg, s, params, p.provisionProgram(parentStack, cfg), preview, func(stackSource auto.Stack) {
 		// Phase 1 — pre-destroy hooks also fire on parent-stack destroy so
 		// plugin-side cleanup runs symmetrically for infrastructure teardown,
@@ -257,6 +268,14 @@ func (p *pulumi) DestroyChildStack(ctx context.Context, cfg *api.ConfigFile, par
 	s, err := p.selectStack(ctx, cfg, childStack)
 	if err != nil {
 		return errors.Wrapf(err, "failed to get child stack %q", childStack.Name)
+	}
+	// Mirror of the DestroyParentStack guard — if the child's checkpoint
+	// blob is gone, selectStack returns (nil, nil) by design and the
+	// destroy is a no-op from the user's perspective. Without this guard
+	// the `s.Ref().FullyQualifiedName()` call below nil-derefs.
+	if s == nil {
+		p.logger.Info(ctx, "child stack %q has no state — nothing to destroy", childStack.Name)
+		return nil
 	}
 	program := p.deployStackProgram(childStack, params.StackParams, parentStack.Name, s.Ref().FullyQualifiedName().String())
 	return p.destroyStack(ctx, cfg, s, params, program, preview, func(stackSource auto.Stack) {
