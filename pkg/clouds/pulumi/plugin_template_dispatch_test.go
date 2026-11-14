@@ -470,3 +470,133 @@ func TestComponentTemplateDispatch_ComponentDefaults_NoneRegistered(t *testing.T
 	// No default-only keys appeared.
 	Expect(capturedInput.ComponentRaw).ToNot(HaveKey("cloudExtras"))
 }
+
+// TestComponentTemplateDispatch_DefaultsInterpolated — slice
+// sc-components-defaults-template-interpolation: plugin-declared
+// $$sc:-prefixed defaults get ${name}/${env}/${stack}/${template.*}
+// substituted at dispatch time. End-to-end: register a component with
+// a default carrying `$$sc:sc-backup-${name}-archives--${env}`, dispatch
+// it, assert the dispatched input's ComponentRaw carries the resolved
+// literal.
+func TestComponentTemplateDispatch_DefaultsInterpolated(t *testing.T) {
+	RegisterTestingT(t)
+
+	const (
+		componentType = "test-sc-defaults-interp"
+		templateType  = "test-fake-template-interp"
+		templateName  = "fake-lambda-interp"
+	)
+	var capturedInput api.ResourceInput
+	pApi.ProvisionFuncByType[templateType] = func(_ *sdk.Context, _ api.Stack, input api.ResourceInput, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+		capturedInput = input
+		return &api.ResourceOutput{}, nil
+	}
+	t.Cleanup(func() { delete(pApi.ProvisionFuncByType, templateType) })
+
+	pApi.RegisterComponentResourceType(componentType, nil)
+	t.Cleanup(func() { delete(pApi.ComponentResourceTypes, componentType) })
+
+	// Plugin's defaults use the sentinel + tokens. Mix a self-derived
+	// one (${name}, ${env}) with a template-config one
+	// (${template.region}) with a parent-token one (${parent:…}) to
+	// pin all three paths at once.
+	pApi.RegisterComponentDefaults(componentType, []byte(`{
+		"storage": {
+			"type":   "s3",
+			"bucket": "$$sc:sc-backup-${name}-archives--${env}",
+			"region": "$$sc:${template.region}"
+		},
+		"worker": {
+			"cluster":   "$$sc:sc-backup-${name}-cluster",
+			"subnetIds": "$$sc:${parent:default-vpc.subnets}"
+		}
+	}`))
+	t.Cleanup(func() { delete(pApi.ComponentDefaults, componentType) })
+
+	// Template carries a region in its config — the interpolation
+	// reads it for ${template.region}.
+	stack := api.Stack{
+		Name: "smoke--prod",
+		Server: api.ServerDescriptor{
+			Templates: map[string]api.StackDescriptor{
+				templateName: {
+					Type:   templateType,
+					Config: api.Config{Config: map[string]any{"region": "eu-central-1"}},
+				},
+			},
+		},
+	}
+	input := api.ResourceInput{
+		Descriptor: &api.ResourceDescriptor{
+			Type: componentType,
+			Name: "my-backup",
+			Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+				"deployTo": templateName,
+			}}},
+		},
+		StackParams: &api.StackParams{StackName: "smoke", Environment: "prod"},
+	}
+	bundle := &preEnginePluginBundle{log: logger.New()}
+	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	Expect(err).ToNot(HaveOccurred())
+
+	s := capturedInput.ComponentRaw["storage"].(map[string]any)
+	Expect(s["bucket"]).To(Equal("sc-backup-my-backup-archives--prod"), "${name} + ${env} resolved")
+	Expect(s["region"]).To(Equal("eu-central-1"), "${template.region} resolved")
+
+	w := capturedInput.ComponentRaw["worker"].(map[string]any)
+	Expect(w["cluster"]).To(Equal("sc-backup-my-backup-cluster"), "${name}-only resolved")
+	// ${parent:…} is NOT resolved in this pass — sentinel + token kept
+	// so a future parent-resolver slice picks it up.
+	Expect(w["subnetIds"]).To(Equal("$$sc:${parent:default-vpc.subnets}"), "parent token retains sentinel for a later pass")
+}
+
+// TestComponentTemplateDispatch_OperatorSentinelRefused — a hostile or
+// confused operator writing a $$sc:-prefixed string is refused at
+// dispatch time. Parse-time validation is the first guard; this is
+// defense-in-depth for test fixtures + future direct callers.
+func TestComponentTemplateDispatch_OperatorSentinelRefused(t *testing.T) {
+	RegisterTestingT(t)
+
+	const (
+		componentType = "test-sc-op-sentinel"
+		templateType  = "test-fake-template-op-sentinel"
+		templateName  = "fake-lambda-op-sentinel"
+	)
+	pApi.ProvisionFuncByType[templateType] = func(_ *sdk.Context, _ api.Stack, _ api.ResourceInput, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+		return &api.ResourceOutput{}, nil
+	}
+	t.Cleanup(func() { delete(pApi.ProvisionFuncByType, templateType) })
+	pApi.RegisterComponentResourceType(componentType, []string{"cloudExtras"})
+	t.Cleanup(func() {
+		delete(pApi.ComponentResourceTypes, componentType)
+		delete(pApi.ComponentAllowedOverrides, componentType)
+	})
+
+	stack := api.Stack{
+		Server: api.ServerDescriptor{
+			Templates: map[string]api.StackDescriptor{templateName: {Type: templateType}},
+		},
+	}
+	// Operator writes a $$sc: string — must be refused.
+	input := api.ResourceInput{
+		Descriptor: &api.ResourceDescriptor{
+			Type: componentType,
+			Name: "my-dummy",
+			Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+				"deployTo": templateName,
+				"cloudExtras": map[string]any{
+					"lambdaRoutingType": "$$sc:${name}-smuggled",
+				},
+			}}},
+		},
+		StackParams: &api.StackParams{},
+	}
+	bundle := &preEnginePluginBundle{log: logger.New()}
+	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	if err == nil {
+		t.Fatal("expected refusal, got nil")
+	}
+	Expect(err.Error()).To(ContainSubstring("$$sc:"))
+	Expect(err.Error()).To(ContainSubstring("reserved prefix"))
+}
