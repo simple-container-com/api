@@ -1434,6 +1434,29 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 		ParentListResolver: parentListResolver,
 	})
 
+	// Resolve `${resource:<name>.<key>}` / `${dependency:…}` placeholders
+	// that SURVIVED the self/parent-token pass (ComponentDefaults strips
+	// the `$$sc:` sentinel on non-parent tokens, so a plugin-default
+	// `$$sc:${resource:${name}.subnets-csv}` lands here as a literal
+	// `${resource:my-backup.subnets-csv}`).
+	//
+	// `deploy.go:202` already ran one `ResolvePlaceholders` pass BEFORE
+	// this `fnc` dispatch — but at that moment the shared collector held
+	// only dependency-processing values. PreProvision (:105 call above)
+	// may have since landed per-component template extensions
+	// (`AddResourceTplExtension`) that resolve against the component's
+	// own name. Re-running the pass here against the merged map picks
+	// them up idempotently — values already resolved at :202 remain
+	// unchanged. Guarded by `params.ComputeContext != nil` so in-tree
+	// template dispatch without a collector keeps working.
+	//
+	// Fix 2 from forge/docs/design/2026-11-15/plugin-preprovision-rpc/.
+	if params.ComputeContext != nil {
+		if err := params.ComputeContext.ResolvePlaceholders(&merged); err != nil {
+			return nil, errors.Wrap(err, "resolving ${resource:…}/${dependency:…} placeholders on merged ComponentRaw post-PreProvision")
+		}
+	}
+
 	// Rebuild cfg from the merged Raw so mergeComponentIntoTemplate
 	// (and any downstream read via cfg) sees defaulted values.
 	mergedCfg, err := api.NewComponentConfig(merged)
