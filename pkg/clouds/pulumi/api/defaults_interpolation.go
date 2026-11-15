@@ -69,6 +69,24 @@ type DefaultsContext struct {
 	// interpolation keeps the token in place (fail-open) and logs via
 	// the plugin's regular stream.
 	ParentResolver func(resource, field string) (string, bool)
+
+	// ParentListResolver is the list-shaped sibling of ParentResolver.
+	// Resolves `${parent-list:<resource>.<field>}` tokens against
+	// parent-stack exports that return a `[]string` (typically VPC
+	// subnet lists, security-group lists, zone lists).
+	//
+	// A sentinel string containing EXACTLY `${parent-list:<res>.<field>}`
+	// (nothing else after the sentinel prefix besides optional
+	// whitespace) is REPLACED with the resolved `[]string` value at
+	// its map-leaf — the walker swaps the string node for a `[]any`
+	// list of strings. Any OTHER content around the token (a prefix,
+	// a suffix, a second token) leaves the sentinel scalar unchanged
+	// and keeps the token in place: there is no string-concat
+	// semantics for a list.
+	//
+	// Nil-safe: a nil resolver leaves `${parent-list:…}` unresolved,
+	// same as ParentResolver.
+	ParentListResolver func(resource, field string) ([]string, bool)
 }
 
 // InterpolateDefaults walks the merged ComponentRaw map produced by
@@ -94,6 +112,12 @@ func InterpolateDefaults(merged map[string]any, ctx DefaultsContext) map[string]
 // maps recurse, slices recurse element-wise, strings run through
 // substituteString (which checks the sentinel), everything else
 // passes through as-is.
+//
+// substituteString may return a non-string value (a `[]any` list,
+// when a sole-content `${parent-list:…}` token substitutes a list
+// into a map leaf). The walker stores whatever substituteString
+// returns into its parent slot — a map leaf or a list element can
+// hold any shape.
 func interpolateNode(node any, ctx DefaultsContext) any {
 	switch v := node.(type) {
 	case map[string]any:
@@ -119,7 +143,8 @@ func interpolateNode(node any, ctx DefaultsContext) any {
 // the DefaultsSentinel. For a sentinel string, substitutes known
 // `${…}` tokens from the context and returns the resolved value;
 // strips the sentinel on the way out so downstream readers see a
-// plain string.
+// plain string (or a `[]any` list, when a sole-content list token
+// substitutes).
 //
 // Resolution order:
 //  1. Self-derived tokens (`${name}` / `${env}` / `${stack}` /
@@ -127,15 +152,25 @@ func interpolateNode(node any, ctx DefaultsContext) any {
 //  2. `${parent:<resource>.<field>}` via ctx.ParentResolver, when
 //     supplied. Each token resolves to the resolver's returned
 //     string; a false ok leaves the token in place.
+//  3. `${parent-list:<resource>.<field>}` via ctx.ParentListResolver,
+//     when supplied AND the expression's remaining content is EXACTLY
+//     one list token with optional whitespace. The return TYPE
+//     widens from string to `[]any` for this case — the walker
+//     stores the list at the map leaf. Any other content around the
+//     token keeps the string unchanged (there is no concat
+//     semantics for a list).
 //
-// Sentinel retention: only when `${parent:…}` remains after both
-// passes — a signal that a LATER resolver pass could still substitute
-// (older plugins without ParentResolver wired, or a resolver that
-// returned ok=false for a known-missing output). Unknown non-parent
-// tokens (plugin typos like `${nam}`) drop the sentinel so the
-// dispatched template sees the raw literal without SC-core-assist
-// confusion.
-func substituteString(s string, ctx DefaultsContext) string {
+// Return type is `any` to cover the list case; callers (interpolateNode)
+// pass the value through to the parent slot untyped.
+//
+// Sentinel retention: only when a `${parent:…}` or `${parent-list:…}`
+// token remains after all passes — a signal that a LATER resolver
+// pass could still substitute (older plugins without ParentResolver
+// wired, or a resolver that returned ok=false for a known-missing
+// output). Unknown non-parent tokens (plugin typos like `${nam}`)
+// drop the sentinel so the dispatched template sees the raw literal
+// without SC-core-assist confusion.
+func substituteString(s string, ctx DefaultsContext) any {
 	if !strings.HasPrefix(s, DefaultsSentinel) {
 		return s
 	}
@@ -144,12 +179,68 @@ func substituteString(s string, ctx DefaultsContext) string {
 	if ctx.ParentResolver != nil {
 		resolved = substituteParentTokens(resolved, ctx.ParentResolver)
 	}
-	// Retain the sentinel only when a `${parent:…}` token survived
-	// resolution — a later resolver pass may complete it.
-	if strings.Contains(resolved, "${parent:") {
+	// Sole-content list-token path: the entire remaining expression
+	// is one `${parent-list:<res>.<field>}` token. Replaces the
+	// string leaf with a `[]any` list of strings.
+	if ctx.ParentListResolver != nil {
+		if list, ok := substituteSoleParentListToken(resolved, ctx.ParentListResolver); ok {
+			return list
+		}
+	}
+	// Retain the sentinel only when a `${parent:…}` or unresolved
+	// `${parent-list:…}` token survived resolution — a later pass
+	// may complete it.
+	if strings.Contains(resolved, "${parent:") || strings.Contains(resolved, "${parent-list:") {
 		return DefaultsSentinel + resolved
 	}
 	return resolved
+}
+
+// substituteSoleParentListToken recognizes the single-token-only
+// list form and returns the resolved `[]any` list.
+//
+// The input expression is the post-self-token, post-scalar-parent
+// value WITH the sentinel already stripped. Matches when, after
+// trimming surrounding whitespace, the expression is exactly
+// `${parent-list:<resource>.<field>}` — a single dot-separated pair
+// inside the braces. Any extra content around the token (a prefix,
+// a suffix, or a second token) returns (nil, false): list tokens
+// have no concat semantics with surrounding text.
+//
+// Returns ok=false when the resolver cannot satisfy the lookup
+// (unknown resource/field) — the caller retains the sentinel so a
+// later pass may complete it. Also ok=false when the expression
+// doesn't match the sole-token shape, which is the common case for
+// scalar-only defaults.
+//
+// The returned `[]any` is a fresh slice; the resolver's `[]string`
+// is copied element-by-element to widen the element type.
+func substituteSoleParentListToken(expr string, resolver func(resource, field string) ([]string, bool)) ([]any, bool) {
+	const prefix = "${parent-list:"
+	const suffix = "}"
+	trimmed := strings.TrimSpace(expr)
+	if !strings.HasPrefix(trimmed, prefix) || !strings.HasSuffix(trimmed, suffix) {
+		return nil, false
+	}
+	body := trimmed[len(prefix) : len(trimmed)-len(suffix)]
+	// Guard against nested `${...}` by rejecting any `${` in the body.
+	if strings.Contains(body, "${") {
+		return nil, false
+	}
+	dot := strings.Index(body, ".")
+	if dot <= 0 || dot == len(body)-1 {
+		return nil, false
+	}
+	resource, field := body[:dot], body[dot+1:]
+	list, ok := resolver(resource, field)
+	if !ok {
+		return nil, false
+	}
+	out := make([]any, len(list))
+	for i, v := range list {
+		out[i] = v
+	}
+	return out, true
 }
 
 // substituteParentTokens replaces every `${parent:<resource>.<field>}`
