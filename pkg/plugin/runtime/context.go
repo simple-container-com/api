@@ -5,6 +5,7 @@ package runtime
 
 import (
 	"context"
+	"sync"
 
 	"github.com/pkg/errors"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -20,6 +21,11 @@ type Context struct {
 	Pulumi *sdk.Context
 	done   func() error
 
+	// finishOnce makes the teardown run once however many times a parked
+	// context is drained.
+	finishOnce sync.Once
+	finishErr  error
+
 	// key is the stack name the request header carried: the rendezvous between
 	// a ComputeProcess and the Provision that consumes what it parked. retained
 	// is set, under the bridge lock, when this context's owner parked a
@@ -27,6 +33,12 @@ type Context struct {
 	// for draining it. See processors.go.
 	key      string
 	retained bool
+}
+
+// finish runs the teardown once.
+func (c *Context) finish() error {
+	c.finishOnce.Do(func() { c.finishErr = c.done() })
+	return c.finishErr
 }
 
 // Done returns the deferred teardown Settle expects. Also exposed for the
@@ -189,7 +201,7 @@ func Settle[T any](rctx *Context, resp **T, err *error) {
 		}
 		bridgeDiscard(rctx)
 	}
-	doneErr := rctx.done()
+	doneErr := rctx.finish()
 	if finishErr := bridgeFinish(rctx.key); finishErr != nil && doneErr == nil {
 		doneErr = finishErr
 	}

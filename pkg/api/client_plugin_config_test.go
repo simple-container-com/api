@@ -54,3 +54,21 @@ func TestPluginClientConfig_AbsentIsTheZeroDescriptor(t *testing.T) {
 	_, err = ClientDescriptorFromPluginConfig([]byte("{not json"))
 	Expect(err).To(HaveOccurred())
 }
+
+// The passphrase is json:"-" on the descriptor, so a plain marshal would hand a
+// plugin key-based signing with an empty password.
+func TestPluginClientConfig_CarriesTheSigningPassphrase(t *testing.T) {
+	RegisterTestingT(t)
+
+	in := ClientDescriptor{Security: &SecurityDescriptor{
+		Enabled: true,
+		Signing: &SigningDescriptor{Enabled: true, PrivateKey: "key", Password: "s3cret"},
+	}}
+	raw, err := in.PluginClientConfigJSON()
+	Expect(err).ToNot(HaveOccurred())
+
+	out, err := ClientDescriptorFromPluginConfig(raw)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(out.Security.Signing.PrivateKey).To(Equal("key"))
+	Expect(out.Security.Signing.Password).To(Equal("s3cret"))
+}
