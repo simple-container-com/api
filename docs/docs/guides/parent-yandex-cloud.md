@@ -151,7 +151,7 @@ plugins:
     source:
       type: github-release
       repository: simple-container-com/sc-plugin-yandex
-      version: v2026.11.09-54be858
+      version: v2026.11.15-568ea73
 
 # Provisioning state management
 provisioner:
@@ -220,6 +220,37 @@ resources:
             # teardown; without it a bucket with objects blocks the
             # destroy.
             forceDestroy: false
+        database:
+          # A YC serverless Yandex Database (YDB) shared by all services
+          # deploying into this env. No service account or key material is
+          # minted — client containers authenticate against YDB via the YC
+          # metadata service as their own auto-created SA. On every client
+          # stack that lists this resource under `uses:`, the plugin's
+          # compute-processor injects `YDB_ENDPOINT` + `YDB_DATABASE` as
+          # Lockbox-backed secret env (the client doesn't need to copy
+          # them into its own secrets.yaml) and creates a
+          # database-scoped `ydb.editor` grant on this DB for the
+          # client container's SA.
+          #
+          # Caveat: pulumi-yandex only exposes an *authoritative* YDB IAM
+          # binding (not an additive member). SC therefore owns
+          # `ydb.editor` on this database — grants added by hand in the
+          # console/CLI are wiped on the next deploy. Added by a
+          # follow-up when pulumi-yandex ships an additive binding.
+          type: yc-ydb-serverless
+          config:
+            credentials: "${auth:yc}"
+            # The YC database name must be folder-unique. If the folder
+            # already carries a hand-created database of this name, SC
+            # will fail on create — delete the old one first or pick a
+            # distinct name (e.g. `myproject-sc`).
+            name: myproject
+            # Optional. Only `ru-central1` is serverless-capable today.
+            locationId: ru-central1
+            # Optional. Defaults to `true` so `sc destroy` can't nuke a
+            # prod DB silently; opt out explicitly when the database is
+            # genuinely disposable.
+            deletionProtection: true
 ```
 
 ### **What This Does**
@@ -298,7 +329,11 @@ stacks:
       # Per YC quotas: 30 s free tier / up to 3600 s paid.
       timeout: 30
       uses:
-        - blobs   # picks up ${resource:blobs.*} from the parent
+        - blobs      # picks up ${resource:blobs.*} from the parent
+        - database   # YDB: compute-processor injects YDB_ENDPOINT,
+                     # YDB_DATABASE, YDB_METADATA_CREDENTIALS=1 and creates
+                     # a DB-scoped `ydb.editor` grant on the container SA
+                     # at deploy time — no client-side plumbing needed.
       env:
         LOG_LEVEL: info
       # Values here are placed in a per-container Lockbox secret, and the
