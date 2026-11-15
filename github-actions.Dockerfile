@@ -125,6 +125,27 @@ RUN for attempt in 1 2 3 4; do \
     done \
     && rm -rf /var/cache/apk/* /tmp/* /var/tmp/*
 
+# Russian Trusted Root CA (+ sub) — Alpine's ca-certificates ships the Mozilla
+# trust store, which does NOT include the Russian national CA. YC API
+# endpoints (api-adapter.private-api.cloud.yandex.net, cdn.api, cm.api, ...)
+# serve TLS certs signed by it, so the yandex Pulumi provider in this image
+# failed every call with "x509: certificate signed by unknown authority"
+# until operators hand-rolled a CA bundle in each workflow. Baking the CA
+# here fixes it fleet-wide — no customer workflow needs to install it
+# anymore. Live-caught 2026-11-15 on boris290796-tech/astrofit (six
+# consecutive runs on deploy-astrofit + deploy-landing + provision-devops).
+# Source: gu-st.ru, the Russian state portal that publishes the Minsvyaz-
+# issued root/sub bundle. If gu-st.ru is unreachable in a build, the
+# apk retry loop above already runs ahead of this RUN, and this one
+# fails fast (no retry — the image build is cheap to re-run).
+RUN set -euo pipefail \
+    && mkdir -p /usr/local/share/ca-certificates \
+    && curl -fsSL -o /usr/local/share/ca-certificates/russian-trusted-root.crt \
+        https://gu-st.ru/content/lending/russian_trusted_root_ca_pem.crt \
+    && curl -fsSL -o /usr/local/share/ca-certificates/russian-trusted-sub.crt \
+        https://gu-st.ru/content/lending/russian_trusted_sub_ca_pem.crt \
+    && update-ca-certificates
+
 COPY --from=builder /opt/pulumi /opt/pulumi
 COPY --from=builder /opt/google-cloud-sdk /opt/google-cloud-sdk
 
