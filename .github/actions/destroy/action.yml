@@ -74,6 +74,10 @@ runs:
   using: 'docker'
   image: 'docker://simplecontainer/github-actions:latest'
   env:
+    # Forward the Russian Trusted Root CA bundle path from the workflow
+    # env so the yc provider inside the container can verify YC API TLS.
+    # GitHub Actions docker containers only inherit vars listed here.
+    SSL_CERT_FILE: ${{ env.SSL_CERT_FILE }}
     GITHUB_ACTION_TYPE: 'destroy'
     STACK_NAME: ${{ inputs.stack-name }}
     ENVIRONMENT: ${{ inputs.environment }}
