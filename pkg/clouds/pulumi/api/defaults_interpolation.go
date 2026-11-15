@@ -51,31 +51,38 @@ type DefaultsContext struct {
 	// unresolved (with a warning — see InterpolateDefaults' fail-open
 	// contract).
 	TemplateConfig map[string]any
+
+	// ParentResolver resolves `${parent:<resource>.<field>}` tokens
+	// against the consuming stack's parent-stack exports. Invoked at
+	// interpolation time; callers (SC core's dispatcher) supply a
+	// closure that opens `sdk.NewStackReference` to the parent stack
+	// and reads exports via `GetOutputDetails`, synchronously awaited
+	// via `internals.UnsafeAwaitOutput`.
+	//
+	// Nil-safe: a nil resolver leaves `${parent:…}` tokens UNRESOLVED
+	// — the sentinel is retained so (a) the dispatched template reads
+	// the literal string + can log the gap + (b) a later resolver
+	// pass (if we ever add one) can pick up where this run stopped.
+	// Older plugin binaries continue to work.
+	//
+	// Returns ok=false when the resource or field is missing. The
+	// interpolation keeps the token in place (fail-open) and logs via
+	// the plugin's regular stream.
+	ParentResolver func(resource, field string) (string, bool)
 }
 
 // InterpolateDefaults walks the merged ComponentRaw map produced by
 // DeepMergeComponentRaw and substitutes `${…}` tokens inside
 // $$sc:-prefixed strings. Other values pass through unchanged.
 //
-// The substitution is intentionally SHALLOW on the token set — only
-// the tokens listed in DefaultsContext. An unrecognised token
-// (e.g. `${foo}`) is left as-is with no error; the caller gets back
-// a value that still contains the sentinel, which downstream
-// consumers can log or surface as a plugin-author bug. Fail-open
-// matches how `mergeComponentDefaults` handles bad defaults JSON
-// (see plugin_sidecars.go) — a plugin mistake must not break every
-// dispatch for that component type.
+// Resolves: `${name}` / `${env}` / `${stack}` / `${template.name}` /
+// `${template.<key>}` from the DefaultsContext fields; and
+// `${parent:<resource>.<field>}` from `ctx.ParentResolver` when
+// supplied. Unknown tokens are left in place (fail-open — matches
+// `mergeComponentDefaults` on bad defaults JSON).
 //
 // Mutates nothing — returns a fresh copy. Safe to call with a nil or
 // empty map; returns the input shape unchanged.
-//
-// The `${parent:res.field}` token is NOT resolved here — it needs
-// StackReference resolution with async Pulumi outputs. That's a
-// follow-up slice of the same roadmap item
-// (sc-components-defaults-template-interpolation, parent-output
-// tokens section). Strings that still contain `${parent:…}` after
-// this pass flow through to the dispatched template verbatim; a
-// future slice adds the parent-resolver on top.
 func InterpolateDefaults(merged map[string]any, ctx DefaultsContext) map[string]any {
 	if len(merged) == 0 {
 		return merged
@@ -114,23 +121,87 @@ func interpolateNode(node any, ctx DefaultsContext) any {
 // strips the sentinel on the way out so downstream readers see a
 // plain string.
 //
-// `${parent:…}` tokens are deliberately left in place (sentinel
-// retained) — they're resolved in a later pass with access to
-// StackReference outputs. This lets us compose: the self-derived
-// tokens resolve here; the parent tokens resolve in the parent pass.
+// Resolution order:
+//  1. Self-derived tokens (`${name}` / `${env}` / `${stack}` /
+//     `${template.*}`) via substituteSelfTokens.
+//  2. `${parent:<resource>.<field>}` via ctx.ParentResolver, when
+//     supplied. Each token resolves to the resolver's returned
+//     string; a false ok leaves the token in place.
+//
+// Sentinel retention: only when `${parent:…}` remains after both
+// passes — a signal that a LATER resolver pass could still substitute
+// (older plugins without ParentResolver wired, or a resolver that
+// returned ok=false for a known-missing output). Unknown non-parent
+// tokens (plugin typos like `${nam}`) drop the sentinel so the
+// dispatched template sees the raw literal without SC-core-assist
+// confusion.
 func substituteString(s string, ctx DefaultsContext) string {
 	if !strings.HasPrefix(s, DefaultsSentinel) {
 		return s
 	}
 	expr := strings.TrimPrefix(s, DefaultsSentinel)
-	resolvedSelf := substituteSelfTokens(expr, ctx)
-	// If the result still has unresolved `${parent:…}` tokens, keep
-	// the sentinel so the parent-resolution pass picks it up. If
-	// nothing is left unresolved, drop the sentinel.
-	if strings.Contains(resolvedSelf, "${parent:") {
-		return DefaultsSentinel + resolvedSelf
+	resolved := substituteSelfTokens(expr, ctx)
+	if ctx.ParentResolver != nil {
+		resolved = substituteParentTokens(resolved, ctx.ParentResolver)
 	}
-	return resolvedSelf
+	// Retain the sentinel only when a `${parent:…}` token survived
+	// resolution — a later resolver pass may complete it.
+	if strings.Contains(resolved, "${parent:") {
+		return DefaultsSentinel + resolved
+	}
+	return resolved
+}
+
+// substituteParentTokens replaces every `${parent:<resource>.<field>}`
+// token in the expression with the resolver's string value for that
+// pair. Unresolved tokens (resolver returns ok=false) stay in place.
+//
+// Parser is deliberately small — the token shape is fixed. We scan
+// for `${parent:`, find the matching `}`, split on the first `.`, and
+// call the resolver. Nested `${...}` inside a parent spec is not
+// supported (the grammar doesn't define it); nested braces end the
+// scan at the first `}` we see, which keeps the parser one-pass.
+func substituteParentTokens(expr string, resolver func(resource, field string) (string, bool)) string {
+	const prefix = "${parent:"
+	var out strings.Builder
+	out.Grow(len(expr))
+	i := 0
+	for i < len(expr) {
+		j := strings.Index(expr[i:], prefix)
+		if j < 0 {
+			out.WriteString(expr[i:])
+			break
+		}
+		// Copy the segment before the token.
+		out.WriteString(expr[i : i+j])
+		start := i + j + len(prefix)
+		end := strings.Index(expr[start:], "}")
+		if end < 0 {
+			// No closing brace — the token is malformed. Leave it
+			// in place (fail-open) and stop scanning.
+			out.WriteString(expr[i+j:])
+			break
+		}
+		body := expr[start : start+end]
+		dot := strings.Index(body, ".")
+		if dot < 0 {
+			// No field — keep the token as-is.
+			out.WriteString(expr[i+j : start+end+1])
+			i = start + end + 1
+			continue
+		}
+		resource, field := body[:dot], body[dot+1:]
+		value, ok := resolver(resource, field)
+		if !ok {
+			// Resolver couldn't find it — keep the token.
+			out.WriteString(expr[i+j : start+end+1])
+			i = start + end + 1
+			continue
+		}
+		out.WriteString(value)
+		i = start + end + 1
+	}
+	return out.String()
 }
 
 // substituteSelfTokens replaces every self-derived token in the

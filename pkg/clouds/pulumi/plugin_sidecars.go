@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -1380,9 +1381,12 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// ${template.*}) inside $$sc:-prefixed strings that came from the
 	// plugin's defaults. Operator-written strings pass through
 	// unchanged — the refuse check above guarantees they never
-	// carry the sentinel. `${parent:…}` tokens are deliberately left
-	// unresolved here; a follow-up slice adds the parent-output
-	// resolver on top.
+	// carry the sentinel.
+	//
+	// `${parent:<resource>.<field>}` tokens resolve via
+	// `parentOutputResolver`, which opens `sdk.NewStackReference` to
+	// the parent stack (lazily, on first parent-token hit) and reads
+	// outputs via `GetOutputDetails` + `internals.UnsafeAwaitOutput`.
 	//
 	// stackName may carry an env suffix (`forge-conductor--staging`)
 	// in child-stack contexts; the Env field strips that so
@@ -1391,12 +1395,14 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	if input.StackParams != nil {
 		envName = input.StackParams.Environment
 	}
+	parentResolver := parentOutputResolver(ctx, params.ParentStack)
 	merged = pApi.InterpolateDefaults(merged, pApi.DefaultsContext{
 		Name:           input.Descriptor.Name,
 		Env:            envName,
 		Stack:          stack.Name,
 		TemplateName:   tplName,
 		TemplateConfig: templateConfigMap(tpl),
+		ParentResolver: parentResolver,
 	})
 
 	// Rebuild cfg from the merged Raw so mergeComponentIntoTemplate
@@ -1441,6 +1447,100 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 // registers no per-type merge func by default; the pass-through covers the
 // first smoke's compose-on-vm shape (operator provides the compose file, the
 // plugin's image lands via its own compute processor at consumer deploy time).
+// parentOutputResolver builds a closure that resolves
+// `${parent:<resource>.<field>}` tokens against the parent stack's
+// exports. Opens an `sdk.NewStackReference` LAZILY on the first call
+// (parent-token-free defaults skip the StackReference open entirely)
+// and caches it per dispatch.
+//
+// Lookup strategy:
+//  1. `<resource>-<field>` — SC convention: plugin exports flat keys.
+//  2. `<resource>` map export with `<field>` key — alternative shape
+//     for plugins that export per-resource maps.
+//
+// Returns ok=false when neither convention yields a scalar string.
+// The caller's interpolation pass keeps the token in place (fail-open)
+// so a missing export surfaces as a `$$sc:${parent:…}` literal in the
+// dispatched template config — grep-able, non-silent.
+//
+// Nil ParentStack = nil resolver (older dispatchers, in-tree templates
+// with no parent info) → every `${parent:…}` token stays unresolved.
+func parentOutputResolver(ctx *sdk.Context, parent *pApi.ParentInfo) func(resource, field string) (string, bool) {
+	if ctx == nil || parent == nil || parent.FullReference == "" {
+		return nil
+	}
+	var (
+		stackRef *sdk.StackReference
+		dialErr  error
+		once     sync.Once
+	)
+	dial := func() {
+		stackRef, dialErr = sdk.NewStackReference(ctx, parent.FullReference, nil)
+	}
+	return func(resource, field string) (string, bool) {
+		once.Do(dial)
+		if dialErr != nil || stackRef == nil {
+			return "", false
+		}
+		// Flat-key convention first (<resource>-<field>).
+		if v, ok := awaitStackRefString(ctx, stackRef, resource+"-"+field); ok {
+			return v, true
+		}
+		// Map-convention fallback (<resource>.<field> inside a map
+		// output named <resource>).
+		if v, ok := awaitStackRefMapField(ctx, stackRef, resource, field); ok {
+			return v, true
+		}
+		return "", false
+	}
+}
+
+// awaitStackRefString reads a single exported output by key and awaits
+// its sdk.Output to a string. Returns ok=false on any shape mismatch
+// (missing key, non-string value, resolve error).
+func awaitStackRefString(ctx *sdk.Context, ref *sdk.StackReference, key string) (string, bool) {
+	od, err := ref.GetOutputDetails(key)
+	if err != nil {
+		return "", false
+	}
+	// GetOutputDetails returns `OutputDetails{Value, SecretValue}`.
+	// Prefer Value; fall back to SecretValue (plain-text form of a
+	// pulumi-side secret, which StackReference unwraps).
+	if s, ok := od.Value.(string); ok && s != "" {
+		return s, true
+	}
+	if s, ok := od.SecretValue.(string); ok && s != "" {
+		return s, true
+	}
+	return "", false
+}
+
+// awaitStackRefMapField reads a map-shaped output and extracts a
+// scalar string at the named field. Mirrors awaitStackRefString's
+// fail-open shape.
+func awaitStackRefMapField(ctx *sdk.Context, ref *sdk.StackReference, mapKey, field string) (string, bool) {
+	od, err := ref.GetOutputDetails(mapKey)
+	if err != nil {
+		return "", false
+	}
+	m, ok := od.Value.(map[string]any)
+	if !ok {
+		m, ok = od.SecretValue.(map[string]any)
+		if !ok {
+			return "", false
+		}
+	}
+	v, ok := m[field]
+	if !ok {
+		return "", false
+	}
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return "", false
+	}
+	return s, true
+}
+
 // templateConfigMap unwraps a parent-stack template's `config:` block
 // into a `map[string]any` the interpolation layer can read. The
 // template's `Config.Config` is `any` in the public type (operators
