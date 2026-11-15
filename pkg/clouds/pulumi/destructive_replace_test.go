@@ -182,6 +182,24 @@ func TestIsDestructiveReplace_OpCoverage(t *testing.T) {
 			want: false,
 		},
 		{
+			// 2026-11-13, a preview of the deployed fleet: the stacks last deployed
+			// before the Cloud SQL db-user-init Job changed shape (proxy container
+			// from a sidecar to a native init container) were refused, while the SC
+			// before the guard replaced the Job and the stacks deployed. A Job's pod
+			// template is immutable, so any change to it is a replace; the Jobs SC
+			// creates are idempotent init Jobs and running again is the point.
+			name: "Job replace → safe (immutable pod template; SC's init Jobs are idempotent)",
+			meta: apitype.StepEventMetadata{
+				Op:   apitype.OpReplace,
+				URN:  "urn:pulumi:gitbook-cache-service--staging::gitbook-cache-service::kubernetes:batch/v1:Job::gitbook-cache-service-staging-db-user-init",
+				Type: "kubernetes:batch/v1:Job",
+				Old:  &apitype.StepEventStateMetadata{ID: "gitbook-cache-service/gitbook-cache-service-staging-db-user-init"},
+				New:  &apitype.StepEventStateMetadata{},
+				Keys: []string{"spec.template.spec.containers[0].command[2]", "spec.template.spec.containers[1]", "spec.template.spec.initContainers"},
+			},
+			want: false,
+		},
+		{
 			// The exemption is per TYPE and must not generalise to "anything
 			// Kubernetes". A PVC replace loses the volume.
 			name: "PVC replace → destructive (a Kubernetes type is not automatically safe)",

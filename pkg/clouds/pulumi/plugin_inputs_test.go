@@ -311,3 +311,53 @@ func TestComputeContextToProto_Nil(t *testing.T) {
 	Expect(computeContextToProto(nil)).To(BeNil())
 	Expect(computeContextToProto(&fixedComputeContext{})).To(BeNil())
 }
+
+// A plugin builds its api.Stack from the request header alone, so the
+// client.yaml `security:` block and `imageBuild:` have to travel with the
+// request. Found on a preview of a deployed fleet: every image-signing,
+// scanning and SBOM step of a plugin-owned template planned as deleted, because
+// docker.BuildAndPushImage read an empty stack.Client in the plugin.
+func TestResourceSidecar_ForwardsClientSecurityConfig(t *testing.T) {
+	RegisterTestingT(t)
+	withActiveSession(t)
+
+	run := func(client api.ClientDescriptor) *scpluginv1.ProvisionRequest {
+		stub := &stubProvisionClient{}
+		sidecar := (&preEnginePluginBundle{}).makeResourceSidecar(
+			scPlugin.NewClientWithStub(stub), "sc-plugin-yandex", ycApi.TemplateTypeYandexServerlessContainer,
+		)
+		err := sdk.RunErr(func(ctx *sdk.Context) error {
+			_, err := sidecar(ctx, api.Stack{Name: "backend", Client: client}, api.ResourceInput{
+				Descriptor: &api.ResourceDescriptor{Type: ycApi.TemplateTypeYandexServerlessContainer, Name: "backend",
+					Config: api.Config{Config: &ycApi.ServerlessContainerInput{AccountConfig: ycApi.AccountConfig{FolderID: "b1g"}}}},
+				StackParams: &api.StackParams{StackName: "backend", Environment: "staging"},
+			}, pApi.ProvisionParams{})
+			return err
+		}, sdk.WithMocks("project", "stack", &refMocks{}))
+		Expect(err).ToNot(HaveOccurred())
+		return stub.gotReq
+	}
+
+	req := run(api.ClientDescriptor{
+		Security: &api.SecurityDescriptor{
+			Enabled: true,
+			Scan:    &api.ScanDescriptor{Enabled: true, WarnOn: "high", SoftFail: true},
+			Signing: &api.SigningDescriptor{Enabled: true, Keyless: true},
+			SBOM:    &api.SBOMDescriptor{Enabled: true},
+		},
+		ImageBuild: &api.ImageBuildDescriptor{ReuseExistingCommitTag: true},
+	})
+	got, err := api.ClientDescriptorFromPluginConfig(req.GetClientConfigJson())
+	Expect(err).ToNot(HaveOccurred())
+	Expect(got.Security).ToNot(BeNil())
+	Expect(got.Security.Enabled).To(BeTrue())
+	Expect(got.Security.Scan.WarnOn).To(Equal("high"))
+	Expect(got.Security.Scan.SoftFail).To(BeTrue())
+	Expect(got.Security.Signing.Keyless).To(BeTrue())
+	Expect(got.Security.SBOM.Enabled).To(BeTrue())
+	Expect(got.ReuseExistingCommitTagEnabled()).To(BeTrue())
+
+	// A stack with neither block (a parent-stack resource has no client
+	// descriptor at all) sends nothing.
+	Expect(run(api.ClientDescriptor{}).GetClientConfigJson()).To(BeEmpty())
+}
