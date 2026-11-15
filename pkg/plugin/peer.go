@@ -191,3 +191,36 @@ func (c *PeerClient) ProvisionDomainForEndpoint(ctx context.Context, pluginName 
 	}
 	return resp, nil
 }
+
+// PluginInvoke dispatches a capability-based call to another plugin via
+// SC core's broker. The target plugin's `SchemaResponse.peer_capabilities`
+// must advertise `capability`; SC core refuses the call otherwise. The
+// payload + reply schemas are capability-specific — see each plugin's
+// README for the typed shapes.
+//
+// First consumer (sc-components-plugin-peer-invoke): sc-component-backup
+// → sc-plugin-mongodb for `mint-scoped-user`:
+//
+//	payloadBytes, _ := json.Marshal(map[string]any{
+//	    "database":      "forge_app",
+//	    "roleName":      "readWrite",
+//	    "consumerStack": "forge-conductor--staging",
+//	})
+//	reply, err := peer.PluginInvoke(ctx, "mongodb", "mint-scoped-user", payloadBytes)
+//	// reply bytes: {"username": "...", "password": "...", "uri": "..."}
+//
+// SC core sets `calling_plugin` on the forwarded request; the target
+// plugin can inspect it for per-caller policy. Today it's best-effort
+// (empty when the broker cannot identify the caller) — see TODO in
+// callback_server.go PeerInvoke about run_token validation.
+func (c *PeerClient) PluginInvoke(ctx context.Context, pluginName, capability string, payloadJSON []byte) ([]byte, error) {
+	req := &scpluginv1.PluginInvokeRequest{
+		Capability:  capability,
+		PayloadJson: payloadJSON,
+	}
+	resp := &scpluginv1.PluginInvokeResponse{}
+	if err := c.invoke(ctx, pluginName, "PluginInvoke", req, resp); err != nil {
+		return nil, err
+	}
+	return resp.GetReplyJson(), nil
+}

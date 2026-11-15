@@ -10,6 +10,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
 )
 
@@ -118,12 +119,40 @@ func (d *bundlePeerDispatcher) DispatchPeer(ctx context.Context, pluginName, rpc
 		}
 		return proto.Marshal(resp)
 
+	case "PluginInvoke":
+		// Capability dispatcher (sc-components-plugin-peer-invoke). The
+		// caller plugin marshals a PluginInvokeRequest with `capability`
+		// + opaque `payload_json`; SC core verifies the capability is
+		// advertised by the target plugin's SchemaResponse.peer_capabilities
+		// (operator-safe default: "no peer surface" for plugins that
+		// pre-date the field), then forwards to the target's own
+		// PluginInvoke handler which switches on `capability`.
+		req := &scpluginv1.PluginInvokeRequest{}
+		if err := proto.Unmarshal(payload, req); err != nil {
+			return nil, errors.Wrapf(err, "peer invoke %q.%s: unmarshal request", pluginName, rpcName)
+		}
+		if req.GetCapability() == "" {
+			return nil, errors.Errorf("peer invoke %q.PluginInvoke: capability is required", pluginName)
+		}
+		if !pApi.HasPeerCapability(pluginName, req.GetCapability()) {
+			return nil, errors.Errorf("peer invoke %q.PluginInvoke: target plugin does not advertise capability %q (declare it in SchemaResponse.peer_capabilities)", pluginName, req.GetCapability())
+		}
+		// calling_plugin field: today left to whatever the caller set
+		// (nothing enforced). Full identity attestation is Phase 1e+
+		// work tied to RequestHeader.run_token validation (see TODO in
+		// callback_server.go PeerInvoke).
+		resp, err := cli.PluginInvoke(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		return proto.Marshal(resp)
+
 	// Add further RPCs here as composite-plugin needs surface. New
 	// cases are purely additive — a plugin asking for an unlisted RPC
 	// gets the clear "not supported in this core" error below rather
 	// than an opaque transport failure.
 
 	default:
-		return nil, errors.Errorf("peer invoke %q.%s: SC core does not support that RPC on PeerInvoke (supported: Provision, Provider, NewDnsRecord, NewOverrideHeaderRule, ProvisionDomainForEndpoint, ProvisionRegistrar, VmHosts)", pluginName, rpcName)
+		return nil, errors.Errorf("peer invoke %q.%s: SC core does not support that RPC on PeerInvoke (supported: Provision, Provider, NewDnsRecord, NewOverrideHeaderRule, ProvisionDomainForEndpoint, ProvisionRegistrar, VmHosts, PluginInvoke)", pluginName, rpcName)
 	}
 }

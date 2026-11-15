@@ -13,6 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/simple-container-com/api/pkg/api/logger"
+	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	scPlugin "github.com/simple-container-com/api/pkg/plugin"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
 )
@@ -137,4 +138,104 @@ func TestBundlePeerDispatcher_UnsupportedRpcError(t *testing.T) {
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("DoTheHokeyPokey"))
 	Expect(err.Error()).To(ContainSubstring("supported"))
+}
+
+// stubPluginInvokeTarget simulates a peer plugin's PluginInvoke
+// handler. Returns a canned reply based on the capability name so the
+// dispatcher test can assert the forward.
+type stubPluginInvokeTarget struct {
+	scpluginv1.SCCloudPluginClient
+	got *scpluginv1.PluginInvokeRequest
+}
+
+func (s *stubPluginInvokeTarget) PluginInvoke(_ context.Context, req *scpluginv1.PluginInvokeRequest, _ ...grpc.CallOption) (*scpluginv1.PluginInvokeResponse, error) {
+	s.got = req
+	return &scpluginv1.PluginInvokeResponse{
+		ReplyJson: []byte(`{"username":"backup-x","password":"pw","uri":"mongodb+srv://..."}`),
+	}, nil
+}
+
+// TestBundlePeerDispatcher_PluginInvoke_RoutesToAdvertisedCapability —
+// happy path: the capability is advertised on the target plugin, the
+// dispatcher unmarshals the PluginInvokeRequest, calls the stub, and
+// round-trips the reply bytes.
+func TestBundlePeerDispatcher_PluginInvoke_RoutesToAdvertisedCapability(t *testing.T) {
+	RegisterTestingT(t)
+
+	mongoStub := &stubPluginInvokeTarget{}
+	bundle := &preEnginePluginBundle{
+		clients: map[string]*scPlugin.Client{"mongodb": scPlugin.NewClientWithStub(mongoStub)},
+		log:     logger.New(),
+	}
+	disp := &bundlePeerDispatcher{bundle: bundle}
+
+	// Advertise the capability.
+	pApi.RegisterPeerCapability("mongodb", "mint-scoped-user")
+	t.Cleanup(func() { delete(pApi.PeerCapabilities, "mongodb") })
+
+	req := &scpluginv1.PluginInvokeRequest{
+		Capability:  "mint-scoped-user",
+		PayloadJson: []byte(`{"database":"forge_app","roleName":"readWrite","consumerStack":"forge-conductor--staging"}`),
+	}
+	payload, err := proto.Marshal(req)
+	Expect(err).ToNot(HaveOccurred())
+
+	out, err := disp.DispatchPeer(context.Background(), "mongodb", "PluginInvoke", payload)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(mongoStub.got).ToNot(BeNil())
+	Expect(mongoStub.got.GetCapability()).To(Equal("mint-scoped-user"))
+
+	var resp scpluginv1.PluginInvokeResponse
+	Expect(proto.Unmarshal(out, &resp)).To(Succeed())
+	Expect(resp.GetReplyJson()).To(ContainSubstring(`"username":"backup-x"`))
+}
+
+// TestBundlePeerDispatcher_PluginInvoke_UnadvertisedRefused — caller
+// asks for a capability the target plugin has NOT advertised. SC core
+// refuses BEFORE forwarding — the stub must never be called. Named
+// error lets the caller surface a diagnosable diagnostic.
+func TestBundlePeerDispatcher_PluginInvoke_UnadvertisedRefused(t *testing.T) {
+	RegisterTestingT(t)
+
+	mongoStub := &stubPluginInvokeTarget{}
+	bundle := &preEnginePluginBundle{
+		clients: map[string]*scPlugin.Client{"mongodb": scPlugin.NewClientWithStub(mongoStub)},
+		log:     logger.New(),
+	}
+	disp := &bundlePeerDispatcher{bundle: bundle}
+
+	// NOT registering mint-scoped-user — mongodb exposes no peer surface
+	// in this test.
+	req := &scpluginv1.PluginInvokeRequest{Capability: "mint-scoped-user"}
+	payload, err := proto.Marshal(req)
+	Expect(err).ToNot(HaveOccurred())
+
+	_, err = disp.DispatchPeer(context.Background(), "mongodb", "PluginInvoke", payload)
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("mint-scoped-user"))
+	Expect(err.Error()).To(ContainSubstring("peer_capabilities"))
+	Expect(mongoStub.got).To(BeNil(), "target plugin's stub must NOT have been called for an unadvertised capability")
+}
+
+// TestBundlePeerDispatcher_PluginInvoke_EmptyCapabilityRefused — a
+// malformed call with no capability name is refused upstream of the
+// capability-advertised check. Prevents a peer from accidentally
+// invoking an "unnamed" capability that resolves to the zero-value
+// entry.
+func TestBundlePeerDispatcher_PluginInvoke_EmptyCapabilityRefused(t *testing.T) {
+	RegisterTestingT(t)
+
+	bundle := &preEnginePluginBundle{
+		clients: map[string]*scPlugin.Client{"mongodb": scPlugin.NewClientWithStub(&stubPluginInvokeTarget{})},
+		log:     logger.New(),
+	}
+	disp := &bundlePeerDispatcher{bundle: bundle}
+
+	req := &scpluginv1.PluginInvokeRequest{} // empty capability
+	payload, err := proto.Marshal(req)
+	Expect(err).ToNot(HaveOccurred())
+
+	_, err = disp.DispatchPeer(context.Background(), "mongodb", "PluginInvoke", payload)
+	Expect(err).To(HaveOccurred())
+	Expect(err.Error()).To(ContainSubstring("capability is required"))
 }

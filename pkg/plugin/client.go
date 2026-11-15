@@ -279,6 +279,17 @@ func (c *Client) LogStream(ctx context.Context, req *scpluginv1.LogStreamRequest
 	return c.stub.LogStream(ctx, req)
 }
 
+// PluginInvoke calls through to the plugin's PluginInvoke RPC — the
+// capability dispatcher (sc-components-plugin-peer-invoke slice). SC
+// core's peer broker invokes this when forwarding a cross-plugin
+// capability call; the broker enforces capability advertisement
+// before the call is made, so a plugin receiving this RPC can trust
+// that its SchemaResponse.peer_capabilities list the capability.
+func (c *Client) PluginInvoke(ctx context.Context, req *scpluginv1.PluginInvokeRequest) (*scpluginv1.PluginInvokeResponse, error) {
+	c.stampHeader(req.GetHeader())
+	return c.stub.PluginInvoke(ctx, req)
+}
+
 // Close terminates the plugin subprocess. Safe to call more than once.
 func (c *Client) Close() {
 	if c.sccoreStop != nil {
