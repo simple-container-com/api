@@ -172,7 +172,10 @@ func bridgeFinish(key string) error {
 
 	var first error
 	for _, o := range owners {
-		if err := o.done(); err != nil && first == nil {
+		bridge.mu.Lock()
+		o.retained = false
+		bridge.mu.Unlock()
+		if err := o.finish(); err != nil && first == nil {
 			first = err
 		}
 	}

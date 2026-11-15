@@ -30,6 +30,22 @@ func fakeCtx(key string, drained *int, err error) *Context {
 	return &Context{Pulumi: &sdk.Context{}, key: key, done: func() error { *drained++; return err }}
 }
 
+// resetBridge empties the process-global bridge so tests do not see each
+// other's leftovers (a consumer flag set by a collector with no Settle).
+func resetBridge(t *testing.T) {
+	t.Helper()
+	clear := func() {
+		bridge.mu.Lock()
+		defer bridge.mu.Unlock()
+		bridge.pending = map[string][]procEntry{}
+		bridge.owners = map[string][]*Context{}
+		bridge.consumers = map[string]bool{}
+		bridge.deps = map[string][]sdk.Resource{}
+	}
+	clear()
+	t.Cleanup(clear)
+}
+
 func provisionReq(stack string) *scpluginv1.ProvisionRequest {
 	return &scpluginv1.ProvisionRequest{Header: &scpluginv1.RequestHeader{StackName: stack}}
 }
@@ -48,6 +64,7 @@ func settle(rctx *Context, handlerErr error) error {
 // its own container args; with the dependency and the template in different
 // RPCs the closure was dropped and the app deployed with no database proxy.
 func TestPreProcessors_ParkedByComputeProcessAndRunByTheTemplate(t *testing.T) {
+	resetBridge(t)
 	const stack = "pp-support-bot--production"
 	computeDrained, provisionDrained := 0, 0
 
@@ -104,6 +121,7 @@ func TestPreProcessors_ParkedByComputeProcessAndRunByTheTemplate(t *testing.T) {
 }
 
 func TestPreProcessors_RunInTheOrderTheyWereParkedByType(t *testing.T) {
+	resetBridge(t)
 	const stack = "pp-order--staging"
 	var drained int
 	var order []string
@@ -142,6 +160,7 @@ func TestPreProcessors_RunInTheOrderTheyWereParkedByType(t *testing.T) {
 // A failed ComputeProcess must not leave a closure behind for the template to
 // run on a context that has been closed, and its context is settled normally.
 func TestPreProcessors_FailedComputeProcessIsDiscardedAndSettled(t *testing.T) {
+	resetBridge(t)
 	const stack = "pp-failed--staging"
 	var drained int
 	compute := fakeCtx(stack, &drained, nil)
@@ -171,6 +190,7 @@ func TestPreProcessors_FailedComputeProcessIsDiscardedAndSettled(t *testing.T) {
 // to reach the engine, and a context nobody drains is dropped when the plugin
 // exits.
 func TestPreProcessors_UnusedParkedClosureStillDrainsItsContext(t *testing.T) {
+	resetBridge(t)
 	const stack = "pp-unused--staging"
 	var computeDrained, provisionDrained int
 	compute := fakeCtx(stack, &computeDrained, nil)
@@ -196,6 +216,7 @@ func TestPreProcessors_UnusedParkedClosureStillDrainsItsContext(t *testing.T) {
 // a second dependency's ComputeProcess, or a Provision that builds no collector,
 // finishes while the first dependency's closure is parked.
 func TestPreProcessors_OtherSettlesLeaveAParkedContextOpen(t *testing.T) {
+	resetBridge(t)
 	const stack = "pp-bystander--staging"
 	var drained int
 	compute := fakeCtx(stack, &drained, nil)
@@ -231,6 +252,7 @@ func TestPreProcessors_OtherSettlesLeaveAParkedContextOpen(t *testing.T) {
 // What the parked context's drain reports (a registration that failed) fails the
 // template's RPC instead of being lost.
 func TestPreProcessors_ParkedContextErrorFailsTheTemplate(t *testing.T) {
+	resetBridge(t)
 	const stack = "pp-drainerr--staging"
 	var n int
 	compute := fakeCtx(stack, &n, errors.New("registration failed"))
@@ -249,6 +271,7 @@ func TestPreProcessors_ParkedContextErrorFailsTheTemplate(t *testing.T) {
 }
 
 func TestPreProcessors_ClosureErrorIsWrapped(t *testing.T) {
+	resetBridge(t)
 	c := &Collector{}
 	c.AddPreProcessor(&containerArgs{}, func(any) error { return errors.New("no credentials secret") })
 	err := c.RunPreProcessors(&containerArgs{}, &containerArgs{})
@@ -260,6 +283,7 @@ func TestPreProcessors_ClosureErrorIsWrapped(t *testing.T) {
 // A closure added and run inside one RPC (a template registering its own) works
 // without the bridge.
 func TestPreProcessors_LocalClosuresRunInTheSameRPC(t *testing.T) {
+	resetBridge(t)
 	c := NewProvisionCollector(nil)
 	args := &containerArgs{}
 	c.AddPreProcessor(&containerArgs{}, func(arg any) error {
@@ -286,6 +310,7 @@ func TestPreProcessors_LocalClosuresRunInTheSameRPC(t *testing.T) {
 // failed ("alias type could not be resolved: context canceled") and every
 // stack that uses Cloud SQL failed its preview.
 func TestDetachedContext_OutlivesTheRequestOnlyWhenRetained(t *testing.T) {
+	resetBridge(t)
 	cancelled := func(ctx context.Context) bool {
 		select {
 		case <-ctx.Done():
@@ -353,6 +378,7 @@ func parkFromCompute(t *testing.T, stack string, drained *int, register func(c p
 // first version of the bridge carried only pre-processors, and a preview of the
 // deployed fleet still planned all of those for deletion.
 func TestPostProcessors_ParkedByComputeProcessAndRunByTheTemplate(t *testing.T) {
+	resetBridge(t)
 	const stack = "pp-post--production"
 	var drained int
 	var order []string
@@ -397,6 +423,7 @@ func TestPostProcessors_ParkedByComputeProcessAndRunByTheTemplate(t *testing.T) 
 }
 
 func TestPostProcessors_ClosureErrorIsWrapped(t *testing.T) {
+	resetBridge(t)
 	c := &Collector{}
 	c.AddPostProcessor(&containerArgs{}, func(any) error { return errors.New("no namespace") })
 	err := c.RunPostProcessors(&containerArgs{}, &containerArgs{})
@@ -410,6 +437,7 @@ func TestPostProcessors_ClosureErrorIsWrapped(t *testing.T) {
 // dependency's ComputeProcess runs, so the template has to see what that call
 // added, and a nil must not reach sdk.DependsOn, where it panics.
 func TestAddDependency_ParkedByComputeProcessAndSeenByTheTemplate(t *testing.T) {
+	resetBridge(t)
 	const stack = "pp-deps--production"
 	var drained int
 	account, secret := &sdk.CustomResourceState{}, &sdk.CustomResourceState{}
@@ -442,5 +470,36 @@ func TestAddDependency_ParkedByComputeProcessAndSeenByTheTemplate(t *testing.T) 
 	_ = settle(fakeCtx(stack, new(int), nil), nil)
 	if n := len(NewProvisionCollector(provisionReq(stack)).Dependencies()); n != 0 {
 		t.Fatalf("dependencies outlived the consumer: %d", n)
+	}
+}
+
+// A drained owner must not stay retained, and a context drained twice must run
+// its teardown once.
+func TestBridgeFinish_ResetsRetainedAndTearsDownOnce(t *testing.T) {
+	resetBridge(t)
+
+	var drained int
+	owner := fakeCtx("stk", &drained, nil)
+	bridgePark("stk", procEntry{kind: kindPre, typ: reflect.TypeOf(otherArgs{}), owner: owner, fn: func(any) error { return nil }})
+	if !owner.isRetained() {
+		t.Fatal("a context that parked a closure must be retained")
+	}
+
+	bridgeMarkConsumer("stk")
+	if err := bridgeFinish("stk"); err != nil {
+		t.Fatal(err)
+	}
+	if owner.isRetained() {
+		t.Error("a drained owner must not stay retained")
+	}
+	if drained != 1 {
+		t.Fatalf("teardown ran %d times, want 1", drained)
+	}
+
+	if err := owner.finish(); err != nil {
+		t.Fatal(err)
+	}
+	if drained != 1 {
+		t.Errorf("a second drain tore the context down again: %d", drained)
 	}
 }
