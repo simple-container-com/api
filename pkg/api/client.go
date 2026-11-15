@@ -39,6 +39,11 @@ type ClientDescriptor struct {
 type PluginClientConfig struct {
 	Security   *SecurityDescriptor   `json:"security,omitempty"`
 	ImageBuild *ImageBuildDescriptor `json:"imageBuild,omitempty"`
+
+	// SigningPassword carries Security.Signing.Password, which is json:"-" on
+	// the descriptor so a config dump never prints it. A template needs it to
+	// sign with a private key.
+	SigningPassword string `json:"signingPassword,omitempty"`
 }
 
 // PluginClientConfigJSON serialises the client-level configuration a plugin's
@@ -47,7 +52,11 @@ func (c *ClientDescriptor) PluginClientConfigJSON() ([]byte, error) {
 	if c == nil || (c.Security == nil && c.ImageBuild == nil) {
 		return nil, nil
 	}
-	return json.Marshal(PluginClientConfig{Security: c.Security, ImageBuild: c.ImageBuild})
+	cfg := PluginClientConfig{Security: c.Security, ImageBuild: c.ImageBuild}
+	if c.Security != nil && c.Security.Signing != nil {
+		cfg.SigningPassword = c.Security.Signing.Password
+	}
+	return json.Marshal(cfg)
 }
 
 // ClientDescriptorFromPluginConfig rebuilds the client descriptor a plugin's
@@ -59,6 +68,9 @@ func ClientDescriptorFromPluginConfig(raw []byte) (ClientDescriptor, error) {
 		if err := json.Unmarshal(raw, &cfg); err != nil {
 			return ClientDescriptor{}, err
 		}
+	}
+	if cfg.SigningPassword != "" && cfg.Security != nil && cfg.Security.Signing != nil {
+		cfg.Security.Signing.Password = cfg.SigningPassword
 	}
 	return ClientDescriptor{Security: cfg.Security, ImageBuild: cfg.ImageBuild}, nil
 }
