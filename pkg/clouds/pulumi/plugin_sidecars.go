@@ -11,6 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+
 	"github.com/pkg/errors"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -103,6 +106,21 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 		// interface could ever match. See the operator memory
 		// `interface_assertion_against_plugin_owned_value_fails_in_prod`.
 		if pApi.IsComponentResourceType(input.Descriptor.Type) {
+			// PreProvision — the generic "lookup before template
+			// dispatch" seam. Fires only when the plugin advertised
+			// `supports_pre_provision = true` in Schema. The RPC
+			// runs in the plugin's Pulumi context (cloud-SDK lookups
+			// legal there; SC core stays cloud-blind). Returned tpl
+			// extensions + env vars land on the shared ComputeContext
+			// collector so a `${resource:<name>.<key>}` in the merged
+			// env map resolves at ResolvePlaceholders time (deploy.go:202
+			// + the idempotent re-pass below). See
+			// forge/docs/design/2026-11-15/plugin-preprovision-rpc/.
+			if pApi.PluginSupportsPreProvision(pluginName) {
+				if err := b.invokePreProvision(ctx, cli, pluginName, typeToken, input, params); err != nil {
+					return nil, errors.Wrapf(err, "component %q (%s): PreProvision", input.Descriptor.Name, input.Descriptor.Type)
+				}
+			}
 			dispatched, err := b.dispatchComponentTemplate(ctx, stack, input, params)
 			if err != nil {
 				return nil, errors.Wrapf(err, "component %q (%s)", input.Descriptor.Name, input.Descriptor.Type)
@@ -1458,6 +1476,123 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 // registers no per-type merge func by default; the pass-through covers the
 // first smoke's compose-on-vm shape (operator provides the compose file, the
 // plugin's image lands via its own compute processor at consumer deploy time).
+// invokePreProvision calls the plugin's PreProvision RPC for one
+// Component resource and flows the returned template extensions +
+// env vars onto the shared ComputeContextCollector carried by
+// params.ComputeContext. Idempotent: if the plugin returns an empty
+// response, nothing is registered and the caller proceeds to
+// `dispatchComponentTemplate` unchanged.
+//
+// Guarded by `pApi.PluginSupportsPreProvision(pluginName)` at the
+// call site; this helper assumes support is advertised. An
+// Unimplemented reply from the plugin (version skew — plugin binary
+// older than its own Schema) is logged + treated as a no-op so a
+// hot deploy with partial rollout doesn't crash.
+//
+// Sentinel consideration: SC core's `collector.ResolvePlaceholders`
+// walks `clientStackDesc.Config.Config` at deploy.go:202 BEFORE this
+// dispatch runs. For the `${resource:…}` tokens landed here to
+// resolve at Lambda-create time, SC core relies on the template's
+// own env-building path invoking placeholder resolution (compute
+// sidecars do this via ComputeContext's resolver before passing
+// env to the Lambda). If a template dispatches env values
+// unresolved, those tokens would land literally — fix in the
+// template's own env wiring, not here.
+func (b *preEnginePluginBundle) invokePreProvision(
+	ctx *sdk.Context,
+	cli *scPlugin.Client,
+	pluginName, typeToken string,
+	input api.ResourceInput,
+	params pApi.ProvisionParams,
+) error {
+	addr, err := requireMonitorAddr(input.Descriptor.Type)
+	if err != nil {
+		return err
+	}
+	stackName, env := stackAndEnv(input)
+	cliStack := stackName
+
+	// ComponentRaw: the merged .Raw post-ComponentDefaults merge +
+	// self/parent-token interpolation, same bytes the dispatched
+	// template consumes. `dispatchComponentTemplate` runs the merge
+	// again inline; mirror its input here by serialising the current
+	// Descriptor's config.
+	//
+	// Note: this emits the pre-ComponentDefaults operator Raw.
+	// Plugins that need to see the fully-merged Raw can call
+	// `pApi.DeepMergeComponentRaw` themselves using
+	// `pApi.ComponentDefaults` — PreProvision fires early enough
+	// that downstream merge timing doesn't affect this.
+	rawMap, _ := input.Descriptor.Config.Config.(map[string]any)
+	rawBytes, _ := json.Marshal(rawMap)
+
+	var parentInfoJSON []byte
+	if params.ParentStack != nil {
+		parentInfoJSON, err = json.Marshal(params.ParentStack)
+		if err != nil {
+			return errors.Wrapf(err, "plugin %q PreProvision(%q): marshal ParentStack", pluginName, typeToken)
+		}
+	}
+
+	req := &scpluginv1.PreProvisionRequest{
+		Header: &scpluginv1.RequestHeader{
+			MonitorAddress: addr,
+			EngineAddress:  engineAddr(),
+			StackName:      stackName,
+			CliStackName:   cliStack,
+			Environment:    env,
+			ProjectName:    ctx.Project(),
+			ProviderUrns:   activeProviderURNs(),
+			DryRun:         ctx.DryRun(),
+		},
+		ResourceType:   typeToken,
+		ResourceName:   input.Descriptor.Name,
+		ComponentRaw:   rawBytes,
+		ParentInfoJson: parentInfoJSON,
+	}
+
+	resp, err := cli.PreProvision(ctx.Context(), req)
+	if err != nil {
+		if grpcStatus, ok := status.FromError(err); ok && grpcStatus.Code() == codes.Unimplemented {
+			// Advertised but not implemented (version skew). Log + no-op.
+			return nil
+		}
+		return errors.Wrapf(err, "plugin %q PreProvision(%q)", pluginName, typeToken)
+	}
+
+	// params.ComputeContext is the pApi.ComputeContext (read-only)
+	// interface, but SC core always wires the backing value as the
+	// full Collector (provision.go:378, deploy.go:218). Type-assert
+	// to the mutator surface. A nil or non-collector interface value
+	// means no sidecar bound a collector — not an error, just no
+	// landing spot for the plugin's values.
+	collector, ok := params.ComputeContext.(pApi.ComputeContextCollector)
+	if !ok || collector == nil {
+		return nil
+	}
+
+	for _, t := range resp.GetTplExtensions() {
+		switch t.GetKind() {
+		case scpluginv1.TemplateExtensionKind_TEMPLATE_EXTENSION_KIND_RESOURCE:
+			collector.AddResourceTplExtension(t.GetResName(), t.GetValues())
+		case scpluginv1.TemplateExtensionKind_TEMPLATE_EXTENSION_KIND_DEPENDENCY:
+			collector.AddDependencyTplExtension(t.GetDepName(), t.GetResName(), t.GetValues())
+		}
+	}
+	for _, e := range resp.GetEnvVars() {
+		if e.GetSecret() {
+			collector.AddSecretEnvVariableIfNotExist(
+				e.GetName(), e.GetValue(), e.GetResourceType(), e.GetResourceName(), e.GetStackName(),
+			)
+		} else {
+			collector.AddEnvVariableIfNotExist(
+				e.GetName(), e.GetValue(), e.GetResourceType(), e.GetResourceName(), e.GetStackName(),
+			)
+		}
+	}
+	return nil
+}
+
 // parentOutputResolver builds a closure that resolves
 // `${parent:<resource>.<field>}` tokens against the parent stack's
 // exports. Opens an `sdk.NewStackReference` LAZILY on the first call

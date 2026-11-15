@@ -448,3 +448,59 @@ func RunComputeProcess(
 	}
 	return collector.toResponse(), out, nil
 }
+
+// PreProvisionHandler is the signature every in-plugin PreProvision
+// handler has. Simpler than ComputeProcessHandler: no ResourceOutput
+// — the handler just lands template extensions + env vars on the
+// collector. Cloud-SDK lookups (ec2.LookupSubnets, etc.) are legal
+// via the supplied *sdk.Context, which runs in the plugin's Pulumi
+// context.
+type PreProvisionHandler func(
+	ctx *sdk.Context,
+	stack api.Stack,
+	input api.ResourceInput,
+	collector pApi.ComputeContextCollector,
+	params pApi.ProvisionParams,
+) error
+
+// RunPreProvision is the plugin-side helper that mirrors
+// RunComputeProcess for the PreProvision RPC. Builds a fresh
+// collector, invokes the handler, awaits any sdk.Output values the
+// handler registered, and returns the shaped PreProvisionResponse.
+//
+// Opt-in on the plugin side: a plugin advertises
+// `SchemaResponse.supports_pre_provision = true` and wires its main.go
+// PreProvision method to call this helper. Plugins that don't
+// implement PreProvision leave the generated Unimplemented stub;
+// SC core never dials them (advertisement gate).
+func RunPreProvision(
+	stdctx context.Context,
+	rctx *Context,
+	stack api.Stack,
+	input api.ResourceInput,
+	params pApi.ProvisionParams,
+	handler PreProvisionHandler,
+) (*scpluginv1.PreProvisionResponse, error) {
+	if rctx == nil || rctx.Pulumi == nil {
+		return nil, errors.New("runtime.RunPreProvision: nil Context — call runtime.NewContext first")
+	}
+	if handler == nil {
+		return nil, errors.New("runtime.RunPreProvision: nil handler")
+	}
+	collector := &Collector{owner: rctx}
+	if err := handler(rctx.Pulumi, stack, input, collector, params); err != nil {
+		return nil, err
+	}
+	if err := collector.awaitOutputs(stdctx); err != nil {
+		return nil, err
+	}
+	resp := collector.toResponse()
+	// PreProvisionResponse carries the same shape (tpl extensions +
+	// env vars) as ComputeProcessResponse but omits the deprecated
+	// placeholder/urn fields. Translate.
+	out := &scpluginv1.PreProvisionResponse{
+		TplExtensions: resp.GetTplExtensions(),
+		EnvVars:       resp.GetEnvVars(),
+	}
+	return out, nil
+}

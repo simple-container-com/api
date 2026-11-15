@@ -426,3 +426,94 @@ func (collectorTestMocks) NewResource(args sdk.MockResourceArgs) (string, resour
 func (collectorTestMocks) Call(args sdk.MockCallArgs) (resource.PropertyMap, error) {
 	return args.Args, nil
 }
+
+// TestRunPreProvision_NilContext — defensive guard on the public API:
+// a nil runtime.Context must return a clear error rather than crashing
+// inside the collector mutex.
+func TestRunPreProvision_NilContext(t *testing.T) {
+	_, err := RunPreProvision(
+		context.Background(), nil,
+		api.Stack{Name: "s"},
+		api.ResourceInput{Descriptor: &api.ResourceDescriptor{Type: "sc-backup", Name: "my-backup"}},
+		pApi.ProvisionParams{},
+		func(*sdk.Context, api.Stack, api.ResourceInput, pApi.ComputeContextCollector, pApi.ProvisionParams) error {
+			return nil
+		},
+	)
+	if err == nil {
+		t.Fatal("expected error for nil Context")
+	}
+}
+
+// TestRunPreProvision_NilHandler — defensive: nil handler refused.
+func TestRunPreProvision_NilHandler(t *testing.T) {
+	rctx := &Context{Pulumi: &sdk.Context{}}
+	_, err := RunPreProvision(
+		context.Background(), rctx,
+		api.Stack{Name: "s"},
+		api.ResourceInput{Descriptor: &api.ResourceDescriptor{Type: "sc-backup", Name: "my-backup"}},
+		pApi.ProvisionParams{},
+		nil,
+	)
+	if err == nil {
+		t.Fatal("expected error for nil handler")
+	}
+}
+
+// TestRunPreProvision_SyncMutations — the handler lands tpl
+// extensions + env vars on the collector; the response carries them
+// through unchanged. Shape mirrors TestRunComputeProcess_SyncMutations.
+func TestRunPreProvision_SyncMutations(t *testing.T) {
+	t.Parallel()
+	rctx := &Context{Pulumi: &sdk.Context{}}
+	resp, err := RunPreProvision(
+		context.Background(), rctx,
+		api.Stack{Name: "consumer-stack"},
+		api.ResourceInput{Descriptor: &api.ResourceDescriptor{Type: "sc-backup", Name: "my-backup"}},
+		pApi.ProvisionParams{},
+		func(_ *sdk.Context, _ api.Stack, _ api.ResourceInput, collector pApi.ComputeContextCollector, _ pApi.ProvisionParams) error {
+			collector.AddResourceTplExtension("my-backup", map[string]string{
+				"subnets-csv":         "subnet-a,subnet-b",
+				"security-groups-csv": "sg-xyz",
+			})
+			collector.AddEnvVariableIfNotExist(
+				"BACKUP_ECS_SUBNETS", "subnet-a,subnet-b",
+				"sc-backup", "my-backup", "consumer-stack",
+			)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("RunPreProvision: %v", err)
+	}
+	if len(resp.TplExtensions) != 1 {
+		t.Fatalf("TplExtensions = %d, want 1", len(resp.TplExtensions))
+	}
+	if resp.TplExtensions[0].ResName != "my-backup" {
+		t.Errorf("ResName = %q, want my-backup", resp.TplExtensions[0].ResName)
+	}
+	if len(resp.EnvVars) != 1 {
+		t.Fatalf("EnvVars = %d, want 1", len(resp.EnvVars))
+	}
+	if resp.EnvVars[0].Name != "BACKUP_ECS_SUBNETS" {
+		t.Errorf("EnvVars[0].Name = %q, want BACKUP_ECS_SUBNETS", resp.EnvVars[0].Name)
+	}
+}
+
+// TestRunPreProvision_HandlerError — a handler error propagates and
+// no response is returned.
+func TestRunPreProvision_HandlerError(t *testing.T) {
+	rctx := &Context{Pulumi: &sdk.Context{}}
+	_, err := RunPreProvision(
+		context.Background(), rctx,
+		api.Stack{Name: "s"},
+		api.ResourceInput{Descriptor: &api.ResourceDescriptor{Type: "sc-backup", Name: "my-backup"}},
+		pApi.ProvisionParams{},
+		func(*sdk.Context, api.Stack, api.ResourceInput, pApi.ComputeContextCollector, pApi.ProvisionParams) error {
+			return errors.New("lookup failed")
+		},
+	)
+	if err == nil || err.Error() != "lookup failed" {
+		t.Fatalf("expected handler error to surface, got %v", err)
+	}
+}
