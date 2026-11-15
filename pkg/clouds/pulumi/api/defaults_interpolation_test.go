@@ -288,6 +288,140 @@ func TestInterpolateDefaults_RoundTripWithMerge(t *testing.T) {
 	}
 }
 
+// TestInterpolateDefaults_ParentResolver_ResolvesAllTokens — happy
+// path for the Tier-3 parent-outputs follow-up: a plugin default
+// references `${parent:<resource>.<field>}`; the dispatcher-supplied
+// resolver returns the matching parent-stack output string; result
+// has the value spliced in.
+func TestInterpolateDefaults_ParentResolver_ResolvesAllTokens(t *testing.T) {
+	defaults := map[string]any{
+		"worker": map[string]any{
+			"subnetIds":        "$$sc:${parent:default-vpc.subnets}",
+			"securityGroupIds": "$$sc:${parent:default-vpc.fargate-sg}",
+		},
+		"storage": map[string]any{
+			"bucket": "$$sc:${parent:default-storage.bucket-name}",
+		},
+	}
+	resolver := func(resource, field string) (string, bool) {
+		switch resource + "." + field {
+		case "default-vpc.subnets":
+			return "subnet-aaa,subnet-bbb", true
+		case "default-vpc.fargate-sg":
+			return "sg-xxx", true
+		case "default-storage.bucket-name":
+			return "fleet-backup-archives", true
+		}
+		return "", false
+	}
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentResolver: resolver})
+
+	w := got["worker"].(map[string]any)
+	if w["subnetIds"] != "subnet-aaa,subnet-bbb" {
+		t.Errorf("subnets: %v", w["subnetIds"])
+	}
+	if w["securityGroupIds"] != "sg-xxx" {
+		t.Errorf("sg: %v", w["securityGroupIds"])
+	}
+	s := got["storage"].(map[string]any)
+	if s["bucket"] != "fleet-backup-archives" {
+		t.Errorf("bucket: %v", s["bucket"])
+	}
+}
+
+// TestInterpolateDefaults_ParentResolver_UnknownResource — resolver
+// returns ok=false; token stays in place AND the sentinel is retained
+// so the dispatched template can log the gap.
+func TestInterpolateDefaults_ParentResolver_UnknownResource(t *testing.T) {
+	defaults := map[string]any{"k": "$$sc:${parent:unknown-res.field}"}
+	resolver := func(resource, field string) (string, bool) { return "", false }
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentResolver: resolver})
+	if got["k"] != "$$sc:${parent:unknown-res.field}" {
+		t.Errorf("unknown parent resource should keep sentinel + token: got %v", got["k"])
+	}
+}
+
+// TestInterpolateDefaults_ParentResolver_NilResolver — older dispatcher
+// without a resolver wired. Parent tokens stay in place with the
+// sentinel retained (today's behaviour before this slice). Regression
+// guard against the parent-path breaking existing plugins.
+func TestInterpolateDefaults_ParentResolver_NilResolver(t *testing.T) {
+	defaults := map[string]any{"k": "$$sc:${parent:a.b}"}
+	got := InterpolateDefaults(defaults, DefaultsContext{})
+	if got["k"] != "$$sc:${parent:a.b}" {
+		t.Errorf("nil resolver should leave parent tokens with sentinel: got %v", got["k"])
+	}
+}
+
+// TestInterpolateDefaults_ParentResolver_MixedTokens — one string
+// references both a self-derived token AND a parent token. Both resolve;
+// sentinel drops because no `${parent:…}` remains.
+func TestInterpolateDefaults_ParentResolver_MixedTokens(t *testing.T) {
+	defaults := map[string]any{
+		"bucket": "$$sc:sc-backup-${name}-${env}-${parent:default-storage.bucket-suffix}",
+	}
+	resolver := func(resource, field string) (string, bool) {
+		if resource == "default-storage" && field == "bucket-suffix" {
+			return "archives", true
+		}
+		return "", false
+	}
+	got := InterpolateDefaults(defaults, DefaultsContext{
+		Name: "my-backup", Env: "prod", ParentResolver: resolver,
+	})
+	if got["bucket"] != "sc-backup-my-backup-prod-archives" {
+		t.Errorf("mixed: %v", got["bucket"])
+	}
+}
+
+// TestInterpolateDefaults_ParentResolver_MalformedToken — a token
+// without a `.` separator inside is malformed; the parser leaves it in
+// place (fail-open) without calling the resolver.
+func TestInterpolateDefaults_ParentResolver_MalformedToken(t *testing.T) {
+	called := false
+	resolver := func(resource, field string) (string, bool) {
+		called = true
+		return "should-not-return", true
+	}
+	// No dot inside.
+	defaults := map[string]any{"k": "$$sc:${parent:nodotshere}"}
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentResolver: resolver})
+	if called {
+		t.Error("resolver must not be called for malformed token (no `.`)")
+	}
+	if got["k"] != "$$sc:${parent:nodotshere}" {
+		t.Errorf("malformed: %v", got["k"])
+	}
+}
+
+// TestInterpolateDefaults_ParentResolver_UnclosedToken — a token
+// without a `}` is malformed; parser doesn't infinite-loop + leaves
+// the rest of the string as-is.
+func TestInterpolateDefaults_ParentResolver_UnclosedToken(t *testing.T) {
+	resolver := func(string, string) (string, bool) { return "", true }
+	defaults := map[string]any{"k": "$$sc:${parent:res.field-without-close"}
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentResolver: resolver})
+	// The `${parent:` prefix remains, so sentinel retained.
+	if got["k"] != "$$sc:${parent:res.field-without-close" {
+		t.Errorf("unclosed: %v", got["k"])
+	}
+}
+
+// TestSubstituteParentTokens_MultipleInOneString — more than one
+// `${parent:…}` token in a single string. Each resolves independently.
+func TestSubstituteParentTokens_MultipleInOneString(t *testing.T) {
+	resolver := func(resource, field string) (string, bool) {
+		return resource + "-" + field, true
+	}
+	defaults := map[string]any{
+		"k": "$$sc:a=${parent:x.y} b=${parent:p.q}",
+	}
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentResolver: resolver})
+	if got["k"] != "a=x-y b=p-q" {
+		t.Errorf("multi: %v", got["k"])
+	}
+}
+
 // Shape guard: ensure the public-ish shape is stable + tests don't
 // drift silently.
 func TestDefaultsContext_ShapeIsExhaustive(t *testing.T) {
@@ -300,12 +434,13 @@ func TestDefaultsContext_ShapeIsExhaustive(t *testing.T) {
 		Stack:          "",
 		TemplateName:   "",
 		TemplateConfig: nil,
+		ParentResolver: nil,
 	}
-	// Reflection check: the exported field count stays at 5 until we
+	// Reflection check: the exported field count stays at 6 until we
 	// consciously add a new one with the corresponding token wiring.
 	ctx := DefaultsContext{}
 	typ := reflect.TypeOf(ctx)
-	if n := typ.NumField(); n != 5 {
-		t.Errorf("DefaultsContext field count changed from 5 to %d — update substituteSelfTokens/docs", n)
+	if n := typ.NumField(); n != 6 {
+		t.Errorf("DefaultsContext field count changed from 6 to %d — update substituteSelfTokens/substituteParentTokens/docs", n)
 	}
 }
