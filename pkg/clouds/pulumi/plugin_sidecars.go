@@ -1405,13 +1405,15 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 		envName = input.StackParams.Environment
 	}
 	parentResolver := parentOutputResolver(ctx, params.ParentStack)
+	parentListResolver := parentListOutputResolver(ctx, params.ParentStack)
 	merged = pApi.InterpolateDefaults(merged, pApi.DefaultsContext{
-		Name:           input.Descriptor.Name,
-		Env:            envName,
-		Stack:          stack.Name,
-		TemplateName:   tplName,
-		TemplateConfig: templateConfigMap(tpl),
-		ParentResolver: parentResolver,
+		Name:               input.Descriptor.Name,
+		Env:                envName,
+		Stack:              stack.Name,
+		TemplateName:       tplName,
+		TemplateConfig:     templateConfigMap(tpl),
+		ParentResolver:     parentResolver,
+		ParentListResolver: parentListResolver,
 	})
 
 	// Rebuild cfg from the merged Raw so mergeComponentIntoTemplate
@@ -1522,6 +1524,105 @@ func awaitStackRefString(ctx *sdk.Context, ref *sdk.StackReference, key string) 
 		return s, true
 	}
 	return "", false
+}
+
+// parentListOutputResolver is the list-shaped sibling of
+// parentOutputResolver. Resolves `${parent-list:<resource>.<field>}`
+// tokens against the parent stack's exports that are `[]any` of
+// strings.
+//
+// Same two-strategy lookup as the scalar resolver — flat-key
+// (`<resource>-<field>` returning a `[]any`) first, then map-key
+// (`<resource>` returning a map whose `<field>` is a `[]any`).
+// Element-type coercion: every element must be a string; a
+// non-string element returns ok=false (fail-open, same as scalar).
+//
+// The caller's interpolation pass REPLACES the sole-content list
+// token with the resulting `[]string` (widened to `[]any` at the
+// map leaf). Missing exports retain the sentinel so later passes can
+// complete the substitution.
+func parentListOutputResolver(ctx *sdk.Context, parent *pApi.ParentInfo) func(resource, field string) ([]string, bool) {
+	if ctx == nil || parent == nil || parent.FullReference == "" {
+		return nil
+	}
+	var (
+		stackRef *sdk.StackReference
+		dialErr  error
+		once     sync.Once
+	)
+	dial := func() {
+		stackRef, dialErr = sdk.NewStackReference(ctx, parent.FullReference, nil)
+	}
+	return func(resource, field string) ([]string, bool) {
+		once.Do(dial)
+		if dialErr != nil || stackRef == nil {
+			return nil, false
+		}
+		if v, ok := awaitStackRefStringList(stackRef, resource+"-"+field); ok {
+			return v, true
+		}
+		if v, ok := awaitStackRefMapStringList(stackRef, resource, field); ok {
+			return v, true
+		}
+		return nil, false
+	}
+}
+
+// awaitStackRefStringList reads a single exported output by key and
+// coerces its sdk.Output to `[]string`. Returns ok=false on any
+// shape mismatch (missing key, non-slice value, a non-string
+// element, empty list).
+func awaitStackRefStringList(ref *sdk.StackReference, key string) ([]string, bool) {
+	od, err := ref.GetOutputDetails(key)
+	if err != nil {
+		return nil, false
+	}
+	if list, ok := coerceStringList(od.Value); ok {
+		return list, true
+	}
+	if list, ok := coerceStringList(od.SecretValue); ok {
+		return list, true
+	}
+	return nil, false
+}
+
+// awaitStackRefMapStringList reads a map-shaped output and extracts
+// a `[]string` at the named field. Same fail-open shape as
+// awaitStackRefStringList.
+func awaitStackRefMapStringList(ref *sdk.StackReference, mapKey, field string) ([]string, bool) {
+	od, err := ref.GetOutputDetails(mapKey)
+	if err != nil {
+		return nil, false
+	}
+	m, ok := od.Value.(map[string]any)
+	if !ok {
+		m, ok = od.SecretValue.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+	}
+	return coerceStringList(m[field])
+}
+
+// coerceStringList accepts an `any` that MUST be a `[]any` of
+// strings (the stack-ref JSON-shape for a Pulumi export of a string
+// list) and returns the typed `[]string`. Rejects empty lists, nil,
+// and any non-string element — same fail-open discipline as the
+// scalar paths.
+func coerceStringList(v any) ([]string, bool) {
+	list, ok := v.([]any)
+	if !ok || len(list) == 0 {
+		return nil, false
+	}
+	out := make([]string, 0, len(list))
+	for _, el := range list {
+		s, ok := el.(string)
+		if !ok {
+			return nil, false
+		}
+		out = append(out, s)
+	}
+	return out, true
 }
 
 // awaitStackRefMapField reads a map-shaped output and extracts a

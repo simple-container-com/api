@@ -422,6 +422,147 @@ func TestSubstituteParentTokens_MultipleInOneString(t *testing.T) {
 	}
 }
 
+// TestInterpolateDefaults_ParentListResolver_SubstitutesList — happy
+// path. A sole-content `${parent-list:…}` string is replaced with a
+// `[]any` of strings at the map leaf.
+func TestInterpolateDefaults_ParentListResolver_SubstitutesList(t *testing.T) {
+	resolver := func(resource, field string) ([]string, bool) {
+		if resource == "default-vpc" && field == "subnets" {
+			return []string{"subnet-a", "subnet-b"}, true
+		}
+		return nil, false
+	}
+	defaults := map[string]any{
+		"worker": map[string]any{
+			"subnetIds": "$$sc:${parent-list:default-vpc.subnets}",
+			"cluster":   "sc-cluster",
+		},
+	}
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentListResolver: resolver})
+	w, ok := got["worker"].(map[string]any)
+	if !ok {
+		t.Fatalf("worker not a map: %T", got["worker"])
+	}
+	list, ok := w["subnetIds"].([]any)
+	if !ok {
+		t.Fatalf("subnetIds not a []any: %T = %v", w["subnetIds"], w["subnetIds"])
+	}
+	if len(list) != 2 || list[0] != "subnet-a" || list[1] != "subnet-b" {
+		t.Errorf("list contents: %v", list)
+	}
+	if w["cluster"] != "sc-cluster" {
+		t.Errorf("sibling scalar leaked: %v", w["cluster"])
+	}
+}
+
+// TestInterpolateDefaults_ParentListResolver_UnknownKey — resolver
+// returns ok=false. The sentinel is retained so a later pass can
+// complete substitution.
+func TestInterpolateDefaults_ParentListResolver_UnknownKey(t *testing.T) {
+	resolver := func(string, string) ([]string, bool) { return nil, false }
+	defaults := map[string]any{"subnetIds": "$$sc:${parent-list:default-vpc.subnets}"}
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentListResolver: resolver})
+	if got["subnetIds"] != "$$sc:${parent-list:default-vpc.subnets}" {
+		t.Errorf("unknown-key sentinel not retained: %v", got["subnetIds"])
+	}
+}
+
+// TestInterpolateDefaults_ParentListResolver_NilResolver — older
+// dispatcher wire with no list-resolver supplied. Sentinel retained.
+func TestInterpolateDefaults_ParentListResolver_NilResolver(t *testing.T) {
+	defaults := map[string]any{"subnetIds": "$$sc:${parent-list:default-vpc.subnets}"}
+	got := InterpolateDefaults(defaults, DefaultsContext{})
+	if got["subnetIds"] != "$$sc:${parent-list:default-vpc.subnets}" {
+		t.Errorf("nil resolver sentinel not retained: %v", got["subnetIds"])
+	}
+}
+
+// TestInterpolateDefaults_ParentListResolver_MixedContentUnresolved —
+// a list token is only valid as the SOLE content of a sentinel
+// string (no concat semantics for a list). Mixed content leaves the
+// string unchanged; the sentinel is retained for a later pass.
+func TestInterpolateDefaults_ParentListResolver_MixedContentUnresolved(t *testing.T) {
+	called := false
+	resolver := func(string, string) ([]string, bool) {
+		called = true
+		return []string{"a", "b"}, true
+	}
+	defaults := map[string]any{"k": "$$sc:prefix-${parent-list:x.y}"}
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentListResolver: resolver})
+	if called {
+		t.Error("resolver must not be called for mixed-content list token")
+	}
+	if got["k"] != "$$sc:prefix-${parent-list:x.y}" {
+		t.Errorf("mixed content not retained: %v", got["k"])
+	}
+}
+
+// TestInterpolateDefaults_ParentListResolver_WhitespaceAccepted —
+// surrounding whitespace around the sole token is trimmed; the
+// substitution still fires.
+func TestInterpolateDefaults_ParentListResolver_WhitespaceAccepted(t *testing.T) {
+	resolver := func(string, string) ([]string, bool) { return []string{"z"}, true }
+	defaults := map[string]any{"k": "$$sc:  ${parent-list:x.y}  "}
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentListResolver: resolver})
+	list, ok := got["k"].([]any)
+	if !ok {
+		t.Fatalf("expected []any got %T: %v", got["k"], got["k"])
+	}
+	if len(list) != 1 || list[0] != "z" {
+		t.Errorf("list: %v", list)
+	}
+}
+
+// TestInterpolateDefaults_ParentListResolver_ScalarStillWorks — the
+// scalar `${parent:…}` path keeps its string-return semantics even
+// when ParentListResolver is also supplied.
+func TestInterpolateDefaults_ParentListResolver_ScalarStillWorks(t *testing.T) {
+	scalar := func(resource, field string) (string, bool) {
+		return "scalar-" + resource + "-" + field, true
+	}
+	listR := func(string, string) ([]string, bool) { return []string{"l"}, true }
+	defaults := map[string]any{
+		"scalarK": "$$sc:${parent:r.f}",
+		"listK":   "$$sc:${parent-list:r.f}",
+	}
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentResolver: scalar, ParentListResolver: listR})
+	if got["scalarK"] != "scalar-r-f" {
+		t.Errorf("scalar: %v", got["scalarK"])
+	}
+	if list, ok := got["listK"].([]any); !ok || len(list) != 1 || list[0] != "l" {
+		t.Errorf("list: %T = %v", got["listK"], got["listK"])
+	}
+}
+
+// TestInterpolateDefaults_ParentListResolver_MalformedBody — a
+// list-token body without a `.` or with an empty resource/field
+// doesn't call the resolver + retains the sentinel.
+func TestInterpolateDefaults_ParentListResolver_MalformedBody(t *testing.T) {
+	called := false
+	resolver := func(string, string) ([]string, bool) {
+		called = true
+		return []string{"x"}, true
+	}
+	defaults := map[string]any{
+		"noDot":    "$$sc:${parent-list:nodothere}",
+		"emptyLHS": "$$sc:${parent-list:.field}",
+		"emptyRHS": "$$sc:${parent-list:res.}",
+	}
+	got := InterpolateDefaults(defaults, DefaultsContext{ParentListResolver: resolver})
+	if called {
+		t.Error("resolver must not be called for malformed list token")
+	}
+	for k, want := range map[string]string{
+		"noDot":    "$$sc:${parent-list:nodothere}",
+		"emptyLHS": "$$sc:${parent-list:.field}",
+		"emptyRHS": "$$sc:${parent-list:res.}",
+	} {
+		if got[k] != want {
+			t.Errorf("%s: got %v, want %v", k, got[k], want)
+		}
+	}
+}
+
 // Shape guard: ensure the public-ish shape is stable + tests don't
 // drift silently.
 func TestDefaultsContext_ShapeIsExhaustive(t *testing.T) {
@@ -429,18 +570,19 @@ func TestDefaultsContext_ShapeIsExhaustive(t *testing.T) {
 	// DefaultsContext and the token substitution path + docs need
 	// updating to match.
 	_ = DefaultsContext{
-		Name:           "",
-		Env:            "",
-		Stack:          "",
-		TemplateName:   "",
-		TemplateConfig: nil,
-		ParentResolver: nil,
+		Name:               "",
+		Env:                "",
+		Stack:              "",
+		TemplateName:       "",
+		TemplateConfig:     nil,
+		ParentResolver:     nil,
+		ParentListResolver: nil,
 	}
-	// Reflection check: the exported field count stays at 6 until we
+	// Reflection check: the exported field count stays at 7 until we
 	// consciously add a new one with the corresponding token wiring.
 	ctx := DefaultsContext{}
 	typ := reflect.TypeOf(ctx)
-	if n := typ.NumField(); n != 6 {
-		t.Errorf("DefaultsContext field count changed from 6 to %d — update substituteSelfTokens/substituteParentTokens/docs", n)
+	if n := typ.NumField(); n != 7 {
+		t.Errorf("DefaultsContext field count changed from 7 to %d — update substituteSelfTokens/substituteParentTokens/substituteSoleParentListToken/docs", n)
 	}
 }
