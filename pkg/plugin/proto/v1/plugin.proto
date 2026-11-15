@@ -384,6 +384,29 @@ message SchemaResponse {
   // documented in each plugin's README. SC core does not interpret
   // the payload JSON beyond routing.
   repeated string peer_capabilities = 16;
+
+  // Whether the plugin implements the PreProvision RPC — the
+  // generic "lookup now, land values on the ComputeContextCollector
+  // before template dispatch" seam. A plugin opts in by implementing
+  // the RPC in its runtime and setting this to true in Schema.
+  //
+  // SC core's component dispatch calls PreProvision ONLY when this
+  // flag is true AND the resource type is a Component
+  // (`IsComponentResourceType`). Non-component resources skip it;
+  // older plugin binaries (flag defaults to false) skip it
+  // regardless. The RPC runs in the plugin's Pulumi context (same
+  // shape as Provision), so cloud SDK lookups are legal — SC core
+  // itself remains cloud-blind.
+  //
+  // Design: forge/docs/design/2026-11-15/plugin-preprovision-rpc/README.md.
+  //
+  // First adopter: sc-component-backup for the `deployTo: lambda`
+  // branch — looks up the AWS account's default VPC subnets + a
+  // default Fargate SG and returns them as template extensions so
+  // `${resource:${name}.subnets-csv}` in env defaults resolves to
+  // the account's real values. Removes the operator's
+  // `env.BACKUP_ECS_SUBNETS`/`BACKUP_ECS_SECURITY_GROUPS` writeout.
+  bool supports_pre_provision = 17;
 }
 
 // StringList is a repeated-string wrapper so `component_allowed_overrides`
@@ -669,6 +692,72 @@ message PluginInvokeResponse {
   // Opaque JSON reply — schema is capability-specific. Target
   // plugin marshals its typed reply struct here.
   bytes reply_json = 1;
+}
+
+// PreProvisionRequest fires on a Component resource (one whose type
+// is in `component_resource_types`) BEFORE
+// `dispatchComponentTemplate` runs the operator-chosen template's
+// ProvisionFunc. Lets the plugin run cloud-SDK lookups in its own
+// Pulumi context and return values SC core registers on the shared
+// `pApi.ComputeContextCollector` — so a `${resource:<name>.<key>}`
+// reference in the merged env map resolves to the plugin's looked-up
+// value when `collector.ResolvePlaceholders` next walks the config
+// (either the deploy-time pass at deploy.go:202 or an idempotent
+// re-pass SC core runs after PreProvision inside the dispatch).
+//
+// Why needed: the existing component dispatch runs
+// `dispatchComponentTemplate` FIRST (plugin_sidecars.go:106) then
+// the plugin's own `Provision` RPC with the dispatched template's
+// URL on `DependencyOutputs`. That sequence leaves plugin-side
+// lookups too late to inject into the Lambda's env map, which is
+// set at Lambda-create time. PreProvision closes the ordering gap
+// without requiring SC core to speak any cloud SDK.
+//
+// Opt-in: plugins advertise via `SchemaResponse.supports_pre_provision
+// = true`. Non-advertisers (and non-Component resources) skip the
+// RPC entirely — zero wire cost.
+message PreProvisionRequest {
+  RequestHeader header = 1;
+
+  // Resource type + name being provisioned (mirrors ProvisionRequest).
+  // The plugin uses these to key its template extensions so
+  // `${resource:<resource_name>.<key>}` refers to this instance.
+  string resource_type = 2;
+  string resource_name = 3;
+
+  // JSON of the component's merged `.Raw` map — the same payload
+  // ProvisionRequest.component_raw carries, taken AFTER
+  // ComponentDefaults merge + self-token + parent-token
+  // interpolation. The plugin reads it to decide what lookups to
+  // run (e.g. `deployTo: lambda` triggers AWS VPC lookup; other
+  // deployTo values may be no-ops).
+  bytes component_raw = 4;
+
+  // ParentStack facts — same JSON shape as
+  // ComputeProcessRequest.parent_info_json. The plugin uses this
+  // to open sdk.NewStackReference for the parent stack when a
+  // lookup needs parent-stack context (e.g. the ECS cluster ARN
+  // the task should run on lives on the parent).
+  bytes parent_info_json = 5;
+}
+
+message PreProvisionResponse {
+  // Template extension values SC core registers on the shared
+  // collector via `AddResourceTplExtension` / `AddDependencyTplExtension`.
+  // Same proto message ComputeProcessResponse uses; same semantics —
+  // but the values are resolved in the plugin's Pulumi context
+  // rather than during compute-processor dispatch, so cloud SDK
+  // calls (e.g. ec2.LookupSubnets) are legal.
+  repeated TemplateExtension tpl_extensions = 1;
+
+  // Env variables the plugin wants injected on the dispatched
+  // template, bypassing the `${resource:…}` placeholder step. Same
+  // shape + sidecar handling as ComputeProcessResponse.env_vars.
+  // Use case: a plugin that just wants to emit a fixed env var
+  // whose value came from a cloud lookup — no placeholder machinery
+  // involved. Merged via `AddEnvVariableIfNotExist` /
+  // `AddSecretEnvVariableIfNotExist` (same precedence rules).
+  repeated ComputeEnvVariable env_vars = 2;
 }
 
 message ComputeProcessResponse {
@@ -1283,6 +1372,17 @@ service SCCloudPlugin {
   rpc Provider(ProviderRequest) returns (ProviderResponse);
   rpc Provision(ProvisionRequest) returns (ProvisionResponse);
   rpc ComputeProcess(ComputeProcessRequest) returns (ComputeProcessResponse);
+  // PreProvision — the generic "lookup before template dispatch"
+  // seam. Fires on a Component resource (IsComponentResourceType)
+  // ONLY when the plugin advertises
+  // `SchemaResponse.supports_pre_provision = true`. The RPC runs
+  // in the plugin's Pulumi context (same wire pattern as
+  // Provision), so cloud-SDK lookups are legal. SC core remains
+  // cloud-blind: it only transports the returned template
+  // extensions + env vars onto the shared
+  // ComputeContextCollector. See
+  // forge/docs/design/2026-11-15/plugin-preprovision-rpc/.
+  rpc PreProvision(PreProvisionRequest) returns (PreProvisionResponse);
   // ConvertStackConfig — the plugin's typed Input converter, lifted
   // out of SC-core-side cloud{SingleImage,Compose,StaticSite}ConverterMapping.
   // Called once per deploy per client stack whose template type is

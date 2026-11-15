@@ -382,6 +382,18 @@ func (b *preEnginePluginBundle) RegisterSidecars() error {
 			pApi.RegisterPeerCapability(pluginName, cap)
 		}
 
+		// PreProvision opt-in: plugins that implement the
+		// PreProvision RPC advertise via `supports_pre_provision =
+		// true`. SC core's resource sidecar dials the RPC only when
+		// this flag is set AND the resource is a Component
+		// (IsComponentResourceType). Pre-field binaries default to
+		// false — SC core never dials, same backward-compat shape as
+		// peer capabilities. See
+		// forge/docs/design/2026-11-15/plugin-preprovision-rpc/.
+		if schema.GetSupportsPreProvision() {
+			pApi.RegisterPreProvisionSupport(pluginName)
+		}
+
 		// Provider types: in-engine, needs monitor address.
 		for _, t := range schema.GetProviderTypes() {
 			typeToken := t

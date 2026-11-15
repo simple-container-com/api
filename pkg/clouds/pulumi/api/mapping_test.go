@@ -230,3 +230,26 @@ func TestGetComponentDefaults_IsolatedCopy(t *testing.T) {
 		t.Errorf("caller mutation bled into registry: %s", again)
 	}
 }
+
+// TestRegisterPreProvisionSupport_Lookup — advertised plugin recorded
+// and visible via PluginSupportsPreProvision.
+func TestRegisterPreProvisionSupport_Lookup(t *testing.T) {
+	t.Cleanup(func() { delete(PreProvisionSupport, "test-pre-provision-plugin") })
+
+	RegisterPreProvisionSupport("test-pre-provision-plugin")
+	if !PluginSupportsPreProvision("test-pre-provision-plugin") {
+		t.Error("registered plugin not visible via PluginSupportsPreProvision")
+	}
+	if PluginSupportsPreProvision("unknown-plugin") {
+		t.Error("unknown plugin must not advertise PreProvision")
+	}
+}
+
+// TestRegisterPreProvisionSupport_EmptyNoOp — empty plugin name no-ops.
+func TestRegisterPreProvisionSupport_EmptyNoOp(t *testing.T) {
+	t.Cleanup(func() { delete(PreProvisionSupport, "") })
+	RegisterPreProvisionSupport("")
+	if _, ok := PreProvisionSupport[""]; ok {
+		t.Error("empty plugin name registered a phantom entry")
+	}
+}

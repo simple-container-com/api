@@ -210,6 +210,30 @@ func HasPeerCapability(pluginName, capability string) bool {
 	return ok
 }
 
+// PreProvisionSupport records, per plugin name, whether the plugin's
+// Schema advertised `supports_pre_provision = true`. Populated at
+// plugin-load time by preEnginePluginBundle.RegisterSidecars from the
+// Schema response. Plugins that pre-date the field default to false
+// — SC core's dispatch skips the PreProvision RPC entirely for them.
+var PreProvisionSupport = map[string]bool{}
+
+// RegisterPreProvisionSupport marks the given plugin name as
+// implementing the PreProvision RPC. Empty input is a no-op.
+func RegisterPreProvisionSupport(pluginName string) {
+	if pluginName == "" {
+		return
+	}
+	PreProvisionSupport[pluginName] = true
+}
+
+// PluginSupportsPreProvision reports whether the plugin has
+// advertised PreProvision support — gates the dispatch-site call so
+// older plugin binaries (and plugins that chose not to implement the
+// RPC) are never dialled for it.
+func PluginSupportsPreProvision(pluginName string) bool {
+	return PreProvisionSupport[pluginName]
+}
+
 // RegisterComponentDefaults records the plugin's default `.Raw` for a
 // Component resource type. Called by preEnginePluginBundle.RegisterSidecars
 // from SchemaResponse.component_defaults. Empty / nil input is a no-op so

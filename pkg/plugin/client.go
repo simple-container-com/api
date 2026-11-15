@@ -220,6 +220,17 @@ func (c *Client) ComputeProcess(ctx context.Context, req *scpluginv1.ComputeProc
 	return c.stub.ComputeProcess(ctx, req)
 }
 
+// PreProvision calls through to the plugin's PreProvision RPC — fired
+// by SC core's component dispatch when the plugin advertises
+// `SchemaResponse.supports_pre_provision = true` and the resource is
+// a Component (`IsComponentResourceType`). The plugin runs cloud-SDK
+// lookups in its own Pulumi context and returns tpl extensions +
+// env vars SC core registers on the shared ComputeContextCollector.
+func (c *Client) PreProvision(ctx context.Context, req *scpluginv1.PreProvisionRequest) (*scpluginv1.PreProvisionResponse, error) {
+	c.stampHeader(req.GetHeader())
+	return c.stub.PreProvision(ctx, req)
+}
+
 // ConvertStackConfig asks the plugin to turn a merged StackConfig*
 // into its typed Input. SC core dials this when
 // api.IsPluginOwnedType(templateType) returns a binding whose

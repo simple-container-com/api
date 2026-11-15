@@ -46,6 +46,7 @@ const (
 	SCCloudPlugin_Provider_FullMethodName                   = "/sc.plugin.v1.SCCloudPlugin/Provider"
 	SCCloudPlugin_Provision_FullMethodName                  = "/sc.plugin.v1.SCCloudPlugin/Provision"
 	SCCloudPlugin_ComputeProcess_FullMethodName             = "/sc.plugin.v1.SCCloudPlugin/ComputeProcess"
+	SCCloudPlugin_PreProvision_FullMethodName               = "/sc.plugin.v1.SCCloudPlugin/PreProvision"
 	SCCloudPlugin_ConvertStackConfig_FullMethodName         = "/sc.plugin.v1.SCCloudPlugin/ConvertStackConfig"
 	SCCloudPlugin_ProvisionRegistrar_FullMethodName         = "/sc.plugin.v1.SCCloudPlugin/ProvisionRegistrar"
 	SCCloudPlugin_NewDnsRecord_FullMethodName               = "/sc.plugin.v1.SCCloudPlugin/NewDnsRecord"
@@ -72,6 +73,17 @@ type SCCloudPluginClient interface {
 	Provider(ctx context.Context, in *ProviderRequest, opts ...grpc.CallOption) (*ProviderResponse, error)
 	Provision(ctx context.Context, in *ProvisionRequest, opts ...grpc.CallOption) (*ProvisionResponse, error)
 	ComputeProcess(ctx context.Context, in *ComputeProcessRequest, opts ...grpc.CallOption) (*ComputeProcessResponse, error)
+	// PreProvision — the generic "lookup before template dispatch"
+	// seam. Fires on a Component resource (IsComponentResourceType)
+	// ONLY when the plugin advertises
+	// `SchemaResponse.supports_pre_provision = true`. The RPC runs
+	// in the plugin's Pulumi context (same wire pattern as
+	// Provision), so cloud-SDK lookups are legal. SC core remains
+	// cloud-blind: it only transports the returned template
+	// extensions + env vars onto the shared
+	// ComputeContextCollector. See
+	// forge/docs/design/2026-11-15/plugin-preprovision-rpc/.
+	PreProvision(ctx context.Context, in *PreProvisionRequest, opts ...grpc.CallOption) (*PreProvisionResponse, error)
 	// ConvertStackConfig — the plugin's typed Input converter, lifted
 	// out of SC-core-side cloud{SingleImage,Compose,StaticSite}ConverterMapping.
 	// Called once per deploy per client stack whose template type is
@@ -184,6 +196,16 @@ func (c *sCCloudPluginClient) ComputeProcess(ctx context.Context, in *ComputePro
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(ComputeProcessResponse)
 	err := c.cc.Invoke(ctx, SCCloudPlugin_ComputeProcess_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sCCloudPluginClient) PreProvision(ctx context.Context, in *PreProvisionRequest, opts ...grpc.CallOption) (*PreProvisionResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(PreProvisionResponse)
+	err := c.cc.Invoke(ctx, SCCloudPlugin_PreProvision_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -304,6 +326,17 @@ type SCCloudPluginServer interface {
 	Provider(context.Context, *ProviderRequest) (*ProviderResponse, error)
 	Provision(context.Context, *ProvisionRequest) (*ProvisionResponse, error)
 	ComputeProcess(context.Context, *ComputeProcessRequest) (*ComputeProcessResponse, error)
+	// PreProvision — the generic "lookup before template dispatch"
+	// seam. Fires on a Component resource (IsComponentResourceType)
+	// ONLY when the plugin advertises
+	// `SchemaResponse.supports_pre_provision = true`. The RPC runs
+	// in the plugin's Pulumi context (same wire pattern as
+	// Provision), so cloud-SDK lookups are legal. SC core remains
+	// cloud-blind: it only transports the returned template
+	// extensions + env vars onto the shared
+	// ComputeContextCollector. See
+	// forge/docs/design/2026-11-15/plugin-preprovision-rpc/.
+	PreProvision(context.Context, *PreProvisionRequest) (*PreProvisionResponse, error)
 	// ConvertStackConfig — the plugin's typed Input converter, lifted
 	// out of SC-core-side cloud{SingleImage,Compose,StaticSite}ConverterMapping.
 	// Called once per deploy per client stack whose template type is
@@ -379,6 +412,9 @@ func (UnimplementedSCCloudPluginServer) Provision(context.Context, *ProvisionReq
 }
 func (UnimplementedSCCloudPluginServer) ComputeProcess(context.Context, *ComputeProcessRequest) (*ComputeProcessResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ComputeProcess not implemented")
+}
+func (UnimplementedSCCloudPluginServer) PreProvision(context.Context, *PreProvisionRequest) (*PreProvisionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method PreProvision not implemented")
 }
 func (UnimplementedSCCloudPluginServer) ConvertStackConfig(context.Context, *ConvertStackConfigRequest) (*ConvertStackConfigResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ConvertStackConfig not implemented")
@@ -532,6 +568,24 @@ func _SCCloudPlugin_ComputeProcess_Handler(srv interface{}, ctx context.Context,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(SCCloudPluginServer).ComputeProcess(ctx, req.(*ComputeProcessRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _SCCloudPlugin_PreProvision_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PreProvisionRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SCCloudPluginServer).PreProvision(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: SCCloudPlugin_PreProvision_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SCCloudPluginServer).PreProvision(ctx, req.(*PreProvisionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -721,6 +775,10 @@ var SCCloudPlugin_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ComputeProcess",
 			Handler:    _SCCloudPlugin_ComputeProcess_Handler,
+		},
+		{
+			MethodName: "PreProvision",
+			Handler:    _SCCloudPlugin_PreProvision_Handler,
 		},
 		{
 			MethodName: "ConvertStackConfig",
