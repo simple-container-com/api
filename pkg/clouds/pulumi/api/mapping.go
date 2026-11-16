@@ -245,6 +245,62 @@ func RegisterComponentDefaults(resourceType string, defaultsJSON []byte) {
 	ComponentDefaults[resourceType] = append([]byte(nil), defaultsJSON...)
 }
 
+// ComponentSecretEnvMap records, per Component resource type, the
+// plugin's `{<secret-field-on-config>: <ENV_VAR_NAME>}` mapping. SC
+// core's Component dispatch sidecar reads the Schema advertisement
+// (`SchemaResponse.component_secret_env_map`) and populates this
+// map at plugin-load time; the template-side overlay (e.g.
+// sc-plugin-aws/plugin/internal/component_raw.go) then translates
+// each populated field on the operator's `.Raw` into
+// `cfg.Secrets[<ENV_VAR>]`.
+//
+// Why keyed by resource type rather than plugin name: two plugins
+// could, in principle, advertise the same Component type (they
+// won't in practice — `supports_component` takes exclusive
+// ownership — but the shape stays symmetric with the rest of the
+// Component registries here). Lookup is O(1) on the type.
+var ComponentSecretEnvMap = map[string]map[string]string{}
+
+// RegisterComponentSecretEnvMap records the plugin's secret-env
+// mapping for one Component resource type. Called by
+// preEnginePluginBundle.RegisterSidecars from
+// SchemaResponse.component_secret_env_map. Empty inputs are no-ops.
+//
+// Repeated calls for the same resource type merge; later calls
+// win per-key. Plugins should keep the Schema value authoritative
+// — the merge is defensive.
+func RegisterComponentSecretEnvMap(resourceType string, mapping map[string]string) {
+	if resourceType == "" || len(mapping) == 0 {
+		return
+	}
+	existing := ComponentSecretEnvMap[resourceType]
+	if existing == nil {
+		existing = map[string]string{}
+	}
+	for k, v := range mapping {
+		if k == "" || v == "" {
+			continue
+		}
+		existing[k] = v
+	}
+	ComponentSecretEnvMap[resourceType] = existing
+}
+
+// GetComponentSecretEnvMap returns a copy of the plugin's declared
+// secret-env mapping for a Component resource type. Returns nil
+// when the plugin advertised none.
+func GetComponentSecretEnvMap(resourceType string) map[string]string {
+	m, ok := ComponentSecretEnvMap[resourceType]
+	if !ok {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
 // GetComponentDefaults returns a copy of the plugin's declared default
 // `.Raw` for a Component resource type. Nil when the plugin advertised
 // none (or hasn't loaded yet).

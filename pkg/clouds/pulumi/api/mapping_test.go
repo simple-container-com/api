@@ -253,3 +253,54 @@ func TestRegisterPreProvisionSupport_EmptyNoOp(t *testing.T) {
 		t.Error("empty plugin name registered a phantom entry")
 	}
 }
+
+// TestRegisterComponentSecretEnvMap_Lookup — advertised mapping is
+// retrievable via GetComponentSecretEnvMap. Multiple registrations
+// merge; empty inputs are no-ops.
+func TestRegisterComponentSecretEnvMap_Lookup(t *testing.T) {
+	t.Cleanup(func() { delete(ComponentSecretEnvMap, "sc-test-secret-env") })
+
+	RegisterComponentSecretEnvMap("sc-test-secret-env", map[string]string{
+		"signingKey":       "SERVICE_JWT_SECRET",
+		"operatorPassword": "BACKUP_OPERATOR_PASSWORD",
+	})
+	got := GetComponentSecretEnvMap("sc-test-secret-env")
+	if got["signingKey"] != "SERVICE_JWT_SECRET" || got["operatorPassword"] != "BACKUP_OPERATOR_PASSWORD" {
+		t.Errorf("mapping not registered: %v", got)
+	}
+	// Second register merges per-key.
+	RegisterComponentSecretEnvMap("sc-test-secret-env", map[string]string{
+		"anotherSecret": "ANOTHER_ENV",
+	})
+	got = GetComponentSecretEnvMap("sc-test-secret-env")
+	if got["signingKey"] != "SERVICE_JWT_SECRET" {
+		t.Errorf("merge dropped earlier key: %v", got)
+	}
+	if got["anotherSecret"] != "ANOTHER_ENV" {
+		t.Errorf("merge missed later key: %v", got)
+	}
+	// Mutation-isolation: returned map is a copy.
+	got["signingKey"] = "mutated"
+	again := GetComponentSecretEnvMap("sc-test-secret-env")
+	if again["signingKey"] != "SERVICE_JWT_SECRET" {
+		t.Errorf("caller mutation leaked: %v", again)
+	}
+}
+
+// TestRegisterComponentSecretEnvMap_EmptyNoOp — empty resource type
+// or empty mapping both skip without creating phantom entries.
+func TestRegisterComponentSecretEnvMap_EmptyNoOp(t *testing.T) {
+	t.Cleanup(func() { delete(ComponentSecretEnvMap, "sc-test-secret-env-empty") })
+
+	RegisterComponentSecretEnvMap("", map[string]string{"k": "v"})
+	if _, ok := ComponentSecretEnvMap[""]; ok {
+		t.Error("empty resource type registered a phantom entry")
+	}
+	RegisterComponentSecretEnvMap("sc-test-secret-env-empty", nil)
+	if _, ok := ComponentSecretEnvMap["sc-test-secret-env-empty"]; ok {
+		t.Error("nil mapping registered a phantom entry")
+	}
+	if GetComponentSecretEnvMap("not-registered") != nil {
+		t.Error("unknown resource type should return nil")
+	}
+}

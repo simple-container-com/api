@@ -356,6 +356,17 @@ func (b *preEnginePluginBundle) RegisterSidecars() error {
 					pApi.RegisterComponentDefaults(typeToken, def)
 				}
 			}
+			// ComponentSecretEnvMap: the plugin's per-Component
+			// `{secret-field: ENV_VAR}` mapping. Template plugins
+			// read pApi.GetComponentSecretEnvMap(resourceType) in
+			// their component-dispatch overlay to translate
+			// `${secret:...}` references on the operator's `.Raw`
+			// into Lambda env (or equivalent) secrets.
+			if m := schema.GetComponentSecretEnvMap(); m != nil {
+				if sm, ok := m[typeToken]; ok && sm != nil {
+					pApi.RegisterComponentSecretEnvMap(typeToken, sm.GetEntries())
+				}
+			}
 		}
 
 		// SupportsComponent: a SUBSET of resource_types the plugin's own
