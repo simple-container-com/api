@@ -41,6 +41,30 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+      # Action-metadata context guard. The `env` context does not exist when
+      # GitHub parses an action.yml, so an env-context expression under
+      # `runs.env` fails EVERY consumer repo at "Set up job" before a single
+      # step runs: the action file never loads at all, so the blast radius is
+      # the whole fleet rather than this repo. That is what efbb76d079 shipped
+      # — four actions broken, api@main unusable for ~75 min (forge-conductor
+      # runs 43749428441 and 43785139401 both died there). Nothing caught it:
+      # actionlint does not flag this class (verified against the broken
+      # tree), and no workflow in THIS repo consumes these actions, so the
+      # break was invisible until a downstream repo deployed. Hence the grep.
+      # Valid contexts under `runs.env` are `inputs` and `github`; to make a
+      # value caller-settable, declare an input and read it from there.
+      - name: Guard action metadata against the 'env' context
+        run: |
+          # OPEN is assembled at runtime so the dollar-brace-brace token never
+          # appears literally in this file -- not even in a comment: GitHub
+          # lexes it inside a run: block as an expression and would break THIS
+          # workflow the same way the actions were broken.
+          OPEN='$'"{{"
+          if grep -rnE "\\${OPEN}[[:space:]]*env\\." .github/actions/*/action.yml; then
+            echo "::error title=env context in action metadata::The 'env' context is unavailable when GitHub parses action.yml, so every consumer repo fails at 'Set up job' with Unrecognized named-value. Declare an input and reference it as inputs.<name> instead."
+            exit 1
+          fi
+          echo "OK: no 'env' context references in action metadata"
       - name: Get next version
         uses: reecetech/version-increment@a29aa752dc3b8118a2dc2ed93faf0e95a73a9c7e  # 2024.10.1
         id: version

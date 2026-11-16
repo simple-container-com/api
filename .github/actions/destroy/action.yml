@@ -57,6 +57,13 @@ inputs:
     description: 'Commit message'
     required: false
     default: ''
+  ssl-cert-file:
+    description: >-
+      CA bundle the container trusts (SSL_CERT_FILE). Defaults to the image's
+      own bundle, which already includes the Russian Trusted Root CA, so YC
+      callers need no CA boilerplate. Override only to pin a different store.
+    required: false
+    default: '/etc/ssl/certs/ca-certificates.crt'
 
 outputs:
   environment:
@@ -74,10 +81,11 @@ runs:
   using: 'docker'
   image: 'docker://simplecontainer/github-actions:latest'
   env:
-    # Forward the Russian Trusted Root CA bundle path from the workflow
-    # env so the yc provider inside the container can verify YC API TLS.
-    # GitHub Actions docker containers only inherit vars listed here.
-    SSL_CERT_FILE: ${{ env.SSL_CERT_FILE }}
+    # Trust store for the container. This must come from `inputs`, NOT the
+    # `env` context: action metadata is parsed before any job env exists, so
+    # an "env" context expression here fails the whole run at "Set up job" with
+    # "Unrecognized named-value: 'env'" (regression in efbb76d079, fixed in #625).
+    SSL_CERT_FILE: ${{ inputs.ssl-cert-file }}
     GITHUB_ACTION_TYPE: 'destroy'
     STACK_NAME: ${{ inputs.stack-name }}
     ENVIRONMENT: ${{ inputs.environment }}
