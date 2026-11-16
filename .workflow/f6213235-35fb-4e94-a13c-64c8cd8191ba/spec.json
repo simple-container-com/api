@@ -1,0 +1,46 @@
+{
+  "initialCharacterId": "developer",
+  "characters": [
+    {
+      "id": "developer",
+      "agentId": "0d913379-fa6c-4833-8c61-b39a94acec46",
+      "displayName": "Developer",
+      "roleHint": "developer",
+      "capabilities": {
+        "hasDocker": true,
+        "hasPersistentDisk": true,
+        "maxTurnDurationSec": 0,
+        "supportsLongLived": true,
+        "isolation": "container",
+        "egressPolicy": "open"
+      },
+      "description": "Ad-hoc Developer — auto-generated from a recorded follow-up task."
+    },
+    {
+      "id": "devops",
+      "agentId": "6a3081f3-947c-44bb-ba63-058fa5badbf3",
+      "displayName": "DevOps",
+      "roleHint": "devops_engineer",
+      "capabilities": {
+        "hasDocker": true,
+        "hasPersistentDisk": true,
+        "maxTurnDurationSec": 0,
+        "supportsLongLived": true,
+        "isolation": "container",
+        "egressPolicy": "open"
+      },
+      "description": "Ad-hoc DevOps — auto-generated from a recorded follow-up task."
+    }
+  ],
+  "transitions": [
+    {
+      "id": "t1",
+      "fromCharacterId": "developer",
+      "toCharacterId": "devops",
+      "escalationPolicy": "operator_review"
+    }
+  ],
+  "managementAgentId": "developer",
+  "enrichBudgetDefault": 2,
+  "storageMode": "linked"
+}
