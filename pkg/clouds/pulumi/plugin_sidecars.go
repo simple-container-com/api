@@ -1457,6 +1457,28 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 		}
 	}
 
+	// Generic secret-env translation (slice: Schema-declared secret-env
+	// map). The Component's owning plugin advertised
+	// `SchemaResponse.component_secret_env_map` naming which top-level
+	// `.Raw` fields hold `${secret:...}` references and which env var
+	// name the dispatched service should bind each to. Rewrite them
+	// here into `merged["secrets"]` so the template's ProvisionFunc
+	// overlay can pass them through verbatim to `cfg.Secrets` — which
+	// the Lambda / compose provisioner then wires to a per-function
+	// SecretsManager entry (never a plain env var at rest), matching
+	// the fleet secret-handling convention.
+	//
+	// Pre-field plugins advertise nothing and the registry is empty for
+	// this resource type — translation is a no-op and any existing
+	// template-side hardcoded path (sc-plugin-aws's historical
+	// signingKey → SERVICE_JWT_SECRET block) keeps working unchanged.
+	//
+	// Operator wins: a `secrets:` entry the operator already wrote
+	// under the Component (unusual, but legal if the plugin's
+	// allowlist permits it) is preserved against the plugin's
+	// declared mapping.
+	applyComponentSecretEnvMap(input.Descriptor.Type, merged)
+
 	// Rebuild cfg from the merged Raw so mergeComponentIntoTemplate
 	// (and any downstream read via cfg) sees defaulted values.
 	mergedCfg, err := api.NewComponentConfig(merged)
