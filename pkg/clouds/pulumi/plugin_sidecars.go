@@ -1546,7 +1546,25 @@ func (b *preEnginePluginBundle) invokePreProvision(
 	// `pApi.DeepMergeComponentRaw` themselves using
 	// `pApi.ComponentDefaults` — PreProvision fires early enough
 	// that downstream merge timing doesn't affect this.
-	rawMap, _ := input.Descriptor.Config.Config.(map[string]any)
+	//
+	// Two shapes for input.Descriptor.Config.Config:
+	//   (a) `map[string]any` — client-stack provision, the YAML was
+	//       decoded into a plain map.
+	//   (b) `*api.PluginFieldConfig` — parent-stack provision of a
+	//       plugin-owned type (the production `sc` binary can't link
+	//       the plugin's /api module; plugin-owned configs arrive at
+	//       core as this opaque carrier with `.Raw` populated).
+	// Try both; if neither matches, pass an empty Raw and the plugin
+	// treats it as "nothing to look up".
+	var rawMap map[string]any
+	switch c := input.Descriptor.Config.Config.(type) {
+	case map[string]any:
+		rawMap = c
+	case *api.PluginFieldConfig:
+		if c != nil {
+			rawMap = c.Raw
+		}
+	}
 	rawBytes, _ := json.Marshal(rawMap)
 
 	var parentInfoJSON []byte
