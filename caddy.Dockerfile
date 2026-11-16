@@ -139,7 +139,7 @@
 #       Verify the LB is `externalTrafficPolicy: Local` + the parent
 #       Caddy's `trustedProxies` covers the LB CIDR range.
 
-FROM caddy:2.11.9-builder@sha256:3fddbec729442a56b942d4c9eaef1df80893dbf2cf5b86701bfae6aad1408eeb AS builder
+FROM caddy:2.11.9-builder@sha256:345264d8c6b50f44f4a4d507d4e6b6bcae40eef2f210d70f76e717fd8cc31baf AS builder
 
 # `$CADDY_VERSION` is set by the base image itself (v2.11.9 here), so xcaddy
 # builds exactly the version the builder ships and a skew is impossible by
@@ -193,7 +193,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,sharing=locked \
 # shipped python3 3.14.5-r0 (12 HIGH) for exactly this reason while Alpine
 # already served 3.14.7-r1. Note `--no-cache` on the apk line is unrelated — it
 # governs apk's own index cache, not Docker layers.
-FROM caddy:2.11.9@sha256:0c2243efcf437ab7f7a978f1027fcf0d4f9be8a75df27b1b3fbc5dbe0ffa8cf0 AS runtime
+FROM caddy:2.11.9@sha256:4e2425f6009577e7c651010f16679c28f7d12df3e7b1914f941a7a3370746b3c AS runtime
 
 RUN apk update && apk upgrade --no-cache && rm -rf /var/cache/apk/*
 
