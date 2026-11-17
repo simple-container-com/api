@@ -140,10 +140,38 @@ var (
 	// stack through the same path would also be allowed to re-run on a change. SC
 	// has no such path today; if one appears and its Job is not idempotent, it
 	// belongs on its own type or name, not on this entry.
+	// `aws:secretsmanager/secretVersion:SecretVersion` is the AWS
+	// analogue of the k8s Secret entry above. pulumi-aws marks
+	// `secretString` as ForceNew — any content change is an
+	// `OpReplace`. SC always derives a SecretVersion's `secretString`
+	// from client config (`cfg.Secrets[...]`) or a sibling plugin's
+	// ComputeProcess output (`AddSecretEnvVariableIfNotExist`) on
+	// every apply, so a delete-then-create loses nothing recoverable
+	// — the new Version re-publishes the current intended value.
+	//
+	// Live-caught 2026-11-17 on backup-smoke-tier4 run 44046724312:
+	// sc-component-backup's ComputeProcess mints a per-consumer
+	// JWT (`BACKUP_TOKEN`) with a fresh `iat`/`exp` on every deploy
+	// (compute.go:160-163), so the secretString is replace-forcing
+	// by construction. Same pattern applies to every Component plugin
+	// that ComputeProcess-emits a secret and to normal cfg.Secrets
+	// rotations across the fleet.
+	//
+	// What the exemption accepts, knowingly: between the delete and
+	// the create, a Lambda cold start that resolves the secret ARN
+	// may read stale data. SC's resolution goes through the ARN
+	// (not the value), and the ARN tracks whichever Version is
+	// current — so a cold start during the window gets the old
+	// Version's bytes until Pulumi propagates the new one. For a
+	// signing-key rotation that is a short, bounded window; for a
+	// JWT mint that is exactly the point of the replace. Lambda
+	// Environment.Variables carrying the ARN (not the bytes) stays
+	// correct across the replace — no function recreation needed.
 	configRegeneratedTypes = map[string]struct{}{
-		"kubernetes:core/v1:Secret":    {},
-		"kubernetes:core/v1:ConfigMap": {},
-		"kubernetes:batch/v1:Job":      {},
+		"kubernetes:core/v1:Secret":                      {},
+		"kubernetes:core/v1:ConfigMap":                   {},
+		"kubernetes:batch/v1:Job":                        {},
+		"aws:secretsmanager/secretVersion:SecretVersion": {},
 	}
 
 	// engineOnlyTypePrefixes is rule 3, and the only prefix-matched
