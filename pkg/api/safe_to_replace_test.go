@@ -19,12 +19,10 @@ import "testing"
 // notice.
 func TestSafeToReplace_BuiltinSeed(t *testing.T) {
 	want := map[string]ReplaceRule{
-		"aws:ecs/taskDefinition:TaskDefinition":          ReplaceRuleRevision,
-		"kubernetes:core/v1:Secret":                      ReplaceRuleConfigRegenerated,
-		"kubernetes:core/v1:ConfigMap":                   ReplaceRuleConfigRegenerated,
-		"kubernetes:batch/v1:Job":                        ReplaceRuleConfigRegenerated,
-		"aws:secretsmanager/secretVersion:SecretVersion": ReplaceRuleConfigRegenerated,
-		"cloudflare:index/workersRoute:WorkersRoute":     ReplaceRuleConfigRegenerated,
+		"aws:ecs/taskDefinition:TaskDefinition": ReplaceRuleRevision,
+		"kubernetes:core/v1:Secret":             ReplaceRuleConfigRegenerated,
+		"kubernetes:core/v1:ConfigMap":          ReplaceRuleConfigRegenerated,
+		"kubernetes:batch/v1:Job":               ReplaceRuleConfigRegenerated,
 	}
 	got := SafeToReplaceTypes()
 	if len(got) != len(want) {

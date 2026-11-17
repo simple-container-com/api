@@ -140,60 +140,26 @@ var (
 	// stack through the same path would also be allowed to re-run on a change. SC
 	// has no such path today; if one appears and its Job is not idempotent, it
 	// belongs on its own type or name, not on this entry.
-	// `aws:secretsmanager/secretVersion:SecretVersion` is the AWS
-	// analogue of the k8s Secret entry above. pulumi-aws marks
-	// `secretString` as ForceNew — any content change is an
-	// `OpReplace`. SC always derives a SecretVersion's `secretString`
-	// from client config (`cfg.Secrets[...]`) or a sibling plugin's
-	// ComputeProcess output (`AddSecretEnvVariableIfNotExist`) on
-	// every apply, so a delete-then-create loses nothing recoverable
-	// — the new Version re-publishes the current intended value.
+	// Two previous entries — `aws:secretsmanager/secretVersion:SecretVersion`
+	// and `cloudflare:index/workersRoute:WorkersRoute` — lived here as
+	// built-in seed for one release window (api v2026.11.75 and
+	// v2026.11.76 respectively) and migrated to plugin-side Schema
+	// advertisements on 2026-11-17: sc-plugin-aws #25 (released
+	// v2026.11.17-ff13fd9) now carries the SecretVersion claim via
+	// `SchemaResponse.config_regenerated_types`, and sc-plugin-cloudflare
+	// #18 (released v2026.11.17-671c5b9) carries the WorkersRoute claim.
+	// Both ride the api #633 wire (v2026.11.77) that made rule-2
+	// plugin-registerable. See
+	// forge/docs/roadmap/items/sc-plugin-registerable-config-regenerated-types.md.
 	//
-	// Live-caught 2026-11-17 on backup-smoke-tier4 run 44046724312:
-	// sc-component-backup's ComputeProcess mints a per-consumer
-	// JWT (`BACKUP_TOKEN`) with a fresh `iat`/`exp` on every deploy
-	// (compute.go:160-163), so the secretString is replace-forcing
-	// by construction. Same pattern applies to every Component plugin
-	// that ComputeProcess-emits a secret and to normal cfg.Secrets
-	// rotations across the fleet.
-	//
-	// What the exemption accepts, knowingly: between the delete and
-	// the create, a Lambda cold start that resolves the secret ARN
-	// may read stale data. SC's resolution goes through the ARN
-	// (not the value), and the ARN tracks whichever Version is
-	// current — so a cold start during the window gets the old
-	// Version's bytes until Pulumi propagates the new one. For a
-	// signing-key rotation that is a short, bounded window; for a
-	// JWT mint that is exactly the point of the replace. Lambda
-	// Environment.Variables carrying the ARN (not the bytes) stays
-	// correct across the replace — no function recreation needed.
-	// `cloudflare:index/workersRoute:WorkersRoute` carries pattern +
-	// zoneId + script — all three come from operator config (sc-plugin-
-	// cloudflare's registrar.go:239) on every apply. When the referenced
-	// Worker script is replaced (e.g. its Dockerfile content changes, or
-	// the script output is Unknown at preview time), the route cascades
-	// a replace that pulumi-cloudflare reports WITHOUT naming a
-	// replace-forcing key (plan says "check the resource's triggers").
-	// SC's own `sdk.RetainOnDelete(true)` on the route (set to protect
-	// against the v6-provider ID-format regression; see
-	// sc-plugin-cloudflare adopt.go) means the live Cloudflare route is
-	// never physically deleted — only its Pulumi state entry. The
-	// subsequent create re-adopts the same live route by pattern. So
-	// the delete-then-create here is purely a state rewrite with a
-	// seconds-long window where Pulumi has no state for the route; the
-	// live route itself is undisturbed.
-	//
-	// Live-caught 2026-11-17 on backup-smoke-tier4 run 44061508037,
-	// which rode the api v2026.11.75 release that added SecretVersion
-	// above: the route replace was the last remaining blocker to
-	// shipping the sc-component-backup generic secret-env wire
-	// (api #630, sc-component-backup #8, sc-plugin-aws #24) end-to-end.
+	// The three entries that remain are SC-core-managed types with no
+	// plugin owner — the k8s driver is in-tree, so there is nowhere to
+	// migrate their rule-2 claim to. If sc-plugin-k8s is ever extracted,
+	// move the entries to its Schema and drop them from here.
 	configRegeneratedTypes = map[string]struct{}{
-		"kubernetes:core/v1:Secret":                      {},
-		"kubernetes:core/v1:ConfigMap":                   {},
-		"kubernetes:batch/v1:Job":                        {},
-		"aws:secretsmanager/secretVersion:SecretVersion": {},
-		"cloudflare:index/workersRoute:WorkersRoute":     {},
+		"kubernetes:core/v1:Secret":    {},
+		"kubernetes:core/v1:ConfigMap": {},
+		"kubernetes:batch/v1:Job":      {},
 	}
 
 	// engineOnlyTypePrefixes is rule 3, and the only prefix-matched
