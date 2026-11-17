@@ -1065,6 +1065,22 @@ message ProvisionDomainForEndpointRequest {
   string domain = 5;
   string target_host_resolved = 6; // sdk.StringInput resolved by SC core
   bool websocket = 7;
+  // base_zone — per-call zone override (DomainEndpoint.BaseZone).
+  // Empty = registrar uses its init-time zone binding. Non-empty =
+  // override THIS call's zone, enabling a single registrar (one
+  // account, many zones) to serve domains across its whole zone
+  // inventory on a per-call basis.
+  //
+  // Pre-v2026.11.80 plugin binaries see this as an empty string and
+  // keep their init-bound behavior; v2026.11.82+ plugins read it to
+  // route the call to the correct zone (sc-plugin-cloudflare #19:
+  // zoneFor() + shallow-copy *provisioner). Live-caught 2026-11-17
+  // on forge provision 44157694221 where backup.simple-forge.com's
+  // Workers Route hit a wrong-zone 400 because the field was dropped
+  // over the plugin bus.
+  //
+  // See forge/docs/design/2026-11-17/component-parent-dns-wiring/.
+  string base_zone = 8;
 }
 
 message ProvisionDomainForEndpointResponse {
