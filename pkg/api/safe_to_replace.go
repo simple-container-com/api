@@ -140,6 +140,22 @@ var (
 	// stack through the same path would also be allowed to re-run on a change. SC
 	// has no such path today; if one appears and its Job is not idempotent, it
 	// belongs on its own type or name, not on this entry.
+	// Two previous entries — `aws:secretsmanager/secretVersion:SecretVersion`
+	// and `cloudflare:index/workersRoute:WorkersRoute` — lived here as
+	// built-in seed for one release window (api v2026.11.75 and
+	// v2026.11.76 respectively) and migrated to plugin-side Schema
+	// advertisements on 2026-11-17: sc-plugin-aws #25 (released
+	// v2026.11.17-ff13fd9) now carries the SecretVersion claim via
+	// `SchemaResponse.config_regenerated_types`, and sc-plugin-cloudflare
+	// #18 (released v2026.11.17-671c5b9) carries the WorkersRoute claim.
+	// Both ride the api #633 wire (v2026.11.77) that made rule-2
+	// plugin-registerable. See
+	// forge/docs/roadmap/items/sc-plugin-registerable-config-regenerated-types.md.
+	//
+	// The three entries that remain are SC-core-managed types with no
+	// plugin owner — the k8s driver is in-tree, so there is nowhere to
+	// migrate their rule-2 claim to. If sc-plugin-k8s is ever extracted,
+	// move the entries to its Schema and drop them from here.
 	configRegeneratedTypes = map[string]struct{}{
 		"kubernetes:core/v1:Secret":    {},
 		"kubernetes:core/v1:ConfigMap": {},
@@ -211,6 +227,31 @@ func RegisterSafeToReplaceType(resourceType string) {
 	safeToReplaceMu.Lock()
 	defer safeToReplaceMu.Unlock()
 	safeToReplaceTypes[resourceType] = struct{}{}
+}
+
+// RegisterConfigRegeneratedType adds a Pulumi resource type to the
+// rule-2 (config-regenerated) allowlist. Safe to call concurrently.
+// Idempotent.
+//
+// Called by `pkg/stackread.DiscoverPluginTypes` for every entry in a
+// plugin's `scpluginv1.SchemaResponse.config_regenerated_types`.
+// Each plugin is the authority on its own types; the entries that
+// previously lived in `configRegeneratedTypes` for SC-core-managed
+// types (`kubernetes:core/v1:{Secret,ConfigMap}`, etc.) stay in the
+// built-in seed because no plugin owns them.
+//
+// WRONG CLAIMS CAUSE SILENT DATA LOSS. A plugin advertising a type
+// here is asserting that SC's writes to that type are the sole
+// source of its content; the plugin's CONTRIBUTING MUST require a
+// doc-grounded rationale in the PR for each new entry. See
+// forge/docs/roadmap/items/sc-plugin-registerable-config-regenerated-types.md.
+func RegisterConfigRegeneratedType(resourceType string) {
+	if resourceType == "" {
+		return
+	}
+	safeToReplaceMu.Lock()
+	defer safeToReplaceMu.Unlock()
+	configRegeneratedTypes[resourceType] = struct{}{}
 }
 
 // IsSafeToReplace reports whether `OpReplace` on this resource type

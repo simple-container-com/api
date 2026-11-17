@@ -198,6 +198,14 @@ func registerSchemaTypes(pluginName string, schema *scpluginv1.SchemaResponse) {
 	for _, t := range schema.GetSafeToReplaceTypes() {
 		api.RegisterSafeToReplaceType(t)
 	}
+	// Rule-2 (config-regenerated) types — the replace IS a delete and
+	// a create at the same URN, but SC always re-derives the content
+	// from config, so no data is lost. Each plugin is the authority on
+	// its own types; see
+	// forge/docs/roadmap/items/sc-plugin-registerable-config-regenerated-types.md.
+	for _, t := range schema.GetConfigRegeneratedTypes() {
+		api.RegisterConfigRegeneratedType(t)
+	}
 	// Auth `type:` discriminators the plugin's config tier declares.
 	// Seeds `providerConfigMapping` with the opaque
 	// `pluginOwnedWrappingDecoder` so `DetectAuthProvider` resolves a

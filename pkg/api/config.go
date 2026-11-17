@@ -4,9 +4,11 @@
 package api
 
 import (
+	"encoding/base64"
 	"fmt"
 	"os"
 	"path"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -45,6 +47,19 @@ type InitParams struct {
 func ReadConfigFile(workDir, profile string) (*ConfigFile, error) {
 	configFromEnv := os.Getenv(ScConfigEnvVariable)
 	if configFromEnv != "" {
+		// Accept both raw YAML and base64-encoded YAML. Operator-side some
+		// workflows run `--body "$(cat cfg.github.yaml)"` (raw YAML) and
+		// others `--body "$(base64 -w0 cfg.github.yaml)"`; keeping only one
+		// path has bitten the fleet enough times (five live-caught before
+		// this fix) that both should Just Work. The detection is a single
+		// try-decode: a well-formed YAML config always contains a newline
+		// and a `:` — valid base64 has neither.
+		configStr := strings.TrimSpace(configFromEnv)
+		if !strings.ContainsAny(configStr, ":\n") {
+			if decoded, err := base64.StdEncoding.DecodeString(configStr); err == nil {
+				configFromEnv = string(decoded)
+			}
+		}
 		if res, err := UnmarshalDescriptor[ConfigFile]([]byte(configFromEnv)); err != nil {
 			return nil, errors.Wrapf(err, "%q env variable is set, but failed to unmarshal config", ScConfigEnvVariable)
 		} else {

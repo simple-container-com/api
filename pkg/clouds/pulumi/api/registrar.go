@@ -5,7 +5,6 @@ package api
 
 import (
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -63,6 +62,29 @@ type DomainEndpoint struct {
 	// and a socket is the only way a service behind a Serverless Container can
 	// stream at all (see yandex.CloudExtras.WebSocket).
 	WebSocket bool
+	// BaseZone is the DNS zone this endpoint should be served under, e.g.
+	// `simple-forge.com` for a Domain of `backup.simple-forge.com`. When set,
+	// the registrar binds this call's resource creation to the named zone
+	// rather than its init-time default — enabling a single registrar
+	// (one account, many zones) to serve domains across its whole zone
+	// inventory on a per-call basis.
+	//
+	// Live-caught 2026-11-17 on backup-smoke-tier4 parent provision 44143999005:
+	// a Component resource declared `ingress.hostname: backup.simple-forge.com`
+	// on the parent stack, where the fleet's lone Cloudflare registrar is
+	// init-bound to `simple-container.com` (its config default; the fleet's
+	// per-client-stack `baseDnsZone` pattern doesn't apply to parent-stack
+	// resources). Cloudflare rejected the Workers Route POST with
+	// `Route pattern must include zone name: simple-container.com`.
+	// `BaseZone: "simple-forge.com"` makes this per-call routable without
+	// re-initializing or re-configuring the registrar.
+	//
+	// Empty string = legacy behavior: the registrar uses its init-time
+	// zone binding (set from `DnsPreference.BaseZone` at init, else from
+	// `cfg.ZoneName`). Non-empty = override THIS call's zone.
+	//
+	// Design: forge/docs/design/2026-11-17/component-parent-dns-wiring/.
+	BaseZone string
 }
 
 type RegistrarWithWorkerScripts interface {

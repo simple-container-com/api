@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -151,6 +150,21 @@ func (m *multiRegistrar) declaredSummary() []string {
 	return declared
 }
 
+// build constructs (and caches) the registrar for a delegate, keyed
+// by delegate.name. Only ONE registrar instance exists per delegate
+// per deploy: a registrar's init registers Pulumi provider resources
+// (e.g. sc-plugin-cloudflare's `pulumi:providers:cloudflare` keyed
+// by account ID), and re-initializing it would attempt to register
+// the SAME provider URN twice — which the engine rejects.
+//
+// Live-caught 2026-11-17 on forge parent provision 44157694221:
+// an earlier attempt (api PR #636) to re-init the registrar
+// per-(name, baseZone) tripped a `Duplicate resource URN
+// 'pulumi:providers:cloudflare::<accountId>'` panic. Per-call zone
+// overrides are handled INSIDE the registrar impl instead
+// (sc-plugin-cloudflare's `ProvisionDomainForEndpoint` reads
+// `endpoint.BaseZone` and looks up that zone on-demand) — one
+// Provider, many zones.
 func (m *multiRegistrar) build(ctx *sdk.Context, delegate *registrarDelegate) (pApi.Registrar, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -252,6 +266,17 @@ func (m *multiRegistrar) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack
 }
 
 func (m *multiRegistrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack, endpoint pApi.DomainEndpoint) (*api.ResourceOutput, error) {
+	// Routing: endpoint.Domain selects the delegate (longest declared
+	// zone suffix wins; else fall through to `default: true` registrar).
+	// The endpoint carries BaseZone to the registrar impl itself —
+	// we don't re-build the registrar here. Re-initializing it would
+	// register a second Pulumi Provider resource with the same URN
+	// (account-ID-keyed in sc-plugin-cloudflare), which the engine
+	// rejects as a duplicate — live-caught 2026-11-17 on forge
+	// provision run 44157694221. The registrar impl grows per-call
+	// zone lookup instead (sc-plugin-cloudflare's
+	// ProvisionDomainForEndpoint reads endpoint.BaseZone and looks up
+	// that zone on-demand).
 	registrar, err := m.RegistrarFor(ctx, endpoint.Domain)
 	if err != nil {
 		return nil, err

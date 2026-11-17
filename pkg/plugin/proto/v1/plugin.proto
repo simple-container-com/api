@@ -226,6 +226,40 @@ message SchemaResponse {
   // forge/docs/roadmap/items/sc-safe-to-replace-via-plugin-schema.md.
   repeated string safe_to_replace_types = 10;
 
+  // Resource types this plugin declares as SAFE for Pulumi's `replace`
+  // op under rule 2: the replace IS a delete+create of the same URN,
+  // but SC always re-derives the resource's content from client
+  // config on every apply. The brief window between delete and
+  // create carries no data loss because the new resource re-publishes
+  // the current intended content.
+  //
+  // Entries must satisfy ALL of:
+  //   1. SC core (or sibling plugins) exclusively write this
+  //      resource type's content — operators cannot stash arbitrary
+  //      payloads through this path.
+  //   2. Every write SC performs is a function of operator config +
+  //      deterministic plugin logic. No one-time credential or
+  //      secret is held only in this resource's state.
+  //   3. Downstream consumers of this resource tolerate the
+  //      delete-create window (either the live cloud object
+  //      survives via RetainOnDelete, or the window is short
+  //      enough to be operationally acceptable).
+  //
+  // WRONG CLAIMS CAUSE SILENT DATA LOSS. The plugin's CONTRIBUTING
+  // documentation MUST require a doc-grounded rationale in the PR
+  // for each new entry — mirroring the api-core practice this field
+  // supersedes.
+  //
+  // Canonical examples (will migrate from api core's built-in seed
+  // via a one-release window):
+  //   - sc-plugin-aws:        `aws:secretsmanager/secretVersion:SecretVersion`
+  //   - sc-plugin-cloudflare: `cloudflare:index/workersRoute:WorkersRoute`
+  //
+  // When in doubt, leave it off — the operator can still opt out
+  // per deploy with SC_ALLOW_DESTRUCTIVE_REPLACE=1. See
+  // forge/docs/roadmap/items/sc-plugin-registerable-config-regenerated-types.md.
+  repeated string config_regenerated_types = 19;
+
   // AuthTypes lists the `type:` discriminators a plugin's auth
   // configs use — e.g. `gcp-service-account`, `mws-service-account`,
   // `aws-token`. SC core seeds `providerConfigMapping` with the opaque
@@ -385,6 +419,39 @@ message SchemaResponse {
   // the payload JSON beyond routing.
   repeated string peer_capabilities = 16;
 
+  // Per-Component-resource-type secret-env mappings. For each key
+  // on a Component's config that holds a `${secret:...}` reference,
+  // tell SC core which environment variable name the dispatched
+  // template should bind that reference to on the running service.
+  //
+  // Shape: `map<component_resource_type, StringMap{<secret-field>:<ENV_VAR>}>`.
+  // Example — the backup plugin's Schema advertises
+  //   component_secret_env_map: {
+  //     "sc-backup": { entries: {
+  //       "signingKey":       "SERVICE_JWT_SECRET",
+  //       "operatorPassword": "BACKUP_OPERATOR_PASSWORD",
+  //     } },
+  //   }
+  // SC core's Component dispatch sidecar registers the mapping into
+  // `pApi.ComponentSecretEnvMap`; the template-side overlay (e.g.
+  // sc-plugin-aws component_raw.go) reads it + translates each
+  // populated field on the operator's `.Raw` into
+  // `cfg.Secrets[<ENV_VAR>] = <${secret:…} string>`. The secret-env
+  // transport path is then the standard SC secrets resolution.
+  //
+  // Why this exists: the aws-lambda template used to hardcode
+  // `signingKey → SERVICE_JWT_SECRET` (component_raw.go:114) — a
+  // per-Component-knob living in a generic template plugin, which
+  // doesn't scale (backup needs operatorPassword, monitor needs its
+  // own secrets, etc.). This map lets each Component plugin declare
+  // its own secret-env mappings, and every template plugin that
+  // participates in Component dispatch reads the same registry.
+  //
+  // Empty / unset = no translations. Pre-field plugin binaries keep
+  // working — the overlay just doesn't know about their secret
+  // fields (the operator can still write env: entries directly).
+  map<string, StringMap> component_secret_env_map = 18;
+
   // Whether the plugin implements the PreProvision RPC — the
   // generic "lookup now, land values on the ComputeContextCollector
   // before template dispatch" seam. A plugin opts in by implementing
@@ -414,6 +481,14 @@ message SchemaResponse {
 // inside maps directly).
 message StringList {
   repeated string values = 1;
+}
+
+// StringMap is a `map<string, string>` wrapper so nested maps can cross
+// the wire (proto3 forbids map values inside maps directly). Used by
+// `component_secret_env_map` below — per Component resource type, the
+// plugin declares its own `{<field-on-config>: <ENV_VAR_NAME>}` mapping.
+message StringMap {
+  map<string, string> entries = 1;
 }
 
 // VmDriverSpec is one row of the VM driver table, as advertised by a plugin.
@@ -990,6 +1065,22 @@ message ProvisionDomainForEndpointRequest {
   string domain = 5;
   string target_host_resolved = 6; // sdk.StringInput resolved by SC core
   bool websocket = 7;
+  // base_zone — per-call zone override (DomainEndpoint.BaseZone).
+  // Empty = registrar uses its init-time zone binding. Non-empty =
+  // override THIS call's zone, enabling a single registrar (one
+  // account, many zones) to serve domains across its whole zone
+  // inventory on a per-call basis.
+  //
+  // Pre-v2026.11.80 plugin binaries see this as an empty string and
+  // keep their init-bound behavior; v2026.11.82+ plugins read it to
+  // route the call to the correct zone (sc-plugin-cloudflare #19:
+  // zoneFor() + shallow-copy *provisioner). Live-caught 2026-11-17
+  // on forge provision 44157694221 where backup.simple-forge.com's
+  // Workers Route hit a wrong-zone 400 because the field was dropped
+  // over the plugin bus.
+  //
+  // See forge/docs/design/2026-11-17/component-parent-dns-wiring/.
+  string base_zone = 8;
 }
 
 message ProvisionDomainForEndpointResponse {

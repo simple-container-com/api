@@ -66,7 +66,12 @@ func TestSafeToReplace_StatefulTypesStayRefused(t *testing.T) {
 // Rule 2 is built-in only: "is this resource's content fully reproducible
 // from config" is a judgement about the operator's data, not a fact about
 // a provider, so a plugin cannot advertise its way into it.
-func TestSafeToReplace_PluginsCannotRegisterUnderRule2(t *testing.T) {
+// RegisterSafeToReplaceType registers under RULE 1 (revision-based),
+// not rule 2. The two allowlists are distinct and this test pins the
+// guarantee that rule 1 and rule 2 stay separate — a wrong claim
+// about rule 2 must require RegisterConfigRegeneratedType, not
+// RegisterSafeToReplaceType.
+func TestSafeToReplace_RegisterSafeToReplaceGoesToRule1(t *testing.T) {
 	const typ = "test:pkg/api/safe_to_replace:AdvertisedThing"
 	RegisterSafeToReplaceType(typ)
 	t.Cleanup(func() {
@@ -76,6 +81,40 @@ func TestSafeToReplace_PluginsCannotRegisterUnderRule2(t *testing.T) {
 	})
 	if rule := SafeToReplaceRule(typ); rule != ReplaceRuleRevision {
 		t.Fatalf("a registered type reports rule %q, want %q", rule, ReplaceRuleRevision)
+	}
+}
+
+// Plugins can advertise rule-2 types via SchemaResponse.config_regenerated_types;
+// the stackread wire calls RegisterConfigRegeneratedType for each entry.
+// The claim deserves careful review (wrong assertions cause silent data
+// loss) but is no longer api-core-only.
+func TestRegisterConfigRegeneratedType_PluginAdvertiseWorks(t *testing.T) {
+	const typ = "test:pkg/api/safe_to_replace:RegeneratedThing"
+	if IsSafeToReplace(typ) {
+		t.Fatalf("unexpected seed contains %q", typ)
+	}
+	RegisterConfigRegeneratedType(typ)
+	t.Cleanup(func() {
+		safeToReplaceMu.Lock()
+		delete(configRegeneratedTypes, typ)
+		safeToReplaceMu.Unlock()
+	})
+	if !IsSafeToReplace(typ) {
+		t.Fatalf("after RegisterConfigRegeneratedType(%q), IsSafeToReplace returned false", typ)
+	}
+	if rule := SafeToReplaceRule(typ); rule != ReplaceRuleConfigRegenerated {
+		t.Fatalf("registered type reports rule %q, want %q", rule, ReplaceRuleConfigRegenerated)
+	}
+	// Idempotent.
+	RegisterConfigRegeneratedType(typ)
+	if !IsSafeToReplace(typ) {
+		t.Fatalf("second Register call lost the entry")
+	}
+	// Empty string is a no-op.
+	before := len(SafeToReplaceTypes())
+	RegisterConfigRegeneratedType("")
+	if after := len(SafeToReplaceTypes()); after != before {
+		t.Fatalf("empty string must not register; before=%d after=%d", before, after)
 	}
 }
 
