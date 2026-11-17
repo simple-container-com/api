@@ -7,7 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -1316,6 +1318,41 @@ func newPluginProviderResource(_ *sdk.Context, urn string) sdk.ProviderResource 
 // it back off DependencyOutputsJson to learn its deployed service's URL.
 const componentDispatchOutputKey = "_deployed_service"
 
+// ComponentEndpointURLKey is the convention plugin-dispatched templates use
+// to publish their public endpoint URL to SC core. SC core's
+// `dispatchComponentTemplate` reads this from the template's returned
+// *api.PluginResourceOutput.Outputs; when the Component declared
+// `ingress.hostname`, SC core uses the value as the TargetHost when calling
+// the parent-stack registrar's ProvisionDomainForEndpoint — wiring DNS
+// without the template plugin needing to know anything about the registrar's
+// RPC surface.
+//
+// Admission test for a template to publish this key:
+//
+//  1. The published value is a public URL of the just-deployed service
+//     (scheme + host, path optional — SC core parses it and uses only the
+//     host).
+//
+//  2. The value is resolvable at ProvisionResponse return time. The plugin
+//     either sends a resolved string (AWS Function URL via ApplyT+await in
+//     its Settle drain, for example) or Pulumi's unknown-at-preview sentinel
+//     if the template is in preview. SC core's downstream
+//     ProvisionDomainForEndpoint call must tolerate both.
+//
+//  3. SC core strips the Component's `ingress` block from the merged
+//     `.Raw` BEFORE dispatching the template, so the template plugin
+//     never sees `cfg.Domain` and never tries to wire DNS itself with
+//     the nil Registrar it holds across the plugin bus. If the template
+//     stills sees an unset-ingress'd config with a non-empty endpoint
+//     and its own code is wired to attempt DNS, that is a nil-deref
+//     waiting to happen — see sc-plugin-aws aws_lambda.go:548, the
+//     crash that drove this convention in forge-smoke-tier4 preview run
+//     44114692253 on 2026-11-17.
+//
+// Design + options + rejection notes:
+// forge/docs/design/2026-11-17/component-parent-dns-wiring/README.md.
+const ComponentEndpointURLKey = "_endpoint_url"
+
 // Component template merge registry moved to pulumi/api/mapping.go so
 // per-template drivers (pulumi/vm, pulumi/aws, …) can register from
 // their own init() without an import cycle back up into pulumi. Type
@@ -1491,6 +1528,39 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 		return nil, errors.Wrap(err, "merging component config into template")
 	}
 
+	// Hold ingress.hostname aside before dispatch so the template plugin
+	// never sees it on its component_raw overlay. If we left it on
+	// `merged`, the template's own overlay would surface it as
+	// `cfg.Domain`, and the template would try to call
+	// `params.Registrar.ProvisionDomainForEndpoint` inside the plugin
+	// subprocess — where `params.Registrar` is nil over the plugin bus.
+	// Live-caught 2026-11-17 on backup-smoke-tier4 provision-preview
+	// run 44114692253 (nil-deref at sc-plugin-aws aws_lambda.go:548).
+	// SC core wires the DNS itself after dispatch, below, using its
+	// own real `params.Registrar`.
+	var componentIngressHost string
+	if ingress, ok := merged["ingress"].(map[string]any); ok {
+		if host, ok := ingress["hostname"].(string); ok && host != "" {
+			componentIngressHost = host
+			// Clone without hostname. Keep any OTHER ingress keys
+			// (future: registrar, path, …) so the template plugin's
+			// overlay can still read them. Delete the whole block
+			// only when it's empty post-hostname-removal.
+			remaining := map[string]any{}
+			for k, v := range ingress {
+				if k == "hostname" {
+					continue
+				}
+				remaining[k] = v
+			}
+			if len(remaining) == 0 {
+				delete(merged, "ingress")
+			} else {
+				merged["ingress"] = remaining
+			}
+		}
+	}
+
 	// ComponentRaw side-channel (slice 1a.1 of sc-components-platform;
 	// design doc §#19 path (b)): pass the component's merged .Raw map
 	// through to the dispatched template's ProvisionFunc. The dispatched
@@ -1506,7 +1576,128 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 		StackParams:  input.StackParams,
 		ComponentRaw: merged,
 	}
-	return tplFn(ctx, stack, dispatchedInput, params)
+	dispatched, err := tplFn(ctx, stack, dispatchedInput, params)
+	if err != nil {
+		return nil, err
+	}
+
+	// Post-dispatch DNS wire for plugin-dispatched Components whose
+	// Component declared `ingress.hostname`. See
+	// forge/docs/design/2026-11-17/component-parent-dns-wiring/
+	// for the architecture + options walk. Short version: the template
+	// plugin cannot call `params.Registrar` itself (Registrar is nil
+	// across the bus); SC core has the real Registrar here and uses
+	// the endpoint URL the template published via `ComponentEndpointURLKey`
+	// as the TargetHost.
+	if componentIngressHost != "" {
+		if err := wireComponentDomain(ctx, stack, params, input.Descriptor.Name, componentIngressHost, dispatched); err != nil {
+			return nil, errors.Wrapf(err, "wiring DNS for component %q at %q", input.Descriptor.Name, componentIngressHost)
+		}
+	}
+	return dispatched, nil
+}
+
+// wireComponentDomain is the SC-core-side DNS wire for a plugin-dispatched
+// Component (slice 1 of sc-components-plugin-dispatched-dns-wire). Called
+// only when the Component's config carried `ingress.hostname` and the
+// template plugin has returned — the plugin cannot do this itself because
+// its `params.Registrar` is nil across the plugin bus.
+//
+// Three fast-exit guards before the registrar call, each with its own
+// reason the operator should see:
+//
+//  1. `params.Registrar` is nil or `*notConfigured` — the parent stack
+//     declared no registrar at all, so a Component with
+//     `ingress.hostname` cannot be served. Error (not log) so the deploy
+//     fails loudly; a silent skip here would ship a Component with a
+//     domain the operator asked for and the DNS never wired.
+//
+//  2. The dispatched output is NOT a `*api.PluginResourceOutput` — the
+//     dispatch went to an in-tree template that doesn't publish plugin
+//     outputs. These in-tree templates ALREADY handle `ingress.hostname`
+//     themselves at provision time (they hold the real Registrar), so
+//     SC-core wiring here would be a double-write. Silently skip.
+//
+//  3. The dispatched output has no `ComponentEndpointURLKey` entry —
+//     the template plugin is pre-convention. Log a warning + skip; the
+//     operator sees "DNS wiring unavailable on pre-convention plugin;
+//     please bump the template plugin version". This case should
+//     disappear as the four fleet templates adopt the convention.
+func wireComponentDomain(
+	ctx *sdk.Context,
+	stack api.Stack,
+	params pApi.ProvisionParams,
+	componentName, hostname string,
+	dispatched *api.ResourceOutput,
+) error {
+	if params.Registrar == nil {
+		return errors.New("stack has no registrar configured; cannot wire ingress.hostname on a Component")
+	}
+	if _, isNotConfigured := params.Registrar.(*notConfigured); isNotConfigured {
+		return errors.New("stack has no registrar configured; cannot wire ingress.hostname on a Component")
+	}
+	if dispatched == nil {
+		return errors.New("dispatched template returned no output; cannot resolve endpoint URL for DNS wiring")
+	}
+	pluginRef, ok := dispatched.Ref.(*api.PluginResourceOutput)
+	if !ok {
+		// In-tree templates (today only vm-compose in the component
+		// path) wire DNS themselves at provision time using the real
+		// Registrar they already hold. Nothing for SC core to do.
+		return nil
+	}
+	endpointVal, found := pluginRef.Lookup(ComponentEndpointURLKey)
+	if !found {
+		if params.Log != nil {
+			logCtx := context.Background()
+			if ctx != nil {
+				logCtx = ctx.Context()
+			}
+			params.Log.Warn(logCtx,
+				"template plugin did not publish %q for Component %q (hostname=%q); "+
+					"DNS wiring skipped. Bump the template plugin to a version that "+
+					"publishes its endpoint URL; see "+
+					"forge/docs/design/2026-11-17/component-parent-dns-wiring/",
+				ComponentEndpointURLKey, componentName, hostname)
+		}
+		return nil
+	}
+	endpointStr, ok := endpointVal.Value.(string)
+	if !ok || endpointStr == "" {
+		return errors.Errorf("template plugin published %q as %T, want non-empty string", ComponentEndpointURLKey, endpointVal.Value)
+	}
+	targetHost, err := extractHostFromEndpointURL(endpointStr)
+	if err != nil {
+		return errors.Wrapf(err, "template plugin published %q=%q but it is not a parseable URL", ComponentEndpointURLKey, endpointStr)
+	}
+	if _, err := params.Registrar.ProvisionDomainForEndpoint(ctx, stack, pApi.DomainEndpoint{
+		Name:       componentName,
+		Domain:     hostname,
+		TargetHost: sdk.String(targetHost),
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+// extractHostFromEndpointURL accepts the resolved endpoint URL a template
+// plugin publishes under ComponentEndpointURLKey and returns the host
+// portion the registrar's DomainEndpoint.TargetHost wants. Accepts bare
+// hosts (what a plugin that has nothing but a hostname might publish) by
+// returning them verbatim; accepts fully-qualified URLs by parsing out
+// the host.
+func extractHostFromEndpointURL(raw string) (string, error) {
+	if !strings.Contains(raw, "://") {
+		return raw, nil
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Host == "" {
+		return "", errors.Errorf("URL %q has no host", raw)
+	}
+	return parsed.Host, nil
 }
 
 // mergeComponentIntoTemplate produces the ResourceDescriptor the template's
