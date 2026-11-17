@@ -1281,6 +1281,15 @@ func (r *pluginRegistrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api
 			Domain:             endpoint.Domain,
 			TargetHostResolved: resolvedTarget,
 			Websocket:          endpoint.WebSocket,
+			// Per-call zone override (api PR for base_zone proto field).
+			// Empty when the caller doesn't need an override — the plugin's
+			// registrar impl then uses its init-time zone binding. Non-empty
+			// when the Component ingress path derived a baseZone from the
+			// hostname (wireComponentDomain). Dropping this field
+			// (pre-field api binary) is what let the Workers Route for
+			// backup.simple-forge.com land on simple-container.com on forge
+			// provision 44157694221.
+			BaseZone: endpoint.BaseZone,
 		})
 		if err != nil {
 			return "", errors.Wrapf(err, "plugin %q ProvisionDomainForEndpoint(%q)", r.pluginName, endpoint.Domain)

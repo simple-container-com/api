@@ -3426,8 +3426,24 @@ type ProvisionDomainForEndpointRequest struct {
 	Domain             string `protobuf:"bytes,5,opt,name=domain,proto3" json:"domain,omitempty"`
 	TargetHostResolved string `protobuf:"bytes,6,opt,name=target_host_resolved,json=targetHostResolved,proto3" json:"target_host_resolved,omitempty"` // sdk.StringInput resolved by SC core
 	Websocket          bool   `protobuf:"varint,7,opt,name=websocket,proto3" json:"websocket,omitempty"`
-	unknownFields      protoimpl.UnknownFields
-	sizeCache          protoimpl.SizeCache
+	// base_zone — per-call zone override (DomainEndpoint.BaseZone).
+	// Empty = registrar uses its init-time zone binding. Non-empty =
+	// override THIS call's zone, enabling a single registrar (one
+	// account, many zones) to serve domains across its whole zone
+	// inventory on a per-call basis.
+	//
+	// Pre-v2026.11.80 plugin binaries see this as an empty string and
+	// keep their init-bound behavior; v2026.11.82+ plugins read it to
+	// route the call to the correct zone (sc-plugin-cloudflare #19:
+	// zoneFor() + shallow-copy *provisioner). Live-caught 2026-11-17
+	// on forge provision 44157694221 where backup.simple-forge.com's
+	// Workers Route hit a wrong-zone 400 because the field was dropped
+	// over the plugin bus.
+	//
+	// See forge/docs/design/2026-11-17/component-parent-dns-wiring/.
+	BaseZone      string `protobuf:"bytes,8,opt,name=base_zone,json=baseZone,proto3" json:"base_zone,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *ProvisionDomainForEndpointRequest) Reset() {
@@ -3507,6 +3523,13 @@ func (x *ProvisionDomainForEndpointRequest) GetWebsocket() bool {
 		return x.Websocket
 	}
 	return false
+}
+
+func (x *ProvisionDomainForEndpointRequest) GetBaseZone() string {
+	if x != nil {
+		return x.BaseZone
+	}
+	return ""
 }
 
 type ProvisionDomainForEndpointResponse struct {
@@ -5329,7 +5352,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"index_page\x18\x01 \x01(\tR\tindexPage\x12$\n" +
 	"\x0enot_found_page\x18\x02 \x01(\tR\fnotFoundPage\"1\n" +
 	"\x1dNewOverrideHeaderRuleResponse\x12\x10\n" +
-	"\x03urn\x18\x01 \x01(\tR\x03urn\"\xab\x02\n" +
+	"\x03urn\x18\x01 \x01(\tR\x03urn\"\xc8\x02\n" +
 	"!ProvisionDomainForEndpointRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12%\n" +
 	"\x0eregistrar_type\x18\x02 \x01(\tR\rregistrarType\x12\x1d\n" +
@@ -5338,7 +5361,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\rendpoint_name\x18\x04 \x01(\tR\fendpointName\x12\x16\n" +
 	"\x06domain\x18\x05 \x01(\tR\x06domain\x120\n" +
 	"\x14target_host_resolved\x18\x06 \x01(\tR\x12targetHostResolved\x12\x1c\n" +
-	"\twebsocket\x18\a \x01(\bR\twebsocket\"6\n" +
+	"\twebsocket\x18\a \x01(\bR\twebsocket\x12\x1b\n" +
+	"\tbase_zone\x18\b \x01(\tR\bbaseZone\"6\n" +
 	"\"ProvisionDomainForEndpointResponse\x12\x10\n" +
 	"\x03urn\x18\x01 \x01(\tR\x03urn\"\xec\x02\n" +
 	"\x11PreDestroyRequest\x123\n" +
