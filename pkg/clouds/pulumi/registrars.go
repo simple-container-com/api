@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -152,23 +151,57 @@ func (m *multiRegistrar) declaredSummary() []string {
 }
 
 func (m *multiRegistrar) build(ctx *sdk.Context, delegate *registrarDelegate) (pApi.Registrar, error) {
+	return m.buildForBaseZone(ctx, delegate, "")
+}
+
+// buildForBaseZone constructs (and caches) the registrar for a delegate,
+// keyed on (delegate.name, baseZone). When baseZone is empty the behavior
+// matches the legacy build — DnsPreference comes from `m.pref`. When
+// baseZone is non-empty, the registrar is initialized with a synthetic
+// `DnsPreference{BaseZone: baseZone}`, which per-registrar impls use to
+// override their init-time zone binding (sc-plugin-cloudflare's
+// `Registrar()`: `baseZoneName := cfg.ZoneName; if params.DnsPreference != nil
+// && params.DnsPreference.BaseZone != "" { baseZoneName =
+// params.DnsPreference.BaseZone }`).
+//
+// Separate cache slots per baseZone — a parent stack where one component
+// targets `simple-container.com` and another targets `simple-forge.com`
+// ends up with two distinct bound registrars under the same delegate,
+// each with its own zone lookup. The legacy call site
+// (baseZone="") stays single-instance per delegate and keeps today's
+// behavior unchanged.
+//
+// Live-caught 2026-11-17 on backup-smoke-tier4 parent provision
+// 44143999005: the fleet's lone Cloudflare registrar is init-bound to
+// `simple-container.com`, so a Component with `ingress.hostname:
+// backup.simple-forge.com` hit Cloudflare's `Route pattern must include
+// zone name` 400. See the DomainEndpoint.BaseZone docstring.
+func (m *multiRegistrar) buildForBaseZone(ctx *sdk.Context, delegate *registrarDelegate, baseZone string) (pApi.Registrar, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if registrar, found := m.built[delegate.name]; found {
+	cacheKey := delegate.name
+	if baseZone != "" {
+		cacheKey = delegate.name + "|" + baseZone
+	}
+	if registrar, found := m.built[cacheKey]; found {
 		return registrar, nil
 	}
 	registrarInit, ok := pApi.RegistrarFuncByType[delegate.desc.Type]
 	if !ok {
 		return nil, errors.Errorf("unsupported registrar type %q for stack %q", delegate.desc.Type, m.stackName)
 	}
+	pref := m.pref
+	if baseZone != "" {
+		pref = &pApi.DnsPreference{BaseZone: baseZone}
+	}
 	registrar, err := registrarInit(ctx, delegate.desc, pApi.ProvisionParams{
 		Log:           m.log,
-		DnsPreference: m.pref,
+		DnsPreference: pref,
 	})
 	if err != nil {
 		return nil, errors.Wrapf(err, "failed to init registrar %q for stack %q", delegate.name, m.stackName)
 	}
-	m.built[delegate.name] = registrar
+	m.built[cacheKey] = registrar
 	return registrar, nil
 }
 
@@ -252,7 +285,20 @@ func (m *multiRegistrar) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack
 }
 
 func (m *multiRegistrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack, endpoint pApi.DomainEndpoint) (*api.ResourceOutput, error) {
-	registrar, err := m.RegistrarFor(ctx, endpoint.Domain)
+	// Routing: endpoint.Domain selects the delegate (longest declared
+	// zone suffix wins; else fall through to `default: true` registrar).
+	delegate, err := m.forDomain(endpoint.Domain)
+	if err != nil {
+		return nil, err
+	}
+	// Zone binding: if the caller passed BaseZone (Component ingress
+	// path; SC core's `wireComponentDomain` derives it from the hostname),
+	// build the registrar bound to THAT zone rather than the delegate's
+	// init-time default. `buildForBaseZone` caches per-(name, baseZone)
+	// so repeated calls for the same zone reuse the same instance.
+	// Legacy callers (client-stack `domain:` wiring) pass empty BaseZone
+	// and keep today's behavior — `m.pref` controls the zone.
+	registrar, err := m.buildForBaseZone(ctx, delegate, endpoint.BaseZone)
 	if err != nil {
 		return nil, err
 	}
