@@ -57,6 +57,13 @@ inputs:
     description: 'Commit message'
     required: false
     default: ''
+  ssl-cert-file:
+    description: >-
+      CA bundle the container trusts (SSL_CERT_FILE). Defaults to the image's
+      own bundle, which already includes the Russian Trusted Root CA, so YC
+      callers need no CA boilerplate. Override only to pin a different store.
+    required: false
+    default: '/etc/ssl/certs/ca-certificates.crt'
 
 outputs:
   environment:
