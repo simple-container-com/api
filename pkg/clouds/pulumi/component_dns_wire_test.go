@@ -231,3 +231,51 @@ func TestWireComponentDomain_RegistrarErrorBubbles(t *testing.T) {
 // Keep an unused-import style check to confirm we exercised logger
 // at least once in this test file.
 var _ context.Context
+
+// TestDeriveBaseZoneFromHostname — the heuristic used by
+// wireComponentDomain to set DomainEndpoint.BaseZone. Strips one label
+// for the common one-subdomain case; apex returns verbatim; empty-input
+// returns empty.
+func TestDeriveBaseZoneFromHostname(t *testing.T) {
+	cases := []struct {
+		hostname string
+		want     string
+	}{
+		{"backup.simple-forge.com", "simple-forge.com"},
+		{"x.backup.simple-forge.com", "backup.simple-forge.com"},
+		{"example.com", "com"}, // one-label-deep input — rare in practice
+		{"bare-apex", "bare-apex"},
+		{"", ""},
+	}
+	for _, tc := range cases {
+		got := deriveBaseZoneFromHostname(tc.hostname)
+		if got != tc.want {
+			t.Errorf("deriveBaseZoneFromHostname(%q) = %q, want %q", tc.hostname, got, tc.want)
+		}
+	}
+}
+
+// TestWireComponentDomain_PassesBaseZone — the Component wire sets
+// DomainEndpoint.BaseZone so the registrar can bind to the correct zone.
+// Pinned so a future refactor can't silently drop the field.
+func TestWireComponentDomain_PassesBaseZone(t *testing.T) {
+	reg := &cdnsFakeRegistrar{}
+	dispatched := &api.ResourceOutput{Ref: &api.PluginResourceOutput{
+		PluginName: "aws",
+		Urn:        "urn:pulumi:...",
+		Outputs: map[string]api.PluginOutputValue{
+			ComponentEndpointURLKey: {Value: "https://xxxx.lambda-url.eu-central-1.on.aws/"},
+		},
+	}}
+	err := wireComponentDomain(nil, api.Stack{Name: "infra"}, mkParams(reg),
+		"my-backup", "backup.simple-forge.com", dispatched)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(reg.calls) != 1 {
+		t.Fatalf("expected 1 ProvisionDomainForEndpoint call, got %d", len(reg.calls))
+	}
+	if got := reg.calls[0].BaseZone; got != "simple-forge.com" {
+		t.Errorf("BaseZone: got %q, want %q", got, "simple-forge.com")
+	}
+}
