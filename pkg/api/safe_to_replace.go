@@ -263,6 +263,31 @@ func RegisterSafeToReplaceType(resourceType string) {
 	safeToReplaceTypes[resourceType] = struct{}{}
 }
 
+// RegisterConfigRegeneratedType adds a Pulumi resource type to the
+// rule-2 (config-regenerated) allowlist. Safe to call concurrently.
+// Idempotent.
+//
+// Called by `pkg/stackread.DiscoverPluginTypes` for every entry in a
+// plugin's `scpluginv1.SchemaResponse.config_regenerated_types`.
+// Each plugin is the authority on its own types; the entries that
+// previously lived in `configRegeneratedTypes` for SC-core-managed
+// types (`kubernetes:core/v1:{Secret,ConfigMap}`, etc.) stay in the
+// built-in seed because no plugin owns them.
+//
+// WRONG CLAIMS CAUSE SILENT DATA LOSS. A plugin advertising a type
+// here is asserting that SC's writes to that type are the sole
+// source of its content; the plugin's CONTRIBUTING MUST require a
+// doc-grounded rationale in the PR for each new entry. See
+// forge/docs/roadmap/items/sc-plugin-registerable-config-regenerated-types.md.
+func RegisterConfigRegeneratedType(resourceType string) {
+	if resourceType == "" {
+		return
+	}
+	safeToReplaceMu.Lock()
+	defer safeToReplaceMu.Unlock()
+	configRegeneratedTypes[resourceType] = struct{}{}
+}
+
 // IsSafeToReplace reports whether `OpReplace` on this resource type
 // should be exempt from the destructive-replace guard — under either
 // rule. This is the single question the guard asks.

@@ -226,6 +226,40 @@ message SchemaResponse {
   // forge/docs/roadmap/items/sc-safe-to-replace-via-plugin-schema.md.
   repeated string safe_to_replace_types = 10;
 
+  // Resource types this plugin declares as SAFE for Pulumi's `replace`
+  // op under rule 2: the replace IS a delete+create of the same URN,
+  // but SC always re-derives the resource's content from client
+  // config on every apply. The brief window between delete and
+  // create carries no data loss because the new resource re-publishes
+  // the current intended content.
+  //
+  // Entries must satisfy ALL of:
+  //   1. SC core (or sibling plugins) exclusively write this
+  //      resource type's content — operators cannot stash arbitrary
+  //      payloads through this path.
+  //   2. Every write SC performs is a function of operator config +
+  //      deterministic plugin logic. No one-time credential or
+  //      secret is held only in this resource's state.
+  //   3. Downstream consumers of this resource tolerate the
+  //      delete-create window (either the live cloud object
+  //      survives via RetainOnDelete, or the window is short
+  //      enough to be operationally acceptable).
+  //
+  // WRONG CLAIMS CAUSE SILENT DATA LOSS. The plugin's CONTRIBUTING
+  // documentation MUST require a doc-grounded rationale in the PR
+  // for each new entry — mirroring the api-core practice this field
+  // supersedes.
+  //
+  // Canonical examples (will migrate from api core's built-in seed
+  // via a one-release window):
+  //   - sc-plugin-aws:        `aws:secretsmanager/secretVersion:SecretVersion`
+  //   - sc-plugin-cloudflare: `cloudflare:index/workersRoute:WorkersRoute`
+  //
+  // When in doubt, leave it off — the operator can still opt out
+  // per deploy with SC_ALLOW_DESTRUCTIVE_REPLACE=1. See
+  // forge/docs/roadmap/items/sc-plugin-registerable-config-regenerated-types.md.
+  repeated string config_regenerated_types = 19;
+
   // AuthTypes lists the `type:` discriminators a plugin's auth
   // configs use — e.g. `gcp-service-account`, `mws-service-account`,
   // `aws-token`. SC core seeds `providerConfigMapping` with the opaque
