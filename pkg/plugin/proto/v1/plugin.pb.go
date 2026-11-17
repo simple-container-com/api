@@ -744,6 +744,39 @@ type SchemaResponse struct {
 	// new ARN on the same deploy. See
 	// forge/docs/roadmap/items/sc-safe-to-replace-via-plugin-schema.md.
 	SafeToReplaceTypes []string `protobuf:"bytes,10,rep,name=safe_to_replace_types,json=safeToReplaceTypes,proto3" json:"safe_to_replace_types,omitempty"`
+	// Resource types this plugin declares as SAFE for Pulumi's `replace`
+	// op under rule 2: the replace IS a delete+create of the same URN,
+	// but SC always re-derives the resource's content from client
+	// config on every apply. The brief window between delete and
+	// create carries no data loss because the new resource re-publishes
+	// the current intended content.
+	//
+	// Entries must satisfy ALL of:
+	//  1. SC core (or sibling plugins) exclusively write this
+	//     resource type's content — operators cannot stash arbitrary
+	//     payloads through this path.
+	//  2. Every write SC performs is a function of operator config +
+	//     deterministic plugin logic. No one-time credential or
+	//     secret is held only in this resource's state.
+	//  3. Downstream consumers of this resource tolerate the
+	//     delete-create window (either the live cloud object
+	//     survives via RetainOnDelete, or the window is short
+	//     enough to be operationally acceptable).
+	//
+	// WRONG CLAIMS CAUSE SILENT DATA LOSS. The plugin's CONTRIBUTING
+	// documentation MUST require a doc-grounded rationale in the PR
+	// for each new entry — mirroring the api-core practice this field
+	// supersedes.
+	//
+	// Canonical examples (will migrate from api core's built-in seed
+	// via a one-release window):
+	//   - sc-plugin-aws:        `aws:secretsmanager/secretVersion:SecretVersion`
+	//   - sc-plugin-cloudflare: `cloudflare:index/workersRoute:WorkersRoute`
+	//
+	// When in doubt, leave it off — the operator can still opt out
+	// per deploy with SC_ALLOW_DESTRUCTIVE_REPLACE=1. See
+	// forge/docs/roadmap/items/sc-plugin-registerable-config-regenerated-types.md.
+	ConfigRegeneratedTypes []string `protobuf:"bytes,19,rep,name=config_regenerated_types,json=configRegeneratedTypes,proto3" json:"config_regenerated_types,omitempty"`
 	// AuthTypes lists the `type:` discriminators a plugin's auth
 	// configs use — e.g. `gcp-service-account`, `mws-service-account`,
 	// `aws-token`. SC core seeds `providerConfigMapping` with the opaque
@@ -1053,6 +1086,13 @@ func (x *SchemaResponse) GetVmDrivers() []*VmDriverSpec {
 func (x *SchemaResponse) GetSafeToReplaceTypes() []string {
 	if x != nil {
 		return x.SafeToReplaceTypes
+	}
+	return nil
+}
+
+func (x *SchemaResponse) GetConfigRegeneratedTypes() []string {
+	if x != nil {
+		return x.ConfigRegeneratedTypes
 	}
 	return nil
 }
@@ -5043,8 +5083,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\"D\n" +
 	"\rSchemaRequest\x123\n" +
-	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\"\xd3\n" +
-	"\n" +
+	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\"\x8d\v\n" +
 	"\x0eSchemaResponse\x12%\n" +
 	"\x0eplugin_version\x18\x01 \x01(\tR\rpluginVersion\x12%\n" +
 	"\x0eprovider_types\x18\x02 \x03(\tR\rproviderTypes\x12%\n" +
@@ -5057,7 +5096,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\n" +
 	"vm_drivers\x18\t \x03(\v2\x1a.sc.plugin.v1.VmDriverSpecR\tvmDrivers\x121\n" +
 	"\x15safe_to_replace_types\x18\n" +
-	" \x03(\tR\x12safeToReplaceTypes\x12\x1d\n" +
+	" \x03(\tR\x12safeToReplaceTypes\x128\n" +
+	"\x18config_regenerated_types\x18\x13 \x03(\tR\x16configRegeneratedTypes\x12\x1d\n" +
 	"\n" +
 	"auth_types\x18\v \x03(\tR\tauthTypes\x128\n" +
 	"\x18component_resource_types\x18\f \x03(\tR\x16componentResourceTypes\x12{\n" +
