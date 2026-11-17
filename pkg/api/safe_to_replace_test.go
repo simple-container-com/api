@@ -24,6 +24,7 @@ func TestSafeToReplace_BuiltinSeed(t *testing.T) {
 		"kubernetes:core/v1:ConfigMap":                   ReplaceRuleConfigRegenerated,
 		"kubernetes:batch/v1:Job":                        ReplaceRuleConfigRegenerated,
 		"aws:secretsmanager/secretVersion:SecretVersion": ReplaceRuleConfigRegenerated,
+		"cloudflare:index/workersRoute:WorkersRoute":     ReplaceRuleConfigRegenerated,
 	}
 	got := SafeToReplaceTypes()
 	if len(got) != len(want) {

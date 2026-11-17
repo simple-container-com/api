@@ -167,11 +167,33 @@ var (
 	// JWT mint that is exactly the point of the replace. Lambda
 	// Environment.Variables carrying the ARN (not the bytes) stays
 	// correct across the replace — no function recreation needed.
+	// `cloudflare:index/workersRoute:WorkersRoute` carries pattern +
+	// zoneId + script — all three come from operator config (sc-plugin-
+	// cloudflare's registrar.go:239) on every apply. When the referenced
+	// Worker script is replaced (e.g. its Dockerfile content changes, or
+	// the script output is Unknown at preview time), the route cascades
+	// a replace that pulumi-cloudflare reports WITHOUT naming a
+	// replace-forcing key (plan says "check the resource's triggers").
+	// SC's own `sdk.RetainOnDelete(true)` on the route (set to protect
+	// against the v6-provider ID-format regression; see
+	// sc-plugin-cloudflare adopt.go) means the live Cloudflare route is
+	// never physically deleted — only its Pulumi state entry. The
+	// subsequent create re-adopts the same live route by pattern. So
+	// the delete-then-create here is purely a state rewrite with a
+	// seconds-long window where Pulumi has no state for the route; the
+	// live route itself is undisturbed.
+	//
+	// Live-caught 2026-11-17 on backup-smoke-tier4 run 44061508037,
+	// which rode the api v2026.11.75 release that added SecretVersion
+	// above: the route replace was the last remaining blocker to
+	// shipping the sc-component-backup generic secret-env wire
+	// (api #630, sc-component-backup #8, sc-plugin-aws #24) end-to-end.
 	configRegeneratedTypes = map[string]struct{}{
 		"kubernetes:core/v1:Secret":                      {},
 		"kubernetes:core/v1:ConfigMap":                   {},
 		"kubernetes:batch/v1:Job":                        {},
 		"aws:secretsmanager/secretVersion:SecretVersion": {},
+		"cloudflare:index/workersRoute:WorkersRoute":     {},
 	}
 
 	// engineOnlyTypePrefixes is rule 3, and the only prefix-matched
