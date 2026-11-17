@@ -10,7 +10,6 @@ import (
 	"sync"
 
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -252,6 +251,16 @@ func (m *multiRegistrar) NewOverrideHeaderRule(ctx *sdk.Context, stack api.Stack
 }
 
 func (m *multiRegistrar) ProvisionDomainForEndpoint(ctx *sdk.Context, stack api.Stack, endpoint pApi.DomainEndpoint) (*api.ResourceOutput, error) {
+	// Routing: endpoint.Domain selects the delegate (longest declared
+	// zone suffix wins; else fall through to `default: true` registrar).
+	// The endpoint carries BaseZone to the registrar impl itself —
+	// we DON'T re-build the registrar here. Re-initializing it would
+	// register a second Pulumi Provider resource with the same URN
+	// (account-id-keyed), which the engine rejects as a duplicate
+	// (live-caught 2026-11-17 on run 44157694221: a Cloudflare
+	// Provider at URN `...pulumi:providers:cloudflare::<accountId>`
+	// cannot appear twice in one deploy). The registrar impl
+	// (sc-plugin-cloudflare) grows a per-call zone lookup instead.
 	registrar, err := m.RegistrarFor(ctx, endpoint.Domain)
 	if err != nil {
 		return nil, err

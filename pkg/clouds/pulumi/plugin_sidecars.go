@@ -1674,10 +1674,34 @@ func wireComponentDomain(
 		Name:       componentName,
 		Domain:     hostname,
 		TargetHost: sdk.String(targetHost),
+		BaseZone:   deriveBaseZoneFromHostname(hostname),
 	}); err != nil {
 		return err
 	}
 	return nil
+}
+
+// deriveBaseZoneFromHostname strips the first label of a hostname to get
+// the DNS zone — `backup.simple-forge.com` → `simple-forge.com`,
+// `x.backup.simple-forge.com` → `backup.simple-forge.com`. Returns the
+// hostname verbatim for bare-TLD-apex inputs (`example.com` →
+// `example.com`) because the registrar is then being asked to serve the
+// apex itself.
+//
+// Heuristic and not sufficient on its own: a hostname nested two labels
+// deep into a zone (`a.b.c.example.com` into zone `example.com`) ends up
+// with `b.c.example.com`, which isn't the right zone for `example.com`.
+// multiRegistrar.ProvisionDomainForEndpoint reconciles with the known
+// delegate zones (longest-suffix match) before binding, so the derived
+// value here is a hint, not a hard assignment. See the forge fleet
+// smoke 2026-11-17 for the live case this unblocks (one subdomain
+// deep, which the heuristic handles correctly).
+func deriveBaseZoneFromHostname(hostname string) string {
+	i := strings.Index(hostname, ".")
+	if i < 0 {
+		return hostname
+	}
+	return hostname[i+1:]
 }
 
 // extractHostFromEndpointURL accepts the resolved endpoint URL a template
