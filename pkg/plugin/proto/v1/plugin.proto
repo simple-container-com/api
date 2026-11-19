@@ -717,6 +717,44 @@ message ComputeProcessRequest {
   // incoming pool as it always has. Opt-in plugin-side by passing
   // `runtime.WithIncomingEnvVars(req)` to `RunComputeProcess`.
   repeated ComputeEnvVariable compute_env_vars = 10;
+
+  // The consuming stack's per-env CLIENT DESCRIPTOR, as JSON of
+  // `api.StackClientDescriptor` — the same payload (and the same
+  // marshalling) that already crosses on
+  // `PreDestroyRequest.client_descriptor_json = 4`.
+  //
+  // Why a ComputeProcessor needs it: a Component that observes a
+  // consumer deploy can see WHO deployed (header), WHAT config the
+  // component itself got (component_raw = 9) and what siblings
+  // emitted (compute_env_vars = 10) — but nothing about what the
+  // CONSUMER actually declared. Facts that live only there include
+  // the chosen template, the compute shape, scaling bounds, declared
+  // schedules, the `uses:` list, and any `healthcheck:` the consumer
+  // configured for itself.
+  //
+  // sc-component-observatory is the first caller: it records a
+  // deployed service's template and health path so a dashboard can
+  // show what is actually running and probe the right URL. Picking
+  // individual fields into the proto instead was rejected for the
+  // reason the surrounding fields give — the interesting set is not
+  // knowable in advance, and each addition would mean a proto change,
+  // a core release and a plugin rebuild to surface one more value.
+  //
+  // Asymmetry this closes: PreDestroy has carried the descriptor
+  // since the mongodb extraction (it reads `cloudExtras` off it), so
+  // a plugin could see a consumer's config while being torn down but
+  // not while being deployed.
+  //
+  // Same marshalling rules as PreDestroy's: the PER-ENV descriptor,
+  // not the whole `api.Stack` (which carries every environment), and
+  // a marshal failure logs + leaves the field empty rather than
+  // failing the deploy — this is observational data, and no deploy
+  // should break because a dashboard could not be told about it.
+  //
+  // Older plugin binaries see no change: the field is unset and
+  // decoders skip it. Opt-in plugin-side via
+  // `runtime.ClientDescriptorFromComputeProcessRequest`.
+  bytes client_descriptor_json = 11;
 }
 
 // PluginInvokeRequest is the capability-dispatch envelope on

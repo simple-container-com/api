@@ -771,6 +771,34 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 		// method-set superset (both embed EnvVariables + SecretEnvVariables
 		// + Dependencies + Outputs + the Pre/PostProcessor pair), so the
 		// cast below is free.
+		// client_descriptor_json — the consuming stack's per-env client
+		// descriptor. Mirrors the PreDestroy-side packer at :881, which
+		// has carried this since the mongodb extraction; a plugin could
+		// previously see a consumer's config while being torn down but
+		// not while being deployed.
+		//
+		// Carries the facts that live ONLY in the consumer's own
+		// client.yaml: the chosen template, compute shape, scaling
+		// bounds, declared schedules, the `uses:` list, and any
+		// `healthcheck:` the consumer configured for itself.
+		// sc-component-observatory reads it to record what is actually
+		// running and which URL to probe.
+		//
+		// A marshal failure WARNS and leaves the field empty rather
+		// than failing the deploy: this is observational data, and no
+		// deploy should break because a dashboard could not be told
+		// about it.
+		var clientDescriptorJSON []byte
+		if stack.Client.Stacks != nil {
+			if desc, ok := stack.Client.Stacks[env]; ok {
+				if b, mErr := json.Marshal(desc); mErr == nil {
+					clientDescriptorJSON = b
+				} else {
+					params.Log.Warn(ctx.Context(), "plugin %q ComputeProcess(%q): marshal client descriptor: %v", pluginName, typeToken, mErr)
+				}
+			}
+		}
+
 		resp, err := cli.ComputeProcess(ctx.Context(), &scpluginv1.ComputeProcessRequest{
 			Header:                &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
 			ResourceType:          typeToken,
@@ -780,6 +808,7 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 			DependencyOutputsJson: depOutsJSON,
 			ComponentRaw:          componentRawJSON,
 			ComputeEnvVars:        computeContextToProto(collector),
+			ClientDescriptorJson:  clientDescriptorJSON,
 		})
 		if err != nil {
 			return nil, errors.Wrapf(err, "plugin %q ComputeProcess(%q)", pluginName, typeToken)

@@ -171,6 +171,58 @@ func ComponentRawFromComputeProcessRequest(req *scpluginv1.ComputeProcessRequest
 	return decoded, nil
 }
 
+// ClientDescriptorFromComputeProcessRequest unmarshals the consuming
+// stack's per-env client descriptor off
+// `ComputeProcessRequest.client_descriptor_json = 11`.
+//
+// Gives a ComputeProcessor the facts that live ONLY in the consumer's
+// own client.yaml — the chosen template, compute shape, scaling bounds,
+// declared schedules, the `uses:` list, and any `healthcheck:` the
+// consumer configured for itself. Everything else a ComputeProcess can
+// see describes either the deploying stack (header), the component's
+// own config (component_raw) or what siblings emitted
+// (compute_env_vars).
+//
+// Returns nil (no error) when the field is unset, which is the case
+// against an older SC core — callers must treat the descriptor as
+// optional and degrade rather than failing a deploy over it.
+//
+// A plugin that only needs one or two fields should still decode the
+// whole descriptor and read them off it: cherry-picking into the proto
+// means a core release and a plugin rebuild per extra value, which is
+// the trade this field exists to avoid.
+func ClientDescriptorFromComputeProcessRequest(req *scpluginv1.ComputeProcessRequest) (*api.StackClientDescriptor, error) {
+	raw := req.GetClientDescriptorJson()
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var decoded api.StackClientDescriptor
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, errors.Wrap(err, "decode client descriptor from compute-process request")
+	}
+	return &decoded, nil
+}
+
+// ClientDescriptorRawFromComputeProcessRequest is the untyped form of
+// ClientDescriptorFromComputeProcessRequest.
+//
+// Useful to a plugin that wants to FORWARD the descriptor rather than
+// interpret it — sc-component-observatory stores it so a dashboard can
+// show what was deployed — because round-tripping through the typed
+// struct silently drops any field the plugin's pinned api version does
+// not know about yet. For forwarding, fidelity beats typing.
+func ClientDescriptorRawFromComputeProcessRequest(req *scpluginv1.ComputeProcessRequest) (map[string]any, error) {
+	raw := req.GetClientDescriptorJson()
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil, errors.Wrap(err, "decode client descriptor (raw) from compute-process request")
+	}
+	return decoded, nil
+}
+
 // ComponentRawFromProvisionRequest unmarshals the ComponentRaw bytes a
 // ProvisionRequest carries when SC core dispatched this plugin's template
 // via a Component resource's `deployTo:` (slice 1a.1 of
