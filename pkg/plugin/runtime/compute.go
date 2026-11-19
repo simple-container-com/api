@@ -281,6 +281,64 @@ func ResourceInputForComputeProcess(req *scpluginv1.ComputeProcessRequest, paren
 		StackParams: &api.StackParams{
 			StackName:   req.GetHeader().GetStackName(),
 			Environment: env,
+			// The deploy version, which this helper used to leave unset.
+			// A plugin reading `input.StackParams.Version` — the same
+			// field an in-tree driver reads — therefore saw "" on every
+			// call, and anything deriving a version from it fell back to
+			// a default. See RequestHeader.deploy_version in
+			// plugin.proto for what that cost.
+			Version: req.GetHeader().GetDeployVersion(),
 		},
+	}
+}
+
+// DeployIdentity is what the bus knows about the code being deployed, as
+// opposed to where it is going.
+type DeployIdentity struct {
+	// Version is the deploy version — CalVer (`YYYY.MM.DD-<short-sha>`)
+	// under the CI action. Empty on a parent-stack provision, which has
+	// no deploy version at all.
+	Version string
+
+	// Commit is the FULL git SHA. Not derivable from Version, whose
+	// trailing segment is the short form.
+	Commit string
+
+	// Repository is `<owner>/<repo>`, for linking back to the source.
+	Repository string
+}
+
+// Known reports whether anything was resolved. A plugin that stores or
+// displays these should branch on this rather than on Version alone —
+// a provision has no version but does have a commit.
+func (d DeployIdentity) Known() bool {
+	return d.Version != "" || d.Commit != "" || d.Repository != ""
+}
+
+// ShortCommit returns the 7-character commit, or "" when no commit was
+// resolved. Convenience for display, so each plugin does not re-derive
+// it (and none of them disagree on the length).
+func (d DeployIdentity) ShortCommit() string {
+	if len(d.Commit) >= 7 {
+		return d.Commit[:7]
+	}
+	return d.Commit
+}
+
+// DeployIdentityFromHeader reads the deploy identity off any request
+// header.
+//
+// Every field is best-effort and may be empty; "" means NOT KNOWN and
+// must never be stored as a value. `sc provision` carries no deploy
+// version, and a deploy from a context outside any git worktree carries
+// no SHA.
+//
+// Takes the header rather than a specific request type so the Provision,
+// PreProvision and ComputeProcess paths all use one call.
+func DeployIdentityFromHeader(h *scpluginv1.RequestHeader) DeployIdentity {
+	return DeployIdentity{
+		Version:    h.GetDeployVersion(),
+		Commit:     h.GetDeployCommit(),
+		Repository: h.GetDeployRepository(),
 	}
 }

@@ -269,3 +269,104 @@ func TestComponentRawFromComputeProcessRequest_RejectsMalformedJson(t *testing.T
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("decode ComponentRaw from compute-process request"))
 }
+
+// TestResourceInputForComputeProcess_CarriesDeployVersion pins the
+// regression the plugin split introduced.
+//
+// In-tree drivers receive `api.ResourceInput.StackParams`, whose
+// `Version` is the CalVer the CI action passes as `--deploy-version`.
+// This helper rebuilds StackParams from the bus header for a plugin —
+// and used to leave Version unset, so a plugin reading the same field an
+// in-tree driver reads got "".
+//
+// The visible cost was fleet-wide and silent: sc-plugin-aws's image build
+// does `lo.If(deployParams.Version != "", …).Else("latest")`, so every
+// plugin-deployed image was built with `VERSION=latest` and any
+// Dockerfile doing `-ldflags "-X main.version=${VERSION}"` baked the
+// string "latest". Live-caught 2026-11-19 on forge-storage, whose
+// /healthz reported "latest" while the same run's log printed
+// `Deploy version: 2026.11.19-fecb8f8`.
+func TestResourceInputForComputeProcess_CarriesDeployVersion(t *testing.T) {
+	req := &scpluginv1.ComputeProcessRequest{
+		Header: &scpluginv1.RequestHeader{
+			StackName:        "forge-storage--staging",
+			Environment:      "staging",
+			DeployVersion:    "2026.11.19-fecb8f8",
+			DeployCommit:     "fecb8f8d23335414982d668d0a633a4f36dae341",
+			DeployRepository: "simple-container-com/forge-storage",
+		},
+		ResourceType: "sc-observatory",
+		ResourceName: "my-observatory",
+	}
+
+	in := ResourceInputForComputeProcess(req, nil, nil)
+	if in.StackParams == nil {
+		t.Fatal("StackParams is nil")
+	}
+	if in.StackParams.Version != "2026.11.19-fecb8f8" {
+		t.Errorf("Version = %q, want the deploy version off the header", in.StackParams.Version)
+	}
+	// The pre-existing fields must not regress.
+	if in.StackParams.StackName != "forge-storage--staging" {
+		t.Errorf("StackName = %q", in.StackParams.StackName)
+	}
+	if in.StackParams.Environment != "staging" {
+		t.Errorf("Environment = %q", in.StackParams.Environment)
+	}
+}
+
+// TestDeployIdentityFromHeader covers the accessor and, importantly, the
+// empty case.
+//
+// Every field is best-effort: `sc provision` carries no deploy version,
+// and a deploy from a context outside any git worktree carries no SHA.
+// "" means NOT KNOWN, and a plugin storing it as a value would show a
+// blank version as if it were real.
+func TestDeployIdentityFromHeader(t *testing.T) {
+	full := DeployIdentityFromHeader(&scpluginv1.RequestHeader{
+		DeployVersion:    "2026.11.19-fecb8f8",
+		DeployCommit:     "fecb8f8d23335414982d668d0a633a4f36dae341",
+		DeployRepository: "simple-container-com/forge-storage",
+	})
+	if !full.Known() {
+		t.Error("Known() = false on a fully populated header")
+	}
+	if got := full.ShortCommit(); got != "fecb8f8" {
+		t.Errorf("ShortCommit() = %q, want fecb8f8", got)
+	}
+	if full.Repository != "simple-container-com/forge-storage" {
+		t.Errorf("Repository = %q", full.Repository)
+	}
+
+	// Nothing resolved — a provision outside a worktree.
+	empty := DeployIdentityFromHeader(&scpluginv1.RequestHeader{})
+	if empty.Known() {
+		t.Error("Known() = true on an empty header")
+	}
+	if empty.ShortCommit() != "" {
+		t.Errorf("ShortCommit() = %q, want empty", empty.ShortCommit())
+	}
+
+	// A nil header must not panic: a plugin may be handed one by an
+	// older core, and panicking there takes down the whole deploy.
+	nilH := DeployIdentityFromHeader(nil)
+	if nilH.Known() {
+		t.Error("Known() = true on a nil header")
+	}
+
+	// Commit present but no version — a provision IS known even though
+	// it has no deploy version, which is why Known() does not test
+	// Version alone.
+	commitOnly := DeployIdentityFromHeader(&scpluginv1.RequestHeader{
+		DeployCommit: "fecb8f8d23335414982d668d0a633a4f36dae341",
+	})
+	if !commitOnly.Known() {
+		t.Error("Known() = false when only the commit resolved")
+	}
+
+	// A short commit must not be sliced past its length.
+	short := DeployIdentityFromHeader(&scpluginv1.RequestHeader{DeployCommit: "abc"})
+	if got := short.ShortCommit(); got != "abc" {
+		t.Errorf("ShortCommit() = %q on a 3-char commit, want abc", got)
+	}
+}

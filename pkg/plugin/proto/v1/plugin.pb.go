@@ -221,9 +221,21 @@ type RequestHeader struct {
 	// When unset (older SC core), plugins should treat as false — same behaviour
 	// they had before this field existed, so preview-skip guards keep misfiring
 	// against old cores but the plugin itself does not break.
-	DryRun        bool `protobuf:"varint,13,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	DryRun bool `protobuf:"varint,13,opt,name=dry_run,json=dryRun,proto3" json:"dry_run,omitempty"`
+	// The deploy version: `api.StackParams.Version`. CalVer
+	// (`YYYY.MM.DD-<short-sha>`) under the CI action; whatever
+	// `--deploy-version` was given otherwise; "" on a parent-stack provision.
+	DeployVersion string `protobuf:"bytes,16,opt,name=deploy_version,json=deployVersion,proto3" json:"deploy_version,omitempty"`
+	// Full git commit SHA, resolved $GITHUB_SHA first and
+	// `git rev-parse HEAD` second. Not derivable from deploy_version, whose
+	// trailing segment is a SHORT sha.
+	DeployCommit string `protobuf:"bytes,17,opt,name=deploy_commit,json=deployCommit,proto3" json:"deploy_commit,omitempty"`
+	// `<owner>/<repo>`, resolved $GITHUB_REPOSITORY first and the git
+	// worktree's `remote.origin.url` second. Hosts other than GitHub parse
+	// fine; the name follows the CI convention.
+	DeployRepository string `protobuf:"bytes,18,opt,name=deploy_repository,json=deployRepository,proto3" json:"deploy_repository,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *RequestHeader) Reset() {
@@ -338,6 +350,27 @@ func (x *RequestHeader) GetDryRun() bool {
 		return x.DryRun
 	}
 	return false
+}
+
+func (x *RequestHeader) GetDeployVersion() string {
+	if x != nil {
+		return x.DeployVersion
+	}
+	return ""
+}
+
+func (x *RequestHeader) GetDeployCommit() string {
+	if x != nil {
+		return x.DeployCommit
+	}
+	return ""
+}
+
+func (x *RequestHeader) GetDeployRepository() string {
+	if x != nil {
+		return x.DeployRepository
+	}
+	return ""
 }
 
 // InputValue is the typed carrier for a resource input or a config field on the
@@ -5104,7 +5137,7 @@ var File_v1_plugin_proto protoreflect.FileDescriptor
 
 const file_v1_plugin_proto_rawDesc = "" +
 	"\n" +
-	"\x0fv1/plugin.proto\x12\fsc.plugin.v1\"\xb4\x04\n" +
+	"\x0fv1/plugin.proto\x12\fsc.plugin.v1\"\xad\x05\n" +
 	"\rRequestHeader\x12'\n" +
 	"\x0fmonitor_address\x18\x01 \x01(\tR\x0emonitorAddress\x12%\n" +
 	"\x0eengine_address\x18\x02 \x01(\tR\rengineAddress\x12\x1d\n" +
@@ -5118,7 +5151,10 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x14sccore_broker_stream\x18\t \x01(\rR\x12sccoreBrokerStream\x12%\n" +
 	"\x0esccore_address\x18\v \x01(\tR\rsccoreAddress\x12$\n" +
 	"\x0ecli_stack_name\x18\f \x01(\tR\fcliStackName\x12\x17\n" +
-	"\adry_run\x18\r \x01(\bR\x06dryRun\x1a?\n" +
+	"\adry_run\x18\r \x01(\bR\x06dryRun\x12%\n" +
+	"\x0edeploy_version\x18\x10 \x01(\tR\rdeployVersion\x12#\n" +
+	"\rdeploy_commit\x18\x11 \x01(\tR\fdeployCommit\x12+\n" +
+	"\x11deploy_repository\x18\x12 \x01(\tR\x10deployRepository\x1a?\n" +
 	"\x11ProviderUrnsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\n" +

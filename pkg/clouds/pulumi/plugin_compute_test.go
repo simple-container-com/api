@@ -18,8 +18,8 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	scPlugin "github.com/simple-container-com/api/pkg/plugin"
-	"github.com/simple-container-com/api/pkg/plugin/runtime"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
+	"github.com/simple-container-com/api/pkg/plugin/runtime"
 )
 
 // stubComputeProcessClient captures the ComputeProcess request so the test
@@ -507,4 +507,39 @@ func TestComputeProcessorSidecar_NoClientDescriptor_WhenEnvAbsent(t *testing.T) 
 	typed, derr := runtime.ClientDescriptorFromComputeProcessRequest(stub.gotReq)
 	Expect(derr).ToNot(HaveOccurred())
 	Expect(typed).To(BeNil(), "an absent descriptor decodes to nil, not an empty struct")
+}
+
+// TestDeployIdentity_VersionFromStackParams asserts core puts the deploy
+// version it already holds onto the bus.
+//
+// This is the core half of the fix; the plugin half is
+// runtime.ResourceInputForComputeProcess reading it back. Both are
+// needed: core had the value all along (StackParams.Version, straight
+// from `--deploy-version`) and simply never serialized it, so a plugin
+// rebuilding StackParams from the header saw "" and every VERSION
+// build-arg fell back to "latest".
+func TestDeployIdentity_VersionFromStackParams(t *testing.T) {
+	version, _, _ := deployIdentity(api.ResourceInput{
+		StackParams: &api.StackParams{
+			StackName:   "forge-storage",
+			Environment: "staging",
+			Version:     "2026.11.19-fecb8f8",
+		},
+	})
+	if version != "2026.11.19-fecb8f8" {
+		t.Errorf("version = %q, want the StackParams value", version)
+	}
+}
+
+// TestDeployIdentity_NoStackParams must not panic and must report the
+// version as unknown.
+//
+// A nil StackParams is a real state — `sc provision` on a parent stack
+// has no deploy version — and the empty string has to mean "not known"
+// rather than being stored as a version.
+func TestDeployIdentity_NoStackParams(t *testing.T) {
+	version, _, _ := deployIdentity(api.ResourceInput{})
+	if version != "" {
+		t.Errorf("version = %q, want empty when there are no StackParams", version)
+	}
 }

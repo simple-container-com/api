@@ -113,6 +113,42 @@ message RequestHeader {
   bool dry_run = 13;
 
   // Reserved for future use. Not v1.
+  // Deploy identity — who/what is being deployed, as opposed to where.
+  //
+  // RESTORES A VALUE THE PLUGIN SPLIT DROPPED. In-tree drivers receive
+  // `api.ResourceInput.StackParams`, whose `Version` is the CalVer the CI
+  // action computes and passes as `sc deploy --deploy-version`. The plugin
+  // sidecars serialize only stack/env/project into this header, so a plugin
+  // rebuilding StackParams from it got `Version: ""` — and every
+  // `VERSION` Docker build-arg SC injects fell back to the driver's
+  // "latest" default.
+  //
+  // The effect was fleet-wide and silent: a service whose Dockerfile does
+  // `-ldflags "-X main.version=${VERSION}"` baked the string "latest" into
+  // every plugin-deployed binary, and SC's own image tags lost their CalVer.
+  // Live-caught 2026-11-19 on forge-storage, whose /healthz reported
+  // version "latest" while the same run's log printed
+  // `Deploy version: 2026.11.19-fecb8f8`.
+  //
+  // All three are best-effort and may be empty — `sc provision` has no
+  // deploy version at all, and a build outside any git worktree has no SHA.
+  // A plugin must treat "" as "not known", never as a value.
+
+  // The deploy version: `api.StackParams.Version`. CalVer
+  // (`YYYY.MM.DD-<short-sha>`) under the CI action; whatever
+  // `--deploy-version` was given otherwise; "" on a parent-stack provision.
+  string deploy_version = 16;
+
+  // Full git commit SHA, resolved $GITHUB_SHA first and
+  // `git rev-parse HEAD` second. Not derivable from deploy_version, whose
+  // trailing segment is a SHORT sha.
+  string deploy_commit = 17;
+
+  // `<owner>/<repo>`, resolved $GITHUB_REPOSITORY first and the git
+  // worktree's `remote.origin.url` second. Hosts other than GitHub parse
+  // fine; the name follows the CI convention.
+  string deploy_repository = 18;
+
   reserved 10, 14 to 15;
 }
 
