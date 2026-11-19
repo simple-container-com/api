@@ -1,0 +1,1 @@
+Clean tree, real source diff against `main`. I'm stopping here rather than burning more resumes on a build gate the guest cannot complete.
