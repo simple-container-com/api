@@ -18,6 +18,7 @@ import (
 	"github.com/simple-container-com/api/pkg/api/logger"
 	pApi "github.com/simple-container-com/api/pkg/clouds/pulumi/api"
 	scPlugin "github.com/simple-container-com/api/pkg/plugin"
+	"github.com/simple-container-com/api/pkg/plugin/runtime"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
 )
 
@@ -402,4 +403,108 @@ func TestComputeContextCollector_KeepsRealDependency(t *testing.T) {
 			sdk.DependsOn(collector.Dependencies()))
 	}, sdk.WithMocks("project", "stack", &refMocks{}))
 	Expect(err).ToNot(HaveOccurred())
+}
+
+// TestComputeProcessorSidecar_PacksClientDescriptor — the consuming
+// stack's own client.yaml must cross the bus on ComputeProcess, not
+// only on PreDestroy.
+//
+// Before this field a ComputeProcessor could see who deployed, what
+// the component itself was configured with, and what siblings emitted,
+// but nothing the CONSUMER declared — not even which template it chose.
+// sc-component-observatory needs exactly that to record what is
+// running and which URL to probe.
+func TestComputeProcessorSidecar_PacksClientDescriptor(t *testing.T) {
+	RegisterTestingT(t)
+	withActiveSession(t)
+
+	stub := &stubComputeProcessClient{resp: &scpluginv1.ComputeProcessResponse{}}
+	sidecar := (&preEnginePluginBundle{}).makeComputeProcessorSidecar(
+		scPlugin.NewClientWithStub(stub), "sc-component-observatory", "sc-observatory",
+	)
+
+	stack := api.Stack{
+		Name: "consumer",
+		Client: api.ClientDescriptor{
+			Stacks: map[string]api.StackClientDescriptor{
+				"prod": {
+					Type:        "single-image",
+					Template:    "lambda",
+					ParentStack: "forge/infra",
+				},
+				// A second env must NOT leak: the packer sends the
+				// per-env descriptor, same as PreDestroy's.
+				"staging": {Type: "single-image", Template: "ecs-fargate"},
+			},
+		},
+	}
+
+	err := sdk.RunErr(func(ctx *sdk.Context) error {
+		_, err := sidecar(
+			ctx,
+			stack,
+			api.ResourceInput{
+				Descriptor:  &api.ResourceDescriptor{Type: "sc-observatory", Name: "my-observatory"},
+				StackParams: &api.StackParams{Environment: "prod"},
+			},
+			newCapturingCollector(),
+			pApi.ProvisionParams{Log: logger.New()},
+		)
+		return err
+	}, sdk.WithMocks("project", "stack", &refMocks{}))
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(stub.gotReq).ToNot(BeNil())
+	raw := stub.gotReq.GetClientDescriptorJson()
+	Expect(raw).ToNot(BeEmpty(), "client descriptor must cross the bus on ComputeProcess")
+
+	var decoded api.StackClientDescriptor
+	Expect(json.Unmarshal(raw, &decoded)).To(Succeed())
+	Expect(decoded.Template).To(Equal("lambda"), "must be the descriptor for THIS env")
+	Expect(decoded.Type).To(Equal("single-image"))
+	Expect(decoded.ParentStack).To(Equal("forge/infra"))
+
+	// And the plugin-side decoders round-trip it.
+	typed, err := runtime.ClientDescriptorFromComputeProcessRequest(stub.gotReq)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(typed).ToNot(BeNil())
+	Expect(typed.Template).To(Equal("lambda"))
+
+	asMap, err := runtime.ClientDescriptorRawFromComputeProcessRequest(stub.gotReq)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(asMap).To(HaveKeyWithValue("template", "lambda"))
+}
+
+// TestComputeProcessorSidecar_NoClientDescriptor_WhenEnvAbsent — a
+// stack with no descriptor for the deploying env must land as empty
+// bytes rather than a panic or a wrong-env descriptor. Older plugins
+// and byo-context deploys both hit this path.
+func TestComputeProcessorSidecar_NoClientDescriptor_WhenEnvAbsent(t *testing.T) {
+	RegisterTestingT(t)
+	withActiveSession(t)
+
+	stub := &stubComputeProcessClient{resp: &scpluginv1.ComputeProcessResponse{}}
+	sidecar := (&preEnginePluginBundle{}).makeComputeProcessorSidecar(
+		scPlugin.NewClientWithStub(stub), "sc-component-observatory", "sc-observatory",
+	)
+
+	err := sdk.RunErr(func(ctx *sdk.Context) error {
+		_, err := sidecar(
+			ctx,
+			api.Stack{Name: "consumer"}, // no Client.Stacks at all
+			api.ResourceInput{
+				Descriptor:  &api.ResourceDescriptor{Type: "sc-observatory", Name: "my-observatory"},
+				StackParams: &api.StackParams{Environment: "prod"},
+			},
+			newCapturingCollector(),
+			pApi.ProvisionParams{Log: logger.New()},
+		)
+		return err
+	}, sdk.WithMocks("project", "stack", &refMocks{}))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(stub.gotReq.GetClientDescriptorJson()).To(BeEmpty())
+
+	typed, derr := runtime.ClientDescriptorFromComputeProcessRequest(stub.gotReq)
+	Expect(derr).ToNot(HaveOccurred())
+	Expect(typed).To(BeNil(), "an absent descriptor decodes to nil, not an empty struct")
 }

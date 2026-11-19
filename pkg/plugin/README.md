@@ -244,12 +244,41 @@ As of 2026-11-13: `sc-plugin-{aws,cloudflare,cloudru,gcp,mongodb,mws,yandex}` pl
 | Secrets-provider | `InitSecretsProvider` | aws `aws-kms`, yandex `yc-kms`, gcp `gcp-kms` + `gcp-secrets-manager` |
 | Provider | `Provider` | aws, yandex, cloudru, gcp, mws providers; mongodb Atlas provider |
 | Resource / Template | `Provision` | every resource/template token in `supported-resources.md` tagged "plugin" |
-| Compute processor | `ComputeProcess` | mongodb `uses:` fan-out (MONGO_URI/USER/PASSWORD), aws `s3-bucket` consumer env, gcp `gcp-bucket`/`gcp-redis`/`gcp-pubsub` consumer env |
+| Compute processor | `ComputeProcess` | mongodb `uses:` fan-out (MONGO_URI/USER/PASSWORD), aws `s3-bucket` consumer env, gcp `gcp-bucket`/`gcp-redis`/`gcp-pubsub` consumer env, sc-component-{backup,observatory} tenant push-register |
 | Registrar | `ProvisionRegistrar`, `NewDnsRecord`, `NewOverrideHeaderRule`, `ProvisionDomainForEndpoint` | cloudflare; aws + gcp delegate DNS to the operator-configured registrar via `PeerInvoke` |
 | PreDestroy | `PreDestroy` | mongodb drops databases named in `-service-user` outputs before Pulumi destroys the cluster |
 | VM driver | `VmHosts` | yandex `yandex-vm`, cloudru `cloudru-evolution-vm` |
 | LogStream | `LogStream` (server-stream) | every plugin's `scPlugin.Publisher` routed to the engine's progress channel |
 | Peer invoke | `SCCore.PeerInvoke` (plugin → core → peer plugin) | aws delegates `NewDnsRecord`, `NewOverrideHeaderRule`, `ProvisionDomainForEndpoint` to `cloudflare` without a Go-module import (D8) |
+
+### What a `ComputeProcess` can see about the consumer
+
+A compute processor fires once per consumer that lists your resource in
+`uses:`, and four request fields describe four different things. Reaching
+for the wrong one is the usual cause of "the plugin can't find X":
+
+| Field | Decoder | Carries |
+|---|---|---|
+| `header` | — | WHO is deploying: stack name, environment, dry-run |
+| `component_raw = 9` | `runtime.ComponentRawFromComputeProcessRequest` | YOUR component's own operator config, post-`ComponentDefaults` merge |
+| `compute_env_vars = 10` | `runtime.WithIncomingEnvVars(req)` | What PRIOR siblings in the same `uses:` list emitted. Order matters — see below |
+| `client_descriptor_json = 11` | `runtime.ClientDescriptorFromComputeProcessRequest` (typed) or `…RawFromComputeProcessRequest` (map) | What the CONSUMER declared in its own client.yaml: chosen template, compute shape, scaling bounds, schedules, its `uses:` list, its own `healthcheck:` |
+
+Two traps worth knowing before you hit them:
+
+- **`uses:` declaration order is load-bearing.** Each ComputeProcess RPC
+  gets a FRESH collector; `compute_env_vars` is the only way to see
+  sibling output, and it only contains what siblings EARLIER in the list
+  already emitted. A plugin that reads it must be listed after the
+  siblings it depends on. Document that requirement for your operators —
+  `sc-component-backup` and `sc-component-observatory` both require
+  being listed last.
+- **The client descriptor is optional.** It is unset against an older SC
+  core, and against a deploy whose stack has no descriptor for the
+  current environment. Both decoders return `nil, nil` there. Treat it
+  as additive and degrade — a marshal failure core-side also logs and
+  leaves the field empty rather than failing the deploy, because
+  observational data must never break a deploy.
 
 ## Not yet wired
 

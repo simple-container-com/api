@@ -1979,8 +1979,45 @@ type ComputeProcessRequest struct {
 	// incoming pool as it always has. Opt-in plugin-side by passing
 	// `runtime.WithIncomingEnvVars(req)` to `RunComputeProcess`.
 	ComputeEnvVars []*ComputeEnvVariable `protobuf:"bytes,10,rep,name=compute_env_vars,json=computeEnvVars,proto3" json:"compute_env_vars,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// The consuming stack's per-env CLIENT DESCRIPTOR, as JSON of
+	// `api.StackClientDescriptor` — the same payload (and the same
+	// marshalling) that already crosses on
+	// `PreDestroyRequest.client_descriptor_json = 4`.
+	//
+	// Why a ComputeProcessor needs it: a Component that observes a
+	// consumer deploy can see WHO deployed (header), WHAT config the
+	// component itself got (component_raw = 9) and what siblings
+	// emitted (compute_env_vars = 10) — but nothing about what the
+	// CONSUMER actually declared. Facts that live only there include
+	// the chosen template, the compute shape, scaling bounds, declared
+	// schedules, the `uses:` list, and any `healthcheck:` the consumer
+	// configured for itself.
+	//
+	// sc-component-observatory is the first caller: it records a
+	// deployed service's template and health path so a dashboard can
+	// show what is actually running and probe the right URL. Picking
+	// individual fields into the proto instead was rejected for the
+	// reason the surrounding fields give — the interesting set is not
+	// knowable in advance, and each addition would mean a proto change,
+	// a core release and a plugin rebuild to surface one more value.
+	//
+	// Asymmetry this closes: PreDestroy has carried the descriptor
+	// since the mongodb extraction (it reads `cloudExtras` off it), so
+	// a plugin could see a consumer's config while being torn down but
+	// not while being deployed.
+	//
+	// Same marshalling rules as PreDestroy's: the PER-ENV descriptor,
+	// not the whole `api.Stack` (which carries every environment), and
+	// a marshal failure logs + leaves the field empty rather than
+	// failing the deploy — this is observational data, and no deploy
+	// should break because a dashboard could not be told about it.
+	//
+	// Older plugin binaries see no change: the field is unset and
+	// decoders skip it. Opt-in plugin-side via
+	// `runtime.ClientDescriptorFromComputeProcessRequest`.
+	ClientDescriptorJson []byte `protobuf:"bytes,11,opt,name=client_descriptor_json,json=clientDescriptorJson,proto3" json:"client_descriptor_json,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *ComputeProcessRequest) Reset() {
@@ -2079,6 +2116,13 @@ func (x *ComputeProcessRequest) GetComponentRaw() []byte {
 func (x *ComputeProcessRequest) GetComputeEnvVars() []*ComputeEnvVariable {
 	if x != nil {
 		return x.ComputeEnvVars
+	}
+	return nil
+}
+
+func (x *ComputeProcessRequest) GetClientDescriptorJson() []byte {
+	if x != nil {
+		return x.ClientDescriptorJson
 	}
 	return nil
 }
@@ -5215,7 +5259,7 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\"5\n" +
 	"\x10ProviderResponse\x12!\n" +
-	"\fprovider_urn\x18\x01 \x01(\tR\vproviderUrn\"\xd7\x05\n" +
+	"\fprovider_urn\x18\x01 \x01(\tR\vproviderUrn\"\x8d\x06\n" +
 	"\x15ComputeProcessRequest\x123\n" +
 	"\x06header\x18\x01 \x01(\v2\x1b.sc.plugin.v1.RequestHeaderR\x06header\x12#\n" +
 	"\rresource_type\x18\x02 \x01(\tR\fresourceType\x12#\n" +
@@ -5228,7 +5272,8 @@ const file_v1_plugin_proto_rawDesc = "" +
 	"\x17dependency_outputs_json\x18\b \x01(\fR\x15dependencyOutputsJson\x12#\n" +
 	"\rcomponent_raw\x18\t \x01(\fR\fcomponentRaw\x12J\n" +
 	"\x10compute_env_vars\x18\n" +
-	" \x03(\v2 .sc.plugin.v1.ComputeEnvVariableR\x0ecomputeEnvVars\x1aS\n" +
+	" \x03(\v2 .sc.plugin.v1.ComputeEnvVariableR\x0ecomputeEnvVars\x124\n" +
+	"\x16client_descriptor_json\x18\v \x01(\fR\x14clientDescriptorJson\x1aS\n" +
 	"\vInputsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12.\n" +
 	"\x05value\x18\x02 \x01(\v2\x18.sc.plugin.v1.InputValueR\x05value:\x028\x01\x1aD\n" +
