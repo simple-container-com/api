@@ -259,10 +259,46 @@ for the wrong one is the usual cause of "the plugin can't find X":
 
 | Field | Decoder | Carries |
 |---|---|---|
-| `header` | — | WHO is deploying: stack name, environment, dry-run |
+| `header` | `runtime.DeployIdentityFromHeader` for the `deploy_*` fields | WHO is deploying (stack name, environment, dry-run) and WHAT (deploy version, commit, repository) |
 | `component_raw = 9` | `runtime.ComponentRawFromComputeProcessRequest` | YOUR component's own operator config, post-`ComponentDefaults` merge |
 | `compute_env_vars = 10` | `runtime.WithIncomingEnvVars(req)` | What PRIOR siblings in the same `uses:` list emitted. Order matters — see below |
 | `client_descriptor_json = 11` | `runtime.ClientDescriptorFromComputeProcessRequest` (typed) or `…RawFromComputeProcessRequest` (map) | What the CONSUMER declared in its own client.yaml: chosen template, compute shape, scaling bounds, schedules, its `uses:` list, its own `healthcheck:` |
+
+#### Deploy identity: `deploy_version`, `deploy_commit`, `deploy_repository`
+
+The header carries the identity of the code being deployed, which is a
+different question from where it is going:
+
+```go
+id := runtime.DeployIdentityFromHeader(req.GetHeader())
+// id.Version      "2026.11.19-fecb8f8"  (CalVer under the CI action)
+// id.Commit       full SHA
+// id.Repository   "<owner>/<repo>"
+// id.ShortCommit() 7 chars
+// id.Known()      false when none resolved
+```
+
+`runtime.ResourceInputForComputeProcess` also puts `deploy_version` on
+`StackParams.Version`, so a plugin reading that field — the same one an
+in-tree driver reads — needs no change.
+
+**Every field may be empty, and "" means NOT KNOWN rather than a value.**
+`sc provision` on a parent stack has no deploy version at all, and a
+deploy from a context outside any git worktree has no SHA. `Known()`
+deliberately does not test `Version` alone, because a provision has a
+commit without one.
+
+These landed late. Before them the sidecars serialized only
+stack/env/project, so a plugin rebuilding `StackParams` from the header
+got `Version: ""` — and sc-plugin-aws's image build does
+`lo.If(deployParams.Version != "", …).Else("latest")`, so **every
+plugin-deployed image was built with `VERSION=latest`.** Any Dockerfile
+doing `-ldflags "-X main.version=${VERSION}"` baked the literal string
+"latest" into its binary. Live-caught 2026-11-19 on forge-storage, whose
+`/healthz` reported version "latest" while the same run's log printed
+`Deploy version: 2026.11.19-fecb8f8`. If you are writing a template
+plugin, read the version from the header — not from the env, and not
+from a config field.
 
 Two traps worth knowing before you hit them:
 

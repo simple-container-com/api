@@ -26,6 +26,7 @@ import (
 	pulumiVm "github.com/simple-container-com/api/pkg/clouds/pulumi/vm"
 	scPlugin "github.com/simple-container-com/api/pkg/plugin"
 	scpluginv1 "github.com/simple-container-com/api/pkg/plugin/proto/v1"
+	"github.com/simple-container-com/api/pkg/util/gitid"
 )
 
 // sidecar factories, one per pApi surface. Each produces a function with the
@@ -158,6 +159,7 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 		}
 		_, env := stackAndEnv(input)
 		cliStack, _ := stackAndEnv(input)
+		provVersion, provCommit, provRepository := deployIdentity(input)
 		req := &scpluginv1.ProvisionRequest{
 			Header: &scpluginv1.RequestHeader{
 				MonitorAddress: addr,
@@ -180,6 +182,14 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 				Environment:  env,
 				ProjectName:  ctx.Project(),
 				ProviderUrns: activeProviderURNs(),
+				// Deploy identity — see RequestHeader.deploy_version in
+				// plugin.proto. Without these a plugin rebuilding
+				// StackParams from this header gets Version "", and every
+				// VERSION build-arg SC injects falls back to the driver's
+				// "latest" default.
+				DeployVersion:    provVersion,
+				DeployCommit:     provCommit,
+				DeployRepository: provRepository,
 				// Preview vs apply. Plugins thread this into
 				// sdk.RunInfo.DryRun — see RequestHeader.dry_run in
 				// plugin.proto for the 2026-10-31 cloudflare-pages hang
@@ -595,7 +605,13 @@ func (b *preEnginePluginBundle) makeProviderSidecar(cli *scPlugin.Client, plugin
 		}
 		stackName, env := stackAndEnv(input)
 		resp, err := cli.Provider(ctx.Context(), &scpluginv1.ProviderRequest{
-			Header:               &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
+			// No deploy identity here: a provider sidecar builds a cloud
+			// provider and has no use for the version of the thing being
+			// deployed. Keeping it off also keeps the git lookups out of
+			// a path that runs once per provider per stack.
+			Header: &scpluginv1.RequestHeader{
+				MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun(),
+			},
 			ProviderType:         typeToken,
 			ProviderResourceName: input.Descriptor.Name,
 			Inputs:               serializeConfigToInputs(input.Descriptor.Config.Config),
@@ -799,8 +815,17 @@ func (b *preEnginePluginBundle) makeComputeProcessorSidecar(cli *scPlugin.Client
 			}
 		}
 
+		cpVersion, cpCommit, cpRepository := deployIdentity(input)
 		resp, err := cli.ComputeProcess(ctx.Context(), &scpluginv1.ComputeProcessRequest{
-			Header:                &scpluginv1.RequestHeader{MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun()},
+			Header: &scpluginv1.RequestHeader{
+				MonitorAddress: addr, StackName: stackName, Environment: env, DryRun: ctx.DryRun(),
+				// The CONSUMER's deploy identity, which is the point of
+				// this hook: a component registering a tenant needs to
+				// know which version of the consumer just deployed.
+				DeployVersion:    cpVersion,
+				DeployCommit:     cpCommit,
+				DeployRepository: cpRepository,
+			},
 			ResourceType:          typeToken,
 			ResourceName:          input.Descriptor.Name,
 			Inputs:                serializeConfigToInputs(input.Descriptor.Config.Config),
@@ -942,6 +967,31 @@ func stackAndEnv(input api.ResourceInput) (string, string) {
 		return "", ""
 	}
 	return input.StackParams.StackName, input.StackParams.Environment
+}
+
+// deployIdentity resolves the three deploy_* header fields.
+//
+// Version is authoritative and comes from core's own StackParams — the
+// value the CI action passed as `--deploy-version`. Commit and
+// repository are resolved from the environment (or the local worktree),
+// because core has no other source for them: SC auto-injects only
+// VERSION as a build arg, and a commit never reaches a resource config.
+//
+// Every field may be empty and that is a legitimate state, not a
+// failure: `sc provision` has no deploy version, and a deploy from a
+// tarballed context outside any git worktree has no SHA. The plugin side
+// treats "" as "not known".
+//
+// The git lookups run against the process working directory rather than
+// a build context, which is the repo being deployed in every real
+// invocation (the CI action checks out and runs there) and is the only
+// directory a sidecar knows about — it is handed a resource, not a
+// build. In CI the env vars answer first anyway and no git call happens.
+func deployIdentity(input api.ResourceInput) (version, commit, repository string) {
+	if input.StackParams != nil {
+		version = input.StackParams.Version
+	}
+	return version, gitid.SHA("."), gitid.Repository(".")
 }
 
 func requireMonitorAddr(typeToken string) (string, error) {
@@ -1850,6 +1900,7 @@ func (b *preEnginePluginBundle) invokePreProvision(
 		}
 	}
 
+	preVersion, preCommit, preRepository := deployIdentity(input)
 	req := &scpluginv1.PreProvisionRequest{
 		Header: &scpluginv1.RequestHeader{
 			MonitorAddress: addr,
@@ -1860,6 +1911,13 @@ func (b *preEnginePluginBundle) invokePreProvision(
 			ProjectName:    ctx.Project(),
 			ProviderUrns:   activeProviderURNs(),
 			DryRun:         ctx.DryRun(),
+			// Carried here too: PreProvision is where a Component
+			// derives the values its own deployed service receives as
+			// env, and a version-stamped name or URL is a legitimate
+			// thing to derive.
+			DeployVersion:    preVersion,
+			DeployCommit:     preCommit,
+			DeployRepository: preRepository,
 		},
 		ResourceType:   typeToken,
 		ResourceName:   input.Descriptor.Name,
