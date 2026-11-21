@@ -1,0 +1,1 @@
+Everything verified. The work is committed to the run branch with a real SHA, the diff is exactly single-hunk and docs-only, and the factual claim I wrote matches the live ruleset I fetched myself.
