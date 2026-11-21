@@ -1,0 +1,3 @@
+- **Commit:** `e33598e69f27d0541cc14cce9c9fa70be53956fd`
+- **Branch:** `forge/workflow/99171cbe-7c27-4976-a999-931b834b5d62/run/9770a6e1-9883-4f8e-82c6-f9e85b64aee2`
+- Pushed to the workflow branch. The engine opens the PR at handoff; no PR or DCO-check verdict was available during this developer turn.
