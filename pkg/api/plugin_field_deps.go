@@ -67,6 +67,14 @@ const resourceTokenPrefix = "${resource:"
 // config that "worked" by virtue of never resolving will now be refused.
 // That is the intended trade — a refusal naming both resources beats a
 // placeholder string reaching a service's env.
+//
+// A second source of dependencies, added with Component `uses:`: every
+// name in a top-level `uses:` list. Where a `${resource:…}` token is an
+// INCIDENTAL reference (the operator wanted one field's value and the
+// ordering edge falls out of it), `uses:` is a DELIBERATE one — it asks
+// SC to run that resource's ComputeProcessor for this consumer, which
+// can only happen after the resource exists. Both must order the same
+// way, so both are reported here rather than only at the point of use.
 func (p *PluginFieldConfig) DependsOnResources() []ParentResourceDependency {
 	if p == nil || len(p.Raw) == 0 {
 		return nil
@@ -74,7 +82,49 @@ func (p *PluginFieldConfig) DependsOnResources() []ParentResourceDependency {
 	seen := make(map[string]struct{})
 	var out []ParentResourceDependency
 	collectResourceRefs(p.Raw, seen, &out)
+	collectUsesRefs(p.Raw["uses"], seen, &out)
 	return out
+}
+
+// collectUsesRefs appends a dependency for each resource name in a
+// top-level `uses:` value, over the same three shapes
+// `(*ComponentConfig).Uses` accepts (bare string, []string, []any).
+//
+// Deliberately silent on a shape it cannot read: `Uses()` is the
+// accessor that refuses a malformed `uses:` with a message naming the
+// offending type, and parse-time validation runs it. Returning a
+// garbage ordering edge from here — or a second error for the same
+// typo — would make one clear refusal into two confusing ones, the
+// same reasoning the `${resource:…}` scan above records for a
+// malformed token.
+func collectUsesRefs(node any, seen map[string]struct{}, out *[]ParentResourceDependency) {
+	var names []string
+	switch u := node.(type) {
+	case nil:
+		return
+	case string:
+		names = []string{u}
+	case []string:
+		names = u
+	case []any:
+		for _, el := range u {
+			if s, ok := el.(string); ok {
+				names = append(names, s)
+			}
+		}
+	default:
+		return
+	}
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if _, dup := seen[name]; dup {
+			continue
+		}
+		seen[name] = struct{}{}
+		*out = append(*out, ParentResourceDependency{Name: name})
+	}
 }
 
 // collectResourceRefs walks an arbitrary parsed-YAML node and appends a

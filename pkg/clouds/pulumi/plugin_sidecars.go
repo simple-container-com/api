@@ -1474,6 +1474,13 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	if err != nil {
 		return nil, err
 	}
+	// Read off the OPERATOR's raw, before any defaults merge: `uses:` is
+	// an operator declaration (that is what makes it order-safe), and the
+	// names are needed below to refuse a reference that never resolved.
+	componentUses, err := cfg.Uses()
+	if err != nil {
+		return nil, err
+	}
 	tpl, ok := stack.Server.Templates[tplName]
 	if !ok {
 		return nil, errors.Errorf("deployTo template %q not declared in parent `templates:` block", tplName)
@@ -1576,11 +1583,45 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// template dispatch without a collector keeps working.
 	//
 	// Fix 2 from forge/docs/design/2026-11-15/plugin-preprovision-rpc/.
+	// The consumer pass runs FIRST, so a key published for this consumer
+	// specifically (`${resource:my-notifier.token}`, whose value carries
+	// this component's own tenant claim) wins over anything the shared
+	// collector holds under the same name. Both passes fail open, so
+	// running two is safe; precedence is the only thing order decides.
+	if params.ConsumerContext != nil {
+		if err := params.ConsumerContext.ResolvePlaceholders(&merged); err != nil {
+			return nil, errors.Wrap(err, "resolving ${resource:…} placeholders published by this component's `uses:` resources")
+		}
+	}
 	if params.ComputeContext != nil {
 		if err := params.ComputeContext.ResolvePlaceholders(&merged); err != nil {
 			return nil, errors.Wrap(err, "resolving ${resource:…}/${dependency:…} placeholders on merged ComponentRaw post-PreProvision")
 		}
 	}
+
+	// A reference to a resource the operator named in `uses:` that is
+	// STILL a literal has nowhere left to resolve — refuse rather than
+	// deploy the placeholder string as a value. See
+	// refuseUnresolvedUsesPlaceholders for why this is narrow by design.
+	if err := refuseUnresolvedUsesPlaceholders(merged, input.Descriptor.Name, componentUses); err != nil {
+		return nil, err
+	}
+
+	// What the used resources published for this consumer: plain values
+	// into `env:`, secrets into `secrets:` (a per-function SecretsManager
+	// entry, never a plain env var at rest). Merged BEFORE
+	// applyComponentSecretEnvMap so both sources land in the same place
+	// and the operator-wins rule is applied once.
+	if err := mergeConsumerEnvIntoComponentRaw(merged, params.ConsumerContext); err != nil {
+		return nil, errors.Wrapf(err, "component %q", input.Descriptor.Name)
+	}
+
+	// `uses:` is an instruction to SC core, consumed above. The
+	// dispatched template must never see it: `uses` is also a legal
+	// top-level key on a CLIENT stack descriptor, so leaving it on the
+	// overlay would hand a template plugin a second, meaningless
+	// dependency list to interpret.
+	delete(merged, componentUsesKey)
 
 	// Generic secret-env translation (slice: Schema-declared secret-env
 	// map). The Component's owning plugin advertised

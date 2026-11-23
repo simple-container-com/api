@@ -205,6 +205,80 @@ func (c *ComponentConfig) ServiceEnv() (map[string]string, error) {
 	return out, nil
 }
 
+// Uses reads `.Raw["uses"]` as a list of sibling resource names this
+// Component consumes — the Component-side spelling of a client stack's
+// `uses:` block.
+//
+// What declaring it buys the operator: SC runs the named resource's
+// registered ComputeProcessor for THIS component and injects whatever
+// that provider publishes (`SC_NOTIFY_URL`, `SC_NOTIFY_TOKEN`, …) into
+// the dispatched workload's env, plus `${resource:<name>.<key>}`
+// placeholders it can reference from its own config. One line replaces
+// hand-wiring a hostname and hand-minting a credential per consumer.
+//
+// Why it must be the OPERATOR who writes it, rather than SC inferring
+// the edge: provision order is computed over parsed config before any
+// plugin default is merged (see `(*PluginFieldConfig).DependsOnResources`
+// — "a reference that exists only in a plugin default cannot influence
+// order"). An inferred edge would be invisible to the ordering pass, and
+// `ResolvePlaceholders` fails OPEN, so the consumer would provision
+// first and deploy the literal `${resource:…}` string into its env. The
+// declaration is what makes the wiring order-safe.
+//
+// Three shapes parse, matching how operators actually write YAML and
+// how `TenantEnvironmentsFromConfig` (sc-component-notifier) tolerates
+// the same ambiguity:
+//
+//	uses: [my-notifier]        // []any after a YAML decode
+//	uses: ["a", "b"]           // []string when built in Go
+//	uses: my-notifier          // bare string, single entry
+//
+// Absent key returns an empty slice + nil — a component with no `uses:`
+// is the overwhelmingly common shape and must not pay an error path.
+// Blank entries are dropped rather than returned as "": a trailing
+// list item in YAML is a typo, not a resource named empty-string. A
+// non-string element names its own Go type, because the shape error an
+// operator most often makes here is `uses: {my-notifier: true}`.
+func (c *ComponentConfig) Uses() ([]string, error) {
+	raw := c.Raw()
+	if raw == nil {
+		return []string{}, nil
+	}
+	v, ok := raw["uses"]
+	if !ok || v == nil {
+		return []string{}, nil
+	}
+	var items []any
+	switch u := v.(type) {
+	case string:
+		items = []any{u}
+	case []string:
+		out := make([]string, 0, len(u))
+		for _, s := range u {
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+		return out, nil
+	case []any:
+		items = u
+	default:
+		return nil, errors.Errorf("component config: uses is %T, want a list of resource names (or a single name)", v)
+	}
+	out := make([]string, 0, len(items))
+	for i, el := range items {
+		s, ok := el.(string)
+		if !ok {
+			return nil, errors.Errorf("component config: uses[%d] is %T, want string resource name", i, el)
+		}
+		if s == "" {
+			continue
+		}
+		out = append(out, s)
+	}
+	return out, nil
+}
+
 // IngressHostname reads `.Raw["ingress"].(map)["hostname"]` as a string.
 // Absent hostname (or absent ingress block) returns "" + nil.
 func (c *ComponentConfig) IngressHostname() (string, error) {
@@ -297,6 +371,7 @@ var ComponentConfigTopLevelKeys = []string{
 	"signingKey",
 	"env",
 	"ingress",
+	"uses",
 }
 
 // IsComponentConfigTopLevelKey reports whether the given key is one of the

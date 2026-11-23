@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -26,6 +25,22 @@ type ProvisionParams struct {
 	Registrar      Registrar
 	Log            logger.Logger
 	ComputeContext ComputeContext
+	// ConsumerContext holds the values a resource's ComputeProcessor
+	// published FOR THIS CONSUMER specifically, on a collector nothing
+	// else writes to. Set only on the Component `uses:` path; nil
+	// everywhere else, which is what keeps every pre-existing dispatch
+	// byte-identical.
+	//
+	// Why it is a second context rather than writes on ComputeContext:
+	// the provision program shares ONE collector across every resource
+	// in an environment (provision.go), `AddResourceTplExtension`
+	// overwrites by resource name and `addEnvVarIfNotExist` is
+	// first-write-wins. Two components both using the notifier on that
+	// shared collector would disagree about whose token is whose — in
+	// opposite directions for the env var and the placeholder — and a
+	// single-consumer smoke cannot see it. A fresh collector per
+	// consumer makes the collision unrepresentable instead of guarded.
+	ConsumerContext ComputeContext
 	// optionally set on per-case basis
 	DependencyProviders map[string]DependencyProvider
 	DnsPreference       *DnsPreference
