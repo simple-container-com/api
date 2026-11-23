@@ -188,3 +188,95 @@ func TestResourceProvisionOrder_Empty(t *testing.T) {
 		t.Errorf("order = %v, want empty", order)
 	}
 }
+
+// TestResourceProvisionOrder_ComponentResourceRef is the end-to-end assertion
+// for the ordering half of component→component references.
+//
+// Before *api.PluginFieldConfig implemented WithParentDependencies, no
+// plugin-owned resource could report a dependency, so two of them were ordered
+// ALPHABETICALLY. These are the names from the sc-component-notifier design doc
+// and they sort the wrong way round: "my-backup" < "my-notifier", so the
+// consumer provisioned first, the notifier's `self-url` template extension was
+// not on the collector yet, and ResolvePlaceholders — which fails OPEN — handed
+// the dispatched template the literal string `${resource:my-notifier.self-url}`.
+//
+// Renaming the notifier "alerts" would have made the same config work, which is
+// what makes this a landmine rather than a constraint. The assertion is
+// therefore positional, not just "no error".
+func TestResourceProvisionOrder_ComponentResourceRef(t *testing.T) {
+	component := func(raw map[string]any) api.ResourceDescriptor {
+		return api.ResourceDescriptor{Config: api.Config{
+			Config: &api.PluginFieldConfig{TypeName: "sc-component", Raw: raw},
+		}}
+	}
+
+	order, err := resourceProvisionOrder(map[string]api.ResourceDescriptor{
+		"my-notifier": component(map[string]any{"deployTo": "lambda"}),
+		"my-backup": component(map[string]any{
+			"notify": map[string]any{"url": "${resource:my-notifier.self-url}"},
+		}),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got, want := indexOf(order, "my-notifier"), indexOf(order, "my-backup"); got > want {
+		t.Fatalf("referenced resource must be provisioned FIRST, got order %v", order)
+	}
+}
+
+// A reference pointing at a resource that is not in this env is ignored rather
+// than treated as an unsatisfiable dependency — the resource still provisions.
+// resourceProvisionOrder already drops out-of-env names; this pins it against a
+// future change to DependsOnResources that assumed every name resolves.
+func TestResourceProvisionOrder_ComponentResourceRefOutOfEnv(t *testing.T) {
+	order, err := resourceProvisionOrder(map[string]api.ResourceDescriptor{
+		"my-backup": {Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+			"notify": map[string]any{"url": "${resource:not-in-this-env.self-url}"},
+		}}}},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(order) != 1 || order[0] != "my-backup" {
+		t.Fatalf("expected the resource to provision anyway, got %v", order)
+	}
+}
+
+// Two components referencing each other are now REFUSED, where before they both
+// silently fail-opened to literals. The refusal is the intended trade, so the
+// message has to name both resources and say how to break the cycle.
+func TestResourceProvisionOrder_ComponentResourceRefCycle(t *testing.T) {
+	_, err := resourceProvisionOrder(map[string]api.ResourceDescriptor{
+		"my-backup": {Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+			"notify": map[string]any{"url": "${resource:my-notifier.self-url}"},
+		}}}},
+		"my-notifier": {Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+			"probe": map[string]any{"url": "${resource:my-backup.self-url}"},
+		}}}},
+	})
+	if err == nil {
+		t.Fatal("expected a circular-dependency refusal")
+	}
+	for _, want := range []string{"my-backup", "my-notifier", "circular", "${resource:"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("refusal must mention %q, got: %v", want, err)
+		}
+	}
+}
+
+// A self-reference is not a cycle. DependsOnResources reports it (it cannot know
+// its own name) and resourceProvisionOrder drops it — if that drop were removed,
+// every component that referenced its own output would become unprovisionable.
+func TestResourceProvisionOrder_ComponentSelfRef(t *testing.T) {
+	order, err := resourceProvisionOrder(map[string]api.ResourceDescriptor{
+		"my-backup": {Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+			"url": "${resource:my-backup.self-url}",
+		}}}},
+	})
+	if err != nil {
+		t.Fatalf("a self-reference must not be a cycle: %v", err)
+	}
+	if len(order) != 1 || order[0] != "my-backup" {
+		t.Fatalf("expected the resource to provision, got %v", order)
+	}
+}
