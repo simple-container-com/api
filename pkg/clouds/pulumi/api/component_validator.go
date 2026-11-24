@@ -4,6 +4,8 @@
 package api
 
 import (
+	"encoding/json"
+
 	"github.com/simple-container-com/api/pkg/api"
 )
 
@@ -49,4 +51,27 @@ func (componentConfigValidator) HasInTreeMerge(templateType string) bool {
 // plugin-load time from SchemaResponse.supports_component.
 func (componentConfigValidator) AnyPluginSupportsComponent(templateType string) bool {
 	return AnyPluginSupportsComponent(templateType)
+}
+
+// MergeDefaults overlays the operator's raw component config on top of the
+// plugin-declared ComponentDefaults for typeToken, operator-wins, and
+// returns the effective config parse-time validation should reason about.
+//
+// Reuses the exact pair the dispatcher uses (GetComponentDefaults +
+// DeepMergeComponentRaw, see dispatchComponentTemplate's
+// mergeComponentDefaults), so validation and dispatch can never disagree
+// about what the effective config is. An unregistered / unparseable
+// defaults blob degrades to the operator's raw rather than failing the
+// provision: a malformed plugin default must not make an otherwise-valid
+// descriptor unprovisionable, and dispatch would surface it anyway.
+func (componentConfigValidator) MergeDefaults(typeToken string, operatorRaw map[string]any) map[string]any {
+	defaultsJSON := GetComponentDefaults(typeToken)
+	if len(defaultsJSON) == 0 {
+		return operatorRaw
+	}
+	var defaults map[string]any
+	if err := json.Unmarshal(defaultsJSON, &defaults); err != nil {
+		return operatorRaw
+	}
+	return DeepMergeComponentRaw(defaults, operatorRaw)
 }

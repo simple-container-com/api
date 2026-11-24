@@ -38,6 +38,27 @@ type ComponentValidator interface {
 	// dispatch targeting such a template, unless the type has an in-tree
 	// merge func.
 	AnyPluginSupportsComponent(templateType string) bool
+
+	// MergeDefaults overlays operatorRaw on top of the plugin-declared
+	// ComponentDefaults for typeToken (operator wins per key) and returns
+	// the EFFECTIVE config the dispatcher will actually provision with.
+	//
+	// Validation must reason about the effective config, not the
+	// operator's raw. ValidateComponentConfigs runs at
+	// provisioner.go:RegisterSidecars time, which is BEFORE
+	// dispatchComponentTemplate's own mergeComponentDefaults — so
+	// validating the raw made every plugin-supplied default for a
+	// REQUIRED key (`deployTo`, `image`) dead code: the operator had to
+	// write the value anyway to get past validation, and the default
+	// could never win. That is the whole reason an operator's
+	// `server.yaml` carried `deployTo: lambda` and a hand-pinned
+	// `image:` next to a plugin that already defaulted both.
+	//
+	// Implementations return a freshly allocated map and must not mutate
+	// either input. A nil/absent defaults registration returns
+	// operatorRaw's content unchanged, so a plugin that pre-dates
+	// ComponentDefaults validates exactly as it did before.
+	MergeDefaults(typeToken string, operatorRaw map[string]any) map[string]any
 }
 
 // ValidateComponentConfigs walks a server descriptor and validates every
@@ -90,14 +111,36 @@ func validateOneComponent(
 	if err != nil {
 		return []string{fmt.Sprintf("%s: %s", location, err)}
 	}
+	// Validate the EFFECTIVE config — the plugin's ComponentDefaults with
+	// the operator's raw overlaid, which is what the dispatcher will
+	// provision. Required keys the operator legitimately omitted because
+	// the plugin defaults them must not fail here. See
+	// ComponentValidator.MergeDefaults.
+	eff := cfg
+	if merged := v.MergeDefaults(res.Type, cfg.Raw()); merged != nil {
+		if mc, mErr := NewComponentConfig(merged); mErr == nil {
+			eff = mc
+		}
+	}
 	// deployTo exists, points at a declared template of a known type.
-	tplName, err := cfg.DeployTo()
+	tplName, err := eff.DeployTo()
 	if err != nil {
 		errs = append(errs, fmt.Sprintf("%s.config: %s", location, err))
 	} else {
 		tpl, ok := descriptor.Templates[tplName]
 		if !ok {
-			errs = append(errs, fmt.Sprintf("%s.config.deployTo: template %q not declared in top-level `templates:` block", location, tplName))
+			// Name the provenance. With `deployTo` now defaultable, an
+			// operator who omitted it sees a template name they never
+			// typed — saying where it came from is the difference
+			// between a one-line fix and a hunt.
+			origin := "declared"
+			if _, written := cfg.Raw()["deployTo"]; !written {
+				origin = fmt.Sprintf("defaulted by the %q plugin (not written in your config)", res.Type)
+			}
+			errs = append(errs, fmt.Sprintf(
+				"%s.config.deployTo: template %q (%s) not declared in top-level `templates:` block",
+				location, tplName, origin,
+			))
 		} else if !v.TemplateTypeExists(tpl.Type) {
 			errs = append(errs, fmt.Sprintf("%s.config.deployTo: template %q has type %q which is not registered in ProvisionFuncByType", location, tplName, tpl.Type))
 		} else if !v.HasInTreeMerge(tpl.Type) && !v.AnyPluginSupportsComponent(tpl.Type) {
@@ -118,15 +161,19 @@ func validateOneComponent(
 		}
 	}
 	// image is required.
-	if _, err := cfg.Image(); err != nil {
+	if _, err := eff.Image(); err != nil {
 		errs = append(errs, fmt.Sprintf("%s.config: %s", location, err))
 	}
 	// signingKey is optional; if set must be ${secret:...}.
-	if _, err := cfg.SigningKeyRef(); err != nil {
+	if _, err := eff.SigningKeyRef(); err != nil {
 		errs = append(errs, fmt.Sprintf("%s.config: %s", location, err))
 	}
 	// Top-level keys: each one must be either well-known or allowed by
-	// the plugin's override allowlist.
+	// the plugin's override allowlist. Deliberately checked against the
+	// OPERATOR's raw, not the effective config: the allowlist exists to
+	// constrain what an operator may write, and a plugin's own defaults
+	// are plugin-authored by construction. Checking the merged map would
+	// force every plugin to allowlist each key it defaults.
 	raw := cfg.Raw()
 	for k := range raw {
 		if IsComponentConfigTopLevelKey(k) {
