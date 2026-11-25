@@ -17,6 +17,10 @@ type fakeValidator struct {
 	templates      map[string]struct{}
 	inTreeMerge    map[string]struct{}
 	pluginSupports map[string]struct{}
+	// defaults mimics the plugin-advertised ComponentDefaults the
+	// runtime validator reads via GetComponentDefaults, keyed by
+	// component type.
+	defaults map[string]map[string]any
 }
 
 func (f fakeValidator) IsComponentType(t string) bool {
@@ -46,6 +50,25 @@ func (f fakeValidator) HasInTreeMerge(templateType string) bool {
 func (f fakeValidator) AnyPluginSupportsComponent(templateType string) bool {
 	_, ok := f.pluginSupports[templateType]
 	return ok
+}
+
+// MergeDefaults mirrors the runtime implementation: plugin defaults
+// underneath, operator raw on top, operator wins per key. Only a
+// shallow merge is needed here — the keys validation reads (deployTo,
+// image, signingKey) are all top-level scalars.
+func (f fakeValidator) MergeDefaults(t string, operatorRaw map[string]any) map[string]any {
+	def, ok := f.defaults[t]
+	if !ok || len(def) == 0 {
+		return operatorRaw
+	}
+	out := make(map[string]any, len(def)+len(operatorRaw))
+	for k, v := range def {
+		out[k] = v
+	}
+	for k, v := range operatorRaw {
+		out[k] = v
+	}
+	return out
 }
 
 func newFakeValidator() fakeValidator {
@@ -255,5 +278,146 @@ func TestValidateComponentConfigs_NonComponentSkipped(t *testing.T) {
 	}
 	if err := ValidateComponentConfigs(desc, newFakeValidator()); err != nil {
 		t.Fatalf("non-component resource rejected: %v", err)
+	}
+}
+
+// --- Defaults-aware validation (sc-components-platform, slim server.yaml) ---
+//
+// ValidateComponentConfigs runs at RegisterSidecars time, BEFORE
+// dispatchComponentTemplate's mergeComponentDefaults. Validating the
+// operator's raw made every plugin default for a REQUIRED key dead code:
+// the operator had to write the value anyway to pass validation. These
+// tests pin that validation now reasons about the EFFECTIVE config.
+
+// rawOf returns the operator-written `.Raw` of the fixture's component.
+func rawOf(desc *ServerDescriptor) map[string]any {
+	return desc.Resources.Resources["smoke"].Resources["my-dummy"].Config.Config.(*PluginFieldConfig).Raw
+}
+
+func TestValidateComponentConfigs_DefaultedDeployToAndImage(t *testing.T) {
+	t.Parallel()
+	desc := newValidDescriptor()
+	raw := rawOf(desc)
+	// The bare minimum an operator should have to write.
+	delete(raw, "deployTo")
+	delete(raw, "image")
+
+	v := newFakeValidator()
+	v.defaults = map[string]map[string]any{"sc-dummy": {
+		"deployTo": "compose-on-vm",
+		"image":    "simplecontainer/sc-component-dummy:v2026.11.24-abc1234",
+	}}
+
+	if err := ValidateComponentConfigs(desc, v); err != nil {
+		t.Fatalf("plugin-defaulted deployTo + image must validate: %v", err)
+	}
+}
+
+func TestValidateComponentConfigs_NoDefaultsStillRequiresBoth(t *testing.T) {
+	t.Parallel()
+	desc := newValidDescriptor()
+	raw := rawOf(desc)
+	delete(raw, "deployTo")
+	delete(raw, "image")
+
+	// A plugin that pre-dates ComponentDefaults: behaviour unchanged.
+	err := ValidateComponentConfigs(desc, newFakeValidator())
+	if err == nil {
+		t.Fatal("expected deployTo + image to be required without defaults")
+	}
+	for _, want := range []string{"deployTo is required", "image is required"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("missing %q in: %v", want, err)
+		}
+	}
+}
+
+func TestValidateComponentConfigs_OperatorStillWinsOverDefault(t *testing.T) {
+	t.Parallel()
+	desc := newValidDescriptor()
+	rawOf(desc)["deployTo"] = "no-such-template"
+
+	v := newFakeValidator()
+	v.defaults = map[string]map[string]any{"sc-dummy": {"deployTo": "compose-on-vm"}}
+
+	// The operator's (wrong) value must be the one validated — a default
+	// that silently rescued a typo'd deployTo would hide the mistake
+	// until dispatch picked the operator's value anyway.
+	err := ValidateComponentConfigs(desc, v)
+	if err == nil || !strings.Contains(err.Error(), `"no-such-template"`) {
+		t.Fatalf("expected the operator's deployTo to be validated, got: %v", err)
+	}
+}
+
+func TestValidateComponentConfigs_DefaultedDeployToNamesItsProvenance(t *testing.T) {
+	t.Parallel()
+	desc := newValidDescriptor()
+	delete(rawOf(desc), "deployTo")
+
+	v := newFakeValidator()
+	// A plugin defaulting a template name the operator never declared:
+	// the error must say the operator did not write it, or they go
+	// hunting for a string that is not in their file.
+	v.defaults = map[string]map[string]any{"sc-dummy": {"deployTo": "lambda"}}
+
+	err := ValidateComponentConfigs(desc, v)
+	if err == nil {
+		t.Fatal("expected error for an undeclared defaulted template")
+	}
+	for _, want := range []string{`"lambda"`, "defaulted by the \"sc-dummy\" plugin", "not written in your config"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("missing %q in: %v", want, err)
+		}
+	}
+}
+
+func TestValidateComponentConfigs_DefaultsDoNotBypassOverrideAllowlist(t *testing.T) {
+	t.Parallel()
+	desc := newValidDescriptor()
+	// `worker` is NOT in the fake's allowlist (only `storage` is).
+	rawOf(desc)["worker"] = map[string]any{"cpu": 512}
+
+	v := newFakeValidator()
+	// A plugin cannot launder an operator's disallowed key by defaulting
+	// it: the allowlist constrains what the OPERATOR may write.
+	v.defaults = map[string]map[string]any{"sc-dummy": {"worker": map[string]any{"cpu": 256}}}
+
+	err := ValidateComponentConfigs(desc, v)
+	if err == nil || !strings.Contains(err.Error(), `disallowed top-level key "worker"`) {
+		t.Fatalf("expected the allowlist to still refuse the operator's key, got: %v", err)
+	}
+}
+
+func TestValidateComponentConfigs_PluginMayDefaultAnUnallowlistedKey(t *testing.T) {
+	t.Parallel()
+	desc := newValidDescriptor()
+
+	v := newFakeValidator()
+	// The mirror image of the test above: the allowlist is checked
+	// against the operator's raw, so a plugin defaulting a key it did
+	// not allowlist validates. Checking the merged map instead would
+	// force every plugin to allowlist each key it defaults — which is
+	// exactly the boilerplate ComponentDefaults exists to remove.
+	v.defaults = map[string]map[string]any{"sc-dummy": {"worker": map[string]any{"cpu": 256}}}
+
+	if err := ValidateComponentConfigs(desc, v); err != nil {
+		t.Fatalf("a plugin-defaulted key must not need an allowlist entry: %v", err)
+	}
+}
+
+func TestValidateComponentConfigs_DefaultedSigningKeyShapeStillChecked(t *testing.T) {
+	t.Parallel()
+	desc := newValidDescriptor()
+	delete(rawOf(desc), "signingKey")
+
+	v := newFakeValidator()
+	// The shape check applies to the effective value, whoever wrote it:
+	// a plugin defaulting signingKey to an empty string must fail here
+	// rather than reach the component as a zero-length HMAC key.
+	v.defaults = map[string]map[string]any{"sc-dummy": {"signingKey": ""}}
+
+	err := ValidateComponentConfigs(desc, v)
+	if err == nil || !strings.Contains(err.Error(), "empty string") {
+		t.Fatalf("expected the defaulted signingKey shape to be checked, got: %v", err)
 	}
 }
