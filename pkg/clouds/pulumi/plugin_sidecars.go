@@ -1505,7 +1505,7 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// names are needed below to refuse a reference that never resolved.
 	componentUses, err := cfg.Uses()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	tpl, ok := stack.Server.Templates[tplName]
 	if !ok {
@@ -1616,7 +1616,7 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// running two is safe; precedence is the only thing order decides.
 	if params.ConsumerContext != nil {
 		if err := params.ConsumerContext.ResolvePlaceholders(&merged); err != nil {
-			return nil, errors.Wrap(err, "resolving ${resource:…} placeholders published by this component's `uses:` resources")
+			return nil, nil, errors.Wrap(err, "resolving ${resource:…} placeholders published by this component's `uses:` resources")
 		}
 	}
 	if params.ComputeContext != nil {
@@ -1630,7 +1630,7 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// deploy the placeholder string as a value. See
 	// refuseUnresolvedUsesPlaceholders for why this is narrow by design.
 	if err := refuseUnresolvedUsesPlaceholders(merged, input.Descriptor.Name, componentUses); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// What the used resources published for this consumer: plain values
@@ -1639,7 +1639,7 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// applyComponentSecretEnvMap so both sources land in the same place
 	// and the operator-wins rule is applied once.
 	if err := mergeConsumerEnvIntoComponentRaw(merged, params.ConsumerContext); err != nil {
-		return nil, errors.Wrapf(err, "component %q", input.Descriptor.Name)
+		return nil, nil, errors.Wrapf(err, "component %q", input.Descriptor.Name)
 	}
 
 	// `uses:` is an instruction to SC core, consumed above. The
