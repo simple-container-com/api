@@ -252,6 +252,13 @@ type dependencyResourceParams struct {
 	parentStackRef    string
 	dependsOnResource *api.StackConfigDependencyResource
 	usesResource      bool
+	// resourceOutputs are the sibling-resource outputs the used
+	// resource's processor may read to find what it is wiring (the
+	// deployed endpoint URL of a component, say). Set only on the
+	// parent-stack `uses:` path, where the siblings have just been
+	// provisioned in this same program; nil on the client-stack path,
+	// which is the pre-existing behaviour.
+	resourceOutputs pApi.ResourcesOutputs
 }
 
 func (p *pulumi) processResourceDependency(ctx *sdk.Context, stack api.Stack, params api.StackParams, dep dependencyResourceParams) error {
@@ -274,7 +281,7 @@ func (p *pulumi) processResourceDependency(ctx *sdk.Context, stack api.Stack, pa
 	if fnc, ok := pApi.ComputeProcessorFuncByType[depResource.Type]; !ok {
 		p.logger.Info(ctx.Context(), "could not find compute processor for resource %q of type %q, skipping...", dep.resName, depResource.Type)
 		return nil
-	} else if provisionParams, err := p.getProvisionParams(ctx, stack, depResource, dep.resEnv, suffix, nil); err != nil {
+	} else if provisionParams, err := p.getProvisionParams(ctx, stack, depResource, dep.resEnv, suffix, dep.resourceOutputs); err != nil {
 		p.logger.Warn(ctx.Context(), "failed to get provision params for resource %q of type %q in stack %q: %q", dep.resName, depResource.Type, stack.Name, err.Error())
 		return nil
 	} else {
@@ -286,6 +293,7 @@ func (p *pulumi) processResourceDependency(ctx *sdk.Context, stack api.Stack, pa
 		// the dependency slice panics sdk.DependsOn at the next registration.
 		dep.collector.AddDependency(provisionParams.Provider)
 		provisionParams.ComputeContext = dep.collector
+		provisionParams.ResourceOutputs = dep.resourceOutputs
 		res, err := fnc(ctx, stack, api.ResourceInput{
 			Descriptor:  &depResource,
 			StackParams: parentStackParams,

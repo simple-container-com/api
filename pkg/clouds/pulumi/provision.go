@@ -175,7 +175,19 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 			}
 			outs := make(map[string]*api.ResourceOutput)
 			for _, resName := range order {
-				out, err := p.configureResource(ctx, stack, env, resName, resources.Resources[resName], collector, outs)
+				// `uses:` on a resource in this stack (Component
+				// consumers): run each used sibling's ComputeProcessor
+				// for THIS consumer, on a collector only it sees, and
+				// hand the result to the dispatch below. nil for every
+				// resource without `uses:`, which is the no-op path.
+				// resourceProvisionOrder has already put the used
+				// resources ahead of this one — see
+				// (*PluginFieldConfig).DependsOnResources.
+				consumerCtx, err := p.processComponentUses(ctx, stack, cfg, env, resName, resources.Resources[resName], collector, outs)
+				if err != nil {
+					return errors.Wrapf(err, "failed to process `uses:` of resource %q of env %q", resName, env)
+				}
+				out, err := p.configureResource(ctx, stack, env, resName, resources.Resources[resName], collector, outs, consumerCtx)
 				if err != nil {
 					return errors.Wrapf(err, "failed to provision resource %q of env %q", resName, env)
 				}
@@ -200,7 +212,12 @@ func (p *pulumi) provisionProgram(stack api.Stack, cfg *api.ConfigFile) func(ctx
 	return program
 }
 
-func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string, resName string, res api.ResourceDescriptor, collector pApi.ComputeContext, outs pApi.ResourcesOutputs) (*api.ResourceOutput, error) {
+// consumerCtx carries what the resources named in this resource's
+// `uses:` published for it specifically (nil when it declares none).
+// It is threaded onto ProvisionParams rather than merged into
+// `collector`: the collector is shared by every resource in the env,
+// and per-consumer values on it collide by resource name.
+func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string, resName string, res api.ResourceDescriptor, collector pApi.ComputeContext, outs pApi.ResourcesOutputs, consumerCtx pApi.ComputeContext) (*api.ResourceOutput, error) {
 	p.logger.Info(ctx.Context(), "configure resource %q for stack %q in env %q", resName, stack.Name, env)
 	if res.Name == "" {
 		res.Name = resName
@@ -225,6 +242,7 @@ func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string
 				Registrar:       p.registrar,
 				DnsPreference:   p.dnsPreference,
 				ComputeContext:  collector,
+				ConsumerContext: consumerCtx,
 				ResourceOutputs: outs,
 			})
 		}
@@ -255,6 +273,7 @@ func (p *pulumi) configureResource(ctx *sdk.Context, stack api.Stack, env string
 		return nil, errors.Wrapf(err, "failed to init provision params for %q", res.Type)
 	}
 	provisionParams.ComputeContext = collector
+	provisionParams.ConsumerContext = consumerCtx
 	provisionParams.ResourceOutputs = outs
 
 	fnc, ok := pApi.ProvisionFuncByType[res.Type]
