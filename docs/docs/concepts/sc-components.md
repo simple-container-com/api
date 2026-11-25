@@ -31,16 +31,26 @@ of their own `templates:` entries. The same `sc-backup` Component runs on
 Lambda in one account and on ECS Fargate in another with a one-word change.
 
 !!! note "Version floor"
-    Components with defaulted required fields need **`sc` ≥ 2026.11.86**. Before
-    that release, parse-time validation ran on the operator's raw config rather
-    than the effective config, so a plugin default for a required key
-    (`deployTo`, `image`) could never win — the operator had to write it. On an
-    older `sc` the slim blocks below fail to parse.
+    Components with defaulted required fields need **`sc` ≥ 2026.11.88**. Two
+    separate fixes had to land, and only the first is a parse error — which is
+    why 2026.11.86 looks sufficient and is not:
 
-    [`uses:` on a Component](#a-component-can-consume-another-component) needs a
-    release **after `2026.11.86`**. On an older one it is rejected at parse time
-    as an unknown top-level key — loud rather than silently unwired, but it does
-    mean the `uses:` line and the version bump have to land together.
+    - **2026.11.86** made parse-time validation read the *effective* config.
+      Before it, validation ran on the operator's raw config, so a plugin
+      default for a required key (`deployTo`, `image`) could never win — the
+      operator had to write it. Below .86 the slim blocks below **fail to
+      parse**.
+    - **2026.11.88** gives a component plugin's own `Provision` the merged
+      config (see [the authoring guide](../guides/component-authoring.md#4-provision-both-of-them)).
+      Below it, the plugin is handed the operator's *pre-defaults* raw and sees
+      a hole where its own default sat — so a slim block parses and then fails
+      mid-provision, e.g. `deployTo: lambda requires` **`worker`** `block` on a
+      stack whose `worker` is entirely defaulted.
+
+    [`uses:` on a Component](#a-component-can-consume-another-component) needs
+    **`sc` ≥ 2026.11.87**. On an older one it is rejected at parse time as an
+    unknown top-level key — loud rather than silently unwired, but it does mean
+    the `uses:` line and the version bump have to land together.
 
 ## Declaring one: ask for the bare minimum
 
