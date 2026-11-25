@@ -1,0 +1,1 @@
+[thinking] # Architect Handoff — `sc-stack-outputs-empty-byo-vm-host-fields` (2nd dispatch attempt)
