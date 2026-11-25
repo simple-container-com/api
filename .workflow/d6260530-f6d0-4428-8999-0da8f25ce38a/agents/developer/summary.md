@@ -1,0 +1,5 @@
+- **Commit SHA:** `6c50147661` (full: `6c5014766b186882c6732b0bfe5c9291a61b62c0`)
+- **Branch:** `forge/workflow/99171cbe-7c27-4976-a999-931b834b5d62/run/d6260530-f6d0-4428-8999-0da8f25ce38a`
+- **PR:** engine auto-opens at handoff time
+- DCO: `Signed-off-by: David Black (developer) <forge-agent+developer@simple-forge.com>` present (`.github/workflows/dco.yml` gate satisfied)
+- Working tree clean after commit (`git status --porcelain` → empty)
