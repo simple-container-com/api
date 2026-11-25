@@ -28,6 +28,7 @@ ensuring **scalability, security, and reliability across multi-cloud environment
 4. **Multi-Cloud & Kubernetes Support** – Seamlessly deploy to **AWS ECS, Google Cloud Run, Kubernetes clusters**, and more.
 5. **Built-in CI/CD & Automated Rollbacks** – Deploy, monitor, and rollback services **without external CI/CD pipelines**.
 6. **Comprehensive CloudWatch Monitoring** – Built-in alerts for ECS services and Application Load Balancers with **Email, Slack, Discord, and Telegram** notifications.
+7. **SC Components** – Managed services (**backups, monitoring, notifications**) that SC deploys for you onto a compute target you pick with one line, and that any service consumes by naming them in `uses:`.
 
 ---
 
@@ -106,6 +107,57 @@ Everything else — Kubernetes, `k3s`, `vm` — is still built into `sc`.
 - **Trap catalogue**: [plugin-extraction-playbook](https://github.com/simple-container-com/forge/tree/main/docs/design/2026-11-01/plugin-extraction-playbook/)
   — fifteen live-caught traps as of 2026-11-01, with fix patterns and §4
   lint-pass checks for the next extraction.
+
+---
+
+## **SC Components**
+
+An **SC Component** is a managed service SC deploys and operates for you —
+scheduled backups, fleet monitoring, outbound notifications. Unlike a cloud
+resource, a Component is a real service with its own image, endpoint and
+database; unlike a service stack, **you** choose where it runs by naming one of
+your own `templates:` entries in `deployTo:`.
+
+Declare it in `server.yaml` with the bare minimum — everything the chosen
+template needs (sizing, IAM roles, routing, schedules, the worker cluster, the
+image) comes from the plugin's own defaults, merged under your config:
+
+```yaml
+my-backup:
+  type: sc-backup
+  config:
+    deployTo: lambda                 # the one required input
+    ingress:
+      hostname: backup.example.com   # SC wires the DNS itself
+    signingKey: "${secret:my-backup-signing-key}"
+```
+
+Consume it from any service with one line — SC mints a per-consumer credential,
+injects it as a secret env var, and registers the service as a tenant:
+
+```yaml
+# client.yaml
+uses:
+  - mongodb
+  - my-backup
+```
+
+| Component | Repository | What it does |
+|---|---|---|
+| `sc-backup` | [simple-container-com/sc-component-backup](https://github.com/simple-container-com/sc-component-backup) | scheduled database dumps to object storage, per-tenant, with a restore UI |
+| `sc-observatory` | [simple-container-com/sc-component-observatory](https://github.com/simple-container-com/sc-component-observatory) | fleet inventory + monitoring: version, commit, deploy time, effective config per service |
+| `sc-notifier` | [simple-container-com/sc-component-notifier](https://github.com/simple-container-com/sc-component-notifier) | outbound notifications (Telegram, email) with severity gating and per-publisher tokens |
+
+Requires `sc` ≥ 2026.11.86 for plugin-defaulted required fields.
+
+- **Operator guide**: [docs/docs/concepts/sc-components.md](docs/docs/concepts/sc-components.md)
+  — declaring one, consuming one, the `uses:` ordering constraint, and the
+  errors you will actually hit.
+- **Author guide**: [docs/docs/guides/component-authoring.md](docs/docs/guides/component-authoring.md)
+  — the plugin-side contract: Schema opt-ins, `component_defaults` and the
+  `$$sc:` sentinel, the dispatch sequence, PreProvision, runtime constraints.
+- **Design**: [sc-components-platform](https://github.com/simple-container-com/forge/tree/main/docs/design/2026-11-10/sc-components-platform)
+  — rationale, the dispatch alternatives considered, and the slice map.
 
 ---
 

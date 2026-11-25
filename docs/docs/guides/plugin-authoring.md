@@ -31,6 +31,12 @@ The template every new plugin starts from is
     This is the author guide. If you're an operator pinning a plugin, read
     [Upgrading to Plugins](upgrading-to-plugins.md).
 
+    If you're authoring an **SC Component** — a managed service SC deploys onto
+    a compute target the operator picks with `deployTo:` — this page still
+    applies (a Component ships as a plugin), but the Component-specific
+    contract lives in [Authoring an SC Component](component-authoring.md):
+    Schema opt-ins, `component_defaults`, the dispatch sequence.
+
 ---
 
 ## 1. Clone the template

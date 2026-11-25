@@ -27,6 +27,7 @@ that executes it.
 - [Installation](getting-started/installation.md) — get the `sc` CLI on your machine, including the `sc assistant mcp` server for agent integrations.
 - [Quick Start](getting-started/quick-start.md) — deploy a first service end-to-end.
 - [Main Concepts](concepts/main-concepts.md) — parent stacks, service stacks, and how they compose (the same vocabulary agents use).
+- [SC Components](concepts/sc-components.md) — managed services (backups, monitoring, notifications) SC deploys for you; declared with `deployTo:`, consumed with `uses:`.
 - [AI Assistant](ai-assistant/index.md) — the full agent-first surface: `sc assistant`, the MCP server, and the Forge skill catalogue.
 - [Reference](reference/supported-resources.md) — full list of resources, templates, and config keys.
 - [Guides](guides/index.md) — task-focused walkthroughs (ECS Fargate, GKE Autopilot, Yandex Cloud, Cloud.ru, pure Kubernetes, secrets, migration).

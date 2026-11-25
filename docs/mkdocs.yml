@@ -46,6 +46,10 @@ nav:
     - Quick Start: getting-started/quick-start.md
   - Core Concepts:
     - Main Concepts: concepts/main-concepts.md
+    # The operator-facing Component page. Linked from each sc-component-*
+    # repo's README as the "what is this and how do I declare it" entry point,
+    # so the slug is externally referenced.
+    - SC Components: concepts/sc-components.md
     - Template Placeholders: concepts/template-placeholders.md
     - Advanced Template Placeholders: concepts/template-placeholders-advanced.md
     - Kubernetes Namespace Layout: concepts/kubernetes-namespaces.md
@@ -74,6 +78,9 @@ nav:
     # Linked from sc-plugin-echo's README.md as the walkthrough for a new
     # plugin repo, so this slug is also externally referenced.
     - Authoring an SC Plugin: guides/plugin-authoring.md
+    # The Component-specific companion to the plugin authoring guide: the
+    # dispatch sequence, component_defaults, the $$sc: sentinel.
+    - Authoring an SC Component: guides/component-authoring.md
   # Every example page is listed, not just the section index. A page absent from
   # `nav` renders with no sidebar position in this theme (navigation.sections +
   # navigation.expand), so it is reachable only by following a link from its index
