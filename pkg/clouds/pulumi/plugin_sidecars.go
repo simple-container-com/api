@@ -1949,17 +1949,17 @@ func (b *preEnginePluginBundle) invokePreProvision(
 	stackName, env := stackAndEnv(input)
 	cliStack := stackName
 
-	// ComponentRaw: the merged .Raw post-ComponentDefaults merge +
-	// self/parent-token interpolation, same bytes the dispatched
-	// template consumes. `dispatchComponentTemplate` runs the merge
-	// again inline; mirror its input here by serialising the current
-	// Descriptor's config.
+	// ComponentRaw: the OPERATOR's .Raw, pre-ComponentDefaults — not
+	// the effective config the two Provision calls see. Structural,
+	// not an oversight: the defaults merge happens inside
+	// `dispatchComponentTemplate` below, which by construction runs
+	// after this RPC has returned (PreProvision exists to land values
+	// on the collector BEFORE dispatch).
 	//
-	// Note: this emits the pre-ComponentDefaults operator Raw.
-	// Plugins that need to see the fully-merged Raw can call
-	// `pApi.DeepMergeComponentRaw` themselves using
-	// `pApi.ComponentDefaults` — PreProvision fires early enough
-	// that downstream merge timing doesn't affect this.
+	// A plugin that needs the effective value can reproduce it
+	// side-effect-free with `pApi.DeepMergeComponentRaw(
+	// pApi.ComponentDefaults[type], raw)`. Documented on
+	// PreProvisionRequest.component_raw in plugin.proto.
 	//
 	// Two shapes for input.Descriptor.Config.Config:
 	//   (a) `map[string]any` — client-stack provision, the YAML was

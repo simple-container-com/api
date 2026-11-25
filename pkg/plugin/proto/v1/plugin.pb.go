@@ -2338,12 +2338,29 @@ type PreProvisionRequest struct {
 	// `${resource:<resource_name>.<key>}` refers to this instance.
 	ResourceType string `protobuf:"bytes,2,opt,name=resource_type,json=resourceType,proto3" json:"resource_type,omitempty"`
 	ResourceName string `protobuf:"bytes,3,opt,name=resource_name,json=resourceName,proto3" json:"resource_name,omitempty"`
-	// JSON of the component's merged `.Raw` map — the same payload
-	// ProvisionRequest.component_raw carries, taken AFTER
-	// ComponentDefaults merge + self-token + parent-token
-	// interpolation. The plugin reads it to decide what lookups to
-	// run (e.g. `deployTo: lambda` triggers AWS VPC lookup; other
-	// deployTo values may be no-ops).
+	// JSON of the component's `.Raw` map as the OPERATOR wrote it —
+	// NOT the effective config. The plugin reads it to decide what
+	// lookups to run (e.g. `deployTo: lambda` triggers AWS VPC
+	// lookup; other deployTo values may be no-ops).
+	//
+	// This is the one place in the Component contract where a plugin
+	// does NOT see its own `component_defaults` applied, and it is
+	// structural rather than an oversight: PreProvision exists to land
+	// values on the collector BEFORE dispatch, and the defaults merge
+	// happens inside the dispatch (`dispatchComponentTemplate`), after
+	// this RPC has already returned. Both `Provision` calls — the
+	// dispatched template's and the component plugin's own — do see
+	// the merged map (`ProvisionRequest.component_raw`, since
+	// 2026-11-25).
+	//
+	// So a PreProvision branch that keys off a value the operator may
+	// have left to a default must reproduce the default itself:
+	// `pApi.DeepMergeComponentRaw(pApi.ComponentDefaults[<type>], raw)`
+	// is the same primitive core uses, and calling it here is
+	// side-effect-free. Branching on a bare `raw["deployTo"]` when
+	// `deployTo` is defaulted is the failure mode to watch for — the
+	// lookup silently no-ops and the `${resource:…}` tokens it was
+	// meant to feed survive into the deployed env as literals.
 	ComponentRaw []byte `protobuf:"bytes,4,opt,name=component_raw,json=componentRaw,proto3" json:"component_raw,omitempty"`
 	// ParentStack facts — same JSON shape as
 	// ComputeProcessRequest.parent_info_json. The plugin uses this
