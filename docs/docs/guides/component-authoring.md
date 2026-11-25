@@ -288,6 +288,20 @@ entries listed **before** yours. Document the constraint in your README if your
 Component discovers anything from the consumer's environment — the operator has
 no other way to know.
 
+!!! note "The consumer's identity is not always a client stack name"
+    You learn who is asking from `StackParams.StackName`, and on the client
+    path that is the client stack's name — naturally unique. When the consumer
+    is a **sibling Component** in the same parent stack it cannot be: every
+    component lives in that one stack, so core passes the composite
+    **`<parentStack>--<resourceName>`** instead (`infra--my-backup`).
+
+    Two things follow for a provider plugin. Treat the value as an **opaque
+    identifier**, not a stack name — it is guaranteed identifier-safe (no `/`),
+    so deriving a scoped username or a bucket prefix from it stays valid, but
+    parsing it to recover a stack will break. And it is what an operator reads
+    in an alert, so put it in your tenant row verbatim rather than a
+    prettified form.
+
 ## 6. `component_defaults` and the `$$sc:` sentinel
 
 Defaults are a JSON `map[string]any` per component type. Build them in Go and

@@ -37,6 +37,11 @@ Lambda in one account and on ECS Fargate in another with a one-word change.
     (`deployTo`, `image`) could never win — the operator had to write it. On an
     older `sc` the slim blocks below fail to parse.
 
+    [`uses:` on a Component](#a-component-can-consume-another-component) needs a
+    release **after `2026.11.86`**. On an older one it is rejected at parse time
+    as an unknown top-level key — loud rather than silently unwired, but it does
+    mean the `uses:` line and the version bump have to land together.
+
 ## Declaring one: ask for the bare minimum
 
 A Component block should contain **only what SC cannot know**. Everything the
@@ -116,9 +121,11 @@ Two consequences worth knowing before your first deploy:
 ## Consuming one: `uses:` is the whole wiring
 
 There is **one** mechanism, and it is the same one every SC resource uses. A
-service names the Component in its `uses:` block; SC fans out to that
-Component's registered compute processor; the processor registers the service as
-a **tenant** and injects whatever the service needs to talk to it.
+consumer — a deployed service, or [a sibling
+Component](#a-component-can-consume-another-component) — names the Component in
+its `uses:` block; SC fans out to that Component's registered compute processor;
+the processor registers the consumer as a **tenant** and injects whatever it
+needs to talk to the Component.
 
 ```yaml
 # client.yaml
@@ -160,6 +167,50 @@ On deploy, that one line gets the service:
     Listed first, `my-backup` sees nothing and silently registers a tenant with
     no databases. This is invisible in a deploy log: registration succeeds.
 
+### A Component can consume another Component
+
+The same one line works in a **Component's own** block, so wiring a backup agent
+to a notifier is `uses:`, not a hostname reference plus a hand-minted token:
+
+```yaml
+# server.yaml
+my-notifier:
+  type: sc-notifier
+  config:
+    deployTo: lambda
+    ingress: { hostname: notify.example.com }
+
+my-backup:
+  type: sc-backup
+  config:
+    deployTo: lambda
+    ingress: { hostname: backup.example.com }
+    uses:
+      - my-notifier      # gets SC_NOTIFY_URL + SC_NOTIFY_TOKEN, minted per consumer
+```
+
+Three properties of this worth knowing:
+
+- **Declaring it in config is what makes the ordering safe.** `my-backup` sorts
+  first alphabetically, and a reference living only in a plugin default cannot
+  influence provision order — so SC would provision the consumer before the
+  provider and `${resource:…}` would fail open into a literal. Naming the
+  dependency in `uses:` is visible to the ordering pass, which is why this is a
+  config key and not something SC infers.
+- **The consumer identity is `<parentStack>--<resourceName>`** —
+  `infra--my-backup`, not `my-backup`. Every component lives in the one parent
+  stack, so the stack name alone could not tell two publishers apart. This is
+  the string you will see in the provider's tenant list and in alerts.
+- **Injected names must start with `SC_`.** SC refuses to inject anything else
+  into a workload, so a plugin bump can never silently shadow an application's
+  own `DATABASE_URL` or `PATH`.
+
+If you need a different config shape than the injected env vars,
+`${resource:my-notifier.url}` and `${resource:my-notifier.token}` are available
+— but note the asymmetry: `url` is one value for everyone, while `token` is
+scoped to a consumer, so it resolves **only** for a resource that declares
+`uses: [my-notifier]`.
+
 ### Credentials rotate on every consumer deploy
 
 The per-consumer credential is **minted on each deploy**, not reused. That is
@@ -197,11 +248,15 @@ Two things this constrains:
 
 | Message | Cause |
 |---|---|
-| `unknown or disallowed top-level key "x" for component type "sc-y"` | `x` is neither a well-known Component key (`deployTo`, `image`, `signingKey`, `env`, `ingress`) nor on the plugin's allowlist. Usually a typo, or a key from a newer plugin version than the one loaded. Checked against **your** config, never the defaults |
+| `unknown or disallowed top-level key "x" for component type "sc-y"` | `x` is neither a well-known Component key (`deployTo`, `image`, `signingKey`, `env`, `ingress`, `uses`) nor on the plugin's allowlist. Usually a typo, or a key from a newer plugin version than the one loaded. Checked against **your** config, never the defaults |
 | `template "lambda" (defaulted by the "sc-backup" plugin (not written in your config)) not declared in top-level templates: block` | you relied on the plugin's `deployTo` default and have no template by that name. Either declare the template or write `deployTo:` explicitly. The provenance clause is there so a name you never typed is traceable |
 | `template "x" (type "y") is not accepted by any loaded plugin — the plugin's Schema must advertise supports_component: ["y"]` | the template you picked belongs to a plugin that hasn't opted into Component dispatch. Without the opt-in the dispatch would silently behave as pass-through, so it is refused |
 | `operator-written value at "k" uses reserved prefix "$$sc:" — this prefix is reserved for plugin-authored defaults` | `$$sc:` marks a *plugin* default as interpolatable. Copy-pasting one into `server.yaml` is refused; write the resolved value instead |
 | `stack has no registrar configured; cannot wire ingress.hostname on a Component` | the Component declares a hostname and the parent stack has no DNS registrar |
+| `declares "uses: [x]" but no resource named "x" is declared in env "staging" (available: …)` | a typo in a `uses:` entry, or the sibling is declared in a different environment. The available names are listed for you |
+| `declares "uses: [x]" — a resource cannot consume itself` | self-reference in `uses:`; there is no provider to fan out to |
+| `tried to inject env variable "NOTIFY_URL" into a consumer, but SC only injects names matching ^SC_[A-Z0-9_]+$` | a provider plugin published an unprefixed name. Not your config's fault — report it to the plugin; an unprefixed injection could shadow your application's own variable |
+| `component "my-backup" references ${resource:my-notifier.token}, which did not resolve` | the key you referenced is not one the used resource's plugin publishes. Refused rather than deployed, because `${resource:…}` resolution otherwise fails open — see the row below |
 | a `${resource:…}` token appears **literally** in a deployed env var | an ordering problem: the value was referenced before the resource that publishes it provisioned. Placeholder resolution fails open by design, so this does not error — name the dependency in `uses:` so ordering sees it |
 
 ## Inspecting the effective config
