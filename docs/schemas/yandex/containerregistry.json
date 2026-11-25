@@ -1,0 +1,50 @@
+{
+  "name": "ContainerRegistry",
+  "type": "resource",
+  "provider": "yandex",
+  "description": "YANDEX containerregistry configuration",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "ContainerRegistry",
+  "resourceType": "yc-container-registry",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "accessKey": {
+        "type": "string"
+      },
+      "cloudId": {
+        "type": "string"
+      },
+      "credentials": {
+        "type": "string"
+      },
+      "folderId": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "region": {
+        "type": "string"
+      },
+      "role": {
+        "type": "string"
+      },
+      "secretAccessKey": {
+        "type": "string"
+      },
+      "serviceAccountKey": {
+        "type": "string"
+      },
+      "zone": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "cloudId",
+      "credentials",
+      "folderId"
+    ],
+    "type": "object"
+  }
+}

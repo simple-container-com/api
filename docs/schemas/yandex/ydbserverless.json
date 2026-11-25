@@ -1,0 +1,81 @@
+{
+  "name": "YdbServerless",
+  "type": "resource",
+  "provider": "yandex",
+  "description": "YANDEX ydbserverless configuration",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "YdbServerless",
+  "resourceType": "yc-ydb-serverless",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "accessKey": {
+        "type": "string"
+      },
+      "cloudId": {
+        "type": "string"
+      },
+      "credentials": {
+        "type": "string"
+      },
+      "deletionProtection": {
+        "type": "boolean"
+      },
+      "folderId": {
+        "type": "string"
+      },
+      "labels": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "locationId": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "region": {
+        "type": "string"
+      },
+      "secretAccessKey": {
+        "type": "string"
+      },
+      "serverlessDatabase": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "properties": {
+          "enableThrottlingRcuLimit": {
+            "type": "boolean"
+          },
+          "provisionedRcuLimit": {
+            "type": "integer"
+          },
+          "storageSizeLimit": {
+            "type": "integer"
+          },
+          "throttlingRcuLimit": {
+            "type": "integer"
+          }
+        },
+        "required": [],
+        "type": "object"
+      },
+      "serviceAccountKey": {
+        "type": "string"
+      },
+      "sleepAfter": {
+        "type": "integer"
+      },
+      "zone": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "cloudId",
+      "credentials",
+      "folderId"
+    ],
+    "type": "object"
+  }
+}

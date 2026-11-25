@@ -46,7 +46,7 @@
       "description": "Vm cloud provider resources and templates"
     },
     "yandex": {
-      "count": 13,
+      "count": 16,
       "description": "Yandex cloud provider resources and templates"
     }
   },
