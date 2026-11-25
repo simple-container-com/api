@@ -205,7 +205,7 @@ before the template sees it.
 ## 4. `Provision` — both of them
 
 A Component dispatch makes **two** `Provision` calls: the dispatched template's,
-and your own. Since 2026-11-25 **both receive the same merged config** on
+and your own. Since `sc` **2026.11.88** both receive **the same merged config** on
 `ProvisionRequest.component_raw` — before that, your own call got the operator's
 raw with `component_raw` unset, which made every defaulted field invisible to
 your own provisioning code (`deployTo: lambda requires a worker block` on a

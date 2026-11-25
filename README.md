@@ -148,7 +148,10 @@ uses:
 | `sc-observatory` | [simple-container-com/sc-component-observatory](https://github.com/simple-container-com/sc-component-observatory) | fleet inventory + monitoring: version, commit, deploy time, effective config per service |
 | `sc-notifier` | [simple-container-com/sc-component-notifier](https://github.com/simple-container-com/sc-component-notifier) | outbound notifications (Telegram, email) with severity gating and per-publisher tokens |
 
-Requires `sc` ≥ 2026.11.86 for plugin-defaulted required fields.
+Requires `sc` ≥ 2026.11.88 for plugin-defaulted required fields — 2026.11.86 made
+validation read the effective config, 2026.11.88 gave the component plugin's own
+`Provision` the merged one. Below .88 a slim block parses and then fails
+mid-provision.
 
 - **Operator guide**: [docs/docs/concepts/sc-components.md](docs/docs/concepts/sc-components.md)
   — declaring one, consuming one, the `uses:` ordering constraint, and the
