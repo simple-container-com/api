@@ -3852,15 +3852,29 @@ type ProvisionRequest struct {
 	// outputs`). See
 	// forge/docs/roadmap/items/sc-plugin-dependency-outputs-not-populated.md.
 	DependencyOutputsJson []byte `protobuf:"bytes,12,opt,name=dependency_outputs_json,json=dependencyOutputsJson,proto3" json:"dependency_outputs_json,omitempty"`
-	// JSON of the component's `.Raw` map when SC core dispatches this
-	// resource via a Component plugin's `deployTo:` sidecar pre-step
-	// (slice 1a.1 of sc-components-platform; operator path (b) in design
-	// doc §#19). Carries operator-declared `image`/`env`/`ingress`/
-	// `signingKey`/etc. so the dispatched template's ProvisionFunc can
-	// overlay them on its typed input struct before building the cloud
-	// resource. nil/empty when the resource is NOT dispatched via a
-	// Component plugin — every non-component Provision call sees this
-	// unset.
+	// JSON of the component's EFFECTIVE `.Raw` map — the owning plugin's
+	// `SchemaResponse.component_defaults` with the operator's config
+	// merged on top (operator wins), interpolated and
+	// placeholder-resolved — when SC core dispatches this resource via a
+	// Component plugin's `deployTo:` sidecar pre-step (slice 1a.1 of
+	// sc-components-platform; operator path (b) in design doc §#19).
+	// Carries `image`/`env`/`ingress`/`signingKey`/etc. so the dispatched
+	// template's ProvisionFunc can overlay them on its typed input struct
+	// before building the cloud resource. nil/empty when the resource is
+	// NOT dispatched via a Component plugin — every non-component
+	// Provision call sees this unset.
+	//
+	// BOTH Provision calls in a component dispatch now receive it, and
+	// both receive the same merged map: the dispatched template's, and
+	// the component plugin's OWN Provision of its `sc-<name>` resource.
+	// Before 2026-11-25 the latter was unset, so a plugin reading its
+	// config there saw the operator's raw with none of its own defaults
+	// applied — it could ship a `worker:` default, watch it reach the
+	// deployed Lambda, and still hard-fail its own Provision on that key
+	// being absent (forge#2032). The one asymmetry left is PreProvision,
+	// which runs BEFORE the merge by construction and still receives the
+	// operator's raw; a PreProvision that needs a defaulted value must
+	// reproduce it (see `supports_pre_provision`).
 	//
 	// Opt-in advertise via `SchemaResponse.supports_component`; absent
 	// advertise + non-empty `component_raw` is a plugin-side panic the

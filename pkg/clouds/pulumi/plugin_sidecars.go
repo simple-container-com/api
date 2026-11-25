@@ -17,6 +17,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/pkg/errors"
+
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
@@ -124,10 +125,17 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 					return nil, errors.Wrapf(err, "component %q (%s): PreProvision", input.Descriptor.Name, input.Descriptor.Type)
 				}
 			}
-			dispatched, err := b.dispatchComponentTemplate(ctx, stack, input, params)
+			dispatched, mergedRaw, err := b.dispatchComponentTemplate(ctx, stack, input, params)
 			if err != nil {
 				return nil, errors.Wrapf(err, "component %q (%s)", input.Descriptor.Name, input.Descriptor.Type)
 			}
+			// Hand the plugin's OWN Provision the EFFECTIVE config —
+			// its ComponentDefaults under the operator's raw — rather
+			// than the operator's raw alone. Packed into
+			// `ProvisionRequest.component_raw` by the block below, which
+			// a non-component Provision leaves unset exactly as before.
+			// See dispatchComponentTemplate's second return value.
+			input.ComponentRaw = mergedRaw
 			// Inject the dispatched template's output as a synthetic sibling
 			// dependency so the existing dependency-outputs packer below
 			// serializes it to DependencyOutputsJson._deployed_service for the
@@ -272,13 +280,19 @@ func (b *preEnginePluginBundle) makeResourceSidecar(cli *scPlugin.Client, plugin
 			}
 		}
 		// ComponentRaw side-channel (slice 1a.1 of sc-components-platform;
-		// design doc §#19 path (b)): when SC core's sidecar wrapper
-		// dispatched this plugin's template via a Component resource's
-		// `deployTo:`, input.ComponentRaw carries the component's
-		// operator-declared .Raw map. Pack it as JSON so the plugin's
-		// ProvisionFunc can overlay image/env/ingress on its typed input
-		// before building the cloud resource. Absent on every
-		// non-component Provision — plugin sees nil + runs as before.
+		// design doc §#19 path (b)). Two callers set it, and both pass
+		// the MERGED component raw (plugin ComponentDefaults under the
+		// operator's config):
+		//
+		//   - the dispatch above, for the component plugin's own
+		//     Provision of an `sc-<name>` resource;
+		//   - dispatchComponentTemplate, for the dispatched TEMPLATE
+		//     plugin's Provision (aws-lambda & co), which overlays
+		//     image/env/ingress on its typed input before building the
+		//     cloud resource.
+		//
+		// Pack it as JSON. Absent on every non-component Provision —
+		// plugin sees nil + runs as before.
 		if len(input.ComponentRaw) > 0 {
 			b, err := json.Marshal(input.ComponentRaw)
 			if err != nil {
@@ -1458,21 +1472,33 @@ func RegisterComponentTemplateMergeFunc(templateType string, fnc ComponentTempla
 // by default; per-template-type merges opt in via RegisterComponentTemplateMergeFunc).
 //
 // Preconditions: called only when input.Descriptor.Type is in ComponentResourceTypes.
-// Returns the template's ResourceOutput; the caller wraps it into params.ResourceOutputs
-// so the plugin's own Provision RPC sees it as a sibling-published dependency output.
+//
+// Returns two things:
+//
+//   - the template's ResourceOutput — the caller wraps it into
+//     params.ResourceOutputs so the plugin's own Provision RPC sees it
+//     as a sibling-published dependency output;
+//   - the MERGED component raw (plugin ComponentDefaults under the
+//     operator's config, interpolated and placeholder-resolved) — the
+//     caller packs it as `ProvisionRequest.component_raw` for the
+//     component plugin's OWN Provision RPC, so a plugin reads one
+//     effective config on both sides of the dispatch rather than the
+//     operator's raw on one side and the merged map on the other. This
+//     snapshot keeps `ingress`, which the dispatch path strips below
+//     before handing `merged` to the template plugin.
 func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	ctx *sdk.Context,
 	stack api.Stack,
 	input api.ResourceInput,
 	params pApi.ProvisionParams,
-) (*api.ResourceOutput, error) {
+) (*api.ResourceOutput, map[string]any, error) {
 	cfg, err := api.NewComponentConfig(input.Descriptor.Config.Config)
 	if err != nil {
-		return nil, errors.Wrap(err, "wrapping component config")
+		return nil, nil, errors.Wrap(err, "wrapping component config")
 	}
 	tplName, err := cfg.DeployTo()
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Read off the OPERATOR's raw, before any defaults merge: `uses:` is
 	// an operator declaration (that is what makes it order-safe), and the
@@ -1483,11 +1509,11 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	}
 	tpl, ok := stack.Server.Templates[tplName]
 	if !ok {
-		return nil, errors.Errorf("deployTo template %q not declared in parent `templates:` block", tplName)
+		return nil, nil, errors.Errorf("deployTo template %q not declared in parent `templates:` block", tplName)
 	}
 	tplFn, ok := pApi.ProvisionFuncByType[tpl.Type]
 	if !ok {
-		return nil, errors.Errorf("template %q (type %q) has no registered ProvisionFunc", tplName, tpl.Type)
+		return nil, nil, errors.Errorf("template %q (type %q) has no registered ProvisionFunc", tplName, tpl.Type)
 	}
 
 	// Defense-in-depth: if the plugin's .Raw map carries any top-level key
@@ -1509,7 +1535,7 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 		if pApi.IsComponentOverrideAllowed(input.Descriptor.Type, k) {
 			continue
 		}
-		return nil, errors.Errorf("plugin override %q is not in the allowlist for component type %q", k, input.Descriptor.Type)
+		return nil, nil, errors.Errorf("plugin override %q is not in the allowlist for component type %q", k, input.Descriptor.Type)
 	}
 
 	// Defense-in-depth: refuse an operator-written value with the
@@ -1518,7 +1544,7 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// allowlist above (test fixtures, future direct callers) from
 	// an operator string that would fake a plugin-authored default.
 	if err := pApi.RefuseSentinelInOperatorRaw(operatorRaw); err != nil {
-		return nil, errors.Wrapf(err, "component type %q", input.Descriptor.Type)
+		return nil, nil, errors.Wrapf(err, "component type %q", input.Descriptor.Type)
 	}
 
 	// ComponentDefaults merge (slice 1d.6 of sc-components-platform):
@@ -1595,7 +1621,7 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	}
 	if params.ComputeContext != nil {
 		if err := params.ComputeContext.ResolvePlaceholders(&merged); err != nil {
-			return nil, errors.Wrap(err, "resolving ${resource:…}/${dependency:…} placeholders on merged ComponentRaw post-PreProvision")
+			return nil, nil, errors.Wrap(err, "resolving ${resource:…}/${dependency:…} placeholders on merged ComponentRaw post-PreProvision")
 		}
 	}
 
@@ -1645,16 +1671,38 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// declared mapping.
 	applyComponentSecretEnvMap(input.Descriptor.Type, merged)
 
+	// Snapshot the merged raw for the component plugin's OWN Provision
+	// RPC, BEFORE the ingress-hostname strip below (the strip exists so
+	// the dispatched TEMPLATE plugin never sees `ingress.hostname` —
+	// the component plugin, which published that hostname in the first
+	// place, must still see it).
+	//
+	// Without this the component plugin's Provision saw the operator's
+	// raw config while the dispatched template saw the merged one: a
+	// plugin could ship a `worker:`/`metadata:` default, watch it reach
+	// the Lambda, and still hard-fail its own Provision on the key
+	// being absent. Live-caught 2026-11-25 on forge#2032, which deleted
+	// the hand-written `worker:` block from `my-backup` after
+	// sc-component-backup started defaulting it:
+	// `EcsProvisionInputFromRaw: deployTo: lambda requires `worker`
+	// block`. sc-component-backup's own code had the follow-up filed in
+	// a comment (plugin/internal/ecs_provision.go:62-77).
+	//
+	// `DeepMergeComponentRaw(merged, nil)` is a documented deep copy
+	// ("a nil operator map returns the defaults copy"), so the two
+	// consumers cannot mutate each other's view.
+	mergedForPlugin := pApi.DeepMergeComponentRaw(merged, nil)
+
 	// Rebuild cfg from the merged Raw so mergeComponentIntoTemplate
 	// (and any downstream read via cfg) sees defaulted values.
 	mergedCfg, err := api.NewComponentConfig(merged)
 	if err != nil {
-		return nil, errors.Wrap(err, "wrapping merged component config")
+		return nil, nil, errors.Wrap(err, "wrapping merged component config")
 	}
 
 	mergedDesc, err := mergeComponentIntoTemplate(tpl, input.Descriptor.Name, mergedCfg)
 	if err != nil {
-		return nil, errors.Wrap(err, "merging component config into template")
+		return nil, nil, errors.Wrap(err, "merging component config into template")
 	}
 
 	// Hold ingress.hostname aside before dispatch so the template plugin
@@ -1707,7 +1755,7 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	}
 	dispatched, err := tplFn(ctx, stack, dispatchedInput, params)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Post-dispatch DNS wire for plugin-dispatched Components whose
@@ -1720,10 +1768,10 @@ func (b *preEnginePluginBundle) dispatchComponentTemplate(
 	// as the TargetHost.
 	if componentIngressHost != "" {
 		if err := wireComponentDomain(ctx, stack, params, input.Descriptor.Name, componentIngressHost, dispatched); err != nil {
-			return nil, errors.Wrapf(err, "wiring DNS for component %q at %q", input.Descriptor.Name, componentIngressHost)
+			return nil, nil, errors.Wrapf(err, "wiring DNS for component %q at %q", input.Descriptor.Name, componentIngressHost)
 		}
 	}
-	return dispatched, nil
+	return dispatched, mergedForPlugin, nil
 }
 
 // wireComponentDomain is the SC-core-side DNS wire for a plugin-dispatched

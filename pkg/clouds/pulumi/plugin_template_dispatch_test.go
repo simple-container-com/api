@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	. "github.com/onsi/gomega"
+
 	sdk "github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 
 	"github.com/simple-container-com/api/pkg/api"
@@ -95,7 +96,7 @@ func TestComponentTemplateDispatch_PassThrough(t *testing.T) {
 	// dispatchComponentTemplate is the subject under test — it's the
 	// pre-step `makeResourceSidecar` runs when the type is a Component.
 	bundle := &preEnginePluginBundle{log: logger.New()}
-	out, err := bundle.dispatchComponentTemplate(nil /*ctx — not used in fake template*/, stack, input, params)
+	out, _, err := bundle.dispatchComponentTemplate(nil /*ctx — not used in fake template*/, stack, input, params)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(out).ToNot(BeNil())
 
@@ -180,7 +181,7 @@ func TestComponentTemplateDispatch_ComponentRawForwarded(t *testing.T) {
 	}
 
 	bundle := &preEnginePluginBundle{log: logger.New()}
-	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	_, _, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
 	Expect(err).ToNot(HaveOccurred())
 
 	// ComponentRaw is populated on the merged input the template saw.
@@ -222,7 +223,7 @@ func TestComponentTemplateDispatch_DeployToTemplateMissing(t *testing.T) {
 	}
 
 	bundle := &preEnginePluginBundle{log: logger.New()}
-	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	_, _, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("ghost-template"))
 	Expect(err.Error()).To(ContainSubstring("not declared"))
@@ -271,7 +272,7 @@ func TestComponentTemplateDispatch_DisallowedOverride(t *testing.T) {
 	}
 
 	bundle := &preEnginePluginBundle{log: logger.New()}
-	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	_, _, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
 	Expect(err).To(HaveOccurred())
 	Expect(err.Error()).To(ContainSubstring("vpc"))
 	Expect(err.Error()).To(ContainSubstring("not in the allowlist"))
@@ -339,7 +340,7 @@ func TestComponentTemplateDispatch_ComponentDefaults_Applied(t *testing.T) {
 	}
 
 	bundle := &preEnginePluginBundle{log: logger.New()}
-	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	_, _, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
 	Expect(err).ToNot(HaveOccurred())
 
 	// ComponentRaw on the dispatched input carries the MERGED map:
@@ -413,7 +414,7 @@ func TestComponentTemplateDispatch_ComponentDefaults_OperatorWins(t *testing.T) 
 		StackParams: &api.StackParams{},
 	}
 	bundle := &preEnginePluginBundle{log: logger.New()}
-	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	_, _, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
 	Expect(err).ToNot(HaveOccurred())
 
 	ce := capturedInput.ComponentRaw["cloudExtras"].(map[string]any)
@@ -461,7 +462,7 @@ func TestComponentTemplateDispatch_ComponentDefaults_NoneRegistered(t *testing.T
 		StackParams: &api.StackParams{},
 	}
 	bundle := &preEnginePluginBundle{log: logger.New()}
-	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	_, _, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
 	Expect(err).ToNot(HaveOccurred())
 
 	Expect(capturedInput.ComponentRaw).ToNot(BeNil())
@@ -537,7 +538,7 @@ func TestComponentTemplateDispatch_DefaultsInterpolated(t *testing.T) {
 		StackParams: &api.StackParams{StackName: "smoke", Environment: "prod"},
 	}
 	bundle := &preEnginePluginBundle{log: logger.New()}
-	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	_, _, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
 	Expect(err).ToNot(HaveOccurred())
 
 	s := capturedInput.ComponentRaw["storage"].(map[string]any)
@@ -593,10 +594,120 @@ func TestComponentTemplateDispatch_OperatorSentinelRefused(t *testing.T) {
 		StackParams: &api.StackParams{},
 	}
 	bundle := &preEnginePluginBundle{log: logger.New()}
-	_, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
+	_, _, err := bundle.dispatchComponentTemplate(nil, stack, input, pApi.ProvisionParams{Log: logger.New()})
 	if err == nil {
 		t.Fatal("expected refusal, got nil")
 	}
 	Expect(err.Error()).To(ContainSubstring("$$sc:"))
 	Expect(err.Error()).To(ContainSubstring("reserved prefix"))
+}
+
+// TestComponentTemplateDispatch_MergedRawForOwnProvision — the merged
+// raw dispatch returns for the component plugin's OWN Provision RPC.
+//
+// Two Provision calls happen in one component dispatch: the dispatched
+// template's (aws-lambda & co) and the component plugin's own. Until
+// 2026-11-25 only the first saw the merged config; the second got
+// `serializeConfigToInputs(input.Descriptor.Config.Config)` — the
+// operator's raw, with none of the plugin's own ComponentDefaults
+// applied. A plugin could therefore ship a default, watch it reach the
+// deployed Lambda, and still hard-fail its own Provision on the key
+// being absent.
+//
+// That is not hypothetical: forge#2032 deleted the hand-written
+// `worker:` block from `my-backup` after sc-component-backup started
+// defaulting it, and provision-preview failed with
+// `EcsProvisionInputFromRaw: deployTo: lambda requires `worker` block`
+// while the very same preview showed the Lambda picking the defaults up.
+//
+// The `ingress` half is the subtler assertion. Dispatch strips
+// `ingress.hostname` before handing `merged` to the template plugin
+// (whose `params.Registrar` is nil across the bus — SC core wires DNS
+// itself afterwards). The component plugin published that hostname and
+// must still see it, so the snapshot has to be taken BEFORE the strip.
+// Move the `mergedForPlugin` line below the strip and this test fails
+// on ingress while every other assertion still passes.
+func TestComponentTemplateDispatch_MergedRawForOwnProvision(t *testing.T) {
+	RegisterTestingT(t)
+
+	const (
+		componentType = "test-sc-own-provision"
+		templateType  = "test-fake-template-own-provision"
+		templateName  = "fake-lambda-own-provision"
+	)
+	var capturedInput api.ResourceInput
+	pApi.ProvisionFuncByType[templateType] = func(_ *sdk.Context, _ api.Stack, input api.ResourceInput, _ pApi.ProvisionParams) (*api.ResourceOutput, error) {
+		capturedInput = input
+		return &api.ResourceOutput{}, nil
+	}
+	t.Cleanup(func() { delete(pApi.ProvisionFuncByType, templateType) })
+
+	pApi.RegisterComponentResourceType(componentType, []string{"image", "env"})
+	t.Cleanup(func() {
+		delete(pApi.ComponentResourceTypes, componentType)
+		delete(pApi.ComponentAllowedOverrides, componentType)
+	})
+
+	// `worker` is the real sc-component-backup default: a Fargate task
+	// sizing block its own Provision reads to build the one-shot
+	// mongodump task, and nothing the operator should have to repeat.
+	pApi.RegisterComponentDefaults(componentType, []byte(`{
+		"worker": {"cpu": 512, "memoryMB": 2048, "cluster": "$$sc:sc-backup-${name}-cluster"},
+		"timeout": 300
+	}`))
+	t.Cleanup(func() { delete(pApi.ComponentDefaults, componentType) })
+
+	stack := api.Stack{
+		Server: api.ServerDescriptor{
+			Templates: map[string]api.StackDescriptor{
+				templateName: {Type: templateType, Config: api.Config{Config: map[string]any{"memory": 128}}},
+			},
+		},
+	}
+	input := api.ResourceInput{
+		Descriptor: &api.ResourceDescriptor{
+			Type: componentType,
+			Name: "my-backup",
+			Config: api.Config{Config: &api.PluginFieldConfig{Raw: map[string]any{
+				"deployTo": templateName,
+				"ingress":  map[string]any{"hostname": "backup.example.com"},
+			}}},
+		},
+		StackParams: &api.StackParams{StackName: "smoke", Environment: "staging"},
+	}
+
+	bundle := &preEnginePluginBundle{log: logger.New()}
+	// A non-nil registrar: `ingress.hostname` is set, so dispatch runs
+	// its post-dispatch DNS wire. The fake template's output carries no
+	// *api.PluginResourceOutput Ref, so the wire takes its in-tree
+	// early-return and never reaches the registrar.
+	_, mergedRaw, err := bundle.dispatchComponentTemplate(nil, stack, input, mkParams(&cdnsFakeRegistrar{}))
+	Expect(err).ToNot(HaveOccurred())
+	Expect(mergedRaw).ToNot(BeNil(), "the component plugin's own Provision gets this map; nil means it sees the operator's raw again")
+
+	// The defaults-only keys the operator no longer writes.
+	worker, ok := mergedRaw["worker"].(map[string]any)
+	Expect(ok).To(BeTrue(), "worker must be a map on the merged raw: %#v", mergedRaw["worker"])
+	Expect(worker["cpu"]).To(BeEquivalentTo(512))
+	Expect(worker["memoryMB"]).To(BeEquivalentTo(2048))
+	Expect(worker["cluster"]).To(Equal("sc-backup-my-backup-cluster"), "self-token interpolation must have run before the snapshot")
+	Expect(mergedRaw["timeout"]).To(BeEquivalentTo(300))
+	// Operator fields cross through verbatim.
+	Expect(mergedRaw["deployTo"]).To(Equal(templateName))
+
+	// ingress: the component plugin sees the hostname, the dispatched
+	// template does not.
+	ingress, ok := mergedRaw["ingress"].(map[string]any)
+	Expect(ok).To(BeTrue(), "ingress must survive on the component plugin's view: %#v", mergedRaw["ingress"])
+	Expect(ingress["hostname"]).To(Equal("backup.example.com"))
+	if tplIngress, present := capturedInput.ComponentRaw["ingress"]; present {
+		m, isMap := tplIngress.(map[string]any)
+		Expect(isMap).To(BeTrue())
+		Expect(m).ToNot(HaveKey("hostname"), "the template plugin must never see ingress.hostname — its params.Registrar is nil across the bus")
+	}
+
+	// The two views must not alias: a template plugin mutating its
+	// overlay cannot rewrite what the component plugin is handed.
+	capturedInput.ComponentRaw["timeout"] = 1
+	Expect(mergedRaw["timeout"]).To(BeEquivalentTo(300), "the two Provision views must be independent copies")
 }
