@@ -1,0 +1,68 @@
+{
+  "name": "SmartCaptcha",
+  "type": "resource",
+  "provider": "yandex",
+  "description": "YANDEX smartcaptcha configuration",
+  "goPackage": "pkg/clouds/yandex/",
+  "goStruct": "SmartCaptcha",
+  "resourceType": "yc-smartcaptcha",
+  "schema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+      "accessKey": {
+        "type": "string"
+      },
+      "adopt": {
+        "type": "boolean"
+      },
+      "allowedSites": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "captchaId": {
+        "type": "string"
+      },
+      "cloudId": {
+        "type": "string"
+      },
+      "complexity": {
+        "type": "string"
+      },
+      "credentials": {
+        "type": "string"
+      },
+      "deletionProtection": {
+        "type": "boolean"
+      },
+      "folderId": {
+        "type": "string"
+      },
+      "name": {
+        "type": "string"
+      },
+      "region": {
+        "type": "string"
+      },
+      "secretAccessKey": {
+        "type": "string"
+      },
+      "serviceAccountKey": {
+        "type": "string"
+      },
+      "styleJson": {
+        "type": "string"
+      },
+      "zone": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "cloudId",
+      "credentials",
+      "folderId"
+    ],
+    "type": "object"
+  }
+}

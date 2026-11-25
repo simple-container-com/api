@@ -13,6 +13,16 @@
       "schema": {}
     },
     {
+      "name": "ContainerRegistry",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX containerregistry configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "ContainerRegistry",
+      "resourceType": "yc-container-registry",
+      "schema": {}
+    },
+    {
       "name": "ObjectStorageBucket",
       "type": "resource",
       "provider": "yandex",
@@ -83,6 +93,16 @@
       "schema": {}
     },
     {
+      "name": "SmartCaptcha",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX smartcaptcha configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "SmartCaptcha",
+      "resourceType": "yc-smartcaptcha",
+      "schema": {}
+    },
+    {
       "name": "StateStorageConfig",
       "type": "provisioner",
       "provider": "yandex",
@@ -131,6 +151,16 @@
       "goPackage": "pkg/clouds/yandex/",
       "goStruct": "CloudExtras",
       "resourceType": "yandex-cloudextras",
+      "schema": {}
+    },
+    {
+      "name": "YdbServerless",
+      "type": "resource",
+      "provider": "yandex",
+      "description": "YANDEX ydbserverless configuration",
+      "goPackage": "pkg/clouds/yandex/",
+      "goStruct": "YdbServerless",
+      "resourceType": "yc-ydb-serverless",
       "schema": {}
     }
   ]
